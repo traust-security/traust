@@ -91,6 +91,12 @@ SOURCE_LINE_REF_RE = re.compile(r"\.\w+:\d+(?:,\d+)+")
 #: gets hard-coded into a script.
 THRESHOLD_RE = re.compile(r"\b[A-Z]\s*(?:>=|<=|[><≥≤])\s*\d{1,3}(?:,\d{3})+")
 
+#: Currency. Requires a comma group or decimals so shell `$0` and JSON
+#: `$defs` do not match; a bare `$5` is not the disclosure this guards.
+#: Spend is estate data for the same reason a corpus count is -- it
+#: states what one deployment costs, and there is nothing to rotate.
+MONEY_RE = re.compile(r"[$£€]\s?\d{1,3}(?:,\d{3})+(?:\.\d+)?|[$£€]\s?\d+\.\d{2}\b")
+
 #: Paths whose contents are published verbatim and where a count-shaped
 #: string is the point rather than a leak.
 ALLOWED_DIRS = (
@@ -190,7 +196,7 @@ def scan(root: Path, *, staged: bool = False) -> list[dict]:
             probe = QUANTIFIER_RE.sub("", line)
             probe = SOURCE_LINE_REF_RE.sub("", probe)
             probe = THRESHOLD_RE.sub("", probe)
-            for hit in COUNT_RE.findall(probe):
+            for hit in COUNT_RE.findall(probe) + MONEY_RE.findall(probe):
                 findings.append(
                     {
                         "file": rel,
