@@ -135,8 +135,9 @@ Do not imply spend is being controlled. As of 2026-08-06:
 To answer "are we over budget": compare the period's **lane** subtotal
 (not the workstation total) against `monthly_budget.usd_central`. The
 ceiling was derived for steady-state scanning, so judging it against
-total workstation spend overstates the overage roughly 3.6× (measured
-2026-07: $124,060 workstation vs $34,022 lanes).
+total workstation spend overstates the overage by a multiple — the
+workstation figure carries every session on the machine, lane
+attribution does not.
 
 Recorded verdicts accumulate under `budget-shadow` in the ledger — count
 them to answer "how often would the cap have bound".

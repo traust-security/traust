@@ -38,9 +38,9 @@ RELEASE IDENTITY (threat-model cadence plan Phase 2, 2026-08-05). The
 router's threat-model-review lane fires on major/minor releases only,
 so every event carries a structured version — never free text parsed
 back out of `note`. The identity is the INVENTORY PATH, not the image
-tag: measured 2026-08-05, 12,002 of 12,828 image tokens are bare keys
-and the remaining 826 are digest-pinned, so ZERO carry a parseable
-version, while 937/937 inventory CSVs do
+tag: measured 2026-08-05, image tokens are overwhelmingly bare keys and
+the rest are digest-pinned, so ZERO carry a parseable version, while
+every inventory CSV does
 (`openshift/openshift-4.19-payload-repos.csv`,
 `operator-catalog/rhacs-operator/4.9.2/…`). Each path normalizes to a
 `family` (the path with its version replaced by `{V}` — 350 families)

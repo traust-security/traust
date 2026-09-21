@@ -53,7 +53,7 @@ def read(path):
 
 
 def num(s):
-    """'8,391' -> 8391 (int)."""
+    """'1,234' -> 1234 (int)."""  # estate-data-ok: illustrative, not a measurement
     return int(s.replace(",", ""))
 
 

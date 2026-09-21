@@ -10,8 +10,8 @@ root. Nothing drops the old signature, `sign()` leaves it in place, and the laye
 up present-but-invalid — which D8 calls indistinguishable from tampering, and which is
 strictly worse than being unsigned.
 
-Cost, measured 2026-09-02: ~31ms/layer, 4m28s for the full 8,636-layer corpus, which
-reported `8,636/8,636 … signatures verified` with zero stale.
+Cost, measured 2026-09-02: ~31ms/layer, so a few minutes for a full-corpus pass,
+which reported every layer's signature verified with zero stale.
 """
 
 from __future__ import annotations

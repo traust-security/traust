@@ -156,8 +156,8 @@ def audit_index(results_root: Path, engine: HarnessEngine) -> list[dict]:
     """Deduplicated code-audit reports via the shared corpus resolver.
 
     Never walk the tree by hand: findings/_orgs/ is a symlink index, and
-    a naive glob double-counts through it (8,235 real reports read as
-    21,929).
+    a naive glob double-counts through it — the measured inflation is
+    roughly 2.7x.
     """
     results_root = results_root.resolve()
     res = engine.corpus.load_resolution(results_root=results_root)
@@ -254,9 +254,9 @@ def stamp(matches: list[dict], results_root: Path, apply: bool) -> tuple[int, in
             doc = json.loads(original)
         except (OSError, json.JSONDecodeError):
             continue
-        # Preserve the file's own indentation. Re-serialising 70 layers at a
-        # different width turned a one-line stamp into a 1,318-line diff and
-        # buried the actual change.
+        # Preserve the file's own indentation. Re-serialising layers at a
+        # different width turns a one-line stamp into a diff thousands of
+        # lines long and buries the actual change.
         m = re.match(r"\{\n( +)\"", original)
         indent = len(m.group(1)) if m else 2
         meta = doc.setdefault("metadata", {})

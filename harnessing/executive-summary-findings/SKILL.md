@@ -67,7 +67,7 @@ What the script does:
    - A **"unique repos" KPI** alongside the report count: reports deduplicated
      by canonical repository URL (identical across mirror products and branch
      re-audits), falling back to the component slug with any `__<branch>`
-     suffix stripped — so "8,391 reports across 3,586 unique repositories"
+     suffix stripped — so "N reports across M unique repositories"
      reads correctly even though totals remain per-report occurrences
    - A **Distinct Vulnerabilities** section (Lens 2, the canonical exposure
      headline): unique finding fingerprints at HEAD across `findings/`,

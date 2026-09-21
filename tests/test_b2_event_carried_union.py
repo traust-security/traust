@@ -100,7 +100,7 @@ class TestUnion:
         assert BASELINED in _ids(rep)
 
     def test_no_events_means_baseline_only(self) -> None:
-        """The 8,508 existing layers must project exactly as before."""
+        """Existing layers must project exactly as before."""
         rep = build_cumulative(_audit(), _layer(), "layer.json", GENERATED_AT)
         assert _ids(rep) == {BASELINED}
 

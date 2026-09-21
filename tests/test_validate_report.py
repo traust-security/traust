@@ -1276,8 +1276,9 @@ class TestFindingIdentityStamp:
     distinct messages (P6 flip 2026-08-13, once the corpus reached
     100% stamped — the backfill is a floor, not a snapshot).
 
-    Measured 2026-08-11 over 22,351 audit reports / 197,658 findings:
-    195,245 correct, 1,807 absent, 606 mismatched across 58 files."""
+    Measured 2026-08-11 over the full corpus: the overwhelming majority of
+    findings carried a correct stamp, with a small absent tail and a smaller
+    mismatched one concentrated in a few dozen files."""
 
     #: sentinel meaning "compute the fingerprint this finding should carry"
     AUTO = object()

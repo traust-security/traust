@@ -1064,7 +1064,8 @@ def record_decisions(
         # Close the queue entries these decisions answer. Until 2026-08-25
         # nothing did: the event was appended and the needs_review item stayed
         # `pending` forever, so a human could work the queue and it would never
-        # shrink — 16,706 pending against 34 confirmed corpus-wide.
+        # shrink: the pending queue grew without bound while the
+        # confirmed count stayed flat.
         # `confirmed` is tried first; the SDK refuses it unless the event is
         # actually in the layer, which is why the fallback is `rejected`.
         # Resolved via LedgerService → LedgerClient.resolve() (locking +

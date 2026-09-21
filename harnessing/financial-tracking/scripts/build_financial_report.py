@@ -35,8 +35,8 @@ TOKENS ARE THE FACT; DOLLARS ARE A DERIVED VIEW. Cost is recomputed
 from each row's stored token counts at CURRENT registry rates, not read
 from the `cost_usd` frozen in when the row was appended. Measured
 2026-08-06: the registry carried `claude-opus-5` at $15/$75 — the stale
-Opus 4.1-era rate, 3x the published $5/$25 — which inflated 2026-07 from
-$62,798 to $124,060. Rows written under a bad rate would otherwise
+Opus 4.1-era rate, 3x the published $5/$25 — which roughly doubled a
+month's reported total. Rows written under a bad rate would otherwise
 report it forever; deriving at read time means fixing a rate fixes
 history too.
 
@@ -258,8 +258,8 @@ def ledger_series(
 
     That distinction is not academic. Measured 2026-08-06: the registry
     carried `claude-opus-5` at $15/$75 — the stale Opus 4.1-era rate,
-    3x the published $5/$25 — and that one wrong number inflated
-    2026-07 from $62,798 to $124,060. Rows written under the bad rate
+    3x the published $5/$25 — and that one wrong number roughly
+    doubled a month's reported total. Rows written under the bad rate
     would have gone on reporting the bad number forever. Deriving at
     read time means correcting a rate fixes history in the same commit.
 
@@ -342,7 +342,7 @@ def campaign_counts(db_path: Path) -> dict:
         # `preferred` is a STRING enum in findings.db ('audit_json' /
         # 'findings_current'), NOT a boolean — an earlier `preferred=1`
         # here silently counted 0 repos and produced "cost per repo:
-        # n/a" against a corpus of 3,790.
+        # n/a" against a fully populated corpus.
         out["repos"] = (
             con.execute(
                 "SELECT COUNT(DISTINCT repo_url) FROM repos "
@@ -544,9 +544,8 @@ def render(report: dict) -> list[str]:
         ]
         # Newest first, but Δ must compare each month to the OLDER one
         # (the row BELOW it). Carrying `prev` forward while iterating
-        # downward inverts the sign — July would read "+33,350" against
-        # August, i.e. an increase against a month that had not
-        # happened yet.
+        # downward inverts the sign — a month would read as an increase
+        # against a month that had not happened yet.
         months = sorted(t, reverse=True)
         for i, month in enumerate(months):
             row = t[month]

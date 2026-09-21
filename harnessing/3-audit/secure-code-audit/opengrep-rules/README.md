@@ -30,10 +30,12 @@ Rule requirements (checked in review; keep them true):
 
 ## Provenance
 
-Mined 2026-07-16 from the insecure-patterns dashboard (28,204 code findings
-across 8,133 reports) — top mechanically-detectable clusters by occurrence:
-CWE-532 (1,071), CWE-295 (860), CWE-78 (371), CWE-22 (349), CWE-918 (339),
-CWE-214 (302), plus supporting cryptography/debug/deserialization patterns. v1.1 (2026-07-17) added the bash tranche from the CWE-494/532 bash clusters. v1.2 (2026-07-18) added the cosign classical-signing inventory rules (bash + go), ported from the PQC pilot's calibrated HP_SIGN_COSIGN pattern (command-verb / quoted-import anchored; the bare-'sigstore' shape produced 38/38 FPs). v1.3 (2026-07-21) added the first AWX-FN-probe-seeded Python tranche (tar-extract-without-filter, startswith path containment, ssl.wrap_socket). v1.4 (2026-07-21) completed Python parity with Go (12 rules): raw-SQL taint, Jinja2 template taint, mark_safe/format_html XSS taint, pickle/marshal deserialization taint — see progress-tracker/plans/language-coverage-plan.md.
+Mined 2026-07-16 from the insecure-patterns dashboard — the clusters it
+surfaced as both recurring and mechanically detectable: CWE-532 (sensitive
+information in a log file), CWE-295 (improper certificate validation),
+CWE-78 (OS command injection), CWE-22 (path traversal), CWE-918 (SSRF) and
+CWE-214 (invocation exposing sensitive information), plus supporting
+cryptography/debug/deserialization patterns. v1.1 (2026-07-17) added the bash tranche from the CWE-494/532 bash clusters. v1.2 (2026-07-18) added the cosign classical-signing inventory rules (bash + go), ported from the PQC pilot's calibrated HP_SIGN_COSIGN pattern (command-verb / quoted-import anchored; the bare-'sigstore' shape produced 38/38 FPs). v1.3 (2026-07-21) added the first AWX-FN-probe-seeded Python tranche (tar-extract-without-filter, startswith path containment, ssl.wrap_socket). v1.4 (2026-07-21) completed Python parity with Go (12 rules): raw-SQL taint, Jinja2 template taint, mark_safe/format_html XSS taint, pickle/marshal deserialization taint — see progress-tracker/plans/language-coverage-plan.md.
 Calibration results live in the plan doc.
 
 v1.5 (2026-07-23, error-correction plan item 3.1) added the **config/DSN
@@ -62,7 +64,7 @@ ZipFile receivers (assignment and `with` forms) are now excluded, with
 
 v1.7 (2026-07-29) — the **2026-07-29 mined tranche + precision
 recalibration**, authored from the post-orphan-backfill ledger mine
-(8,286 confirmed TPs, `progress-tracker/metrics/rule-mining/`; per-rule
+(the confirmed-TP corpus, `progress-tracker/metrics/rule-mining/`; per-rule
 proposals in the plan's "Backlog refresh — 2026-07-29" section). Six new
 rules, every one specified by tp-corpus finding entries and calibrated by
 re-cloning corpus repos at the recorded commits (matrix in the plan doc):

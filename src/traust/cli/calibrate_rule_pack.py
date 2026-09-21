@@ -18,14 +18,15 @@ the rule author to trigger the rule — circular. The TP corpus is code
 YOUR engineers wrote, in your idioms, and the false-positive risk lives
 exactly in the gap between the two.
 
-NOBODY HAND-CONFIRMS THESE. Measured 2026-08-06, the 8,555 confirmed
-TPs break down as machine_verified 7,260 (84.9%), execution_proven
-1,057 (12.4%), claimed 236, and human_reviewed **2**. Confirmation comes
+NOBODY HAND-CONFIRMS THESE, AND THAT IS THE DESIGN. Confirmation comes
 from /triage's judge and from live validation, not from a person signing
 off each finding — /countersign is the FALSE-positive path (contested
-machine refutations), which is why the ledger holds 8,555 confirmed and
-only 22 false_positive. Ground truth here is a byproduct of the pipeline
-already running, not a queue of human work.
+machine refutations), so the confirmed set is overwhelmingly
+machine_verified plus execution_proven, hand review is a rounding error,
+and false_positive stays small by construction. Ground truth here is a
+byproduct of the pipeline already running, not a queue of human work.
+Tally your own ledger by `confirmation_source` before reading precision
+off it: what you have is a machine-agreement rate, not a human verdict.
 
 WHAT THIS MEASURES, AND WHAT IT DELIBERATELY DOES NOT.
 
@@ -46,10 +47,10 @@ WHAT THIS MEASURES, AND WHAT IT DELIBERATELY DOES NOT.
                the opengrep pre-scan records a `scanner_correlation`
                entry per rule with `result: promoted|dismissed`, and
                /mine-ledger tallies those campaign-wide against the ~50%
-               gate. 1,386 such decisions exist today (327 promoted /
-               1,059 dismissed across 216 rule ids). So precision for
-               this pack accrues as a BYPRODUCT of running it in audits
-               — no human review, no separate exercise.
+               gate, accumulating promoted/dismissed counts per rule id
+               as audits run. So precision for this pack accrues as a
+               BYPRODUCT of running it in audits — no human review, no
+               separate exercise.
                What cannot be done is computing it BEFORE the pack has
                ever run, which is exactly the pre-flight gap this tool
                fills. The novel sample below is an optional shortcut for
@@ -237,9 +238,9 @@ def run_fixtures(rules_src: str, out_dir: Path) -> int:
 
     # OPENGREP IGNORES `tests/` BY DEFAULT. Measured 2026-08-06: scanning
     # the pack's tests/ tree directly reports 0 files scanned, while the
-    # identical files copied to a neutrally-named directory report 162
-    # scanned / 2,341 results. Pointing the sanity gate at a path the
-    # scanner declines to read would report "the rules don't fire" about
+    # identical files copied to a neutrally-named directory scan every
+    # file and report thousands of results. Pointing the sanity gate at
+    # a path the scanner declines to read would report "the rules don't fire" about
     # a pack that fires fine — so stage the fixtures somewhere neutral.
     staged = CACHE_ROOT / "fixture-stage" / url.rstrip("/").rsplit("/", 1)[-1]
     if staged.exists():

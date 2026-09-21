@@ -337,7 +337,7 @@ TRIPWIRE_PATCH_CAP = 2_000_000  # bytes of patch fed to the scanners
 TRIPWIRE_QUOTA_RESERVE = 100  # keep headroom after patch fetches
 # Secondary-ban circuit breaker: GitHub's anti-scraping bans are
 # INVISIBLE to the rate_limit endpoint (measured 2026-07-28: quota
-# read 4,996 while 3,345/3,648 stage-1 calls errored). A streak of
+# read healthy while most stage-1 calls errored). A streak of
 # consecutive GitHub errors this long means the run is banned, not
 # unlucky — abort the sweep instead of churning failures (which
 # prolongs the ban); remaining repos get status 'ban-suspected' and
@@ -1614,9 +1614,9 @@ def read_policy_budget(path: Path | None) -> tuple[float | None, str]:
     1. **`enforcement` decides whether a ceiling binds at all.** The
        shipped posture is `none`: the policy is documentation, and only
        `--monthly-budget` gates a run. Fixing the key lookup must NOT
-       quietly switch on a $23K guillotine nobody enabled — measured
-       2026-08-05, the live worklist projected $22,128 against that
-       figure, i.e. $872 of headroom, so activation would have begun
+       quietly switch on a guillotine nobody enabled — measured
+       2026-08-05, the live worklist projected just under the configured
+       ceiling, so activation would have begun
        dropping full audits within one ordinary run. L1 advisory
        enforcement is Phase 3 of
        progress-tracker/plans/budget-policy-implementation-plan.md.
@@ -2316,8 +2316,8 @@ def main(argv=None) -> int:
         # quota, so stage 2 is quota-aware (defers what does not fit to
         # the next daily run) rather than preflighted. A quota-starved
         # stage 1 silently classifies thousands of repos as errors while
-        # the worklist looks legitimate (observed live: 2,041/3,648
-        # errors) — refuse that outright.
+        # the worklist looks legitimate (observed live: well over half
+        # of one sweep's calls errored) — refuse that outright.
         gh_needed = int(
             1.05 * sum(1 for e in entries if split_repo_url(e["repo_url"])[0] == "github")
         )

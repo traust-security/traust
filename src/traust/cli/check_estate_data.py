@@ -72,10 +72,34 @@ COUNT_RE = re.compile(r"(?<![{,\d])\b\d{1,3}(?:,\d{3})+\b(?![,\d}])")
 #: bound can legitimately be four digits.
 QUANTIFIER_RE = re.compile(r"\{\d+,\d+\}")
 
-#: Directories whose contents are published verbatim and where a measured
-#: figure is the point rather than a leak.
+#: A multi-line source reference — `oauthproxy.go:525,685`,
+#: `login.go:127,157`. The comma separates two LINE NUMBERS in one file,
+#: which is the most useful thing a finding can cite, and it carries no
+#: information about the estate at all. Discarded like a quantifier
+#: rather than narrowed into COUNT_RE, because a line number four digits
+#: long is ordinary.
+SOURCE_LINE_REF_RE = re.compile(r"\.\w+:\d+(?:,\d+)+")
+
+#: A CONFIGURED THRESHOLD, not a measurement: `C >= 8,000`, `C ≥ 8,000`.
+#: The distinction is the whole point of this gate — a measurement says
+#: what this deployment IS, a threshold says what the policy DOES, and
+#: only the first is a disclosure. The tell is a bare symbol and a
+#: COMPARISON operator immediately before the number; prose stating a
+#: figure does not look like that. Bare `=` is deliberately excluded —
+#: `X = 1,234` is an assignment (estate-data-ok: invented), and
+#: silencing assignments would hide the most ordinary way a figure
+#: gets hard-coded into a script.
+THRESHOLD_RE = re.compile(r"\b[A-Z]\s*(?:>=|<=|[><≥≤])\s*\d{1,3}(?:,\d{3})+")
+
+#: Paths whose contents are published verbatim and where a count-shaped
+#: string is the point rather than a leak.
 ALLOWED_DIRS = (
     "CHANGELOG.md",  # a release record states what changed, including counts
+    # This gate's own tests must contain count-shaped strings to have
+    # anything to assert on. Every figure in that file is invented, and
+    # the file says so; exempting it is cheaper and more honest than 18
+    # waiver comments that would all cite the same reason.
+    "tests/test_check_estate_data.py",
 )
 
 #: Files may opt out with a cited reason on the same line.
@@ -164,6 +188,8 @@ def scan(root: Path, *, staged: bool = False) -> list[dict]:
             if WAIVER_RE.search(line):
                 continue
             probe = QUANTIFIER_RE.sub("", line)
+            probe = SOURCE_LINE_REF_RE.sub("", probe)
+            probe = THRESHOLD_RE.sub("", probe)
             for hit in COUNT_RE.findall(probe):
                 findings.append(
                     {

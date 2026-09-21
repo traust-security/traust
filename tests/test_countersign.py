@@ -784,7 +784,7 @@ def test_decision_line_parses_mapping_decisions():
 # --------------------------------------------------------------------------
 # Recording a decision must also CLOSE the queue entry it answers. Until
 # 2026-08-25 it did not: the event was appended and the needs_review item stayed
-# pending forever — 16,706 pending against 34 confirmed across the corpus.
+# pending forever, so the queue grew without bound while confirmations stayed flat.
 # --------------------------------------------------------------------------
 
 

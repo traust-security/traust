@@ -262,8 +262,8 @@ class TestRender:
 
 class TestRegressions:
     def test_preferred_is_a_string_enum_not_a_boolean(self, tmp_path):
-        """Shipped bug: `WHERE preferred=1` matched nothing, so a
-        3,790-repo corpus reported 0 repos and 'cost per repo: n/a'."""
+        """Shipped bug: `WHERE preferred=1` matched nothing, so a fully
+        populated corpus reported 0 repos and 'cost per repo: n/a'."""
         c = bfr.campaign_counts(_db(tmp_path))
         assert c["repos"] == 1, "audit_json baselines must be counted"
 
@@ -273,8 +273,8 @@ class TestRegressions:
 
     def test_trend_delta_compares_to_the_older_month(self):
         """Shipped bug: iterating newest-first while carrying `prev`
-        forward inverted the sign — July read +33,350 against August,
-        an increase measured against a month that had not happened."""
+        forward inverted the sign — a month read as an increase
+        measured against a month that had not happened."""
         report = {
             "period_label": "x",
             "generated": "n",

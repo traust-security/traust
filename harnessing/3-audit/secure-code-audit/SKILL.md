@@ -1308,7 +1308,7 @@ Key profile obligations for this skill:
 
 ### Field Conventions
 
-A drift audit across 5,488 portfolio reports (2026-07-08) showed that every field this section did not pin oscillated from batch to batch. These conventions are normative; the validator enforces or warns on each (harness ≥ 0.15.0).
+A drift audit across the portfolio's reports (2026-07-08) showed that every field this section did not pin oscillated from batch to batch. These conventions are normative; the validator enforces or warns on each (harness ≥ 0.15.0).
 
 **`validation_status`** — set on **every** finding, with these semantics:
 

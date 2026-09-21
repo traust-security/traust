@@ -22,7 +22,7 @@ docs/external-dependencies.md, "Security frameworks & content licenses").
    the --<flag> argument is set to ..." and "(Automated)"/"(Manual)"
    scoring suffixes — whose appearance in prompts or docs means benchmark
    text was copied in. (Verified 2026-07-16: zero hits in the harness tree
-   and across the 5,000+-report findings corpus, so any future hit is new.)
+   and across the whole findings corpus, so any future hit is new.)
 
 3. Dependency intake. Every package in pyproject.toml (core dependencies
    and optional groups alike) must have a row in

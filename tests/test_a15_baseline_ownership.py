@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """A15 — only the three secure*audit skills may write an audit baseline.
 
-The invariant existed only as prose until 2026-08-17, which is how 1,709
-findings came to be appended into baselines by three non-audit producers
-(impact-analysis 986, verify-remediation 664, vuln-scan 59). These tests pin
+The invariant existed only as prose until 2026-08-17, which is how findings
+came to be appended into baselines by three non-audit producers
+(impact-analysis, verify-remediation, vuln-scan). These tests pin
 the detector so the gate cannot quietly stop catching it.
 """
 

@@ -13,7 +13,7 @@ rules:
       asvs: ["V16"]
       confidence: LOW
       references:
-        - "campaign cluster: CWE-532 Sensitive Information in Log File (1,071 findings, 831 repos)"
+        - "campaign cluster: CWE-532 Sensitive Information in Log File"
         - "recalibrated 2026-07-29: 0.10 campaign precision over 19 attributed judged decisions (119 dismissals across all id variants) — dismissal mass was credential-adjacent METADATA, not credential values: token expiry (expiresOn/expiresAt/expiration), Secret/SecretReference names and errors, credential file paths, token scopes/durations, TokenReview objects, token-minter images. Benign-suffix exclusion extended accordingly; confidence demoted MEDIUM→LOW (inventory tier). Masked values (redact(x)) never matched — the identifier constraint already excludes call expressions"
     patterns:
       - pattern-either:

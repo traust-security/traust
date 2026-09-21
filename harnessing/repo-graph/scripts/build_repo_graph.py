@@ -215,8 +215,8 @@ def _execute_graph_build() -> None:
         if rec.is_md_only:
             continue  # same population as before: JSON-backed reports only
         # The node key used to be audit_json.parent relative to FINDINGS. It is the
-        # record's own identity, so take it from there: verified equal on all 8,604
-        # records, and it no longer needs the artifact to sit in a directory we can walk.
+        # record's own identity, so take it from there: verified equal on every
+        # record, and it no longer needs the artifact to sit in a directory we can walk.
         rel = f"{rec.product}/{rec.repo_dir}" if rec.product else rec.repo_dir
         meta = {
             "audit": True,

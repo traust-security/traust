@@ -1,7 +1,7 @@
 """The location-path gate: catches reports whose producer skipped validation.
 
 Staged enforcement, so both halves are pinned: warnings by default (exit 0) and
-failure under --strict, which is the flip once the ~2,762-finding migration lands.
+failure under --strict, which is the flip once the identity migration lands.
 """
 
 import json

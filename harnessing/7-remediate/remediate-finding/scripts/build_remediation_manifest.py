@@ -120,7 +120,7 @@ REPO_RE = re.compile(
 SOURCE_RE = re.compile(r"#(?P<id>[A-Za-z0-9._-]+)$")
 # finding ids are report-derived and become path components in
 # report_path — must never carry separators or dot-runs (audit B1, plan
-# P0.2). Dry run 2026-07-24: 0/111,091 corpus ids rejected.
+# P0.2). Dry run 2026-07-24: zero corpus ids rejected.
 FID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
 

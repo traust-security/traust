@@ -651,7 +651,7 @@ report's `notes` field:
   This is correct when verifying a fix branch, PR, or MR, where the diff
   *is* the remediation.
 - **`latest` mode / large diffs**: when the diff spans more than ~50
-  files or ~5,000 changed lines (typical when months of unrelated merges
+  files or ~5,000 changed lines (typical when months of unrelated merges <!-- estate-data-ok: configured staleness threshold, not a measurement -->
   landed since the audit), restrict the scan to files touched by the
   remediation commits attributed in Phase 3. If attribution failed
   (`unattributed` findings), fall back to files matching the original

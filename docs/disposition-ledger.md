@@ -107,9 +107,9 @@ misleading in both directions and is worth stating precisely:
 - **They do rewrite it** — a re-audit cuts a fresh baseline at a new commit, and
   `rebaseline()` re-points the layer at it. What is fixed is the claim set *for a
   given commit*, which is what `metadata.claim_hashes` pins.
-- **It was not honoured until 2026-08-17.** Three producers had appended **1,709
-  findings** directly into baselines (`impact-analysis` 986,
-  `verify-remediation` 664, `vuln-scan` 59) — mutating the claim set with no event
+- **It was not honoured until 2026-08-17.** Three producers
+  (`impact-analysis`, `verify-remediation`, `vuln-scan`) had appended findings
+  directly into baselines — mutating the claim set with no event
   recording it, which breaks tenet 2 and bypasses the rescan router's authority
   over when a new baseline is cut. It went unnoticed because the code called the
   write "the sanctioned-append flow" while this document called the baseline

@@ -440,7 +440,7 @@ PATTERN_HIT_RATES = """| Pattern | Tested | Vulnerable | Rate | Portfolio adviso
 
 NOT_FUZZED_SCOPE = """| Reason | Count | Examples |
 |---|--:|---|
-| No concrete audit-named target | ~4,900 | Most `findings/` repos — audit "Fuzzing 0/10" is Scorecard boilerplate |
+| No concrete audit-named target | bulk | Most `findings/` repos — audit "Fuzzing 0/10" is Scorecard boilerplate |
 | Already OSS-Fuzz'd upstream | 3 | coredns, prometheus, loki LogQL parser |
 | Not Go / needs live env | ~8 | che-server (Java), notebooks (Jupyter), security-profiles-operator (C `libsemanage` — Track 3) |
 | Trusted-template-source sprig | 4 | ptp-operator, cluster-network-operator, kubernetes-nmstate, sriov render.go |
@@ -501,7 +501,7 @@ REMAINING_SURFACES = """See `advisories/TRACK-3-CPP-TARGETS.md`:
 
 SCOPE_LINE = (
     "Repositories with `analysis-results/findings/**/*security-audit.md` "
-    "that named a concrete fuzz-target function (262 candidates from 5,409 audits)."
+    "that named a concrete fuzz-target function."
 )
 METHOD_LINE = (
     "Go-native `go test -fuzz` @ 15m–1h per target; no cluster, no cloud, "

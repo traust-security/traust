@@ -308,7 +308,7 @@ def build_finding(
         "source_findings": [cve, artifact_ref],
         # Typed supply-chain provenance (contracts >=0.4.2). The same facts
         # were previously ONLY in the description prose and positionally in
-        # source_findings, which made 2,019 routed findings unqueryable by
+        # source_findings, which made every routed finding unqueryable by
         # advisory or module without parsing English. Two consumers need it
         # structured: object storage, where `impact_artifact` may not resolve
         # by relative path so the finding must stand alone; and consumers that

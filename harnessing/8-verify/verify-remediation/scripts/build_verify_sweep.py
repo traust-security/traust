@@ -180,7 +180,7 @@ def discover(roots: list[Path], include_branches: bool) -> list[dict]:
                     "base": base,
                     # normalize-or-skip: a non-normalizable repository field
                     # must NEVER fall through raw to git (audit A2, plan
-                    # P0.1). Dry run 2026-07-24: 2/22,213 reports affected
+                    # P0.1). Dry run 2026-07-24: two reports affected
                     # (one scheme-less repo; self-heals on re-audit).
                     "repository": normalize_repo_url(meta.get("repository")),
                     "pinned_sha": (parse_pinned_sha(meta.get("commit")) or md_fallback_sha(aj)),

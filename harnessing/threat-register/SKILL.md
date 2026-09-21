@@ -54,7 +54,7 @@ that is the join to the ledger, and it runs in that direction only.
 python3 <skill-dir>/build_threat_register.py --root <analysis-results>
 ```
 
-One deterministic pass (~5s for 7,500 models). The builder reuses
+One deterministic pass (seconds, even for a corpus of thousands). The builder reuses
 python3 -m traust.cli reporting lint's parser, so it reads exactly what the
 contract gate enforces; models that do not conform are skipped and
 counted (`models_skipped_nonconforming`) — if that count is nonzero,

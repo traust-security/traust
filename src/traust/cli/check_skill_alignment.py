@@ -111,7 +111,7 @@ Rules:
                       disposition ledger's core tenet (events, not state
                       — docs/disposition-ledger.md §2.2) and bypasses the
                       rescan router's authority over when a new baseline
-                      is cut. Found 2026-08-17: 1,709 findings had been
+                      is cut. Found 2026-08-17: findings had been
                       appended into baselines by three non-audit
                       producers, undetected because the write was named
                       "the sanctioned-append flow" in code while the docs
@@ -193,7 +193,7 @@ BASELINE_WRITE_PY_RE = re.compile(
 #   * "to the baseline" as well as "into the baseline"
 #   * adjectival forms — "the **amended** *-security-audit.json finding"
 #   * possessives — "routes every regression into the **repo's** baseline"
-# A15 passing while the rule was broken in seven places is how B7's 1,709
+# A15 passing while the rule was broken in seven places is how B7's
 # baseline-written findings accumulated: the gate checked a phrasing, not a claim.
 _BASELINE_VERB = (
     r"(?:amend|append|add|writ|merg|rout|fold|insert|inject|updat)"

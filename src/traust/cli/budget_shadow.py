@@ -16,8 +16,8 @@ observe ceiling even if a future caller passes it around carelessly.
 The month-to-date term comes from the Phase-0 attribution rows
 (`spend-attribution:<skill>` in the metrics ledger), NOT from the raw
 transcript total. That distinction is the whole point of Phase 0:
-2026-07 was $124,060 workstation-wide but only $34,022 of harness lane
-spend, and the $23K ceiling was derived for steady-state *scanning*.
+a month's workstation-wide spend can run several times its harness lane
+spend, and the ceiling is derived for steady-state *scanning*.
 Judging a scanning ceiling against the workstation total would fire
 constantly and mean nothing.
 

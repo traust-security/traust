@@ -1402,7 +1402,8 @@ class TestNeverAuditedBootstrap:
 
 class TestBanBreaker:
     """Secondary-ban circuit breaker: quota reads fine while every call
-    403s (measured 2026-07-28: 3,345/3,648 errors at quota 4,996)."""
+    403s (measured 2026-07-28: most of a sweep's calls errored while the
+    quota read healthy)."""
 
     def test_streak_trips_and_success_resets(self):
         b = rw._BanBreaker(threshold=3)
@@ -1965,8 +1966,8 @@ class TestShippedPolicyPosture:
     def test_live_policy_does_not_gate_the_router(self):
         """Regression guard on the REAL config: budget-policy.yaml ships
         enforcement: none (L1 advisory is Phase 3 of the budget-policy
-        plan). Measured 2026-08-05 the live worklist projected $22,128
-        against the $23K figure — $872 of headroom — so flipping this on
+        plan). Measured 2026-08-05 the live worklist projected just under
+        the configured ceiling — so flipping this on
         by accident would start dropping full audits within one ordinary
         run. If this test fails, that activation was deliberate: confirm
         it, don't just update the assertion."""

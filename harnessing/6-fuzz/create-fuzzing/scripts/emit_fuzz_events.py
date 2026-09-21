@@ -241,8 +241,9 @@ def stamp_identity(finding: dict, repo_url: str) -> str | None:
     strict=True is deliberate. When a target declares no harness dest the
     finding's only location is a repo-root marker, and hashing that
     produces an identity shared by every rootless finding in the repo --
-    measured on the corpus, 433 such fingerprints were shared by 1,397
-    findings. An unstamped finding is honest; a colliding one silently
+    measured on the corpus, hundreds of such fingerprints were each
+    shared by several findings. An unstamped finding is honest; a
+    colliding one silently
     merges unrelated bugs.
     """
     try:

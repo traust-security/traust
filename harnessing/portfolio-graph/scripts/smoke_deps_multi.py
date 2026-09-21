@@ -65,7 +65,7 @@ DEFAULT_ECOSYSTEMS = ",".join(G.ALL_ECOSYSTEMS)
 LANGUAGE_GATED = set(G.LANGUAGE_GATED_ECOSYSTEMS)
 UNIVERSAL = set(G.UNIVERSAL_ECOSYSTEMS)
 # The Go no-regression baseline is derived FROM the corpus graph (--make-snapshot
-# reads the db), so it is corpus data, not a test fixture: 2,352 repo entries
+# reads the db), so it is corpus data, not a test fixture: one entry per repo
 # naming what this deployment actually runs. It lives beside the db it came from.
 # Order: explicit flag > env > corpus default.
 _DEFAULT_SNAPSHOT_REL = Path("graph/inputs/go-blast-radius-snapshot.json")

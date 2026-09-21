@@ -3,9 +3,9 @@
 
 `analysis-results/findings/_orgs/` is an index of SYMLINKS into the canonical
 report paths. A recursive glob follows them, so the same physical file is
-counted many times — measured 2026-08-13: 22,306 glob hits against 8,513
-distinct reports, a 2.6x inflation that produced wrong figures in three shipped
-changelog entries. Git also refuses to traverse those paths
+counted many times — measured 2026-08-13, a recursive glob returned about
+2.6x the distinct report count, an inflation that produced wrong figures in
+three shipped changelog entries. Git also refuses to traverse those paths
 (`git ls-files --error-unmatch` and `git show HEAD:<path>` fail with "beyond a
 symbolic link"), so a symlinked report reads as untracked or brand-new — which
 twice made a migration's "is this file's only change mine?" check declare 100
@@ -29,9 +29,9 @@ SEARCH_DIRS = ("src/traust", "harnessing")
 #
 # Measured 2026-08-13 on Python 3.14 against the real corpus:
 #   glob.glob("findings/**/*-security-audit.json", recursive=True)
-#       -> 21,929 hits / 8,270 distinct = 2.65x inflation  (FOLLOWS dir symlinks)
+#       -> 2.65x inflation over distinct reports  (FOLLOWS dir symlinks)
 #   Path("findings").rglob("*-security-audit.json")
-#       ->  8,235 hits / 8,135 distinct = 1.01x            (does NOT, 3.13+)
+#       -> 1.01x                                   (does NOT, 3.13+)
 #
 # So pathlib's rglob is nearly safe — it still lists ~100 FILE symlinks sitting
 # in real directories, a 1.2% overcount worth fixing in anything that publishes
