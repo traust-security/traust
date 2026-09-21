@@ -9,7 +9,7 @@
       "sha": null,
       "license_note": "traust-authored pack: our IP, licensed with the engine, no external restrictions",
       "config_paths": [
-        "/Users/mchubirk/Hybrid-Platforms-Sec/traust/.venv/lib/python3.12/site-packages/traust_engine/data/secure-code-audit/opengrep-rules/python"
+        "/tmp/scanner-diff/.venv/lib/python3.12/site-packages/traust_engine/data/secure-code-audit/opengrep-rules/python"
       ]
     },
     {
@@ -17,7 +17,7 @@
       "sha": "2a94aebee9a26a7e0325582330c4eed232b984fb",
       "license_note": "MIT (c) 2026 Argus Observe Rules Contributors: internal use, redistribution and commercial use permitted with attribution \u2014 see docs/external-dependencies.md",
       "config_paths": [
-        "/Users/mchubirk/.cache/traust-engine/argus-observe-rules-2a94aebee9a2/rules/languages/python"
+        "/tmp/scanner-diff/cache/traust-engine/argus-observe-rules-2a94aebee9a2/rules/languages/python"
       ]
     }
   ],

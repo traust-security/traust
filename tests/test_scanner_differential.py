@@ -6,6 +6,11 @@ Python fixture: `subprocess.run("echo " + user_input, shell=True)` before,
 `traust-python-injection-subprocess-shell` fires on the first and not the
 second.
 
+Captured output carries the capture machine's absolute paths, and this repo is
+public. `rules[].config_paths` and `target` in both fixtures were rewritten to
+neutral `/tmp/scanner-diff/...` paths; nothing here reads either field, so the
+rewrite costs the tests nothing. If you re-capture, rewrite them again.
+
 The third verdict is the one worth protecting: if the rule never fired on the
 unpatched revision there is nothing to observe, and crediting the patch for a
 clean scan would manufacture evidence out of a rule-pack change.
