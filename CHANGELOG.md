@@ -2,6 +2,17 @@
 
 All notable changes to Traust are documented here.
 
+## [0.3.0]
+
+## Changes
+
+- **Reverted the 0.10.0 findings.db and census changes.** Every consumer
+  reads the previous nine-table `findings.db` projection again and the census
+  walks reports as before. Pins: contracts 0.35.0 (the 0.33.0 storage
+  contract), engine 0.16.0, ledger 0.6.32. 0.10.0 remains tagged and should
+  not be pinned. Rebuild `findings.db` with `traust corpus findings-db` after
+  upgrading; a store built by 0.10.0 is refused.
+
 ## [0.2.13]
 
 - **The reachability graphs now say what they are for**, not just what they

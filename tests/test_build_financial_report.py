@@ -366,6 +366,6 @@ class TestRepricing:
         reg = load_engine().models.registry()
         usd = model_registry.cost_usd(reg, "claude-opus-5", 1_000_000, 1_000_000, 0, 0)
         assert usd == pytest.approx(30.0, abs=0.01), (
-            f"claude-opus-5 prices to ${usd} for 1M+1M — expected $30.00 "
+            f"claude-opus-5 prices to ${usd} for 1M+1M — expected $30.00 "  # estate-data-ok: public list price, not a corpus figure
             f"($5/$25 published). $90 means the stale 15/75 rate is back."
         )
