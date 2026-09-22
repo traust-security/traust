@@ -16,7 +16,7 @@ python3 -m traust.cli check skill-alignment      # equivalent
 
 ## Command groups
 
-18 groups (plus the deprecated `tools` group below).
+17 groups (plus the deprecated `tools` group below).
 
 | Group | Description | Operations |
 |---|---|---|
@@ -35,7 +35,6 @@ python3 -m traust.cli check skill-alignment      # equivalent
 | `registry` | Model/product registry | `models`, `products` |
 | `reporting` | Report validation & rendering | `lint`, `render`, `sarif`, `validate` |
 | `route` | Finding routing | `impact-findings`, `regressions` |
-| `store` | The storage/v1 store the views read | `ingest`, `status` |
 | `sweep` | Class-generalization sweep | `benchmark`, `collect`, `draft`, `emit`, `mine`, `rule-lane`, `sweep` |
 | `util` | Utility commands | `elf`, `redact`, `safe-exec` |
 

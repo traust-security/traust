@@ -36,7 +36,6 @@ def test_all_planned_groups_registered():
         "registry",
         "reporting",
         "route",
-        "store",
         "sweep",
         "tools",
         "util",

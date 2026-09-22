@@ -24,7 +24,7 @@ from pathlib import Path
 SKILL = Path(__file__).resolve().parents[1] / "harnessing/5-validate/validate-findings"
 sys.path.insert(0, str(SKILL))
 
-import report as R
+import report as R  # noqa: E402
 
 
 @dataclass

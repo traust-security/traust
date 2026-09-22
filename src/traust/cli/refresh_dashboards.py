@@ -95,21 +95,10 @@ def build_stages(
                 str(pt / "metrics" / "first-discovery" / "first-discovery-current.json"),
             ],
         ),
-        # Both projections, deliberately, for as long as both are read.
-        # findings.db carries repos/graph_edges/provenance/decisions, which
-        # storage/v1 has no home for yet (constraint C1 in the dashboard
-        # plan), so retiring it is not this step's call. A store-ingest
-        # failure aborts the run for the same reason a findings-db failure
-        # does: every consumer downstream would read stale rows.
         (
             "findings-db",
             "projection",
             [PYTHON, "-m", "traust.cli", "corpus", "findings-db", *path_args],
-        ),
-        (
-            "store-ingest",
-            "projection",
-            [PYTHON, "-m", "traust.cli", "store", "ingest", *_results_root_arg(results_root), *cfg],
         ),
         (
             "census",

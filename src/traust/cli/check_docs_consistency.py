@@ -979,7 +979,7 @@ def cli_reference_failures(repo: Path = REPO) -> list[str]:
     """docs/cli-reference.md's group/op table vs the live GROUPS registry."""
     doc = repo / "docs" / "cli-reference.md"
     if not doc.exists():
-        return ["docs/cli-reference.md is missing — it is the canonical CLI listing"]
+        return [f"docs/cli-reference.md is missing — it is the canonical CLI listing"]
     try:
         from traust.cli.groups import GROUPS
     except ImportError as exc:  # pragma: no cover
