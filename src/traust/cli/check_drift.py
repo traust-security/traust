@@ -37,8 +37,8 @@ import importlib.util
 import json
 import os
 import subprocess
-import tempfile
 import sys
+import tempfile
 from pathlib import Path
 
 from traust_contracts.paths import schema_dir
@@ -3732,7 +3732,7 @@ def check_agent_plugins(ws: Path) -> list[dict]:
                 item(
                     row,
                     "pending",
-                    f"declared in agent-plugins.yaml but not installed",
+                    "declared in agent-plugins.yaml but not installed",
                     f"/plugin marketplace add {marketplace} && /plugin install {name}",
                 )
             )

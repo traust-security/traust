@@ -18,6 +18,7 @@ from traust.cli.groups import (
     registry,
     reporting,
     route,
+    store,
     sweep,
     tools,
     util,
@@ -85,6 +86,10 @@ GROUPS: dict[str, dict[str, object]] = {
         "sarif": reporting.SARIF,
     },
     "route": dict(route.ROUTE),
+    "store": {
+        "ingest": store.INGEST,
+        "status": store.STATUS,
+    },
     "sweep": {
         "collect": sweep.COLLECT,
         "draft": sweep.DRAFT,

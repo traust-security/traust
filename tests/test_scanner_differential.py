@@ -17,7 +17,6 @@ clean scan would manufacture evidence out of a rule-pack change.
 """
 
 import importlib.util
-import json
 import sys
 from pathlib import Path
 
