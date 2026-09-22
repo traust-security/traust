@@ -340,10 +340,9 @@ def collect(ws, results, tracker, harness):
             ).fetchone()[0]
             sev = dict(
                 con.execute(
-                    # current_finding is the contract's spine; report_kind
-                    # rides it, so the lane needs no join to repos.
-                    "SELECT severity, COUNT(*) FROM current_finding "
-                    "WHERE report_kind='cloud-config' GROUP BY severity"
+                    "SELECT f.severity, COUNT(*) FROM findings f JOIN repos "
+                    "r ON f.repo_key=r.repo_key WHERE r.report_kind="
+                    "'cloud-config' GROUP BY f.severity"
                 ).fetchall()
             )
             m["cc_findings"] = sum(sev.values())

@@ -57,13 +57,12 @@ def make_findings_db(path: Path, rows):
           is_branch_audit INTEGER NOT NULL, is_md_only INTEGER NOT NULL,
           preferred TEXT NOT NULL, report_kind TEXT NOT NULL,
           report_path TEXT, audit_date TEXT);
-        -- The contract's shapes, as the columns the tiering reads. In the
-        -- real store these are storage/v1 views; the fixture applies the
-        -- open predicate itself when it inserts.
-        CREATE TABLE current_finding (scope_id TEXT, subject_id TEXT NOT NULL,
-          finding_id TEXT NOT NULL, severity TEXT, validity TEXT, resolution TEXT);
-        CREATE TABLE open_findings (scope_id TEXT, subject_id TEXT NOT NULL,
-          finding_id TEXT NOT NULL, severity TEXT, validity TEXT, resolution TEXT);
+        CREATE TABLE findings (repo_key TEXT NOT NULL, finding_id TEXT NOT NULL,
+          title TEXT, severity TEXT, primary_cwe TEXT, cwes TEXT,
+          cvss_score REAL, cvss_vector TEXT, fingerprint TEXT, validity TEXT,
+          resolution TEXT, assurance TEXT, validation_status TEXT,
+          last_updated TEXT, paths TEXT, control_refs TEXT,
+          PRIMARY KEY (repo_key, finding_id));
         """
     )
     seen = set()
@@ -92,16 +91,10 @@ def make_findings_db(path: Path, rows):
                 ),
             )
         con.execute(
-            "INSERT INTO current_finding VALUES ('local',?,?,?,?,?)",
+            "INSERT INTO findings (repo_key, finding_id, severity, validity,"
+            " resolution) VALUES (?,?,?,?,?)",
             (repo_key, f"F-{i}", sev, val, res),
         )
-        if (val or "confirmed") not in ("false_positive", "hardening") and (
-            res or "open"
-        ) not in ("resolved", "risk_accepted"):
-            con.execute(
-                "INSERT INTO open_findings VALUES ('local',?,?,?,?,?)",
-                (repo_key, f"F-{i}", sev, val, res),
-            )
     con.commit()
     con.close()
 

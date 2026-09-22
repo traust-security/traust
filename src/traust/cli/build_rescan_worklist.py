@@ -1480,14 +1480,14 @@ def event_lane(source: str, tier: str | None) -> str | None:
 # findings.db loading
 # ---------------------------------------------------------------------------
 
-# open_findings is the contract's open-exposure view (storage/v1): not
-# affirmatively closed, not a false positive, not hardening. The predicate
-# lives in the view, gated against the enums there -- this query used to
-# restate it with two values that exist in no enum.
 _LIVE_SQL = """
-SELECT subject_id AS repo_key, COUNT(*) FROM open_findings
+SELECT repo_key, COUNT(*) FROM findings
 WHERE severity IN ('critical','high')
-GROUP BY subject_id
+  AND (validity IS NULL OR validity = '' OR validity NOT IN
+       ('false_positive','withdrawn','refuted','hardening'))
+  AND (resolution IS NULL OR resolution = '' OR resolution NOT IN
+       ('resolved','risk_accepted'))
+GROUP BY repo_key
 """
 
 _REPOS_SQL = """

@@ -127,15 +127,12 @@ python3 -m traust.cli corpus findings-db \
     --results-root <workspace-root>/analysis-results
 ```
 
-Full deterministic rebuild (minutes: every artifact is validated against
-its contract schema and its exact bytes retained), output
-`analysis-results/graph/findings.db` (gitignored, rebuildable) — the
-traust-contracts storage/v1 store on SQLite. The DB is a **projection of
-this census** — its `meta` table records the build time, the ingest
-outcome (artifacts the contract rejected are in none of its tables) and
-the authority rule; when DB and census numbers disagree, rebuild the DB
-and trust the census. Skip (and say so) only if the script or the corpus
-config is unavailable.
+Full deterministic rebuild (< 1 min), output
+`analysis-results/graph/findings.db` (gitignored, rebuildable). The DB is
+a **projection of this census** — its `meta` table records the build time
+and the authority rule; when DB and census numbers disagree, rebuild the
+DB and trust the census. Skip (and say so) only if the script or the
+corpus config is unavailable.
 
 ### Step 2d — Compliance-assessed coverage line
 

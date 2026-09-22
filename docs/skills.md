@@ -449,7 +449,7 @@ Use when the user asks what the campaign or harness is costing, how spend is tre
 
 ## findings-db
 
-Use when the user asks an ad-hoc question over the findings corpus that reads like a query — "open criticals by business unit", "which repos have the most confirmed findings", "distinct CWE-1104 exposure across products", "how many findings were validated live" — or asks to build/refresh/query the findings database. Queries the storage/v1 SQLite store (analysis-results/graph/findings.db) through the contract's views instead of walking 8k JSON files.
+Use when the user asks an ad-hoc question over the findings corpus that reads like a query — "open criticals by business unit", "which repos have the most confirmed findings", "distinct CWE-1104 exposure across products", "how many findings were validated live" — or asks to build/refresh/query the findings database. Queries the SQLite projection (analysis-results/graph/findings.db) instead of walking 8k JSON files.
 
 - **Stage:** —
 - **Tier:** `secondary`

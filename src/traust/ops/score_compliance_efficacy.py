@@ -51,31 +51,16 @@ except ImportError:  # pragma: no cover
 def build_findings_db(rows_path: Path, db_path: Path):
     rows = json.loads(rows_path.read_text(encoding="utf-8"))
     con = sqlite3.connect(db_path)
-    # The shapes run_compliance_check reads: the contract's open_findings and
-    # current_finding (as fixture tables) plus the harness's repos.
     con.execute("CREATE TABLE repos (repo_key TEXT PRIMARY KEY, repo_url TEXT)")
     con.execute(
-        "CREATE TABLE open_findings (scope_id TEXT, subject_id TEXT, run_id TEXT, "
-        "finding_id TEXT, severity TEXT, validity TEXT, family TEXT)"
-    )
-    con.execute(
-        "CREATE TABLE current_finding (scope_id TEXT, subject_id TEXT, run_id TEXT, "
-        "finding_id TEXT, cwes TEXT, family TEXT)"
+        "CREATE TABLE v_open (finding_id TEXT, severity TEXT, "
+        "primary_cwe TEXT, validity TEXT, repo_key TEXT)"
     )
     con.executemany("INSERT INTO repos VALUES (:repo_key, :repo_url)", rows["repos"])
-    # The fixture file keeps its historical `v_open` key; each row is one
-    # open finding with its primary CWE.
-    for row in rows["v_open"]:
-        con.execute(
-            "INSERT INTO open_findings VALUES ('local', :repo_key, 'r', :finding_id, "
-            ":severity, :validity, 'code')",
-            row,
-        )
-        con.execute(
-            "INSERT INTO current_finding VALUES ('local', :repo_key, 'r', :finding_id, "
-            ":cwes, 'code')",
-            {**row, "cwes": json.dumps([row["primary_cwe"]]) if row.get("primary_cwe") else None},
-        )
+    con.executemany(
+        "INSERT INTO v_open VALUES (:finding_id, :severity, :primary_cwe, :validity, :repo_key)",
+        rows["v_open"],
+    )
     con.commit()
     con.close()
 

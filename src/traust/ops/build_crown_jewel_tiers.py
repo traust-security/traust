@@ -45,7 +45,7 @@ Composition (per the plan: "portfolio-graph fan-in × threat-register tags
                  privilege).
     c_findings = log2(1 + 2*open_crit + open_high)
                  / log2(1 + corpus max of the same expression)
-                 from findings.db open_findings (storage/v1) at HEAD
+                 from findings.db v_open-equivalent filter at HEAD
                  (is_branch_audit=0). The 2x critical multiplier mirrors
                  the campaign convention that one critical outranks two
                  highs; log-scaled for the same heavy-tail reason as
@@ -312,21 +312,23 @@ def load_priv_profiles(results_root: Path):
 def load_findings(findings_db: Path):
     """Open crit/high counts per base_slug at HEAD from findings.db.
 
-    Reads the contract's open_findings view (storage/v1): not affirmatively
-    closed, not a false positive, not hardening -- the predicate lives in the
-    view and is gated against the enums there. Restricted to
-    is_branch_audit=0 — branch re-audits duplicate HEAD findings and would
-    double-count.
+    Filter mirrors the db's v_open view (resolution open/in_progress,
+    validity not FP/withdrawn/refuted/hardening) restricted to
+    is_branch_audit=0 — branch re-audits duplicate HEAD findings and
+    would double-count.
     """
     con = sqlite3.connect(f"file:{findings_db}?mode=ro", uri=True)
     try:
         rows = con.execute(
             """
             SELECT lower(r.base_slug),
-                   SUM(CASE WHEN lower(o.severity)='critical' THEN 1 ELSE 0 END),
-                   SUM(CASE WHEN lower(o.severity)='high' THEN 1 ELSE 0 END)
-            FROM open_findings o JOIN repos r ON r.repo_key = o.subject_id
+                   SUM(CASE WHEN lower(f.severity)='critical' THEN 1 ELSE 0 END),
+                   SUM(CASE WHEN lower(f.severity)='high' THEN 1 ELSE 0 END)
+            FROM findings f JOIN repos r USING (repo_key)
             WHERE r.is_branch_audit = 0
+              AND COALESCE(f.resolution, 'open') IN ('open', 'in_progress')
+              AND COALESCE(f.validity, 'confirmed')
+                  NOT IN ('false_positive', 'withdrawn', 'refuted', 'hardening')
             GROUP BY lower(r.base_slug)
             """
         ).fetchall()
@@ -343,7 +345,7 @@ def load_findings(findings_db: Path):
         per = {
             slug: {"open_critical": crit or 0, "open_high": high or 0} for slug, crit, high in rows
         }
-        n_findings = con.execute("SELECT COUNT(*) FROM current_finding").fetchone()[0]
+        n_findings = con.execute("SELECT COUNT(*) FROM findings").fetchone()[0]
         return (
             per,
             ownership,

@@ -2,10 +2,9 @@
 """Census — population, duplication vectors, and distinct vulnerabilities.
 
 The deterministic denominator authority for every other dashboard. Built
-on traust.cli.groups.corpus (discovery / identity / ownership) plus the
-storage/v1 census views in findings.db (census_exposure, census_distinct,
-census_branch -- traust-contracts, the same views a PostgreSQL adopter
-reads), it answers three questions no single dashboard answers:
+on traust.cli.groups.corpus (discovery / identity / ownership) plus a full pass
+over every report's preferred layer (findings-current when present, else
+the audit JSON), it answers three questions no single dashboard answers:
 
 1. POPULATION — what exists, per tree and ownership cut: reports, unique
    repo slugs, md-only parse gaps, disposition-ledger coverage,
@@ -24,16 +23,6 @@ reads), it answers three questions no single dashboard answers:
    occurrences. Reported per ownership cut; the executive view is the
    owned cut with the upstream cut as an adjacent line, never folded in.
 
-Nothing here classifies a finding or dedupes a fingerprint any more. The
-disposition policy lives in the contract's views and is gated against the
-enums there; this script sums pre-classified rows per cut and renders.
-Population and duplication facts that are about the RESOLUTION (reports,
-slugs, aliases, layered artifacts) still come from the corpus resolver,
-which reads findings.db `repos`.
-
-An artifact the contract rejects is in none of the views. The census
-reports how many (from findings.db `meta`) rather than counting around it.
-
 Outputs (to progress-tracker/metrics/dashboards/census/):
     census.json  census.md  census.html
 
@@ -42,8 +31,7 @@ Each run appends a snapshot to the central metrics ledger
 
 CLI:
     python3 harnessing/census/scripts/build_census.py \\
-        [--workspace-root WS] [--db findings.db] [--out-dir DIR] [--summary]
-        [--skip-ledger]
+        [--workspace-root WS] [--out-dir DIR] [--summary] [--skip-ledger]
 """
 
 from __future__ import annotations
@@ -57,10 +45,8 @@ import time
 from datetime import UTC, datetime, timezone  # noqa: F401  (strptime in main)
 from pathlib import Path
 
-from traust_contracts.v1.storage import Store
 from traust_engine._util.script_loader import load_script
-from traust_engine.corpus import findings_db, report_store
-from traust_engine.locations import FINDINGS_DB_REL
+from traust_engine.corpus import report_store
 from traust_engine.metrics import history as metrics_history
 
 from traust.context import (
@@ -79,53 +65,31 @@ def _load_script(name: str):
 
 
 corpus = _load_script("corpus")
+finding_identity = _load_script("finding_identity")
 
+SEV_RANK = {"critical": 4, "high": 3, "medium": 2, "low": 1, "informational": 0}
 SEVERITIES = ("critical", "high", "medium", "low", "informational")
-CODE = "code-audit"
-
-# Column positions of the four census readers, as their .list.sql files
-# declare them (traust-contracts/storage/v1/*/queries/census_*.list.sql).
-# Named here once so a reordering upstream fails loudly in one place.
-EXPOSURE = (
-    "scope_id",
-    "tree",
-    "ownership",
-    "business_unit",
-    "is_branch_audit",
-    "family",
-    "severity",
-    "exposure_class",
-    "occurrences",
-    "distinct_fingerprints",
-    "report_kind",
-)
-DISTINCT = (
-    "scope_id",
-    "ownership",
-    "report_kind",
-    "fingerprint",
-    "hardening",
-    "severity",
-    "open",
-    "occurrences",
-    "trees",
-)
-BRANCH = (
-    "scope_id",
-    "tree",
-    "report_kind",
-    "branch_findings",
-    "head_confirmations",
-    "branch_only_distinct",
-)
 
 
-def _rows(rows, columns):
-    return [dict(zip(columns, row, strict=True)) for row in rows]
+# ---------------------------------------------------------------------------
+# finding classification
+# ---------------------------------------------------------------------------
 
 
-def _sev_counter(dist: collections.Counter) -> dict:
-    return {s: dist.get(s, 0) for s in SEVERITIES}
+def classify(finding: dict, layered: bool) -> tuple[str, str]:
+    """-> (validity, resolution). findings-current carries an explicit
+    disposition; a plain audit finding is a claim (open by definition)."""
+    if layered:
+        disp = finding.get("disposition") or {}
+        return (disp.get("validity") or "not_verified", disp.get("resolution") or "open")
+    vs = finding.get("validation_status")
+    if vs in ("false_positive", "hardening"):
+        return vs, "open"
+    return "not_verified", "open"
+
+
+def fp_key(finding: dict, repo_url: str | None) -> str:
+    return finding.get("fingerprint") or finding_identity.fingerprint(finding, repo_url)
 
 
 # ---------------------------------------------------------------------------
@@ -133,62 +97,37 @@ def _sev_counter(dist: collections.Counter) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def read_views(db: Path, cfg) -> dict:
-    """Every census figure the contract computes, read through its readers.
+def _preferred_report(rec, store, results):
+    """The report a census row counts from, fetched through the store.
 
-    `findings_db.connect` refuses a store of another revision; the readers
-    are scope-gated with the scopes corpus-config declares readable, the
-    same way a database adopter reads them.
+    Reads used to be `Path(rec.findings_current or rec.audit_json).read_text()`.
+    Going through `report_store` is the point of §4.4.0 step 2: the census stops
+    caring whether that artifact is a file beside the layer or an object in a
+    bucket. `to_ref` accepts either an absolute path (what records hand out today)
+    or a ref, so this works on both sides of step 2b.
     """
-    con = findings_db.connect(db)
-    try:
-        store = Store(con)
-        scopes = cfg.readable_scopes()
-        views = {
-            "exposure": _rows(store.query_census_exposure(scopes), EXPOSURE),
-            "distinct": _rows(store.query_census_distinct(scopes), DISTINCT),
-            "branch": _rows(store.query_census_branch(scopes), BRANCH),
-            "meta": dict(con.execute("SELECT key, value FROM meta")),
-        }
-        # The policy family's `status` (confirmed | suppressed | needs_review)
-        # is not on the spine, and the cloud-config block separates
-        # suppressed checks from findings. Read from the contract's own
-        # table behind its current-report view -- a join, not a re-derived
-        # policy. A `status` column on current_finding would retire this.
-        views["policy_status"] = con.execute(
-            "SELECT f.severity, f.status, "
-            "COALESCE(f.validity, 'confirmed') = 'false_positive' AS fp, COUNT(*) "
-            "FROM cloud_config_finding f "
-            "JOIN policy_report_current p ON p.binding_id = f.binding_id "
-            "GROUP BY 1, 2, 3"
-        ).fetchall()
-    finally:
-        con.close()
-    return views
+    layered = rec.preferred == "findings_current"
+    path = rec.findings_current if layered else rec.audit_json
+    if not path:
+        return layered, None, None
+    ref = report_store.to_ref(path, results)
+    return layered, ref, store.get_json(ref)
 
 
-def run_census(
-    analysis_results: Path,
-    cfg,
-    engine=None,
-    use_engine_resolve: bool = False,
-    db_path: Path | None = None,
-) -> dict:
+def run_census(analysis_results: Path, cfg, engine=None, use_engine_resolve: bool = False) -> dict:
     t0 = time.monotonic()
     if use_engine_resolve and engine is not None:
         res = engine.corpus.load_resolution()
     else:
         res = report_store.load_resolution(analysis_results, cfg)
+    store = report_store.ReportStore(report_store.LocalBackend(analysis_results))
     agg = corpus.aggregates(res)
-    db = db_path or (analysis_results / FINDINGS_DB_REL)
-    views = read_views(db, cfg)
 
-    # --- population facts: from the RESOLUTION (findings.db `repos`) --------
-    cuts: dict[str, dict] = {}
+    cuts: dict[str, dict] = {}  # ownership -> metrics
+    head_fps_by_tree: dict[str, set] = collections.defaultdict(set)
+    branch_records = []
+    parse_errors: list[str] = []
     base_paths = collections.defaultdict(set)  # basename -> report dirs
-    cloud = {"reports": 0, "with_ledger": 0}
-    container = {"reports": 0, "with_ledger": 0}
-    branch_reports = 0
 
     def cut(ownership: str) -> dict:
         return cuts.setdefault(
@@ -198,20 +137,79 @@ def run_census(
                 "head_reports": 0,
                 "md_only": 0,
                 "with_ledger": 0,
-                "head_with_ledger": 0,
                 "head_findings": 0,
                 "fp_dropped": 0,
+                "hardening": {},  # fp -> sev
+                "distinct": {},  # fp -> {"sev","open"}
             },
         )
+
+    # Declared-layer IaC audits (report_kind == "cloud-config") are a
+    # different unit (hardening-class posture, no live observation) and
+    # NEVER blend into the code-audit cuts or the distinct-vulnerability
+    # headline — they get their own labeled block.
+    cloud = {
+        "reports": 0,
+        "with_ledger": 0,
+        "findings": 0,
+        "suppressed": 0,
+        "by_severity": collections.Counter(),
+    }
+
+    # Container-image audits (report_kind == "container-audit") are a
+    # digest-keyed artifact snapshot, not a source-code unit, and their
+    # findings are often the shipped manifestation of code findings the
+    # headline already counts (source_findings cross-links) — so like
+    # cloud-config they NEVER blend into the code-audit cuts or the
+    # distinct-vulnerability headline; they get their own labeled block.
+    container = {
+        "reports": 0,
+        "with_ledger": 0,
+        "findings": 0,
+        "fp_dropped": 0,
+        "by_severity": collections.Counter(),
+    }
 
     for rec in res.records:
         if rec.report_kind == "container-audit":
             container["reports"] += 1
-            container["with_ledger"] += bool(rec.findings_current)
+            if rec.findings_current:
+                container["with_ledger"] += 1
+            try:
+                layered, _ref, rep = _preferred_report(rec, store, analysis_results)
+            except (OSError, ValueError, json.JSONDecodeError) as e:
+                parse_errors.append(f"{rec.audit_json or rec.findings_current}: {e}")
+                continue
+            if rep is None:
+                continue
+            for f in rep.get("findings") or []:
+                validity, _ = classify(f, layered)
+                if validity == "false_positive":
+                    container["fp_dropped"] += 1
+                    continue
+                container["findings"] += 1
+                sev = str(f.get("severity") or "informational").lower()
+                container["by_severity"][sev] += 1
             continue
         if rec.report_kind == "cloud-config":
             cloud["reports"] += 1
-            cloud["with_ledger"] += bool(rec.findings_current)
+            if rec.findings_current:
+                cloud["with_ledger"] += 1
+            try:
+                layered, _ref, rep = _preferred_report(rec, store, analysis_results)
+            except (OSError, ValueError, json.JSONDecodeError) as e:
+                parse_errors.append(f"{rec.audit_json or rec.findings_current}: {e}")
+                continue
+            if rep is None:
+                continue
+            for f in rep.get("findings") or []:
+                validity, _ = classify(f, layered)
+                if validity == "false_positive" or f.get("status") == "suppressed":
+                    cloud["suppressed"] += 1
+                    continue
+                cloud["findings"] += 1
+                sev = str(f.get("severity") or "informational").lower()
+                cloud["by_severity"][sev] += 1
             continue
         c = cut(rec.ownership)
         c["reports"] += 1
@@ -219,97 +217,90 @@ def run_census(
         if rec.findings_current:
             c["with_ledger"] += 1
         if rec.is_branch_audit:
-            branch_reports += 1
+            branch_records.append(rec)
             continue
         c["head_reports"] += 1
         if rec.findings_current:
-            c["head_with_ledger"] += 1
+            c["head_with_ledger"] = c.get("head_with_ledger", 0) + 1
         if rec.is_md_only and not rec.findings_current:
             c["md_only"] += 1
+            continue
 
-    # --- exposure facts: from the contract's views ---------------------------
-    # census_exposure: one row per (tree, ownership, bu, branch, kind, family,
-    # severity, class). The cuts sum HEAD code-audit rows; container rows go
-    # to their own block; policy rows are read with their status below.
-    for row in views["exposure"]:
-        if row["report_kind"] == "container-audit":
-            if row["exposure_class"] == "false_positive":
-                container["fp_dropped"] = container.get("fp_dropped", 0) + row["occurrences"]
+        try:
+            layered, _ref, rep = _preferred_report(rec, store, analysis_results)
+        except (OSError, ValueError, json.JSONDecodeError) as e:
+            parse_errors.append(f"{rec.audit_json or rec.findings_current}: {e}")
+            continue
+        if rep is None:
+            continue
+        repo_url = (rep.get("metadata") or {}).get("repository")
+
+        for f in rep.get("findings") or []:
+            validity, resolution = classify(f, layered)
+            if validity == "false_positive":
+                c["fp_dropped"] += 1
+                continue
+            key = fp_key(f, repo_url)
+            sev = str(f.get("severity") or "informational").lower()
+            if validity == "hardening":
+                prev = c["hardening"].get(key)
+                if prev is None or SEV_RANK.get(sev, 0) > SEV_RANK.get(prev, 0):
+                    c["hardening"][key] = sev
+                continue
+            head_fps_by_tree[rec.tree].add(key)
+            c["head_findings"] += 1
+            entry = c["distinct"].setdefault(key, {"sev": sev, "open": False})
+            if SEV_RANK.get(sev, 0) > SEV_RANK.get(entry["sev"], 0):
+                entry["sev"] = sev
+            if resolution not in ("resolved", "risk_accepted"):
+                entry["open"] = True
+
+    # branch pass — confirmations of HEAD findings vs branch-only findings
+    branch = {
+        "reports": len(branch_records),
+        "findings": 0,
+        "confirmations": 0,
+        "branch_only_fps": set(),
+        "parse_errors": 0,
+    }
+    for rec in branch_records:
+        try:
+            layered, _ref, rep = _preferred_report(rec, store, analysis_results)
+        except (OSError, ValueError, json.JSONDecodeError):
+            branch["parse_errors"] += 1
+            continue
+        if rep is None:
+            continue
+        repo_url = (rep.get("metadata") or {}).get("repository")
+        for f in rep.get("findings") or []:
+            validity, _ = classify(f, layered)
+            # hardening skipped like FP so "confirmations" means confirmed
+            # VULNERABILITIES — same semantics as the executive summary
+            if validity in ("false_positive", "hardening"):
+                continue
+            branch["findings"] += 1
+            key = fp_key(f, repo_url)
+            if key in head_fps_by_tree[rec.tree]:
+                branch["confirmations"] += 1
             else:
-                container["findings"] = container.get("findings", 0) + row["occurrences"]
-                sev = container.setdefault("by_severity", collections.Counter())
-                sev[str(row["severity"] or "informational").lower()] += row["occurrences"]
-            continue
-        if row["report_kind"] != CODE or row["is_branch_audit"] != 0:
-            continue
-        c = cut(row["ownership"])
-        if row["exposure_class"] == "false_positive":
-            c["fp_dropped"] += row["occurrences"]
-        elif row["exposure_class"] in ("open", "closed"):
-            c["head_findings"] += row["occurrences"]
+                branch["branch_only_fps"].add(key)
 
-    # census_distinct: one row per (ownership, kind, fingerprint, hardening)
-    # at HEAD, severity the highest by rank, open when any occurrence is.
-    for row in views["distinct"]:
-        if row["report_kind"] != CODE:
-            continue
-        c = cut(row["ownership"])
-        if row["hardening"]:
-            c["hardening_distinct"] = c.get("hardening_distinct", 0) + 1
-            continue
-        c["distinct_vulnerabilities"] = c.get("distinct_vulnerabilities", 0) + 1
-        c["distinct_open"] = c.get("distinct_open", 0) + row["open"]
-        sev = str(row["severity"] or "informational").lower()
-        c.setdefault("_sev", collections.Counter())[sev] += 1
-        if row["open"]:
-            c.setdefault("_open_sev", collections.Counter())[sev] += 1
-
+    # roll distinct maps into serialisable summaries
     for c in cuts.values():
-        c["distinct_vulnerabilities"] = c.get("distinct_vulnerabilities", 0)
-        c["distinct_open"] = c.get("distinct_open", 0)
-        c["distinct_by_severity"] = _sev_counter(c.pop("_sev", collections.Counter()))
-        c["open_by_severity"] = _sev_counter(c.pop("_open_sev", collections.Counter()))
-        c["hardening_distinct"] = c.get("hardening_distinct", 0)
+        sev_dist = collections.Counter(v["sev"] for v in c["distinct"].values())
+        open_dist = collections.Counter(v["sev"] for v in c["distinct"].values() if v["open"])
+        c["distinct_vulnerabilities"] = len(c["distinct"])
+        c["distinct_open"] = sum(v["open"] for v in c["distinct"].values())
+        c["distinct_by_severity"] = {s: sev_dist.get(s, 0) for s in SEVERITIES}
+        c["open_by_severity"] = {s: open_dist.get(s, 0) for s in SEVERITIES}
+        c["hardening_distinct"] = len(c["hardening"])
+        c.setdefault("head_with_ledger", 0)
         c["head_ledger_coverage_pct"] = (
             round(100.0 * c["head_with_ledger"] / c["head_reports"], 1)
             if c["head_reports"]
             else 0.0
         )
-
-    # Declared-layer IaC audits (report_kind == "cloud-config") are a
-    # different unit (hardening-class posture, no live observation) and
-    # NEVER blend into the code-audit cuts or the distinct-vulnerability
-    # headline — they get their own labeled block. Suppressed checks and
-    # false positives are reported apart from findings.
-    cloud.update({"findings": 0, "suppressed": 0, "by_severity": collections.Counter()})
-    for severity, status, fp, n in views["policy_status"]:
-        if fp or status == "suppressed":
-            cloud["suppressed"] += n
-            continue
-        cloud["findings"] += n
-        cloud["by_severity"][str(severity or "informational").lower()] += n
-
-    # Container-image audits (report_kind == "container-audit") are a
-    # digest-keyed artifact snapshot, not a source-code unit; like
-    # cloud-config they NEVER blend into the code-audit cuts.
-    container.setdefault("findings", 0)
-    container.setdefault("fp_dropped", 0)
-    container.setdefault("by_severity", collections.Counter())
-
-    # census_branch: branch re-audit findings vs HEAD confirmations, per tree.
-    # branch_only_distinct is per tree; an identity branch-only in two trees
-    # is counted once per tree.
-    branch_rows = [r for r in views["branch"] if r["report_kind"] == CODE]
-    branch = {
-        "reports": branch_reports,
-        "findings": sum(r["branch_findings"] for r in branch_rows),
-        "confirmations": sum(r["head_confirmations"] for r in branch_rows),
-        "branch_only_distinct": sum(r["branch_only_distinct"] for r in branch_rows),
-    }
-
-    meta = views["meta"]
-    rejected = int(meta.get("ingest_rejected") or 0)
-    reasons = json.loads(meta.get("ingest_reasons") or "{}")
+        del c["distinct"], c["hardening"]
 
     dup_basenames = {b: sorted(ps) for b, ps in base_paths.items() if len(ps) > 1}
     file_aliases = [
@@ -334,8 +325,8 @@ def run_census(
             "reports": branch["reports"],
             "findings": branch["findings"],
             "head_confirmations": branch["confirmations"],
-            "branch_only_distinct": branch["branch_only_distinct"],
-            "parse_errors": rejected,
+            "branch_only_distinct": len(branch["branch_only_fps"]),
+            "parse_errors": branch["parse_errors"],
         },
         "v3_layered_artifacts": {
             "with_triage": sum(bool(r.triage_json) for r in res.records),
@@ -359,15 +350,6 @@ def run_census(
         "generated": datetime.now(UTC).isoformat(timespec="seconds"),
         "harness_version": corpus.harness_version(),
         "analysis_results": str(analysis_results),
-        "storage": {
-            "db": str(db),
-            "built_at": meta.get("built_at"),
-            "storage_revision": meta.get("storage_revision"),
-            "schema_revision": meta.get("schema_revision"),
-            "artifacts_accepted": int(meta.get("ingest_accepted") or 0),
-            "artifacts_rejected": rejected,
-            "rejection_reasons": reasons,
-        },
         "population": {"trees": agg["trees"], "totals": agg["totals"]},
         "ownership_cuts": cuts,
         "cloud_config": {
@@ -375,21 +357,19 @@ def run_census(
             "with_ledger": cloud["with_ledger"],
             "findings": cloud["findings"],
             "suppressed": cloud["suppressed"],
-            "by_severity": _sev_counter(cloud["by_severity"]),
+            "by_severity": {s: cloud["by_severity"].get(s, 0) for s in SEVERITIES},
         },
         "container_audit": {
             "reports": container["reports"],
             "with_ledger": container["with_ledger"],
             "findings": container["findings"],
             "fp_dropped": container["fp_dropped"],
-            "by_severity": _sev_counter(container["by_severity"]),
+            "by_severity": {s: container["by_severity"].get(s, 0) for s in SEVERITIES},
         },
         "duplication": duplication,
-        "warnings": list(res.warnings),
-        # Artifacts the contract rejected are in none of the views. They are
-        # the census's parse gap now: listed by reason, counted once.
-        "parse_errors": [f"{n}x {reason}" for reason, n in reasons.items()],
-        "parse_error_count": rejected,
+        "warnings": res.warnings,
+        "parse_errors": parse_errors[:50],
+        "parse_error_count": len(parse_errors),
         "runtime_seconds": round(time.monotonic() - t0, 1),
         "_resolution": res,  # stripped before JSON write
     }
@@ -419,15 +399,6 @@ def render_md(cen: dict, cfg: dict, trend: str = "") -> str:
     ]
     if trend:
         lines += [trend, ""]
-    st = cen.get("storage") or {}
-    if st:
-        lines += [
-            f"_Exposure read from storage/v1 census views in `{Path(st['db']).name}` "
-            f"(built {st.get('built_at')}, storage revision {st.get('storage_revision')}; "
-            f"{st.get('artifacts_accepted', 0):,} artifacts accepted, "
-            f"{st.get('artifacts_rejected', 0):,} rejected by the contract)._",
-            "",
-        ]
     lines += [
         "## Executive view — Hybrid Platforms (owned)",
         "",
@@ -543,8 +514,7 @@ def render_md(cen: dict, cfg: dict, trend: str = "") -> str:
         "",
         f"- md-only audit reports (invisible to JSON consumers): "
         f"{cen['population']['totals']['md_only']}",
-        f"- Artifacts rejected by the contract (absent from every view): "
-        f"{cen['parse_error_count']}",
+        f"- JSON parse errors this run: {cen['parse_error_count']}",
     ]
     lv = cen.get("repo_liveness")
     if lv:
@@ -577,8 +547,7 @@ def render_md(cen: dict, cfg: dict, trend: str = "") -> str:
             unit="reports; distinct vulnerabilities = unique finding fingerprints at HEAD",
             filters="false positives dropped; hardening separate; "
             "branch re-audits reported as confirmations",
-            denominator="corpus-config.yaml resolution (findings.db `repos`); "
-            "exposure from storage/v1 census views",
+            denominator="corpus-config.yaml tree walk (findings.db `repos`)",
         ),
     ]
     return "\n".join(lines) + "\n"
@@ -780,12 +749,6 @@ def main(argv=None) -> int:
         help="deprecated; use --results-root / config instead",
     )
     ap.add_argument("--out-dir", type=Path, default=None)
-    ap.add_argument(
-        "--db",
-        type=Path,
-        default=None,
-        help="findings.db to read the census views from (default: <results-root>/graph/findings.db)",
-    )
     ap.add_argument("--config", type=Path, default=None)
     ap.add_argument("--summary", action="store_true")
     ap.add_argument(
@@ -807,7 +770,7 @@ def main(argv=None) -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
 
     cfg = corpus.load_config(args.config) if args.config else engine.corpus.config()
-    cen = run_census(analysis_results, cfg, engine=engine, use_engine_resolve=True, db_path=args.db)
+    cen = run_census(analysis_results, cfg, engine=engine, use_engine_resolve=True)
     res = cen.pop("_resolution")
 
     # Repo liveness (Phase 7): population metadata from the collector's
