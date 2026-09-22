@@ -118,8 +118,9 @@ artifacts above and can be deleted without losing anything.
 
 - **Markdown renderings** (`python3 -m traust.cli reporting render`) — the
   `.md` beside every JSON artifact.
-- **`findings.db`** — a SQLite projection over every ledger and report, for
-  corpus-shaped queries and as a read-only accelerator; never a write target
+- **`findings.db`** — the traust-contracts storage/v1 store on SQLite, built
+  from every artifact the contract declares, for corpus-shaped queries through
+  the contract's views and as a read-only accelerator; never a write target
   ([disposition-ledger.md](disposition-ledger.md) §11b).
 - **SARIF 2.1.0** (`python3 -m traust.cli reporting sarif`) — the standard
   interchange format, for whatever dashboard, viewer or aggregator the adopter

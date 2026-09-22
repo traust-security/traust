@@ -823,9 +823,10 @@ only the three `secure*audit` skills may write a baseline:
 ## 11b. findings.db — the SQL window, never the ledger
 
 There **is** a single place to query every finding with SQL:
-`analysis-results/graph/findings.db`, a SQLite **projection** built by
-python3 -m traust.cli corpus findings-db (the `/findings-db` skill) over all the
-per-repo ledgers and reports, rebuilt by `/census`. It answers
+`analysis-results/graph/findings.db`, the traust-contracts storage/v1 store
+on SQLite — a **projection** built by python3 -m traust.cli corpus findings-db
+(the `/findings-db` skill) over all the per-repo ledgers and reports,
+rebuilt by `/census`, and read through the contract's views. It answers
 corpus-shaped questions ("open criticals by business unit", "distinct
 CWE-1104 exposure") in one query instead of walking ~8k JSON files,
 and several harness tools use it as an accelerator (diff-mode baseline

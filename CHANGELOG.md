@@ -2,6 +2,48 @@
 
 All notable changes to Traust are documented here.
 
+## [0.3.0]
+
+## Changes
+
+- **`findings.db` is storage/v1 on SQLite, and the census reads the contract's
+  views.** `traust corpus findings-db` (engine 0.15.0) now builds the
+  traust-contracts storage/v1 store — the same tables and views a PostgreSQL
+  adopter reads — plus the five harness-defined tables that have no contract
+  home yet (`repos`, `graph_edges`, `provenance`, `decisions`, `meta`). The
+  legacy `findings`, `events`, `validations`, `impact` tables and `v_open`,
+  `v_hardening`, `v_distinct_owned` views are gone.
+
+  Every consumer of those tables reads the contract now: the rescan worklist
+  and crown-jewel tiering read `open_findings`; the compliance collector reads
+  `open_findings` joined to the spine; the cloud-config lane of the harness
+  metrics and the unit-economics counts read `current_finding`; the SLA view
+  reads `layer_event` and `current_finding` (engine). The `/findings-db` skill
+  documents the views. Crown-jewel tiering counted open findings with a
+  resolution predicate that named a value no enum contains
+  (`in_progress`), which excluded partial fixes and regressions; the view's
+  predicate includes them.
+
+- **`/census` is view-generated (dashboard plan step 4b.2).** `build_census.py`
+  no longer reads a single report: exposure comes from `census_exposure`,
+  `census_distinct` and `census_branch`; population and duplication facts
+  come from the corpus resolution as before. Reconciled against a fresh
+  legacy run on the full corpus: every owned, upstream, cloud-config and
+  container figure identical; the external-bu cut differs by five distinct
+  findings, all plain audits whose findings self-declare `hardening` or
+  `false_positive` in `validation_status` with no ledger behind them (the
+  legacy census honoured that, the contract spine does not — decision D8 in
+  the plan). Artifacts the contract rejects are reported as the census's
+  parse gap (`storage.artifacts_rejected`, from `findings.db` `meta`) rather
+  than counted around. New `--db` option.
+
+### Upgrading
+
+Pins: contracts 0.34.0 (storage `REVISION` 16), engine 0.15.0, ledger 0.6.31.
+Rebuild `findings.db` before running any consumer — a store from the previous
+harness is refused. The build takes minutes and the file is several GB
+because the store retains exact artifact evidence, as the contract specifies.
+
 ## [0.2.13]
 
 - **The reachability graphs now say what they are for**, not just what they

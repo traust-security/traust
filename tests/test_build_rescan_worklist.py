@@ -364,10 +364,16 @@ CREATE TABLE repos (
   base_slug TEXT, ref TEXT, repo_url TEXT, is_branch_audit INTEGER,
   is_md_only INTEGER, preferred TEXT, report_kind TEXT,
   report_path TEXT, audit_date TEXT);
-CREATE TABLE findings (
-  repo_key TEXT, finding_id TEXT, severity TEXT, validity TEXT,
-  resolution TEXT, validation_status TEXT);
+CREATE TABLE open_findings (
+  scope_id TEXT, subject_id TEXT, run_id TEXT, finding_id TEXT,
+  severity TEXT, validity TEXT, resolution TEXT, family TEXT);
 """
+
+# The contract's open predicate, applied when the fixture inserts: the real
+# open_findings view carries only findings not affirmatively closed, not
+# false positive, not hardening.
+_NON_EXPOSURE = {"false_positive", "hardening"}
+_CLOSED = {"resolved", "risk_accepted"}
 
 
 def _mk_db(tmp_path, repos, findings):
@@ -398,11 +404,16 @@ def _mk_db(tmp_path, repos, findings):
             ),
         )
     for f in findings:
+        if (f.get("validity") or "confirmed") in _NON_EXPOSURE:
+            continue
+        if (f.get("resolution") or "open") in _CLOSED:
+            continue
         con.execute(
-            "INSERT INTO findings (repo_key, finding_id, severity,"
-            " validity, resolution) VALUES (?,?,?,?,?)",
+            "INSERT INTO open_findings (scope_id, subject_id, run_id, finding_id,"
+            " severity, validity, resolution, family) VALUES ('local',?,?,?,?,?,?,'code')",
             (
                 f["repo_key"],
+                f"corpus:run:{f['repo_key']}",
                 f.get("finding_id", "F-1"),
                 f.get("severity", "high"),
                 f.get("validity", ""),

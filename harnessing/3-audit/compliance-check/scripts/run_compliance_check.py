@@ -135,10 +135,19 @@ def findings_db_views(db_path: Path, repos: list[str]) -> dict:
     like = [f"%github.com/{r}" for r in repos] or ["%"]
     rows = []
     for pat in like:
+        # open_findings is the contract's open-exposure view; the spine
+        # (current_finding) carries cwes, of which the first is the
+        # primary CWE the control predicates key on.
         rows += con.execute(
-            "SELECT f.finding_id, f.severity, f.primary_cwe, "
-            "f.validity, f.repo_key FROM v_open f JOIN repos r "
-            "USING (repo_key) WHERE COALESCE(r.repo_url,'') LIKE ?",
+            "SELECT o.finding_id, o.severity, "
+            "json_extract(c.cwes, '$[0]') AS primary_cwe, "
+            "o.validity, o.subject_id AS repo_key "
+            "FROM open_findings o "
+            "JOIN current_finding c ON c.scope_id = o.scope_id "
+            "AND c.subject_id = o.subject_id AND c.run_id IS o.run_id "
+            "AND c.finding_id = o.finding_id AND c.family = o.family "
+            "JOIN repos r ON r.repo_key = o.subject_id "
+            "WHERE COALESCE(r.repo_url,'') LIKE ?",
             (pat,),
         ).fetchall()
     con.close()

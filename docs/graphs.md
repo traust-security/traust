@@ -86,10 +86,13 @@ exposure), `/drift-watch` (staleness), plus `cli/build_rescan_worklist`
 
 ## Not a graph: `findings.db`
 
-`findings.db` sits in the same directory and is **not** a graph — it is a
-relational projection of the findings corpus (`findings`, `events`,
-`decisions`, `validations`, `repos`, `impact`, `provenance`, plus views),
-queried via [`/findings-db`](../harnessing/findings-db/SKILL.md).
+`findings.db` sits in the same directory and is **not** a graph — it is the
+traust-contracts storage/v1 store on SQLite: the contract's tables and views
+(`report_finding`, `layer_event`, `validation_finding`, `impact_repo`,
+`current_finding`, `open_findings`, …) populated from the artifact tree, plus
+the harness-defined `repos`, `graph_edges`, `provenance`, `decisions` and
+`meta`. Queried via [`/findings-db`](../harnessing/findings-db/SKILL.md);
+the same views serve a PostgreSQL adopter unchanged.
 
 It is called out here only because its location invites the assumption. One
 table inside it, `graph_edges`, *is* imported from repo-graph so findings can

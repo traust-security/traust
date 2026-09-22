@@ -350,16 +350,15 @@ def campaign_counts(db_path: Path) -> dict:
             ).fetchone()[0]
             or 0
         )
-        cols = {r[1] for r in con.execute("PRAGMA table_info(findings)")}
-        sev = "severity" if "severity" in cols else None
-        out["findings"] = con.execute("SELECT COUNT(*) FROM findings").fetchone()[0] or 0
-        if sev:
-            out["crit_high"] = (
-                con.execute(
-                    f"SELECT COUNT(*) FROM findings WHERE lower({sev}) IN ('critical','high')"
-                ).fetchone()[0]
-                or 0
-            )
+        # current_finding is the contract's spine: one row per current
+        # finding, both families, unfiltered on disposition.
+        out["findings"] = con.execute("SELECT COUNT(*) FROM current_finding").fetchone()[0] or 0
+        out["crit_high"] = (
+            con.execute(
+                "SELECT COUNT(*) FROM current_finding WHERE lower(severity) IN ('critical','high')"
+            ).fetchone()[0]
+            or 0
+        )
     except sqlite3.Error:
         pass
     finally:

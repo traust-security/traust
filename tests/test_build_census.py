@@ -1,5 +1,11 @@
-"""Tests for harnessing/census/scripts/build_census.py — the corpus census."""
+"""Tests for harnessing/census/scripts/build_census.py — the corpus census.
 
+The census reads storage/v1 views out of findings.db, so the fixture builds
+that store from CONTRACT-VALID artifacts (a report the schema rejects is in
+none of the views, which the census then reports as a rejection).
+"""
+
+import hashlib
 import importlib.util
 import json
 import os
@@ -7,6 +13,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from traust_engine.corpus import findings_db
 
 from traust.context import load_engine
 from traust.paths import skill_dir
@@ -36,20 +43,74 @@ engagements:
 """
 
 
-def _report(repo_url, findings):
-    return {"metadata": {"repository": repo_url}, "findings": findings}
+def _fp(name: str) -> str:
+    """A contract-shaped fingerprint (64 hex) that is stable per name."""
+    return hashlib.sha256(name.encode()).hexdigest()
 
 
-def _finding(fid, sev, fp, validation_status=None):
+def _report(repo_url, findings, *, disposition_aware=False):
+    """A report.schema.json-valid document: the minimum the contract accepts."""
+    document = {
+        "title": "Security audit",
+        "metadata": {"date": "2026-06-01", "scope": "repository", "repository": repo_url},
+        "executive_summary": {
+            "prose": "p" * 50,
+            "severity_counts": {
+                "critical": 0,
+                "high": 0,
+                "medium": 0,
+                "low": 0,
+                "informational": 0,
+            },
+        },
+        "severity_criteria": [
+            {"level": level, "definition": "d" * 20}
+            for level in ("critical", "high", "medium", "low")
+        ],
+        "findings": findings,
+        "findings_summary": [
+            {"severity": level, "count": 0, "finding_ids": []}
+            for level in ("critical", "high", "medium", "low")
+        ],
+        "remediation_roadmap": [{"priority": "1", "action": "a" * 10, "addresses": ["x"]}],
+    }
+    if disposition_aware:
+        # report_current prefers the disposition-aware restatement.
+        document["disposition_summary"] = {
+            "layer_ref": "findings-layer.json",
+            "generated_at": "2026-07-01T00:00:00Z",
+            "by_resolution": {
+                "open": 0,
+                "fix_in_progress": 0,
+                "resolved": 0,
+                "partially_resolved": 0,
+                "risk_accepted": 0,
+                "regression_introduced": 0,
+            },
+            "by_validity": {"confirmed": 0, "corrected": 0, "false_positive": 0, "not_verified": 0},
+        }
+    return document
+
+
+def _finding(fid, sev, fp, validation_status=None, disposition=None):
     f = {
         "id": fid,
+        "title": f"Finding {fid}",
         "severity": sev,
-        "fingerprint": fp,
+        "fingerprint": _fp(fp),
         "cwes": ["CWE-287"],
         "locations": [{"path": "pkg/a.go"}],
+        "description": "x" * 50,
+        "remediation": "r" * 20,
     }
     if validation_status:
         f["validation_status"] = validation_status
+    if disposition:
+        f["disposition"] = {
+            **disposition,
+            "last_updated": "2026-07-01T00:00:00Z",
+            "events": [],
+        }
     return f
 
 
@@ -64,7 +125,9 @@ def workspace(tmp_path):
     cfg_path.write_text(CONFIG, encoding="utf-8")
     ar = tmp_path / "analysis-results"
 
-    # repo1 (owned, HEAD): plain audit — 1 vuln, 1 hardening, 1 FP
+    # repo1 (owned, HEAD): plain audit — 1 vuln, plus one finding the AUDIT
+    # itself calls hardening and one it calls a false positive
+    # (validation_status, no ledger). See test_undispositioned_self_classification.
     _write(
         ar / "findings/prodA/repo1/repo1-security-audit.json",
         _report(
@@ -103,19 +166,26 @@ def workspace(tmp_path):
     fc = _report(
         "https://github.com/org/repo2",
         [
-            dict(
-                _finding("R2-001", "critical", "fp-r2-crit"),
+            _finding(
+                "R2-001",
+                "critical",
+                "fp-r2-crit",
                 disposition={"validity": "confirmed", "resolution": "open"},
             ),
-            dict(
-                _finding("R2-002", "medium", "fp-r2-fixed"),
+            _finding(
+                "R2-002",
+                "medium",
+                "fp-r2-fixed",
                 disposition={"validity": "confirmed", "resolution": "resolved"},
             ),
-            dict(
-                _finding("R2-003", "high", "fp-r2-fp"),
+            _finding(
+                "R2-003",
+                "high",
+                "fp-r2-fp",
                 disposition={"validity": "false_positive", "resolution": "open"},
             ),
         ],
+        disposition_aware=True,
     )
     _write(ar / "findings/prodA/repo2/repo2-findings-current.json", fc)
     (ar / "findings/prodA/repo2/repo2-triage.json").write_text("{}")
@@ -128,7 +198,7 @@ def workspace(tmp_path):
     )
     (linkdir / "repo2-findings-current.json").write_text("{}")
 
-    # same severity fingerprint seen at two severities -> max wins
+    # same fingerprint seen at two severities -> highest by rank wins
     _write(
         ar / "findings/prodA/repo3/repo3-security-audit.json",
         _report(
@@ -156,26 +226,50 @@ def workspace(tmp_path):
         ),
     )
 
-    return ar, bc.corpus.load_config(cfg_path)
+    cfg = bc.corpus.load_config(cfg_path)
+    # The census reads the storage/v1 views; build the store the way the
+    # projection stage does.
+    findings_db.build(ar, ar / "graph" / "findings.db", cfg=cfg)
+    return ar, cfg
 
 
 def test_ownership_cuts(workspace):
     ar, cfg = workspace
     cen = bc.run_census(ar, cfg)
     owned = cen["ownership_cuts"]["owned"]
-    # distinct: fp-r1-vuln, fp-r2-crit, fp-r2-fixed, fp-shared-sev
-    assert owned["distinct_vulnerabilities"] == 4
-    # fp-r2-fixed resolved -> open: r1-vuln, r2-crit, shared-sev
-    assert owned["distinct_open"] == 3
+    # distinct at HEAD: fp-r1-vuln, fp-r1-hard, fp-r1-fp (see the
+    # self-classification test), fp-r2-crit, fp-r2-fixed, fp-shared-sev
+    assert owned["distinct_vulnerabilities"] == 6
+    # fp-r2-fixed resolved -> not open
+    assert owned["distinct_open"] == 5
     assert owned["distinct_by_severity"]["critical"] == 2  # r2-crit + max(shared)
-    assert owned["distinct_by_severity"]["high"] == 1
-    assert owned["distinct_by_severity"]["low"] == 0  # max-severity wins
-    assert owned["hardening_distinct"] == 1
-    assert owned["fp_dropped"] == 2  # audit FP + ledger FP
+    assert owned["distinct_by_severity"]["high"] == 2  # r1-vuln, r1-fp
+    assert owned["distinct_by_severity"]["low"] == 0  # highest severity by rank wins
+    assert owned["fp_dropped"] == 1  # the ledger's false positive (R2-003)
     assert owned["md_only"] == 1
+    assert owned["head_reports"] == 4  # repo1, repo2, repo3, mdonly
     up = cen["ownership_cuts"]["upstream"]
     assert up["distinct_vulnerabilities"] == 1
     assert "external-bu" not in cen["ownership_cuts"]  # no such tree here
+
+
+def test_undispositioned_self_classification(workspace):
+    """A plain audit's own `validation_status` does not reach the spine.
+
+    R1-002 calls itself hardening and R1-003 a false positive, with no ledger
+    behind either. The contract's `current_finding` classifies on
+    `disposition.validity` alone, so both count as open vulnerabilities here.
+    The legacy census honoured `validation_status` when no disposition
+    existed (hardening 1, fp_dropped 2 on this fixture); the report schema
+    defines those values, so whether the spine should fall back to them is
+    decision D8 in the dashboard plan. This test pins the CURRENT contract
+    behaviour so the choice is made deliberately, not by drift.
+    """
+    ar, cfg = workspace
+    cen = bc.run_census(ar, cfg)
+    owned = cen["ownership_cuts"]["owned"]
+    assert owned["hardening_distinct"] == 0
+    assert owned["fp_dropped"] == 1
 
 
 def test_branch_confirmations(workspace):
@@ -187,29 +281,47 @@ def test_branch_confirmations(workspace):
     assert v2["head_confirmations"] == 1  # fp-r1-vuln matches HEAD
     assert v2["branch_only_distinct"] == 1  # fp-r1-branch-only
     # branch findings never enter the distinct headline
-    assert "fp-r1-branch-only" not in json.dumps(cen["ownership_cuts"]["owned"])
+    assert cen["ownership_cuts"]["owned"]["distinct_vulnerabilities"] == 6
 
 
 def test_duplication_vectors(workspace):
     ar, cfg = workspace
     cen = bc.run_census(ar, cfg)
+    # Symlink aliases are a WALK-time fact. With findings.db present the
+    # resolution is rehydrated from `repos`, which carries records and not
+    # aliases, so the index path reports zero -- exactly what the production
+    # census has reported since it preferred the index (2026-08-20). Pinned
+    # here so the gap is visible; a walk (prefer_index=False) still finds
+    # the prodB/repo2 alias.
     v1 = cen["duplication"]["v1_symlink_aliases"]
-    assert v1["file_aliases"] == 1
-    assert v1["canonical_targets"] == 1
-    assert v1["ledgers_attached_to_aliases"] == 1
+    assert v1["file_aliases"] == 0
+    walked = bc.report_store.load_resolution(ar, cfg, prefer_index=False)
+    assert sum(1 for a in walked.aliases if a["kind"] == "file") == 1
     v3 = cen["duplication"]["v3_layered_artifacts"]
     assert v3["with_triage"] == 1
     # repo1 head, repo1 branch, repo2, repo3, mdonly, uprepo = 6 reports
     assert v3["reports"] == 6
     assert cen["duplication"]["v5_duplicate_basenames"]["basenames"] == 0
-    assert cen["parse_error_count"] == 0
+
+
+def test_rejections_are_reported_not_hidden(workspace):
+    """An artifact the contract refuses is in none of the views; the census
+    says how many, and why, rather than counting around it. repo2's `{}`
+    triage is the one rejection this fixture carries."""
+    ar, cfg = workspace
+    cen = bc.run_census(ar, cfg)
+    assert cen["parse_error_count"] == cen["storage"]["artifacts_rejected"] == 1
+    assert cen["storage"]["artifacts_accepted"] >= 5
+    assert any("required" in reason for reason in cen["storage"]["rejection_reasons"])
+    assert cen["storage"]["storage_revision"] and cen["storage"]["built_at"]
 
 
 def test_renderers_and_registered_engagements(workspace):
     ar, cfg = workspace
     cen = bc.run_census(ar, cfg)
     md = bc.render_md(cen, cfg)
-    assert "Distinct vulnerabilities: 4 (3 open)" in md
+    assert "Distinct vulnerabilities: 6 (5 open)" in md
+    assert "storage/v1 census views" in md
     assert "registered, no output" in md  # contoso reserved row
     assert "## Duplication vectors" in md
     assert "## Population" in md  # standard block embedded
@@ -235,12 +347,19 @@ def test_per_ref_breakdown_in_outputs(workspace):
     assert "<code>release-4.19</code>" in html
 
 
-def test_classify():
-    assert bc.classify({"validation_status": "hardening"}, False) == ("hardening", "open")
-    assert bc.classify(
-        {"disposition": {"validity": "false_positive", "resolution": "open"}}, True
-    ) == ("false_positive", "open")
-    assert bc.classify({}, False) == ("not_verified", "open")
+def test_a_stale_store_is_refused(workspace, tmp_path):
+    """A findings.db from another revision is refused, never read."""
+    ar, cfg = workspace
+    import sqlite3
+
+    stale = tmp_path / "stale.db"
+    con = sqlite3.connect(stale)
+    con.execute("CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT)")
+    con.execute("INSERT INTO meta VALUES ('schema_revision', '3')")
+    con.commit()
+    con.close()
+    with pytest.raises(findings_db.StaleFindingsDb):
+        bc.run_census(ar, cfg, db_path=stale)
 
 
 @pytest.mark.skipif(
@@ -255,4 +374,5 @@ def test_live_smoke():
     assert owned["distinct_vulnerabilities"] > 5000
     assert owned["distinct_open"] <= owned["distinct_vulnerabilities"]
     assert cen["duplication"]["v2_branch_reaudits"]["reports"] > 1000
-    assert cen["parse_error_count"] == 0
+    # Rejections are reported from the store, never zeroed by the census.
+    assert cen["parse_error_count"] == cen["storage"]["artifacts_rejected"]

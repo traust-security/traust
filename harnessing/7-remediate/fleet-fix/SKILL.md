@@ -88,7 +88,7 @@ record.
 > **Optional accelerator — findings-db candidate listing.** When scoping
 > a fleet by finding state rather than pattern/module (e.g. "every repo
 > with an open finding matching this fingerprint"), the C9 projection
-> answers in one query (`/findings-db`, `v_open` + `graph_edges`). Use
+> answers in one query (`/findings-db`, `open_findings` + `graph_edges`). Use
 > it to *shortlist*, then feed the repos through `fleet_targets.py
 > --repos …` so the target list of record still carries the standard
 > enrichment — and confirm finding state against the live ledger before
