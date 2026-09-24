@@ -1,5 +1,12 @@
 # storage/v1 DDL — table model
 
+<!-- GENERATED FILE — do not edit by hand; edits are overwritten on the next run.
+     Regenerate from a traust-contracts checkout whenever the storage/v1 DDL changes:
+       python -m traust_contracts.v1.storage.build_storage_ddl_model \
+         --out ../traust/docs/storage-v1-ddl-model.md
+     To change the prose, edit
+     src/traust_contracts/v1/storage/build_storage_ddl_model.py, then regenerate. -->
+
 **43 tables, 30 views, two dialects.** SQLite and
 PostgreSQL declare the same tables, the same column names, in the same
 order — verified by the generator, zero differences. Only TYPES diverge where the dialect
