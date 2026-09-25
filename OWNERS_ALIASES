@@ -1,0 +1,14 @@
+# Kept in sync with the traust-admins GitHub team
+# (https://github.com/orgs/traust-security/teams/traust-admins), which also gates
+# merges via branch protection (CODEOWNERS + required code-owner review).
+aliases:
+  traust-admins:
+    - chubirka
+    - girish1430
+    - gurnben
+    - JGiola
+    - Kyl-Bempah
+    - pshickeydev
+    - rhmdnd
+    - smith-xyz
+    - wcmitchell
