@@ -1,0 +1,5 @@
+# Prow (openshift-ci) approval config; see OWNERS_ALIASES for membership.
+approvers:
+  - traust-admins
+reviewers:
+  - traust-admins
