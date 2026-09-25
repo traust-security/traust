@@ -141,6 +141,15 @@ def add_safe_exec_args(ap) -> None:
         )
         p.add_argument("--timeout", type=int, default=120)
         p.add_argument("--cwd", default=None)
+        p.add_argument(
+            "--allowed-host",
+            action="append",
+            default=[],
+            metavar="HOST",
+            dest="allowed_hosts",
+            help="extra curl host for this invocation (repeatable); unions "
+            "with the profile's curl_allowed_hosts",
+        )
         p.add_argument("cmd", nargs="*", help="argv form (after --)")
     sub.add_parser("list-profiles", help="list configured safe_exec profiles")
 
@@ -149,9 +158,15 @@ def call_safe_exec(engine, args) -> int:
     profile_map = engine.adapters.safe_exec_profile_map()
     if args.safe_exec_mode == "list-profiles":
         for name, profile in sorted(profile_map.items()):
+            hosts = (
+                f"{len(profile.curl_allowed_hosts)} listed"
+                if profile.curl_allowed_hosts
+                else "none listed"
+            )
             print(
-                f"{name:18s} allow={sorted(profile.allow)} "
-                f"pipelines={profile.allow_pipelines} — {profile.description}"
+                f"{name:18s} posture={profile.posture} allow={sorted(profile.allow)} "
+                f"pipelines={profile.allow_pipelines} "
+                f"curl_hosts={hosts} — {profile.description}"
             )
         return 0
 
@@ -160,13 +175,18 @@ def call_safe_exec(engine, args) -> int:
         print("pass either --string or argv, not both", file=sys.stderr)
         return 2
     cmd = args.string if args.string is not None else args.cmd
+    allowed_hosts = tuple(args.allowed_hosts or ())
     if isinstance(cmd, str):
         verdict = safe_exec.vet_command_string(
-            cmd, safe_exec.get_profile(args.profile, profile_map=profile_map)
+            cmd,
+            safe_exec.get_profile(args.profile, profile_map=profile_map),
+            allowed_hosts=allowed_hosts,
         )
     else:
         verdict = safe_exec.validate_argv(
-            list(cmd), safe_exec.get_profile(args.profile, profile_map=profile_map)
+            list(cmd),
+            safe_exec.get_profile(args.profile, profile_map=profile_map),
+            allowed_hosts=allowed_hosts,
         )
 
     if args.safe_exec_mode == "check":
@@ -194,6 +214,7 @@ def call_safe_exec(engine, args) -> int:
             cwd=args.cwd,
             honor_bypass=True,
             profile_map=profile_map,
+            allowed_hosts=allowed_hosts,
         )
     sys.stdout.write(out or "")
     sys.stderr.write(err or "")

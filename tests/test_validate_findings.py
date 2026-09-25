@@ -1105,7 +1105,9 @@ class TestAdaptedStep:
         assert step.verb == "port-forward+http"
         assert step.target["path"] == "/api/dev-console/webhooks/a"
         assert step.target["namespace"] == "openshift-console"
-        assert "vf-http-status" in step.cmd
+        assert step.cmd is None
+        assert step.target["http"]["method"] == "POST"
+        assert step.target["http"]["path"] == "/api/dev-console/webhooks/a"
 
     def test_unknown_cwe_no_step(self):
         f = Finding(id="F1", title="test", severity="low", cwes=["CWE-999"])

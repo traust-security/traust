@@ -16,15 +16,36 @@ expires: 2026-07-01       # harness aborts if today > expires
 # --- Kubernetes / OpenShift ---------------------------------------------
 clusters:
   - context: lab-hub                       # kubeconfig context name
-    api: https://api.hub.lab.example:6443  # informational only
+    api: https://api.hub.lab.example:6443  # also seeds safe_exec's curl host allowlist
     namespaces:
       - ramen-ops
       - ramen-system
       - openshift-dr-*                     # globs OK
     verbs_denied: [delete]                 # even in-scope, never delete
+    http_discovery:
+      routes:
+        - namespace: ramen-system
+          names: [ramen]
+          domains: [apps.hub.lab.example]
+          credentials: false
+      nodes:
+        names: [worker-0]
+        networks: [10.0.128.0/24, "fd00:128::/64"]
+        address_types: [InternalIP]
+        credentials: false
+      port_forward_credentials: false
+      kube_env: []
 
   - context: lab-spoke-1
     namespaces: ["*"]                      # full namespace access on spoke
+
+http_targets:
+  - context: lab-hub
+    host: https://ramen.apps.hub.lab.example
+    namespace: ramen-system
+    resource: routes
+    name: ramen
+    credentials: false
 
 # --- Running containers (podman/docker) ---------------------------------
 containers:
