@@ -2,6 +2,15 @@
 
 All notable changes to Traust are documented here.
 
+## [0.11.1]
+
+- **Stage-7 patch evidence is findable from `/patch`.** `remediate-finding`
+  gains an `## Integrations` section naming its mutation (Phase 4b) and
+  property (Phase 4c) evidence producers and the stage-8
+  `scanner_differential`; `/patch` points to all three; the skill's heading
+  said Stage 9 and now says Stage 7. `docs/artifacts.md` no longer claims
+  `/verify-remediation` reads `*-remediation.json`.
+
 ## [0.3.0]
 
 ## Changes

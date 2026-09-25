@@ -437,6 +437,12 @@ EXEMPTIONS: dict[tuple[str, str], str] = {
     "the -plan. auto-exemption (2026-07-31 A9/A10 rework)",
     (
         "A9",
+        "remediate-finding:*-remediation.json",
+    ): "human-review record of one fix on a private fork; /verify-remediation "
+    "re-checks the fork or MR, not this JSON. Surfaced 2026-09-25 when the "
+    "skill gained its Integrations section",
+    (
+        "A9",
         "security-audit-phased:phase4-final.json",
     ): "terminal report of the phased lane; enters the pipeline via /triage generic JSON ingest",
     (

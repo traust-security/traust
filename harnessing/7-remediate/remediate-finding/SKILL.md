@@ -48,7 +48,7 @@ allowed-tools:
   - Bash(python3 *-m traust.cli reporting validate:*)
 ---
 
-# Remediate Finding — Automated Patching Harness (Stage 9)
+# Remediate Finding — Automated Patching Harness (Stage 7)
 
 > **Paths.** `analysis-results/…` and `progress-tracker/…` in this skill are the
 > default workspace layout. They resolve through `locations.yaml` in
@@ -335,7 +335,8 @@ python3 harnessing/7-remediate/remediate-finding/scripts/emit_remediation_report
   --behaviour "<user-visible change or 'none'>" \
   --residual "<anything deliberately not fixed>" \
   --tests-added "<pkg/foo_test.go:TestX>" \
-  [--evidence <out>/mutation-evidence.json]
+  [--evidence <out>/mutation-evidence.json] \
+  [--evidence <out>/property-evidence.json]
 
 python3 -m traust.cli reporting validate \
   --schema contracts/schemas/remediation.schema.json \
@@ -403,6 +404,38 @@ asked to close the loop:
    (`before_verdict`, `after_verdict`, `fixed`, `image_ref`,
    `validation_report_path`) and update status to
    `revalidated_fixed` or `revalidated_still_vulnerable`.
+
+---
+
+## Integrations
+
+**Consumes:** one row of `remediation-manifest.csv` (built by
+`scripts/build_remediation_manifest.py`), which points at
+`<repo>-triage.json` from `/triage`, `<repo>-security-audit.json` from
+`/secure-code-audit`, and the latest `*-validation.json` from the stage-5
+validation skills (`/validate-operator-live`, `/validate-findings`); optionally
+`<cve>-impact-analysis.json` from `/impact-analysis` for dependency bumps.
+Phase 4c consumes a property test authored by `/property-test`.
+
+**Emits:** `<rem_id>-remediation.json` (`remediation.schema.json`), consumed
+by `/verify-remediation` on the fork or MR; merge events reach the ledger
+through `/track-findings`. The report carries two independent proof channels:
+
+| Channel | Written by | Kinds / values |
+|---|---|---|
+| `evidence[]` (`patch_evidence`) | Phase 4b `run_mutation.sh` → `scripts/mutation_evidence.py`; Phase 4c `harnessing/7-remediate/property-test/run_property.sh` → `harnessing/7-remediate/property-test/scripts/property_evidence.py` | `mutation` (Go only), `property` (Python only) |
+| `revalidation` | Phase 7 | live-validation before/after verdicts |
+
+`/verify-remediation` adds a third kind, `scanner_differential`, to the
+verification report — the same differential Phase 4 records in `notes`.
+What each kind may conclude is bounded by the evidence ceilings in
+`docs/disposition-ledger.md` §8a.
+
+**External tools:** Phase 4b runs the `mewt` binary (AGPL-3.0, subprocess
+only) under the `mutation-testing` safe-exec profile; its freshness row is in
+`$TRAUST_CONFIG_HOME/external-tools.yaml` and its licence row in
+`docs/external-dependencies.md`. The optional reviewer aid for the pushed
+diff is the same one `/patch` names.
 
 ---
 
