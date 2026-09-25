@@ -954,6 +954,14 @@ the `/remediate-finding` → `/verify-remediation` fork flow; a patch
 accepted from this packet enters the ledger only through those lanes
 (or a human-recorded `/track-findings` event), never automatically.
 
+**Where executed patch evidence lives.** This skill cannot run target code,
+so it produces no typed evidence of its own. Typed base-versus-patch evidence
+(`patch_evidence`) comes from three places:
+`/remediate-finding` Phase 4b (`mutation`, Go) and Phase 4c (`property`,
+Python, with the test authored by `/property-test`), and `/verify-remediation`
+step 4-pre.5 (`scanner_differential`). The regression test this skill ships in
+its diff is where those lanes start.
+
 **Optional external reviewer aid.** Reviewing this packet is manual, and an
 installed third-party plugin can render the diff for that review:
 [review-walkthrough](https://github.com/trailofbits/skills/tree/main/plugins/review-walkthrough)

@@ -341,6 +341,7 @@ Use when the user asks to remediate, patch, fix, or produce a code fix for a sec
 - **Tier:** `primary`
 - **Invoke:** `/remediate-finding`
 - **Skill:** [harnessing/7-remediate/remediate-finding/SKILL.md](../harnessing/7-remediate/remediate-finding/SKILL.md)
+- **Produces / consumes:** [Integrations](../harnessing/7-remediate/remediate-finding/SKILL.md#integrations)
 
 ## verify-remediation
 
