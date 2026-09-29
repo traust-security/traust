@@ -54,7 +54,7 @@ dev = ["ruff>=0.6", "pytest-xdist>=3"]
 [tool.uv.sources]
 traust-contracts = { git = "https://github.com/traust-security/traust-contracts.git", tag = "v0.35.0" }
 traust-engine = { git = "https://github.com/traust-security/traust-engine.git", tag = "v0.16.0" }
-traust-ledger = { git = "https://github.com/traust-security/traust-ledger.git", tag = "v0.6.32" }
+traust-ledger = { git = "https://github.com/traust-security/traust-ledger.git", tag = "v0.7.0" }
 
 # Multi-skill CLIs live under src/traust/; harnessing/<skill>/ for single-skill
 # scripts. Install for deps + importable path helpers.
