@@ -5,6 +5,8 @@ security assessments across a portfolio of components, from repository
 discovery through triage, validation, remediation, and defect filing —
 and the standing loop that keeps it all current.
 
+For a map of all documentation organised by audience, see **[docs/README.md](docs/README.md)**.
+
 The stage numbering here is **the** campaign numbering — README.md's
 pipeline diagram, docs/skills.md's Stage column, and this page all use
 the same ①–⑨ (the 2026-07-31 docs-verification found three
