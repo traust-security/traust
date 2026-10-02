@@ -221,6 +221,44 @@ class K8sAdapter(AdapterBase):
             observed = (out + err).strip()
             evidence.append(self._save_artifact(artifacts_dir, sid, "stdout", observed))
 
+        elif verb == "port-forward+http" and target.get("http") is not None:
+            if __package__ and "." in __package__:
+                from ..http_endpoints import HttpProbe
+            else:
+                from http_endpoints import HttpProbe
+
+            from .http import HttpExecutor
+
+            try:
+                probe = HttpProbe.model_validate(target["http"])
+                requires_identity = re.search(
+                    r"\bauthenticated\b|logged-in|console user|low-privilege user"
+                    r"|low-priv|any user with",
+                    step_get(step, "expected", ""),
+                    re.IGNORECASE,
+                )
+                if requires_identity and not probe.authenticate:
+                    return _unresolved("authenticated caller precondition is not satisfied")
+                rc, out, err = HttpExecutor(self, scope, kb, audit).execute(
+                    target.get("context"), probe
+                )
+                observed = (out + err).strip()
+            except PermissionError as exc:
+                return StepResult(
+                    step_id=sid,
+                    adapter="k8s",
+                    verb=verb,
+                    target=target,
+                    classification=cls,
+                    verdict="blocked_by_scope",
+                    scope_reason=str(exc),
+                    finding_ref=step_get(step, "finding_ref"),
+                    novel_ref=step_get(step, "novel_ref"),
+                )
+            except (ValueError, RuntimeError, TimeoutError) as exc:
+                return _unresolved(str(exc))
+            evidence.append(self._save_artifact(artifacts_dir, sid, "http", observed))
+
         elif verb == "port-forward+http":
             # The plan embeds the curl; assume the operator already runs a
             # port-forward in another terminal, or run inline against svc.
@@ -354,7 +392,7 @@ class K8sAdapter(AdapterBase):
             )
 
         expected = step_get(step, "expected", "")
-        verdict = self._verdict(verb, rc, observed, expected)
+        verdict = "blocked_by_scope" if rc == 126 else self._verdict(verb, rc, observed, expected)
         err_tag = ""
         if (
             verdict == "inconclusive"
@@ -377,6 +415,7 @@ class K8sAdapter(AdapterBase):
             observed=observed_out,
             evidence=evidence,
             error=err_tag,
+            scope_reason=observed_out if rc == 126 else "",
             finding_ref=step_get(step, "finding_ref"),
             novel_ref=step_get(step, "novel_ref"),
             duration_ms=int((time.monotonic() - t0) * 1000),

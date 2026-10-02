@@ -21,6 +21,11 @@ from collections.abc import Iterable
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
+if __package__:
+    from .http_scope import HttpDiscovery, HttpTarget
+else:
+    from http_scope import HttpDiscovery, HttpTarget
+
 try:
     import yaml
 except ImportError:  # pragma: no cover
@@ -146,6 +151,7 @@ class ClusterScope:
     namespaces: list[str] = field(default_factory=list)  # globs OK; [] => none
     verbs_denied: list[str] = field(default_factory=list)
     explicit_namespaces: set[str] = field(default_factory=set)  # mode-1 literal entries
+    http_discovery: HttpDiscovery = field(default_factory=HttpDiscovery)
 
     def ns_allowed(self, ns: str | None) -> bool:
         if ns is None:
@@ -194,6 +200,7 @@ class Scope:
     expires: _dt.date | None = None
     environment: str | None = None
     clusters: dict[str, ClusterScope] = field(default_factory=dict)
+    http_targets: tuple[HttpTarget, ...] = ()
     containers: list[str] = field(default_factory=list)  # name globs
     container_runtimes: list[str] = field(default_factory=list)
     wasm_artifacts: list[str] = field(default_factory=list)
@@ -233,8 +240,14 @@ class Scope:
                 namespaces=ns,
                 verbs_denied=[str(v) for v in c.get("verbs_denied", [])],
                 explicit_namespaces=set(ns),
+                http_discovery=HttpDiscovery.model_validate(c.get("http_discovery", {})),
             )
             s.clusters[cs.context] = cs
+        s.http_targets = tuple(
+            HttpTarget.model_validate(target) for target in data.get("http_targets", [])
+        )
+        if any(target.context not in s.clusters for target in s.http_targets):
+            raise ValueError("HTTP target context must be explicitly declared in clusters")
         for c in data.get("containers", []):
             s.container_runtimes.append(c.get("runtime", "podman"))
             s.containers.extend(c.get("name_patterns", []))
@@ -298,6 +311,18 @@ class Scope:
 
     # ----- evaluation ---------------------------------------------------
 
+    def curl_hosts(self) -> tuple[str, ...]:
+        """Endpoints safe_exec may let curl reach, for its host allowlist.
+
+        `clusters[].api` is per-engagement, so it cannot live in
+        safe-exec-profiles.yaml; passing it at the call site is what makes a
+        restricted profile usable. Entries are returned
+        verbatim: safe_exec normalizes URL and host:port forms to a hostname
+        itself, and refuses entries that do not, which a local pass would
+        mask."""
+        apis = {str(c.api).strip() for c in self.clusters.values() if c.api}
+        return tuple(sorted(apis | {target.host for target in self.http_targets}))
+
     @property
     def binding_mode(self) -> str:
         if not self.modes:
@@ -317,6 +342,14 @@ class Scope:
             # else on a control-plane cluster resource needs mode-1 "*".
             if a.resource in CONTROL_PLANE_CLUSTER_RESOURCES and a.verb not in READONLY_VERBS:
                 cs = self.clusters.get(a.context) or self.clusters.get("__current__")
+                if (
+                    cs
+                    and "explicit" in self.modes
+                    and cs.http_discovery.nodes is not None
+                    and a.resource == "nodes"
+                    and a.verb == "port-forward+http"
+                ):
+                    return None
                 if cs and "*" in cs.explicit_namespaces:
                     return None
                 return (
@@ -354,7 +387,19 @@ class Scope:
                 return False, f"context '{a.context}' not in scope"
             if a.verb in cs.verbs_denied:
                 return False, f"verb '{a.verb}' denied for context '{cs.context}'"
-            if not cs.ns_allowed(a.namespace):
+            node_discovery = (
+                "explicit" in self.modes
+                and cs.http_discovery.nodes is not None
+                and a.resource == "nodes"
+                and a.verb in {"get", "list", "port-forward+http"}
+                and a.namespace is None
+                and (
+                    not cs.http_discovery.nodes.names
+                    or a.name in cs.http_discovery.nodes.names
+                    or (a.verb == "port-forward+http" and a.name is None)
+                )
+            )
+            if not node_discovery and not cs.ns_allowed(a.namespace):
                 return False, f"namespace '{a.namespace}' not in scope for context '{cs.context}'"
             if (
                 a.image
@@ -470,9 +515,11 @@ class Scope:
                     "api": v.api,
                     "namespaces": v.namespaces,
                     "verbs_denied": v.verbs_denied,
+                    "http_discovery": v.http_discovery.model_dump(mode="json"),
                 }
                 for k, v in self.clusters.items()
             },
+            "http_targets": [target.model_dump(mode="json") for target in self.http_targets],
             "containers": self.containers,
             "wasm_artifacts": self.wasm_artifacts,
             "images": self.images,
