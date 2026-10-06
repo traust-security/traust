@@ -12,6 +12,7 @@ license = "Apache-2.0"
 description = "AI agent tooling for automated security audits of Red Hat Hybrid Platforms source code"
 requires-python = ">=3.11"
 dependencies = [
+    "traust-core",
     "traust-engine",
     # TODO: this should not be here. Declared only because a handful of call
     # sites import traust_ledger DIRECTLY instead of going through
@@ -29,7 +30,9 @@ dependencies = [
     "traust-ledger",
     "traust-contracts",
     "jsonschema",
+    "pydantic",
     "referencing",
+    "sqlalchemy",
     "pyyaml",
     "playwright",
     "pytest",
@@ -51,8 +54,15 @@ traust = "traust.cli.__main__:main"
 [dependency-groups]
 dev = ["ruff>=0.6", "pytest-xdist>=3"]
 
+[tool.uv]
+# Core and the existing engine/ledger pins reference different remotes for
+# this same contracts commit. Resolve one source without changing its revision.
+override-dependencies = [
+    "traust-contracts @ git+https://github.com/traust-security/traust-contracts.git@104519fd18f724e121c492c160e3dc2d67408f90",
+]
+
 [tool.uv.sources]
-traust-contracts = { git = "https://github.com/smith-xyz/traust-contracts.git", rev = "104519fd18f724e121c492c160e3dc2d67408f90" }
+traust-core = { git = "https://github.com/traust-security/traust-core.git", rev = "1d778342dcc210f53a1416de825716e8ec65409e" }
 traust-engine = { git = "https://github.com/smith-xyz/traust-engine.git", rev = "248746baa45fd297d8a34b690cd043e547c7b69e" }
 traust-ledger = { git = "https://github.com/smith-xyz/traust-ledger.git", rev = "d28490aeb178c3369e84b0956616fbac059207f7" }
 

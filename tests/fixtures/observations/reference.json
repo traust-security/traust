@@ -1,0 +1,727 @@
+{
+  "source_revision": "2ad90c14300df343a790182d837b43ebc5263162",
+  "source_sha256": "742643c232656bfd240e2f280d664277d18e0ff24f949122dcee12ce3306f80f",
+  "now": "2026-10-06T12:00:00+00:00",
+  "cases": [
+    {
+      "name": "sensitive-first-party",
+      "repo": {
+        "repo_key": "fixture/repo",
+        "repo_url": "https://github.com/o/repo",
+        "audit_date": "2026-09-01",
+        "pinned_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "lines_reviewed": 10000,
+        "live_crit_high": 1
+      },
+      "info": {
+        "ok": true,
+        "pushed_at": "2026-10-01T12:00:00Z",
+        "archived": false,
+        "default_branch": "main",
+        "visibility": "public",
+        "fork": false,
+        "parent": null
+      },
+      "compare": {
+        "ok": true,
+        "ahead_by": 2,
+        "truncated": false,
+        "files": [
+          {
+            "filename": "pkg/auth.go",
+            "changes": 240
+          },
+          {
+            "filename": "vendor/auth.go",
+            "changes": 9000
+          }
+        ]
+      },
+      "ctx": {
+        "tier": "P1",
+        "exposure": "public-external",
+        "C": 240,
+        "S": true,
+        "S_lines": 240,
+        "deps_only": false,
+        "audit_age_days": 35,
+        "changed": true,
+        "ahead_by": 2,
+        "R": 0.024
+      },
+      "status": "ok",
+      "observed": {
+        "C": 240,
+        "S": true,
+        "S_lines": 240,
+        "deps_only": false,
+        "ahead_by": 2,
+        "truncated": false
+      }
+    },
+    {
+      "name": "measured-zero",
+      "repo": {
+        "repo_key": "fixture/repo",
+        "repo_url": "https://github.com/o/repo",
+        "audit_date": "2026-09-01",
+        "pinned_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "lines_reviewed": 10000,
+        "live_crit_high": 1
+      },
+      "info": {
+        "ok": true,
+        "pushed_at": "2026-10-01T12:00:00Z",
+        "archived": false,
+        "default_branch": "main",
+        "visibility": "public",
+        "fork": false,
+        "parent": null
+      },
+      "compare": {
+        "ok": true,
+        "ahead_by": 0,
+        "truncated": false,
+        "files": []
+      },
+      "ctx": {
+        "tier": "P1",
+        "exposure": "public-external",
+        "C": 0,
+        "S": false,
+        "S_lines": 0,
+        "deps_only": false,
+        "audit_age_days": 35,
+        "changed": true,
+        "ahead_by": 0,
+        "R": 0.0
+      },
+      "status": "ok",
+      "observed": {
+        "C": 0,
+        "S": false,
+        "S_lines": 0,
+        "deps_only": false,
+        "ahead_by": 0,
+        "truncated": false
+      }
+    },
+    {
+      "name": "dependencies-only",
+      "repo": {
+        "repo_key": "fixture/repo",
+        "repo_url": "https://github.com/o/repo",
+        "audit_date": "2026-09-01",
+        "pinned_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "lines_reviewed": 10000,
+        "live_crit_high": 1
+      },
+      "info": {
+        "ok": true,
+        "pushed_at": "2026-10-01T12:00:00Z",
+        "archived": false,
+        "default_branch": "main",
+        "visibility": "public",
+        "fork": false,
+        "parent": null
+      },
+      "compare": {
+        "ok": true,
+        "ahead_by": 2,
+        "truncated": false,
+        "files": [
+          {
+            "filename": "go.mod",
+            "changes": 10
+          }
+        ]
+      },
+      "ctx": {
+        "tier": "P1",
+        "exposure": "public-external",
+        "C": 10,
+        "S": false,
+        "S_lines": 0,
+        "deps_only": true,
+        "audit_age_days": 35,
+        "changed": true,
+        "ahead_by": 2,
+        "R": 0.001
+      },
+      "status": "ok",
+      "observed": {
+        "C": 10,
+        "S": false,
+        "S_lines": 0,
+        "deps_only": true,
+        "ahead_by": 2,
+        "truncated": false
+      }
+    },
+    {
+      "name": "unchanged",
+      "repo": {
+        "repo_key": "fixture/repo",
+        "repo_url": "https://github.com/o/repo",
+        "audit_date": "2026-09-01",
+        "pinned_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "lines_reviewed": 10000,
+        "live_crit_high": 1
+      },
+      "info": {
+        "ok": true,
+        "pushed_at": "2026-08-01T00:00:00Z",
+        "archived": false,
+        "default_branch": "main",
+        "visibility": "public",
+        "fork": false,
+        "parent": null
+      },
+      "compare": {
+        "ok": true,
+        "ahead_by": 2,
+        "truncated": false,
+        "files": [
+          {
+            "filename": "pkg/auth.go",
+            "changes": 240
+          },
+          {
+            "filename": "vendor/auth.go",
+            "changes": 9000
+          }
+        ]
+      },
+      "ctx": {
+        "tier": "P1",
+        "exposure": "public-external",
+        "C": 0,
+        "S": false,
+        "S_lines": 0,
+        "deps_only": false,
+        "audit_age_days": 35,
+        "changed": false,
+        "ahead_by": null,
+        "R": 0.0
+      },
+      "status": "ok",
+      "observed": {
+        "C": null,
+        "S": null,
+        "S_lines": null,
+        "deps_only": null,
+        "ahead_by": null,
+        "truncated": null
+      }
+    },
+    {
+      "name": "same-day-push",
+      "repo": {
+        "repo_key": "fixture/repo",
+        "repo_url": "https://github.com/o/repo",
+        "audit_date": "2026-09-01",
+        "pinned_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "lines_reviewed": 10000,
+        "live_crit_high": 1
+      },
+      "info": {
+        "ok": true,
+        "pushed_at": "2026-09-01T00:00:00Z",
+        "archived": false,
+        "default_branch": "main",
+        "visibility": "public",
+        "fork": false,
+        "parent": null
+      },
+      "compare": {
+        "ok": true,
+        "ahead_by": 2,
+        "truncated": false,
+        "files": [
+          {
+            "filename": "pkg/auth.go",
+            "changes": 240
+          },
+          {
+            "filename": "vendor/auth.go",
+            "changes": 9000
+          }
+        ]
+      },
+      "ctx": {
+        "tier": "P1",
+        "exposure": "public-external",
+        "C": 240,
+        "S": true,
+        "S_lines": 240,
+        "deps_only": false,
+        "audit_age_days": 35,
+        "changed": true,
+        "ahead_by": 2,
+        "R": 0.024
+      },
+      "status": "ok",
+      "observed": {
+        "C": 240,
+        "S": true,
+        "S_lines": 240,
+        "deps_only": false,
+        "ahead_by": 2,
+        "truncated": false
+      }
+    },
+    {
+      "name": "missing-denominator",
+      "repo": {
+        "repo_key": "fixture/repo",
+        "repo_url": "https://github.com/o/repo",
+        "audit_date": "2026-09-01",
+        "pinned_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "lines_reviewed": null,
+        "live_crit_high": 1
+      },
+      "info": {
+        "ok": true,
+        "pushed_at": "2026-10-01T12:00:00Z",
+        "archived": false,
+        "default_branch": "main",
+        "visibility": "public",
+        "fork": false,
+        "parent": null
+      },
+      "compare": {
+        "ok": true,
+        "ahead_by": 2,
+        "truncated": false,
+        "files": [
+          {
+            "filename": "pkg/auth.go",
+            "changes": 240
+          },
+          {
+            "filename": "vendor/auth.go",
+            "changes": 9000
+          }
+        ]
+      },
+      "ctx": {
+        "tier": "P1",
+        "exposure": "public-external",
+        "C": 240,
+        "S": true,
+        "S_lines": 240,
+        "deps_only": false,
+        "audit_age_days": 35,
+        "changed": true,
+        "ahead_by": 2,
+        "R": null
+      },
+      "status": "ok",
+      "observed": {
+        "C": 240,
+        "S": true,
+        "S_lines": 240,
+        "deps_only": false,
+        "ahead_by": 2,
+        "truncated": false
+      }
+    },
+    {
+      "name": "missing-date",
+      "repo": {
+        "repo_key": "fixture/repo",
+        "repo_url": "https://github.com/o/repo",
+        "audit_date": null,
+        "pinned_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "lines_reviewed": 10000,
+        "live_crit_high": 1
+      },
+      "info": {
+        "ok": true,
+        "pushed_at": "2026-10-01T12:00:00Z",
+        "archived": false,
+        "default_branch": "main",
+        "visibility": "public",
+        "fork": false,
+        "parent": null
+      },
+      "compare": {
+        "ok": true,
+        "ahead_by": 2,
+        "truncated": false,
+        "files": [
+          {
+            "filename": "pkg/auth.go",
+            "changes": 240
+          },
+          {
+            "filename": "vendor/auth.go",
+            "changes": 9000
+          }
+        ]
+      },
+      "ctx": {
+        "tier": "P1",
+        "exposure": "public-external",
+        "C": 0,
+        "S": false,
+        "S_lines": 0,
+        "deps_only": false,
+        "audit_age_days": null,
+        "changed": false,
+        "ahead_by": null,
+        "R": 0.0
+      },
+      "status": "ok",
+      "observed": {
+        "C": null,
+        "S": null,
+        "S_lines": null,
+        "deps_only": null,
+        "ahead_by": null,
+        "truncated": null
+      }
+    },
+    {
+      "name": "archived-live-risk",
+      "repo": {
+        "repo_key": "fixture/repo",
+        "repo_url": "https://github.com/o/repo",
+        "audit_date": "2026-09-01",
+        "pinned_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "lines_reviewed": 10000,
+        "live_crit_high": 5
+      },
+      "info": {
+        "ok": true,
+        "pushed_at": "2026-10-01T12:00:00Z",
+        "archived": true,
+        "default_branch": "main",
+        "visibility": "public",
+        "fork": false,
+        "parent": null
+      },
+      "compare": {
+        "ok": true,
+        "ahead_by": 2,
+        "truncated": false,
+        "files": [
+          {
+            "filename": "pkg/auth.go",
+            "changes": 240
+          },
+          {
+            "filename": "vendor/auth.go",
+            "changes": 9000
+          }
+        ]
+      },
+      "ctx": {
+        "tier": "P0",
+        "exposure": "public-external",
+        "C": 240,
+        "S": true,
+        "S_lines": 240,
+        "deps_only": false,
+        "audit_age_days": 35,
+        "changed": true,
+        "ahead_by": 2,
+        "R": 0.024
+      },
+      "status": "ok",
+      "observed": {
+        "C": 240,
+        "S": true,
+        "S_lines": 240,
+        "deps_only": false,
+        "ahead_by": 2,
+        "truncated": false
+      }
+    },
+    {
+      "name": "private-upstream",
+      "repo": {
+        "repo_key": "fixture/repo",
+        "repo_url": "https://github.com/o/repo",
+        "audit_date": "2026-09-01",
+        "pinned_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "lines_reviewed": 10000,
+        "live_crit_high": 1
+      },
+      "info": {
+        "ok": true,
+        "pushed_at": "2026-10-01T12:00:00Z",
+        "archived": false,
+        "default_branch": "main",
+        "visibility": "private",
+        "fork": true,
+        "parent": "o/upstream"
+      },
+      "compare": {
+        "ok": true,
+        "ahead_by": 2,
+        "truncated": false,
+        "files": [
+          {
+            "filename": "pkg/auth.go",
+            "changes": 240
+          },
+          {
+            "filename": "vendor/auth.go",
+            "changes": 9000
+          }
+        ]
+      },
+      "ctx": {
+        "tier": "P1",
+        "exposure": "public-internal",
+        "C": 240,
+        "S": true,
+        "S_lines": 240,
+        "deps_only": false,
+        "audit_age_days": 35,
+        "changed": true,
+        "ahead_by": 2,
+        "R": 0.024
+      },
+      "status": "ok",
+      "observed": {
+        "C": 240,
+        "S": true,
+        "S_lines": 240,
+        "deps_only": false,
+        "ahead_by": 2,
+        "truncated": false
+      }
+    },
+    {
+      "name": "info-failure",
+      "repo": {
+        "repo_key": "fixture/repo",
+        "repo_url": "https://github.com/o/repo",
+        "audit_date": "2026-09-01",
+        "pinned_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "lines_reviewed": 10000,
+        "live_crit_high": 1
+      },
+      "info": {
+        "ok": false,
+        "pushed_at": "2026-10-01T12:00:00Z",
+        "archived": false,
+        "default_branch": "main",
+        "visibility": "public",
+        "fork": false,
+        "parent": null,
+        "kind": "unreachable",
+        "error": "offline"
+      },
+      "compare": {
+        "ok": true,
+        "ahead_by": 2,
+        "truncated": false,
+        "files": [
+          {
+            "filename": "pkg/auth.go",
+            "changes": 240
+          },
+          {
+            "filename": "vendor/auth.go",
+            "changes": 9000
+          }
+        ]
+      },
+      "ctx": {
+        "tier": "P1",
+        "exposure": "private-internal",
+        "C": 0,
+        "S": false,
+        "S_lines": 0,
+        "deps_only": false,
+        "audit_age_days": 35,
+        "changed": false,
+        "ahead_by": null,
+        "R": 0.0
+      },
+      "status": "unreachable",
+      "observed": {
+        "C": null,
+        "S": null,
+        "S_lines": null,
+        "deps_only": null,
+        "ahead_by": null,
+        "truncated": null
+      }
+    },
+    {
+      "name": "compare-failure",
+      "repo": {
+        "repo_key": "fixture/repo",
+        "repo_url": "https://github.com/o/repo",
+        "audit_date": "2026-09-01",
+        "pinned_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "lines_reviewed": 10000,
+        "live_crit_high": 1
+      },
+      "info": {
+        "ok": true,
+        "pushed_at": "2026-10-01T12:00:00Z",
+        "archived": false,
+        "default_branch": "main",
+        "visibility": "public",
+        "fork": false,
+        "parent": null
+      },
+      "compare": {
+        "ok": false,
+        "ahead_by": 2,
+        "truncated": false,
+        "files": [
+          {
+            "filename": "pkg/auth.go",
+            "changes": 240
+          },
+          {
+            "filename": "vendor/auth.go",
+            "changes": 9000
+          }
+        ],
+        "kind": "no-credentials",
+        "error": "offline"
+      },
+      "ctx": {
+        "tier": "P1",
+        "exposure": "public-external",
+        "C": 0,
+        "S": false,
+        "S_lines": 0,
+        "deps_only": false,
+        "audit_age_days": 35,
+        "changed": true,
+        "ahead_by": null,
+        "R": 0.0
+      },
+      "status": "no-credentials",
+      "observed": {
+        "C": null,
+        "S": null,
+        "S_lines": null,
+        "deps_only": null,
+        "ahead_by": null,
+        "truncated": null
+      }
+    },
+    {
+      "name": "gitlab-subgroup",
+      "repo": {
+        "repo_key": "fixture/repo",
+        "repo_url": "https://gitlab.com/g/sub/repo",
+        "audit_date": "2026-09-01",
+        "pinned_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "lines_reviewed": 10000,
+        "live_crit_high": 1
+      },
+      "info": {
+        "ok": true,
+        "pushed_at": "2026-10-01T12:00:00Z",
+        "archived": false,
+        "default_branch": "main",
+        "visibility": "public",
+        "fork": false,
+        "parent": null
+      },
+      "compare": {
+        "ok": true,
+        "ahead_by": 2,
+        "truncated": true,
+        "files": [
+          {
+            "filename": "pkg/auth.go",
+            "changes": 240
+          },
+          {
+            "filename": "vendor/auth.go",
+            "changes": 9000
+          }
+        ],
+        "patch": "diff"
+      },
+      "ctx": {
+        "tier": "P1",
+        "exposure": "public-external",
+        "C": 240,
+        "S": true,
+        "S_lines": 240,
+        "deps_only": false,
+        "audit_age_days": 35,
+        "changed": true,
+        "ahead_by": 2,
+        "R": 0.024
+      },
+      "status": "ok",
+      "observed": {
+        "C": 240,
+        "S": true,
+        "S_lines": 240,
+        "deps_only": false,
+        "ahead_by": 2,
+        "truncated": true
+      }
+    },
+    {
+      "name": "recorded-public-github",
+      "repo": {
+        "repo_key": "fixture/repo",
+        "repo_url": "https://github.com/traust-security/traust",
+        "audit_date": "2026-09-01",
+        "pinned_sha": "c98dad755f10375e99ebfdfe5916e7828d4ee3c1",
+        "lines_reviewed": 10000,
+        "live_crit_high": 1
+      },
+      "info": {
+        "ok": true,
+        "pushed_at": "2026-10-06T16:55:49Z",
+        "archived": false,
+        "default_branch": "main",
+        "visibility": "public",
+        "fork": false,
+        "parent": null
+      },
+      "compare": {
+        "ok": true,
+        "ahead_by": 2,
+        "truncated": false,
+        "files": [
+          {
+            "changes": 711,
+            "filename": "uv.lock"
+          }
+        ]
+      },
+      "ctx": {
+        "tier": "P1",
+        "exposure": "public-external",
+        "C": 711,
+        "S": false,
+        "S_lines": 0,
+        "deps_only": false,
+        "audit_age_days": 35,
+        "changed": true,
+        "ahead_by": 2,
+        "R": 0.0711
+      },
+      "status": "ok",
+      "observed": {
+        "C": 711,
+        "S": false,
+        "S_lines": 0,
+        "deps_only": false,
+        "ahead_by": 2,
+        "truncated": false
+      }
+    }
+  ],
+  "recorded_forge": {
+    "file": "recorded-github.json",
+    "sha256": "4271c753056cc2436c0dee0f0e7cd848023baa064c1fddfee5cea64fbeef53b4"
+  }
+}
