@@ -14,6 +14,7 @@ from traust.cli.groups import (
     impact,
     ledger,
     metrics,
+    observe,
     portfolio,
     registry,
     reporting,
@@ -67,6 +68,7 @@ GROUPS: dict[str, dict[str, object]] = {
         "models": registry.MODELS,
         "products": registry.PRODUCTS,
     },
+    "observe": dict(observe.OBSERVE),
     "portfolio": {
         "build": portfolio.BUILD,
         "deps-multi": portfolio.DEPS_MULTI,

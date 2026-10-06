@@ -12,6 +12,7 @@ license = "Apache-2.0"
 description = "AI agent tooling for automated security audits of Red Hat Hybrid Platforms source code"
 requires-python = ">=3.11"
 dependencies = [
+    "traust-core",
     "traust-engine",
     # TODO: this should not be here. Declared only because a handful of call
     # sites import traust_ledger DIRECTLY instead of going through
@@ -29,7 +30,9 @@ dependencies = [
     "traust-ledger",
     "traust-contracts",
     "jsonschema",
+    "pydantic",
     "referencing",
+    "sqlalchemy",
     "pyyaml",
     "playwright",
     "pytest",
@@ -53,10 +56,17 @@ traust = "traust.cli.__main__:main"
 [dependency-groups]
 dev = ["ruff>=0.6", "pytest-xdist>=3", "traust-ledger[db]"]
 
+[tool.uv]
+# Preserve the current Contracts revision across Core, engine and ledger.
+override-dependencies = [
+    "traust-contracts @ git+https://github.com/traust-security/traust-contracts.git@a1d602b4266be4f8645c1c682d8c3439501167ad",
+]
+
 [tool.uv.sources]
 traust-contracts = { git = "https://github.com/traust-security/traust-contracts.git", rev = "a1d602b4266be4f8645c1c682d8c3439501167ad" }
 traust-engine = { git = "https://github.com/traust-security/traust-engine.git", rev = "3f5c2f40e24a81550f3c267cdca9835294b0bdbe" }
 traust-ledger = { git = "https://github.com/traust-security/traust-ledger.git", rev = "a20ffd476529e50b2e266e3311adbf48d6a8f5f6" }
+traust-core = { git = "https://github.com/traust-security/traust-core.git", rev = "1d778342dcc210f53a1416de825716e8ec65409e" }
 
 # Multi-skill CLIs live under src/traust/; harnessing/<skill>/ for single-skill
 # scripts. Install for deps + importable path helpers.
