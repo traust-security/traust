@@ -55,12 +55,6 @@ def test_fixture_export_is_unchanged(filename):
         assert len(names) == len(set(names)), f"duplicate case IDs in {group}"
 
 
-def test_legacy_source_matches_reviewed_baseline():
-    verify_digest(
-        LEGACY_SOURCE.read_bytes(), BASELINE["reviewed_legacy"]["sha256"], str(LEGACY_SOURCE)
-    )
-
-
 @pytest.mark.parametrize("case", DECISIONS["table"], ids=lambda case: case["name"])
 def test_legacy_table(case, reference):
     namespace, _ = reference
@@ -93,14 +87,12 @@ def test_legacy_primary(case, reference, tmp_path):
     assert run_primary(*reference, case["input"], tmp_path) == case["want"]
 
 
-def test_guard_and_cases_detect_source_drift(tmp_path):
+def test_cases_detect_routing_behavior_drift(tmp_path):
     original = LEGACY_SOURCE.read_bytes()
     changed = original.replace(b"CHURN_FULL_LINES = 8000", b"CHURN_FULL_LINES = 9000", 1)
     assert changed != original
-    with pytest.raises(ValueError, match="Review the source/fixture diff"):
-        verify_digest(changed, BASELINE["reviewed_legacy"]["sha256"], "changed source")
-    # Even if someone repins only the source hash, the 8000-line boundary case
-    # still disagrees: the adapter executes current code, not a frozen copy.
+    # The 8000-line boundary case detects this behavior change directly:
+    # the adapter executes current code, not a frozen copy or a source hash.
     source = tmp_path / "changed_worklist.py"
     source.write_bytes(changed)
     namespace, _ = load_reference(source)
@@ -112,7 +104,7 @@ def test_guard_and_cases_detect_source_drift(tmp_path):
 def test_guard_rejects_expected_output_drift():
     changed = json.loads((FIXTURES / "python_decisions.json").read_text(encoding="utf-8"))
     changed["table"][0]["want"]["Lane"] = "unreviewed-lane"
-    with pytest.raises(ValueError, match="Review the source/fixture diff"):
+    with pytest.raises(ValueError, match="Review the fixture diff"):
         verify_digest(
             json.dumps(changed).encode(),
             BASELINE["fixtures"]["python_decisions.json"]["sha256"],

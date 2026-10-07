@@ -6,7 +6,6 @@
   },
   "reviewed_legacy": {
     "revision": "2ad90c14300df343a790182d837b43ebc5263162",
-    "sha256": "742643c232656bfd240e2f280d664277d18e0ff24f949122dcee12ce3306f80f",
     "note": "Compared with the source revision preserved in the fixtures: only two threat-model reason strings add --apply-ratings. Threat-model companions are disabled in this corpus. All 302 inputs and expected outputs remain unchanged."
   },
   "fixtures": {

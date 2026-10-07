@@ -43,7 +43,7 @@ def verify_digest(raw: bytes, expected: str, label: str) -> None:
     if actual != expected:
         raise ValueError(
             f"{label}: SHA-256 changed (expected {expected}, got {actual}). "
-            "Review the source/fixture diff before updating baseline.json; "
+            "Review the fixture diff before updating baseline.json; "
             "see tests/fixtures/routing/README.md."
         )
 
@@ -57,11 +57,7 @@ def _assigned(node: ast.stmt, name: str) -> bool:
 
 
 def load_reference(source: Path):
-    """Load actual legacy definitions and its event/table block, without main I/O.
-
-    The test suite separately checks the whole-file hash. Keeping that check out
-    of this adapter lets a drift failure report alongside named behavior failures.
-    """
+    """Load current legacy definitions and its event/table block, without main I/O."""
     tree = ast.parse(source.read_bytes(), filename=str(source))
     selected, found = [], set()
     for node in tree.body:

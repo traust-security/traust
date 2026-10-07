@@ -29,9 +29,9 @@ Both files are copied byte for byte from the SDK. Their original `source` blocks
 identify the Python revision and whole-file SHA-256 used to generate them;
 **they have not been relabeled as outputs generated from current main**.
 [baseline.json](baseline.json) records the SDK export revision, fixture checksums
-and counts, plus the separately reviewed current legacy source checksum.
+and counts, plus the legacy source revision reviewed when this baseline was added.
 
-The reviewed current source differs from that original snapshot in two
+That reviewed source differs from the original fixture snapshot in two
 threat-model reason strings (`--apply-ratings`). These cases disable threat-model
 companions; all 302 expectations remain unchanged. The test adapter is derived
 from `generate.py` and `generate_primary.py` in the SDK directory recorded in
@@ -47,22 +47,28 @@ scheduling and dispatch are outside this corpus. It is not full-worklist parity.
 
 ## Reviewing drift
 
-The tests check fixture bytes/counts and the **entire legacy source file** against
-the manifest. This intentionally conservative check also catches unrelated edits
-to that file. It makes source updates visible even if the existing examples still
-pass. A mismatch fails with expected/actual hashes and this review procedure:
+The tests check fixture bytes/counts against the manifest and execute the
+checked-out legacy code against all 302 saved cases. There is no source checksum
+gate: unrelated edits to the monolith do not require a baseline update. The
+`reviewed_legacy.revision` is historical provenance, not a required checkout.
 
-1. Review the source diff from `reviewed_legacy.revision`; run the named cases to
-   see behavioral differences. Do not regenerate expectations to make a failure
-   disappear.
-2. For an unrelated change, keep both fixture files unchanged and record the new
-   reviewed source revision/checksum and explanation in `baseline.json`.
+The threshold-mutation test demonstrates that changing `CHURN_FULL_LINES` from
+8000 to 9000 disagrees with `churn-lines-8000` through the decision comparison
+itself. Fixture checksums separately protect the saved expectations. The cases
+cover the behaviors described above; they cannot detect every possible policy
+change, so normal source review remains necessary.
+
+1. For a named case failure, review the source and behavior diff. Do not
+   regenerate expectations just to make the failure disappear.
+2. For an unrelated source change, keep the fixtures and baseline manifest
+   unchanged. If extraction moves the adapter's required definitions or block
+   boundaries, update the adapter while preserving the cases.
 3. For an intentional policy change, review the changed inputs/outputs and extend
    coverage as needed. Generate from an explicitly pinned source and update its
    provenance, fixture checksums/counts and reviewed-source record together. The
    original generators can be retrieved from the SDK export revision in the
-   manifest. Merely updating a source checksum cannot hide a behavior mismatch:
-   the individual comparisons still run against the fixed expectations.
+   manifest. Merely updating a fixture checksum cannot hide a behavior mismatch:
+   the individual comparisons still run against the saved expectations.
 
 ## Remaining work for XWING-2216
 
