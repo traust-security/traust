@@ -43,6 +43,18 @@
 # check-licensing walks the same intake checklist when a source is added.
 version: 1
 
+# Download-retry policy for cached-feed refreshes (traust.cli.fetch_feeds).
+# Defaults for every cached source; a source may override any key under its
+# own `retry:` block. 429 honours Retry-After (capped by max_wait_s); 5xx and
+# timeouts use capped exponential backoff (backoff_base_s * 2**attempt, + up to
+# jitter_s). A non-429 4xx is not retried.
+retry:
+  max_attempts: 4
+  timeout_s: 120
+  backoff_base_s: 1
+  max_wait_s: 60
+  jitter_s: 0.5
+
 sources:
 
   # ---------------------------------------------------------------- cached

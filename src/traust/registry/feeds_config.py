@@ -119,6 +119,19 @@ def load(path: Path | None = None) -> dict[str, dict]:
     return sources
 
 
+def retry_defaults(path: Path | None = None) -> dict:
+    """Global download-retry policy from feeds.yaml ``retry:`` (empty when unset).
+
+    A feed's own ``retry:`` block overrides these; fetch_feeds merges the two.
+    Returning {} rather than raising when absent keeps the built-in RetryPolicy
+    defaults in force for a registry that predates this block.
+    """
+    retry = _load_raw(path).get("retry") or {}
+    if not isinstance(retry, dict):
+        raise FeedsConfigError("feeds.yaml `retry:` must be a mapping")
+    return retry
+
+
 def cached_sources(path: Path | None = None) -> dict[str, dict]:
     return {k: v for k, v in load(path).items() if v["tier"] == "cached"}
 
