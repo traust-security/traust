@@ -32,6 +32,7 @@ def test_all_planned_groups_registered():
         "impact",
         "ledger",
         "metrics",
+        "observe",
         "portfolio",
         "registry",
         "reporting",

@@ -2085,37 +2085,10 @@ def stage1(entries: list[dict], jobs: int, gh_info=None, gl_info=None) -> None:
 
     breaker = _BanBreaker()
 
+    from traust_pack_security.observe import observe_info
+
     def work(e: dict) -> None:
-        kind, host, project = split_repo_url(e["repo_url"])
-        e["host_kind"], e["host"], e["project"] = kind, host, project
-        if e["repo_url"] is None:
-            e["status"] = "no-repo-url"
-            return
-        if kind is None:
-            e["status"] = "unsupported-host"
-            return
-        if kind == "github" and breaker.tripped:
-            e["status"] = "ban-suspected"
-            e["error"] = (
-                "skipped: consecutive-error streak suggests a "
-                "GitHub secondary ban (rate_limit is blind to "
-                "these); next daily run retries"
-            )
-            return
-        info = gh_info(project) if kind == "github" else gl_info(host, project)
-        if kind == "github":
-            breaker.record(info.get("ok", False))
-        if not info.get("ok"):
-            e["status"] = info.get("kind", "error")
-            e["error"] = info.get("error")
-            return
-        e["status"] = "ok"
-        e["pushed_at"] = info.get("pushed_at")
-        e["archived"] = bool(info.get("archived"))
-        e["default_branch"] = info.get("default_branch")
-        e["visibility"] = info.get("visibility")
-        e["fork"] = bool(info.get("fork"))
-        e["parent"] = info.get("parent")
+        observe_info(e, gh_info, gl_info, breaker)
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=jobs) as ex:
         list(ex.map(work, entries))
@@ -2148,29 +2121,11 @@ def stage2(candidates: list[dict], jobs: int, gh_cmp=None, gl_cmp=None) -> None:
                 file=sys.stderr,
             )
 
+    from traust_pack_security.observe import observe_comparison
+
     def work(item: tuple[int, dict]) -> None:
         idx, e = item
-        if not e.get("pinned_sha"):
-            e["status"] = "no-pinned-sha"
-            return
-        if idx in deferred:
-            e["status"] = "quota-deferred"
-            return
-        if e["host_kind"] == "github":
-            res = gh_cmp(e["project"], e["pinned_sha"])
-        else:
-            res = gl_cmp(
-                e["host"], e["project"], e["pinned_sha"], e.get("default_branch") or "HEAD"
-            )
-        if not res.get("ok"):
-            e["status"] = res.get("kind", "error")
-            e["error"] = res.get("error")
-            return
-        e["ahead_by"] = res["ahead_by"]
-        e["truncated"] = res["truncated"]
-        if res.get("patch"):
-            e["_patch"] = res["patch"]  # tripwire input (GitLab)
-        e.update(change_metrics(res["files"]))
+        observe_comparison(e, gh_cmp, gl_cmp, quota_deferred=idx in deferred)
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=jobs) as ex:
         list(ex.map(work, enumerate(candidates)))

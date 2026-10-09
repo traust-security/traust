@@ -23,6 +23,7 @@ python3 -m traust.cli check skill-alignment      # equivalent
 | `adapters` | Scanner adapters (deterministic pre-scans) | `checkov`, `crypto-audit`, `crypto-probe`, `gitleaks`, `govulncheck`, `joern`, `opengrep`, `osv`, `yara` |
 | `admin` | Operator tooling | `attest-target`, `checkpoint`, `countersign`, `query-index`, `scan-internal-refs`, `toolchain` |
 | `build` | Deterministic builders | `cumulative`, `rescan-worklist`, `skills-reference`, `symbol-index` |
+| `observe` | Repository observations | `repo-state` |
 | `check` | Deterministic gates | `citations`, `content-licenses`, `docs-consistency`, `estate-data`, `drift`, `fix-propagation`, `location-paths`, `reference-integrity`, `report-digests`, `skill-alignment`, `skill-security` |
 | `compliance` | Compliance reporting | `dashboard`, `scope` |
 | `corpus` | Corpus management | `finding-identity`, `findings-db`, `precedent`, `resolve`, `summary` |
