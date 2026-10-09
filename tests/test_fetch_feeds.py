@@ -503,3 +503,127 @@ def test_rh_cve_is_watched_by_drift():
     from traust.cli.check_drift import watched_feeds
 
     assert ("rh-cve", False) in watched_feeds()
+
+
+# ---------------- retry / stale (XWING-2223) ----------------
+
+
+class _Resp:
+    def __init__(self, body: bytes):
+        self._body = body
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+    def read(self) -> bytes:
+        return self._body
+
+
+def _seq_urlopen(actions):
+    """Fake urlopen that walks a list of actions: bytes -> body, Exception -> raise."""
+    it = iter(actions)
+
+    def _open(req, timeout=None):
+        a = next(it)
+        if isinstance(a, Exception):
+            raise a
+        return _Resp(a)
+
+    return _open
+
+
+def _http_error(code, headers=None):
+    import urllib.error
+
+    return urllib.error.HTTPError("http://feed.test", code, "err", headers or {}, None)
+
+
+def _policy(**kw):
+    base = dict(max_attempts=3, timeout_s=1, backoff_base_s=0, max_wait_s=0, jitter_s=0)
+    base.update(kw)
+    return ff.RetryPolicy(**base)
+
+
+def test_retry_503_then_200(monkeypatch):
+    monkeypatch.setattr(ff.time, "sleep", lambda s: None)
+    monkeypatch.setattr(ff.urllib.request, "urlopen", _seq_urlopen([_http_error(503), b"ok"]))
+    assert ff.fetch_with_retry("http://feed.test", _policy()) == b"ok"
+
+
+def test_retry_honors_429_retry_after(monkeypatch):
+    slept = []
+    monkeypatch.setattr(ff.time, "sleep", slept.append)
+    monkeypatch.setattr(
+        ff.urllib.request,
+        "urlopen",
+        _seq_urlopen([_http_error(429, {"Retry-After": "2"}), b"ok"]),
+    )
+    assert ff.fetch_with_retry("http://feed.test", _policy(max_wait_s=10)) == b"ok"
+    assert slept == [2.0]
+
+
+def test_retry_timeout_then_success(monkeypatch):
+    monkeypatch.setattr(ff.time, "sleep", lambda s: None)
+    monkeypatch.setattr(ff.urllib.request, "urlopen", _seq_urlopen([TimeoutError("slow"), b"ok"]))
+    assert ff.fetch_with_retry("http://feed.test", _policy()) == b"ok"
+
+
+def test_non_429_4xx_fails_fast(monkeypatch):
+    calls = []
+
+    def _open(req, timeout=None):
+        calls.append(1)
+        raise _http_error(404)
+
+    monkeypatch.setattr(ff.time, "sleep", lambda s: None)
+    monkeypatch.setattr(ff.urllib.request, "urlopen", _open)
+    with pytest.raises(ff.FeedError):
+        ff.fetch_with_retry("http://feed.test", _policy())
+    assert len(calls) == 1  # a 404 is not retried
+
+
+def test_gives_up_after_max_attempts(monkeypatch):
+    calls = []
+
+    def _open(req, timeout=None):
+        calls.append(1)
+        raise TimeoutError("slow")
+
+    monkeypatch.setattr(ff.time, "sleep", lambda s: None)
+    monkeypatch.setattr(ff.urllib.request, "urlopen", _open)
+    with pytest.raises(ff.FeedError):
+        ff.fetch_with_retry("http://feed.test", _policy(max_attempts=3))
+    assert len(calls) == 3
+
+
+def test_stale_fallback_records_last_error(tmp_path, monkeypatch):
+    import urllib.error
+
+    cache = _mk_cache(tmp_path, retrieved_at="2026-01-01T00:00:00Z")
+    monkeypatch.setattr(ff.time, "sleep", lambda s: None)
+    monkeypatch.setattr(
+        ff.urllib.request,
+        "urlopen",
+        lambda *a, **k: (_ for _ in ()).throw(urllib.error.URLError("no vpn")),
+    )
+    usable, status = ff.fetch("epss", cache, 24)
+    assert usable and "STALE" in status
+    meta = json.loads((cache / "feeds-meta.json").read_text())["epss"]
+    assert meta["stale"] is True
+    assert "no vpn" in meta["last_error"]
+    assert meta["last_attempt_at"]
+
+
+def test_corrupt_download_keeps_old_copy(tmp_path, monkeypatch):
+    cache = _mk_cache(tmp_path, retrieved_at="2026-01-01T00:00:00Z")
+    good = (cache / "epss_scores-current.csv.gz").read_bytes()
+    monkeypatch.setattr(ff.time, "sleep", lambda s: None)
+    monkeypatch.setattr(ff.urllib.request, "urlopen", _seq_urlopen([b"not a gzip payload"]))
+    usable, status = ff.fetch("epss", cache, 24)
+    assert usable and "STALE" in status  # corrupt refresh falls back, never unusable here
+    assert (cache / "epss_scores-current.csv.gz").read_bytes() == good  # cache not overwritten
+    meta = json.loads((cache / "feeds-meta.json").read_text())["epss"]
+    assert meta["stale"] is True and "corrupt" in meta["last_error"]
