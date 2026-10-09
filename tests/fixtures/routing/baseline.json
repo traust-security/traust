@@ -1,0 +1,21 @@
+{
+  "exported_from": {
+    "repo": "traust-security/traust-sdk",
+    "revision": "fd20c6a37b0ed9ecffa233d4c6773a75477a7aa5",
+    "path": "go/v1/routing/work/testdata"
+  },
+  "reviewed_legacy": {
+    "revision": "2ad90c14300df343a790182d837b43ebc5263162",
+    "note": "Compared with the source revision preserved in the fixtures: only two threat-model reason strings add --apply-ratings. Threat-model companions are disabled in this corpus. All 302 inputs and expected outputs remain unchanged."
+  },
+  "fixtures": {
+    "python_decisions.json": {
+      "sha256": "e57362322bbddd0d18d890c41c5f38551e389d6e2353be63429e7780afee11d7",
+      "counts": {"table": 93, "risk": 20}
+    },
+    "python_primary.json": {
+      "sha256": "5c2299ae8ff21900f4c5abfa52aa48cfc9fc87f0a6d79bdf74e43a3747c82328",
+      "counts": {"event_lanes": 30, "primary": 159}
+    }
+  }
+}
