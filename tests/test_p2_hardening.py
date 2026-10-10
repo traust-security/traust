@@ -28,22 +28,77 @@ from adapters.base import AdapterBase
     ],
 )
 def test_vet_shell_string_blocks(cmd, frag):
-    _argv, reason = AdapterBase._vet_shell_string(cmd)
+    _argv, reason = AdapterBase()._vet_shell_string(cmd)
     assert reason and frag in reason, (cmd, reason)
 
 
 def test_vet_shell_string_allows_legit():
-    argv, reason = AdapterBase._vet_shell_string(
-        'curl -sk https://api.x:6443/healthz -d \'{"a":"b;c"}\''
-    )
+    a = AdapterBase()
+    argv, reason = a._vet_shell_string('curl -sk https://api.x:6443/healthz -d \'{"a":"b;c"}\'')
     assert not reason and argv[0] == "curl"
-    argv, reason = AdapterBase._vet_shell_string("oc get pods -o json | jq '.items[0]'")
+    argv, reason = a._vet_shell_string("oc get pods -o json | jq '.items[0]'")
     assert not reason and argv is None  # approved pipeline
 
 
 def test_run_blocks_instead_of_crashing():
-    rc, _out, err = AdapterBase._run("python3 -c 'print(1)'")
+    rc, _out, err = AdapterBase()._run("python3 -c 'print(1)'")
     assert rc == 126 and "step blocked" in err
+
+
+# ---- curl host allowlist plumbing ----------------------------------
+
+
+class _FakeScope:
+    def __init__(self, hosts):
+        self._hosts = tuple(hosts)
+
+    def curl_hosts(self):
+        return self._hosts
+
+
+def test_bind_scope_carries_roe_hosts_into_vetting():
+    a = AdapterBase()
+    assert a._curl_hosts == ()
+    a.bind_scope(_FakeScope(["api.hub.lab.example"]))
+    assert a._curl_hosts == ("api.hub.lab.example",)
+
+
+def test_scope_curl_hosts_excludes_unowned_loopback():
+    from scope import ClusterScope, Scope
+
+    s = Scope(clusters={"c": ClusterScope(context="c", api="https://api.lab.example:6443")})
+    hosts = s.curl_hosts()
+    assert "https://api.lab.example:6443" in hosts
+    assert not {"127.0.0.1", "localhost", "[::1]"} & set(hosts)
+    assert Scope().curl_hosts() == ()
+
+
+def test_bind_scope_tolerates_scope_without_curl_hosts():
+    a = AdapterBase()
+    a.bind_scope(object())
+    assert a._curl_hosts == ()
+
+
+def test_bind_profile_map_enforces_estate_profile():
+    from traust_engine._util import safe_exec
+
+    p = safe_exec.Profile(
+        name="validation-step",
+        description="test restricted",
+        allow=frozenset({"curl"}),
+        allowed_path_heads=frozenset(),
+        allow_pipelines=False,
+        keep_env=(),
+        posture="restricted",
+    )
+    a = AdapterBase()
+    a.bind_profile_map({"validation-step": p})
+    _argv, reason = a._vet_shell_string("curl https://evil.example/")
+    assert reason and "restricted" in reason
+
+    a.bind_scope(_FakeScope(["api.hub.lab.example"]))
+    argv, reason = a._vet_shell_string("curl https://api.hub.lab.example/healthz")
+    assert not reason and argv is not None
 
 
 def test_classify_ifs_evasion_not_safe():

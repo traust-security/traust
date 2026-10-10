@@ -11,6 +11,11 @@
 #   run (e.g. ./gradlew); everything else must be a bare basename.
 # - `keep_env` names env vars preserved (beyond the scrubbed base set)
 #   when safe_exec runs the command.
+# - `keep_env_heads` narrows that: only segments whose head basename is
+#   listed receive `keep_env`/`extra_env`. Empty or absent = every segment.
+# - `curl_allowed_hosts` pins every curl URL operand to those hostnames
+#   (exact match, case-insensitive, no globs; URL and host:port forms
+#   normalize). A non-empty list also denies redirect-following.
 # - Granting `git` never grants git network subcommands or dangerous
 #   `-c` config keys — those stay denied inside the validator.
 # - Network posture: dependency-
@@ -18,7 +23,26 @@
 #   mirrors) is accepted residual risk — safe_exec constrains the argv
 #   and environment, not child-process sockets; hermetic prefetch is a
 #   deferred hardening.
+#
+# Posture framework (modeled on Kubernetes Pod Security Standards):
+# - `restricted` (alias `high`): "fail closed" — every curl URL is denied unless
+#   its host is listed in `curl_allowed_hosts` or supplied at call-site (ROE
+#   engagement scope). Redirects are denied. `keep_env_heads` is enforced when
+#   pipelines and env vars are present.
+# - `baseline` (alias `medium`): "somewhere in between" — public http/https
+#   destinations are permitted; private/internal IP ranges (RFC 1918, loopback,
+#   link-local/cloud metadata 169.254.169.254) and local domains (.local,
+#   .internal, .cluster.local, localhost) are denied unless explicitly
+#   allowlisted. Redirects are denied.
+# - `privileged` (alias `low`): "fail open" — permissive defaults; empty host
+#   list allows any destination. Legacy behavior.
 version: 1
+
+# File-wide fallbacks; any profile may override.
+defaults:
+  # Posture: restricted | baseline | privileged (or high | medium | low)
+  posture: baseline
+
 profiles:
   validation-step:
     description: >-
@@ -29,35 +53,45 @@ profiles:
       SOUND — without it every bearer-auth probe silently ran
       unauthenticated and its refutations were unsound; the token is
       lab-cluster-scoped and short-TTL.
+    # Set to restricted for fail-closed curl validation (ROE supplies lab hosts)
+    posture: restricted
     allow: [curl, oc, kubectl, jq, grep, base64, head, tail, tr, wc,
             cat, sleep, echo, printf]
     allow_pipelines: true
     keep_env: [KUBECONFIG, VF_OAUTH_TOKEN]
+    # keeps the token out of a `| grep x` tail
+    keep_env_heads: [curl, oc, kubectl]
+    curl_allowed_hosts: []
   go-fuzz:
     description: >-
       create-fuzzing Go-native build/run steps (skill integration
       pending). Cloning stays in the skill's
       S3-gated git step, never here.
+    posture: baseline
     allow: [go, make, gofmt, git]
     allow_pipelines: false
     keep_env: [GOPATH, GOCACHE, GOMODCACHE, GOFLAGS]
   java-build:
     description: Maven/Gradle build-verification steps (integration pending).
+    posture: baseline
     allow: [mvn, gradle, java, javac, jar, make, git]
     allowed_path_heads: ["./gradlew", "./mvnw"]
     allow_pipelines: false
     keep_env: [JAVA_HOME]
   python-test:
     description: Target test-suite execution for /patch (integration pending).
+    posture: baseline
     allow: [python3, pytest, make, git]
     allow_pipelines: false
     keep_env: [VIRTUAL_ENV]
   node-build:
     description: Node build/test steps (integration pending).
+    posture: baseline
     allow: [npm, npx, node, make, git]
     allow_pipelines: false
   rust-fuzz:
     description: cargo-fuzz build/run steps (integration pending).
+    posture: baseline
     allow: [cargo, rustc, make, git]
     allow_pipelines: false
     keep_env: [CARGO_HOME, RUSTUP_HOME]
@@ -67,10 +101,12 @@ profiles:
       (python3 -m traust.cli adapters govulncheck). govulncheck type-checks and builds
       the target module, so hostile build tags/cgo see only the
       scrubbed env — no ambient tokens to exfiltrate (gate rule S10).
+    posture: baseline
     allow: [govulncheck]
     allow_pipelines: false
     keep_env: [GOPATH, GOCACHE, GOMODCACHE, GOFLAGS, GOPROXY, GONOSUMDB, GONOSUMCHECK, GOSUMDB]
   generic-build:
     description: Make-only fallback for unclassified build systems.
+    posture: baseline
     allow: [make, git]
     allow_pipelines: false

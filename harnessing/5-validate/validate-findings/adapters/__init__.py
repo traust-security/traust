@@ -21,6 +21,8 @@ from pathlib import Path
 if not __package__:
     sys.path.insert(0, str(Path(__file__).parent))
 
+from typing import Any
+
 from .base import AdapterBase, Fingerprint, StepResult
 from .container import ContainerAdapter
 from .k8s import K8sAdapter
@@ -48,11 +50,29 @@ def get_adapter(name: str) -> AdapterBase:
 
 
 def new_adapter(name: str) -> AdapterBase:
-    """Return a fresh adapter instance with independent state."""
+    """Return a fresh adapter instance with independent state.
+
+    Unbound: call its bind_scope() before running steps, or a closed-posture
+    profile refuses every curl."""
     try:
         return _ADAPTER_CLASSES[name]()
     except KeyError as e:
         raise ValueError(f"unknown adapter: {name!r}") from e
+
+
+def bind_scope(scope: object) -> None:
+    """Bind the engagement scope to every shared adapter singleton.
+
+    Call once per run, before preflight: the adapters are module-level
+    singletons, and an unbound one carries no curl hosts."""
+    for adapter in TARGET_ADAPTERS.values():
+        adapter.bind_scope(scope)
+
+
+def bind_profile_map(profile_map: dict[str, Any] | None) -> None:
+    """Bind resolved safe_exec profiles to every shared adapter singleton."""
+    for adapter in TARGET_ADAPTERS.values():
+        adapter.bind_profile_map(profile_map)
 
 
 __all__ = [
@@ -63,6 +83,8 @@ __all__ = [
     "K8sAdapter",
     "StepResult",
     "WasmAdapter",
+    "bind_profile_map",
+    "bind_scope",
     "get_adapter",
     "new_adapter",
 ]
