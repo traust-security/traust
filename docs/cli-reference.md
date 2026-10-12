@@ -16,7 +16,7 @@ python3 -m traust.cli check skill-alignment      # equivalent
 
 ## Command groups
 
-17 groups (plus the deprecated `tools` group below).
+18 groups (plus the deprecated `tools` group below).
 
 | Group | Description | Operations |
 |---|---|---|
@@ -30,7 +30,7 @@ python3 -m traust.cli check skill-alignment      # equivalent
 | `dashboard` | Dashboard rebuilds | `refresh` |
 | `feeds` | Feed management | `fetch`, `reconcile-cve-provenance` |
 | `impact` | Impact analysis | `analyze`, `calibrate-rule-pack`, `cluster-state-diff`, `resolve-advisory-symbols`, `sweep` |
-| `ledger` | Ledger emission | `doc-variance`, `emit-triage`, `emit-validation`, `emit-verification` |
+| `ledger` | Ledger emission | `doc-variance`, `emit-triage`, `emit-validation`, `emit-verification`, `pull` |
 | `metrics` | Metrics & spend | `attribute-spend`, `collect-spend`, `history`, `sla`, `spend` |
 | `portfolio` | Portfolio graph | `artifacts`, `build`, `deps-multi`, `freshness`, `interfaces`, `parsers`, `query`, `stats`, `symbols` |
 | `registry` | Model/product registry | `models`, `products` |
@@ -38,6 +38,48 @@ python3 -m traust.cli check skill-alignment      # equivalent
 | `route` | Finding routing | `impact-findings`, `regressions` |
 | `sweep` | Class-generalization sweep | `benchmark`, `collect`, `draft`, `emit`, `mine`, `rule-lane`, `sweep` |
 | `util` | Utility commands | `elf`, `redact`, `safe-exec` |
+
+## Observe repository state
+
+`traust observe repo-state` records one repository's forge facts through Core,
+then prints its current assembled state as JSON.
+
+```sh
+traust observe repo-state --repo https://github.com/example/project \
+  --core-config /path/to/traust.yaml --db /path/to/graph/findings.db
+```
+
+`--core-config` is required. Configure the output database and forge access:
+
+```yaml
+database:
+  url: sqlite:////path/to/core.db
+process:
+  allowed_binaries: [gh, glab]
+  keep_env: [PATH, HOME, LANG, LC_ALL, TMPDIR, GH_TOKEN, GITLAB_TOKEN]
+  timeout_seconds: 120
+```
+
+Provision or migrate the database using the pinned
+[Contracts storage schema](https://github.com/traust-security/traust-contracts/blob/main/storage/v1/README.md#migrations)
+before running the command. Core rejects uninitialized storage and output SQLite
+databases that coincide with an input projection. PostgreSQL requires its Core
+driver and a corresponding `database.url`.
+
+The repository must exist in the audit/inventory views. Use `--repo-key` instead
+of `--repo` for an audit filing, including one without a URL. `--no-network`
+prevents forge calls. `--graph-db` and `--designations` override inventory and
+exposure inputs; these and `--db` otherwise use the deployment's existing paths.
+Findings and inventory are read-only inputs. Only forge facts are stored;
+age, churn, finding counts, risk and exposure are derived when state is assembled.
+Expected forge failures appear as JSON statuses with exit code 0; input,
+configuration and storage errors exit 2.
+
+Legacy worklist keys map to JSON fields as follows: `tier` → `risk_tier`,
+`C` → `changed_lines`, `R` → `churn_ratio`, `S` → `sensitive_changed`,
+`S_lines` → `sensitive_lines`, `changed` → `push_changed`, and
+`truncated` → `compare_truncated`. Unknown measurements are null;
+a measured empty diff remains zero/false.
 
 ## Deprecated forms
 
