@@ -82,7 +82,8 @@ crypto-dependency scans), `/isolation-review` (resolving a service's repo
 set), `/fleet-fix` (every repo affected by one systemic pattern),
 `/dependency-watch` (fleet advisory sweep), `/refresh-dashboards` (dependency
 exposure), `/drift-watch` (staleness), plus `cli/build_rescan_worklist`
-(rescan routing) and `ops/build_crown_jewel_tiers` (tiering).
+(rescan routing), `cli/observe_repo_state` (inventory membership for a single
+repository observation), and `ops/build_crown_jewel_tiers` (tiering).
 
 ## Not a graph: `findings.db`
 

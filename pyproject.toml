@@ -12,6 +12,7 @@ license = "Apache-2.0"
 description = "AI agent tooling for automated security audits of Red Hat Hybrid Platforms source code"
 requires-python = ">=3.11"
 dependencies = [
+    "traust-core",
     "traust-engine",
     # TODO: this should not be here. Declared only because a handful of call
     # sites import traust_ledger DIRECTLY instead of going through
@@ -53,8 +54,15 @@ traust = "traust.cli.__main__:main"
 [dependency-groups]
 dev = ["ruff>=0.6", "pytest-xdist>=3", "traust-ledger[db]"]
 
+[tool.uv]
+# Core observation requires the newer Contracts forge-facts schema. Unify it
+# with the engine/ledger pins while this dependent PR stack is reviewed.
+override-dependencies = [
+    "traust-contracts @ git+https://github.com/traust-security/traust-contracts.git@133883d572834f67e4c25252db7022e3c0c6306f",
+]
+
 [tool.uv.sources]
-traust-contracts = { git = "https://github.com/traust-security/traust-contracts.git", rev = "a1d602b4266be4f8645c1c682d8c3439501167ad" }
+traust-core = { git = "https://github.com/traust-security/traust-core.git", rev = "4f9c7a48949127a9d550212adf81a9a60e8ad324" }
 traust-engine = { git = "https://github.com/traust-security/traust-engine.git", rev = "3f5c2f40e24a81550f3c267cdca9835294b0bdbe" }
 traust-ledger = { git = "https://github.com/traust-security/traust-ledger.git", rev = "a20ffd476529e50b2e266e3311adbf48d6a8f5f6" }
 
