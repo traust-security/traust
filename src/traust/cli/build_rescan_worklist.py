@@ -373,30 +373,16 @@ def lookup_designation(url: str | None, designations: list[tuple[str, str]]) -> 
 
 
 def exposure_class(entry: dict) -> str:
-    """Exposure class = visibility x externality, externality dominant
-    (operator ground truth 2026-07-27). Externality axis = the curated
-    repository exposure designation (does the code reach customers /
-    externally-facing services) — NOT corpus ownership. Visibility
-    axis = stage-1 visibility, with a public upstream elevating a
-    private repo to effectively-public (the upstream is
-    attacker-readable; vulns propagate on rebases/bumps). Public
-    visibility defaults to public-external (public ~= productized in
-    this portfolio) unless designated internal-tooling. Network-
-    unreached repos classify from the designation alone and default
-    private on the visibility axis."""
-    designation = entry.get("designation")
-    public_vis = (entry.get("visibility") or "").lower() == "public"
-    upstream = bool(entry.get("fork") and entry.get("parent"))
-    if public_vis:
-        return "public-internal" if designation == "internal-tooling" else "public-external"
-    if designation == "external":
-        # upstream elevation moves the visibility axis
-        return "public-external" if upstream else "private-external"
-    if upstream:
-        # private, undesignated, public upstream -> rank 3 (the
-        # upstream default must NOT ride the public~=productized rule)
-        return "public-internal"
-    return "private-internal"
+    from traust_core.v1.models.portfolio import Designation
+    from traust_core.v1.services.portfolio import PortfolioPolicy
+
+    value = entry.get("designation")
+    designation = Designation(value) if value in set(Designation) else None
+    return PortfolioPolicy().exposure_class(
+        designation,
+        (entry.get("visibility") or "").lower() == "public",
+        bool(entry.get("fork") and entry.get("parent")),
+    )
 
 
 def parse_pinned_sha(commit_field: str | None) -> str | None:
@@ -471,100 +457,67 @@ def _classify_stderr(stderr: str) -> str:
     return "error"
 
 
+def _observation_source(*, timeout: float):
+    from traust_core.v1.context.observation import command_source
+
+    return command_source(GIT_HOSTS, timeout_seconds=timeout)
+
+
+def _source_info(host: str, project: str, *, timeout: float) -> dict:
+    from traust_core.v1.models.values import HttpsRepoUrl
+    from traust_core.v1.providers.sources import SourceError
+
+    try:
+        repo = HttpsRepoUrl.parse(f"https://{host}/{project}", GIT_HOSTS)
+        info = _observation_source(timeout=timeout).info(repo).data
+    except SourceError as exc:
+        return {"ok": False, "kind": str(exc.observation_status), "error": str(exc)}
+    except ValueError as exc:
+        return {"ok": False, "kind": "error", "error": f"unsafe repository target: {exc}"}
+    return {
+        "ok": True,
+        **{
+            key: getattr(info, key)
+            for key in ("pushed_at", "archived", "default_branch", "visibility", "fork", "parent")
+        },
+    }
+
+
+def _source_compare(host: str, project: str, sha: str, branch: str) -> dict:
+    from traust_core.v1.models.values import HttpsRepoUrl
+    from traust_core.v1.providers.sources import SourceError
+
+    try:
+        repo = HttpsRepoUrl.parse(f"https://{host}/{project}", GIT_HOSTS)
+        result = _observation_source(timeout=120).compare(repo, sha, branch).data
+    except SourceError as exc:
+        return {"ok": False, "kind": str(exc.observation_status), "error": str(exc)}
+    except ValueError as exc:
+        return {"ok": False, "kind": "error", "error": f"unsafe repository target: {exc}"}
+    value = {
+        "ok": True,
+        "ahead_by": result.ahead_by,
+        "files": [f.model_dump() for f in result.files],
+        "truncated": result.truncated,
+    }
+    if result.patch is not None:
+        value["patch"] = result.patch
+    return value
+
+
 def gh_rate_remaining() -> int | None:
-    """Remaining GitHub core-API quota, or None when undeterminable
-    (gh missing/unauthenticated — stage 1 will surface that per-repo)."""
-    try:
-        proc = subprocess.run(
-            ["gh", "api", "rate_limit", "--jq", ".resources.core.remaining"],
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-    except (subprocess.SubprocessError, OSError):
-        return None
-    if proc.returncode != 0:
-        return None
-    try:
-        return int(proc.stdout.strip())
-    except ValueError:
-        return None
+    from traust_core.v1.models.values import HttpsRepoUrl
+
+    source = _observation_source(timeout=30)
+    return source.quota(HttpsRepoUrl("github.com", "quota/probe")).data.remaining
 
 
 def gh_repo_info(project: str) -> dict:
-    """Stage 1, GitHub: one `gh api` call -> pushed_at/archived/branch."""
-    org, _, name = project.partition("/")
-    if not (_GH_NAME_RE.fullmatch(org) and _GH_NAME_RE.fullmatch(name)):
-        return {"ok": False, "kind": "error", "error": f"unsafe org/name: {project}"}
-    try:
-        proc = subprocess.run(
-            [
-                "gh",
-                "api",
-                f"repos/{org}/{name}",
-                "--jq",
-                "{pushed_at, archived, default_branch, visibility, "
-                "fork, parent: .parent.full_name}",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=60,
-        )
-    except (subprocess.SubprocessError, OSError) as e:
-        return {"ok": False, "kind": "unreachable", "error": str(e)[:120]}
-    if proc.returncode != 0:
-        return {
-            "ok": False,
-            "kind": _classify_stderr(proc.stderr),
-            "error": proc.stderr.strip()[:120] or "api-error",
-        }
-    try:
-        return {"ok": True, **json.loads(proc.stdout)}
-    except json.JSONDecodeError:
-        return {"ok": False, "kind": "error", "error": "unparseable"}
+    return _source_info("github.com", project, timeout=60)
 
 
 def gh_compare(project: str, sha: str) -> dict:
-    """Stage 2, GitHub: pinned-SHA...HEAD compare, no clone needed."""
-    org, _, name = project.partition("/")
-    if not (
-        _GH_NAME_RE.fullmatch(org)
-        and _GH_NAME_RE.fullmatch(name)
-        and re.fullmatch(r"[0-9a-f]{7,40}", sha)
-    ):
-        return {"ok": False, "kind": "error", "error": f"unsafe org/name/sha: {project}"}
-    try:
-        proc = subprocess.run(
-            [
-                "gh",
-                "api",
-                f"repos/{org}/{name}/compare/{sha}...HEAD",
-                "--jq",
-                "{ahead_by, status, files: [.files[] | {filename, changes}]}",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=120,
-        )
-    except (subprocess.SubprocessError, OSError) as e:
-        return {"ok": False, "kind": "unreachable", "error": str(e)[:120]}
-    if proc.returncode != 0:
-        return {
-            "ok": False,
-            "kind": _classify_stderr(proc.stderr),
-            "error": proc.stderr.strip()[:120] or "api-error",
-        }
-    try:
-        payload = json.loads(proc.stdout)
-    except json.JSONDecodeError:
-        return {"ok": False, "kind": "error", "error": "unparseable"}
-    files = payload.get("files") or []
-    return {
-        "ok": True,
-        "ahead_by": int(payload.get("ahead_by") or 0),
-        "files": files,
-        "truncated": len(files) >= GH_COMPARE_FILE_CAP,
-    }
+    return _source_compare("github.com", project, sha, "HEAD")
 
 
 _GH_REF_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]*$")
@@ -637,24 +590,7 @@ def _glab_api(host: str, request_path: str) -> dict:
 
 
 def gitlab_repo_info(host: str, project: str) -> dict:
-    """Stage 1, GitLab: GET /projects/:enc — last_activity_at plays the
-    pushed_at role."""
-    if not safe_project_path(project):
-        return {"ok": False, "kind": "error", "error": f"unsafe project path: {project}"}
-    res = _glab_api(host, f"projects/{gitlab_project_enc(project)}")
-    if not res.get("ok"):
-        return res
-    p = res["payload"]
-    fork_parent = (p.get("forked_from_project") or {}).get("path_with_namespace")
-    return {
-        "ok": True,
-        "pushed_at": p.get("last_activity_at"),
-        "archived": bool(p.get("archived")),
-        "default_branch": p.get("default_branch"),
-        "visibility": p.get("visibility"),
-        "fork": bool(fork_parent),
-        "parent": fork_parent,
-    }
+    return _source_info(host, project, timeout=120)
 
 
 def count_diff_lines(diff_text: str) -> int:
@@ -671,34 +607,7 @@ def count_diff_lines(diff_text: str) -> int:
 
 
 def gitlab_compare(host: str, project: str, sha: str, default_branch: str) -> dict:
-    """Stage 2, GitLab: /repository/compare?from=<sha>&to=<branch>.
-    Normalized to the GitHub shape: {ahead_by, files:[{filename,
-    changes}], truncated}."""
-    if not (safe_project_path(project) and re.fullmatch(r"[0-9a-f]{7,40}", sha)):
-        return {"ok": False, "kind": "error", "error": f"unsafe project path/sha: {project}"}
-    to_ref = urllib.parse.quote(default_branch or "HEAD", safe="")
-    res = _glab_api(
-        host, f"projects/{gitlab_project_enc(project)}/repository/compare?from={sha}&to={to_ref}"
-    )
-    if not res.get("ok"):
-        return res
-    p = res["payload"]
-    diffs = p.get("diffs") or []
-    files = [
-        {
-            "filename": d.get("new_path") or d.get("old_path") or "",
-            "changes": count_diff_lines(d.get("diff") or ""),
-        }
-        for d in diffs
-    ]
-    patch = "\n".join(d.get("diff") or "" for d in diffs)
-    return {
-        "ok": True,
-        "ahead_by": len(p.get("commits") or []),
-        "files": files,
-        "patch": patch[:TRIPWIRE_PATCH_CAP],
-        "truncated": (bool(p.get("compare_timeout")) or len(diffs) >= GITLAB_DIFF_CAP),
-    }
+    return _source_compare(host, project, sha, default_branch)
 
 
 # ---------------------------------------------------------------------------
@@ -1041,37 +950,23 @@ IAC_RX = re.compile(
 
 
 def change_metrics(files: list[dict]) -> dict:
-    """files: [{filename, changes}] -> {C, S, S_lines, deps_only,
-    fp_files, iac_files, tm_files}. C, S, fp_files, iac_files and
-    tm_files are computed over first-party files only; deps_only over
-    ALL changed files (strict: every single file is a manifest)."""
-    C, S_lines, sensitive, fp_files, iac_files = 0, 0, False, 0, 0
-    tm_files = 0
-    deps_only = bool(files)
-    for f in files:
-        path = f.get("filename") or ""
-        changes = int(f.get("changes") or 0)
-        if not is_deps_manifest(path):
-            deps_only = False
-        if not is_first_party(path):
-            continue
-        C += changes
-        fp_files += 1
-        if SENSITIVE_RX.search(path):
-            sensitive = True
-            S_lines += changes
-        if IAC_RX.search(path):
-            iac_files += 1
-        if TM_SURFACE_RX.search(path):
-            tm_files += 1
+    from traust_core.v1.providers.sources import ChangedFile
+    from traust_core.v1.services.portfolio import change_metrics as core_change_metrics
+
+    metrics = core_change_metrics(
+        [
+            ChangedFile(filename=f.get("filename") or "", changes=int(f.get("changes") or 0))
+            for f in files
+        ]
+    )
     return {
-        "C": C,
-        "S": sensitive,
-        "S_lines": S_lines,
-        "deps_only": deps_only,
-        "fp_files": fp_files,
-        "iac_files": iac_files,
-        "tm_files": tm_files,
+        "C": metrics.changed_lines,
+        "S": metrics.sensitive_changed,
+        "S_lines": metrics.sensitive_lines,
+        "deps_only": metrics.deps_only,
+        "fp_files": metrics.first_party_files,
+        "iac_files": metrics.iac_files,
+        "tm_files": metrics.threat_model_files,
     }
 
 
@@ -1425,15 +1320,9 @@ def decide(ctx: dict) -> tuple[str, str, str]:
 
 
 def risk_tier(live_crit_high: int, archived: bool, dormant: bool) -> str:
-    """Live risk outranks dormancy: an archived repo with live
-    crit/highs still needs assurance."""
-    if live_crit_high >= P0_MIN_LIVE:
-        return "P0"
-    if live_crit_high >= 1:
-        return "P1"
-    if archived or dormant:
-        return "P3"
-    return "P2"
+    from traust_core.v1.services.portfolio import PortfolioPolicy
+
+    return PortfolioPolicy(p0_min_live=P0_MIN_LIVE).risk_tier(live_crit_high, archived, dormant)
 
 
 # ---------------------------------------------------------------------------
@@ -2085,10 +1974,37 @@ def stage1(entries: list[dict], jobs: int, gh_info=None, gl_info=None) -> None:
 
     breaker = _BanBreaker()
 
-    from traust_pack_security.observe import observe_info
-
     def work(e: dict) -> None:
-        observe_info(e, gh_info, gl_info, breaker)
+        kind, host, project = split_repo_url(e["repo_url"])
+        e["host_kind"], e["host"], e["project"] = kind, host, project
+        if e["repo_url"] is None:
+            e["status"] = "no-repo-url"
+            return
+        if kind is None:
+            e["status"] = "unsupported-host"
+            return
+        if kind == "github" and breaker.tripped:
+            e["status"] = "ban-suspected"
+            e["error"] = (
+                "skipped: consecutive-error streak suggests a "
+                "GitHub secondary ban (rate_limit is blind to "
+                "these); next daily run retries"
+            )
+            return
+        info = gh_info(project) if kind == "github" else gl_info(host, project)
+        if kind == "github":
+            breaker.record(info.get("ok", False))
+        if not info.get("ok"):
+            e["status"] = info.get("kind", "error")
+            e["error"] = info.get("error")
+            return
+        e["status"] = "ok"
+        e["pushed_at"] = info.get("pushed_at")
+        e["archived"] = bool(info.get("archived"))
+        e["default_branch"] = info.get("default_branch")
+        e["visibility"] = info.get("visibility")
+        e["fork"] = bool(info.get("fork"))
+        e["parent"] = info.get("parent")
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=jobs) as ex:
         list(ex.map(work, entries))
@@ -2121,11 +2037,29 @@ def stage2(candidates: list[dict], jobs: int, gh_cmp=None, gl_cmp=None) -> None:
                 file=sys.stderr,
             )
 
-    from traust_pack_security.observe import observe_comparison
-
     def work(item: tuple[int, dict]) -> None:
         idx, e = item
-        observe_comparison(e, gh_cmp, gl_cmp, quota_deferred=idx in deferred)
+        if not e.get("pinned_sha"):
+            e["status"] = "no-pinned-sha"
+            return
+        if idx in deferred:
+            e["status"] = "quota-deferred"
+            return
+        if e["host_kind"] == "github":
+            res = gh_cmp(e["project"], e["pinned_sha"])
+        else:
+            res = gl_cmp(
+                e["host"], e["project"], e["pinned_sha"], e.get("default_branch") or "HEAD"
+            )
+        if not res.get("ok"):
+            e["status"] = res.get("kind", "error")
+            e["error"] = res.get("error")
+            return
+        e["ahead_by"] = res["ahead_by"]
+        e["truncated"] = res["truncated"]
+        if res.get("patch"):
+            e["_patch"] = res["patch"]  # tripwire input (GitLab)
+        e.update(change_metrics(res["files"]))
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=jobs) as ex:
         list(ex.map(work, enumerate(candidates)))

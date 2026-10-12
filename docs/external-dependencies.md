@@ -36,8 +36,8 @@ packages, and `harnessing/`.
 | `traust-contracts` | contract surface — bundled JSON schemas, shared enums, identity vectors | Same license as this harness | sibling repository, installed from its git tag via `[tool.uv.sources]` | Not a third-party licensing surface |
 | `traust-ledger` | disposition-ledger kernel — finding identity, Merkle integrity, signing | Same license as this harness | sibling repository, installed from its git tag via `[tool.uv.sources]` | Not a third-party licensing surface |
 | `jsonschema` | all validators | MIT | [PyPI](https://pypi.org/pypi/jsonschema/json) | Permissive |
-| `pydantic` | immutable typed repository observation records | MIT | [LICENSE](https://github.com/pydantic/pydantic/blob/main/LICENSE) | Imported library; installed by the project dependency resolver. |
-| `sqlalchemy` | observation storage through Core's SQL repository pattern | MIT | [LICENSE](https://github.com/sqlalchemy/sqlalchemy/blob/main/LICENSE) | Imported library; SQLite uses the standard-library driver. |
+| `pydantic` | Core dependency: typed domain records | MIT | [LICENSE](https://github.com/pydantic/pydantic/blob/main/LICENSE) | Imported library; installed by the project dependency resolver. |
+| `sqlalchemy` | Core dependency: SQL repositories | MIT | [LICENSE](https://github.com/sqlalchemy/sqlalchemy/blob/main/LICENSE) | Imported library; SQLite uses the standard-library driver. |
 | `referencing` | schema registry for the validators | MIT | [PyPI](https://pypi.org/pypi/referencing/json) | Permissive |
 | `pyyaml` | config, scope and targets parsing | MIT | [PyPI](https://pypi.org/pypi/PyYAML/json) | Permissive |
 | `playwright` | `validate-browser-finding` | Apache-2.0 | [PyPI](https://pypi.org/pypi/playwright/json) | Downloads browser binaries (Chromium/Firefox/WebKit) carrying their own upstream licenses. |

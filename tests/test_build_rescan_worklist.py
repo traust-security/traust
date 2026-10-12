@@ -320,7 +320,15 @@ class TestGitlabCompare:
             "compare_timeout": False,
             "diffs": [{"new_path": "pkg/auth.go", "diff": DIFF}],
         }
-        monkeypatch.setattr(rw, "_glab_api", lambda host, path: {"ok": True, "payload": payload})
+        from traust_core.v1.providers.process import ProcessResult, ProcessRunner
+
+        monkeypatch.setattr(
+            ProcessRunner,
+            "run",
+            lambda self, argv, **kw: ProcessResult(
+                tuple(argv), 0, json.dumps(payload).encode(), b"", 0
+            ),
+        )
         res = rw.gitlab_compare("gitlab.example.com", "g/r", "a" * 40, "main")
         assert res["ok"] and res["ahead_by"] == 2
         assert res["files"] == [{"filename": "pkg/auth.go", "changes": 3}]
@@ -328,7 +336,15 @@ class TestGitlabCompare:
 
     def test_truncated_on_timeout_or_cap(self, monkeypatch):
         payload = {"commits": [], "compare_timeout": True, "diffs": []}
-        monkeypatch.setattr(rw, "_glab_api", lambda host, path: {"ok": True, "payload": payload})
+        from traust_core.v1.providers.process import ProcessResult, ProcessRunner
+
+        monkeypatch.setattr(
+            ProcessRunner,
+            "run",
+            lambda self, argv, **kw: ProcessResult(
+                tuple(argv), 0, json.dumps(payload).encode(), b"", 0
+            ),
+        )
         assert rw.gitlab_compare("gitlab.com", "g/r", "a" * 40, "main")["truncated"]
 
     def test_no_credentials_when_glab_missing(self, monkeypatch):

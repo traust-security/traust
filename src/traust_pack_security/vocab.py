@@ -18,20 +18,6 @@ class Lane(StrEnum):
     NONE = "none"
 
 
-class ComparisonStatus(StrEnum):
-    OK = "ok"
-    QUOTA_DEFERRED = "quota-deferred"
-    NO_PINNED_SHA = "no-pinned-sha"
-    UNSUPPORTED_HOST = "unsupported-host"
-    NO_REPO_URL = "no-repo-url"
-    NO_CREDENTIALS = "no-credentials"
-    UNREACHABLE = "unreachable"
-    ERROR = "error"
-    BAN_SUSPECTED = "ban-suspected"
-    NETWORK_SKIPPED = "network-skipped"
-    NEVER_AUDITED = "never-audited"
-
-
 class EventSource(StrEnum):
     EXTERNAL_REPORT = "external-report"
     METHODOLOGY = "methodology"
