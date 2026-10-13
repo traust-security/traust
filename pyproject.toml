@@ -55,7 +55,7 @@ dev = ["ruff>=0.6", "pytest-xdist>=3", "traust-ledger[db]"]
 
 [tool.uv.sources]
 traust-contracts = { git = "https://github.com/traust-security/traust-contracts.git", rev = "a1d602b4266be4f8645c1c682d8c3439501167ad" }
-traust-engine = { git = "https://github.com/traust-security/traust-engine.git", rev = "3f5c2f40e24a81550f3c267cdca9835294b0bdbe" }
+traust-engine = { git = "https://github.com/traust-security/traust-engine.git", rev = "b853e6572faa6d5a393e06d3585daf377011812c" }
 traust-ledger = { git = "https://github.com/traust-security/traust-ledger.git", rev = "a20ffd476529e50b2e266e3311adbf48d6a8f5f6" }
 
 # Multi-skill CLIs live under src/traust/; harnessing/<skill>/ for single-skill
