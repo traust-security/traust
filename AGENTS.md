@@ -104,6 +104,7 @@ changing shared scanners, ledger logic, or schemas — not only this tree.
 | **traust-engine** | sibling repository `traust-engine` |
 | **traust-ledger** | sibling repository `traust-ledger` |
 | **traust-contracts** | sibling repository `traust-contracts` |
+| **traust-core** | sibling repository `traust-core` |
 
 **Pins live only in `pyproject.toml`** — do not duplicate shas/version tags in docs.
 `[tool.uv.sources]` pins by commit `rev`, not `tag`: a tag requires a release

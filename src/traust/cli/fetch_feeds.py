@@ -75,14 +75,15 @@ import io
 import json
 import re
 import sys
-import urllib.error
-import urllib.request
 from pathlib import Path
 
+from traust_core.v1.errors import ServiceError
+from traust_core.v1.providers.feeds import validate_payload
+from traust_core.v1.providers.http import HttpFetcher, RetryPolicy
 from traust_engine import locations
 
 from traust.context import add_config_home_arg, load_engine
-from traust.registry.feeds_config import cached_sources, feeds_cache_dir
+from traust.registry.feeds_config import cached_sources, feeds_cache_dir, retry_defaults
 
 USER_AGENT = "traust fetch_feeds.py"
 
@@ -91,6 +92,16 @@ DEFAULT_MAX_AGE_HOURS = 24.0
 # Runaway guard for paginated feeds: a backfill of the whole campaign
 # window is ~12 pages, so 60 is far above any real fetch.
 MAX_FEED_PAGES = 60
+
+
+def _retry_policy(name: str) -> RetryPolicy:
+    """Global retry defaults from feeds.yaml, overridden by the feed's own `retry:`."""
+    return RetryPolicy(**{**retry_defaults(), **(_feeds().get(name, {}).get("retry") or {})})
+
+
+def _fetcher(name: str) -> HttpFetcher:
+    return HttpFetcher(USER_AGENT, _retry_policy(name))
+
 
 # The vulnerability-data sources come from config/feeds.yaml — one
 # registry shared with fetch_advisory.py (live tier) and check_drift.py
@@ -199,6 +210,16 @@ def _write_meta(cache: Path, meta: dict):
     (cache / "feeds-meta.json").write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
 
 
+def _record_attempt(cache: Path, meta: dict, name: str, *, error: str) -> None:
+    """Persist a failed refresh so consumers can see a feed went stale and why."""
+    entry = dict(meta.get(name) or {})
+    entry["last_attempt_at"] = _iso(_now())
+    entry["last_error"] = error
+    entry["stale"] = True
+    meta[name] = entry
+    _write_meta(cache, meta)
+
+
 def _age_hours(meta_entry: dict) -> float | None:
     try:
         t = datetime.datetime.strptime(meta_entry["retrieved_at"], "%Y-%m-%dT%H:%M:%SZ").replace(
@@ -249,7 +270,9 @@ def _feed_extra(name: str, raw: bytes) -> dict:
     return {}
 
 
-def _fetch_paginated(spec: dict, since: str | None) -> tuple[list, str | None]:
+def _fetch_paginated(
+    spec: dict, since: str | None, fetcher: HttpFetcher
+) -> tuple[list, str | None]:
     """Page a date-windowed JSON list endpoint. Returns (records, watermark).
 
     Pages *within* the window rather than assuming a window fits one page:
@@ -265,9 +288,7 @@ def _fetch_paginated(spec: dict, since: str | None) -> tuple[list, str | None]:
         q = f"?{pag['page_param']}={page}&per_page={per_page}"
         if since and inc.get("since_param"):
             q += f"&{inc['since_param']}={since}"
-        req = urllib.request.Request(spec["url"] + q, headers={"User-Agent": USER_AGENT})
-        with urllib.request.urlopen(req, timeout=120) as r:
-            batch = json.load(r)
+        batch = json.loads(fetcher.get(spec["url"] + q))
         if not isinstance(batch, list):
             raise ValueError(f"expected a JSON list, got {type(batch).__name__}")
         for rec in batch:
@@ -314,8 +335,9 @@ def fetch(name: str, cache: Path, max_age_hours: float, offline: bool = False) -
         inc = spec.get("incremental") or {}
         since = entry.get("watermark") or inc.get("backfill_from")
         try:
-            fresh, watermark = _fetch_paginated(spec, since)
-        except (urllib.error.URLError, OSError, TimeoutError, ValueError) as e:
+            fresh, watermark = _fetch_paginated(spec, since, _fetcher(name))
+        except (ServiceError, ValueError) as e:
+            _record_attempt(cache, meta, name, error=str(e))
             if path.is_file():
                 return True, (
                     f"STALE ({'unknown age' if age is None else f'{age:.0f}h old'})"
@@ -343,6 +365,9 @@ def fetch(name: str, cache: Path, max_age_hours: float, offline: bool = False) -
             "retrieved_at": _iso(_now()),
             "sha256": hashlib.sha256(raw).hexdigest(),
             "size": len(raw),
+            "last_attempt_at": _iso(_now()),
+            "last_error": None,
+            "stale": False,
             "watermark": watermark,
             "count": len(records),
             "added_last_run": added,
@@ -351,13 +376,12 @@ def fetch(name: str, cache: Path, max_age_hours: float, offline: bool = False) -
         _write_meta(cache, meta)
         return True, (f"refreshed (+{added} new, {len(records)} total, watermark {watermark})")
 
-    req = urllib.request.Request(
-        spec.get("url") or spec["index_url"], headers={"User-Agent": USER_AGENT}
-    )
+    url = spec.get("url") or spec["index_url"]
     try:
-        with urllib.request.urlopen(req, timeout=120) as r:
-            raw = r.read()
-    except (urllib.error.URLError, OSError, TimeoutError) as e:
+        raw = _fetcher(name).get(url)
+        validate_payload(raw, spec.get("file") or spec.get("index_file") or "")
+    except (ServiceError, ValueError) as e:
+        _record_attempt(cache, meta, name, error=str(e))
         if path.is_file():
             return True, (
                 f"STALE ({'unknown age' if age is None else f'{age:.0f}h old'})"
@@ -367,10 +391,13 @@ def fetch(name: str, cache: Path, max_age_hours: float, offline: bool = False) -
 
     path.write_bytes(raw)
     meta[name] = {
-        "url": spec.get("url") or spec["index_url"],
+        "url": url,
         "retrieved_at": _iso(_now()),
         "sha256": hashlib.sha256(raw).hexdigest(),
         "size": len(raw),
+        "last_attempt_at": _iso(_now()),
+        "last_error": None,
+        "stale": False,
         **_feed_extra(name, raw),
     }
     _write_meta(cache, meta)
@@ -403,6 +430,8 @@ def feed_status(cache: Path, max_age_hours: float | None = None) -> dict:
             "age_hours": None if age is None else round(age, 1),
             "max_age_hours": threshold,
             "internal": bool(spec.get("internal")),
+            "last_error": entry.get("last_error"),
+            "last_attempt_at": entry.get("last_attempt_at"),
             "stale": (not present or age is None or age > threshold),
         }
     return out
@@ -502,9 +531,7 @@ def load_vex(cache: Path, cve: str, offline: bool = False) -> dict:
     if offline:
         raise FileNotFoundError(f"{cve} not in the VEX cache and --offline")
     url = spec["doc_url_template"].format(year=year, ident_lower=ident)
-    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-    with urllib.request.urlopen(req, timeout=60) as r:
-        raw = r.read()
+    raw = _fetcher("vex").get(url)
     doc_path.parent.mkdir(parents=True, exist_ok=True)
     doc_path.write_bytes(raw)
     return json.loads(raw.decode("utf-8"))

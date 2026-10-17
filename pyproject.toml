@@ -28,6 +28,7 @@ dependencies = [
     # itself a candidate for removal, which retires most of the callers.
     "traust-ledger",
     "traust-contracts",
+    "traust-core",
     "jsonschema",
     "referencing",
     "pyyaml",
@@ -57,6 +58,10 @@ dev = ["ruff>=0.6", "pytest-xdist>=3", "traust-ledger[db]"]
 traust-contracts = { git = "https://github.com/traust-security/traust-contracts.git", rev = "cb8bba8196f0d1203177cf7d920036a655dade0a" }
 traust-engine = { git = "https://github.com/traust-security/traust-engine.git", rev = "bc14d6af42c7c2d1b0db7b2f5a0cf31fd36bb603" }
 traust-ledger = { git = "https://github.com/traust-security/traust-ledger.git", rev = "7ce2516408390ca33ab9e78d00249b7a1003d600" }
+# PLACEHOLDER (XWING-2223): dummy value from traust-core#8.
+# Once it merges, replace with it's commit revision:
+# then `uv lock`. Do not merge this PR with the path source.
+traust-core = { git = "https://github.com/traust-security/traust-core.git", rev = "<merge commit>" }
 
 # Multi-skill CLIs live under src/traust/; harnessing/<skill>/ for single-skill
 # scripts. Install for deps + importable path helpers.
