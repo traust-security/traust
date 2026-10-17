@@ -54,9 +54,9 @@ traust = "traust.cli.__main__:main"
 dev = ["ruff>=0.6", "pytest-xdist>=3", "traust-ledger[db]"]
 
 [tool.uv.sources]
-traust-contracts = { git = "https://github.com/traust-security/traust-contracts.git", rev = "f7869dba2daea8493ebfee19add99cb546791661" }
-traust-engine = { git = "https://github.com/traust-security/traust-engine.git", rev = "43b12c963ecb23d852f539c57f694186f749721f" }
-traust-ledger = { git = "https://github.com/traust-security/traust-ledger.git", rev = "2ffc506c3e7bb429f770e2c6bbfd591079f363b0" }
+traust-contracts = { git = "https://github.com/traust-security/traust-contracts.git", rev = "b5f16e47ef953f88b0a2cffcb6852cc283db8229" }
+traust-engine = { git = "https://github.com/traust-security/traust-engine.git", rev = "9c7121a8ce26d2d29dc207e34a84c6c35df0eb92" }
+traust-ledger = { git = "https://github.com/traust-security/traust-ledger.git", rev = "5ec3efca17931f44a268338321e8e36b6e327b7f" }
 
 # Multi-skill CLIs live under src/traust/; harnessing/<skill>/ for single-skill
 # scripts. Install for deps + importable path helpers.
