@@ -11,7 +11,7 @@ import shlex
 import subprocess
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import ClassVar
+from typing import Any, ClassVar
 
 
 @dataclass
@@ -93,8 +93,22 @@ class AdapterBase:
     #: verbs that delete data, kill workloads, or cannot be undone
     DESTRUCTIVE_VERBS: ClassVar[set[str]] = {"delete", "scale-zero", "kill", "fuzz-import"}
 
-    def __init__(self):
-        pass
+    def __init__(self) -> None:
+        #: extra curl hosts for safe_exec; see bind_scope()
+        self._curl_hosts: tuple[str, ...] = ()
+        self._safe_exec_profile_map: dict[str, Any] | None = None
+
+    def bind_scope(self, scope: object) -> None:
+        """Take the curl host allowlist from the engagement scope.
+
+        Lets a deployment run validation-step with `posture: restricted`
+        and still reach the cluster it was authorized against."""
+        getter = getattr(scope, "curl_hosts", None)
+        self._curl_hosts = tuple(getter()) if callable(getter) else ()
+
+    def bind_profile_map(self, profile_map: dict[str, Any] | None) -> None:
+        """Take the resolved safe_exec profile map for this deployment."""
+        self._safe_exec_profile_map = profile_map
 
     # ----- classification ---------------------------------------------
 
@@ -191,27 +205,31 @@ class AdapterBase:
             cls._safe_exec_mod = importlib.import_module("traust_engine._util.safe_exec")
         return cls._safe_exec_mod
 
-    @classmethod
-    def _vet_shell_string(cls, cmd: str) -> tuple[list[str] | None, str]:
+    def _vet_shell_string(self, cmd: str) -> tuple[list[str] | None, str]:
         """Vet a PoC-derived command string via safe_exec. Returns
         (argv, "") for a pipeless command, (None, "") for an approved
         pipeline, or (None, reason) when rejected."""
-        se = cls._safe_exec()
-        v = se.vet_command_string(cmd, se.get_profile(cls._SAFE_EXEC_PROFILE))
+        se = self._safe_exec()
+        v = se.vet_command_string(
+            cmd,
+            se.get_profile(self._SAFE_EXEC_PROFILE, profile_map=self._safe_exec_profile_map),
+            allowed_hosts=self._curl_hosts,
+        )
         if not v.ok:
             return None, v.reason
         if len(v.segments) == 1:
             return list(v.segments[0]), ""
         return None, ""  # approved pipeline
 
-    @classmethod
     def _run(
-        cls, cmd: str | list[str], *, timeout: int = 120, input_: str | None = None
+        self, cmd: str | list[str], *, timeout: int = 120, input_: str | None = None
     ) -> tuple[int, str, str]:
         if isinstance(cmd, str):
-            se = cls._safe_exec()
-            profile = se.get_profile(cls._SAFE_EXEC_PROFILE)
-            v = se.vet_command_string(cmd, profile)
+            se = self._safe_exec()
+            profile = se.get_profile(
+                self._SAFE_EXEC_PROFILE, profile_map=self._safe_exec_profile_map
+            )
+            v = se.vet_command_string(cmd, profile, allowed_hosts=self._curl_hosts)
             if not v.ok:
                 return 126, "", f"[step blocked: {v.reason}]"
             # single command or approved pipeline — both execute
