@@ -435,6 +435,33 @@ def _sbom_body(args, source: str) -> dict:
     return body
 
 
+def _deps_dev_resolver(engine, args):
+    """deps.dev client per feeds.yaml: on by default, off with `access: disabled`."""
+    from traust_engine.depsdev import DepsDevClient
+
+    from traust.registry.osv_urls import deps_dev_settings
+
+    settings = deps_dev_settings()
+    if settings is None:
+        print(
+            "NOTE: no deps_dev source in feeds.yaml: manifests without a lockfile are not "
+            "resolved (add it from the shipped config/feeds.yaml to enable)",
+            file=sys.stderr,
+        )
+        return None
+    url, access = settings
+    if access == "disabled":
+        return None
+    cache = None
+    try:
+        from traust.context import feeds_cache_dir
+
+        cache = feeds_cache_dir(engine) / "deps-dev" if engine is not None else None
+    except Exception:  # no configured cache: resolution still runs, uncached
+        cache = None
+    return DepsDevClient(url, timeout=args.timeout, cache_dir=cache)
+
+
 def call_osv(_engine, args) -> int:
     from traust_engine.adapters import osv as osv_mod
     from traust_engine.osv import OsvClient
@@ -461,7 +488,11 @@ def call_osv(_engine, args) -> int:
         except (subprocess.TimeoutExpired, RuntimeError) as e:
             body = _failed_binary_doc(f"{e} — {AIR_GAPPED_HELP}")
     else:
-        body = osv_mod.scan_api(repo, OsvClient(osv_query_url(), timeout=args.timeout))
+        body = osv_mod.scan_api(
+            repo,
+            OsvClient(osv_query_url(), timeout=args.timeout),
+            resolver=_deps_dev_resolver(_engine, args),
+        )
     prov = body["provenance"]
     doc = {
         "metadata": {
@@ -553,10 +584,24 @@ def _write_osv_doc(doc: dict, out: Path) -> int:
         )
         return 2
     print(f"osv: {len(doc['candidates'])} candidate(s) → {out}")
+    res = prov.get("resolution")
+    if res:
+        print(
+            f"osv: deps.dev resolved {res.get('manifests_resolved', 0)} manifest(s) without a "
+            f"lockfile ({res.get('packages_added', 0)} transitive package(s) added, "
+            "version_basis: resolved)"
+            + (
+                f"; deps.dev {res['status']}: {res.get('issues') or res.get('failure')}"
+                if res.get("status") != "complete"
+                else ""
+            ),
+            file=sys.stderr,
+        )
     if prov.get("transitive_coverage") == "partial":
         print(
-            f"NOTE: {len(prov.get('unresolved_manifests') or [])} manifest(s) have no lockfile: "
-            "their transitive dependencies were not resolved (record a coverage gap)",
+            f"NOTE: {len(prov.get('unresolved_manifests') or [])} manifest(s) without a lockfile "
+            "are still unresolved (reasons under unresolved_manifests): their transitive "
+            "dependencies were not assessed (record a coverage gap)",
             file=sys.stderr,
         )
     if prov.get("status") == "degraded":

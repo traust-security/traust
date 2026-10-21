@@ -7,7 +7,7 @@ The harness reads two kinds of configuration and keeps them apart on purpose.
 | File | Why it is safe to publish |
 |---|---|
 | `external-tools.yaml` | Pinned versions of the open-source scanner binaries the harness runs. Optional per-deployment engines are deliberately **absent** — the file's own header lists them and says where each is watched instead |
-| `feeds.yaml` | Public vulnerability-feed endpoints (OSV, NVD, vendor CSAF/VEX) and their fetch policy. The `osv` source's `access` is `api` (default) or `air-gapped` (adopter-provided osv-scanner + offline database; see docs/setup.md) |
+| `feeds.yaml` | Public vulnerability-feed endpoints (OSV, NVD, vendor CSAF/VEX) and their fetch policy. The `osv` source's `access` is `api` (default) or `air-gapped` (adopter-provided osv-scanner + offline database; see docs/setup.md). The `deps_dev` source (resolution of manifests without a lockfile; Google APIs ToS, CC BY 4.0 data) is on by default; `access: disabled` opts out |
 | `model-registry.yaml` | Model tier classes and routing roles; no estate data. Adopters repoint roles to their own providers/models by editing the copy in `TRAUST_CONFIG_HOME` — per role, schema-gated ([procedure](../docs/model-classes.md#configuring-your-own-models)) |
 
 All three are *shipped defaults that are also seeded*: `install_traust` copies

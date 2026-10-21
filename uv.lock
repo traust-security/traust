@@ -1486,7 +1486,7 @@ wheels = [
 
 [[package]]
 name = "traust"
-version = "0.33.0"
+version = "0.34.0"
 source = { editable = "." }
 dependencies = [
     { name = "jsonschema" },
@@ -1530,7 +1530,7 @@ requires-dist = [
     { name = "referencing" },
     { name = "sigstore", marker = "extra == 'signing'", specifier = ">=4.0,<5.0" },
     { name = "traust-contracts", git = "https://github.com/traust-security/traust-contracts.git?rev=84bd8e4f6cda7431fb4a1321b1d10715f2220860" },
-    { name = "traust-engine", git = "https://github.com/traust-security/traust-engine.git?rev=f9259adbc5f0f55a53c498f4f64e5e3e35260766" },
+    { name = "traust-engine", git = "https://github.com/traust-security/traust-engine.git?rev=683552d3555360152991e36eaae7279604fc0934" },
     { name = "traust-ledger", git = "https://github.com/traust-security/traust-ledger.git?rev=c3e6d2ebb1c3105e3ddf9c262198a9514d94291e" },
     { name = "traust-ledger", extras = ["db"], marker = "extra == 'ledger-db'", git = "https://github.com/traust-security/traust-ledger.git?rev=c3e6d2ebb1c3105e3ddf9c262198a9514d94291e" },
     { name = "tree-sitter", marker = "extra == 'graph'" },
@@ -1560,8 +1560,8 @@ dependencies = [
 
 [[package]]
 name = "traust-engine"
-version = "0.35.0"
-source = { git = "https://github.com/traust-security/traust-engine.git?rev=f9259adbc5f0f55a53c498f4f64e5e3e35260766#f9259adbc5f0f55a53c498f4f64e5e3e35260766" }
+version = "0.36.0"
+source = { git = "https://github.com/traust-security/traust-engine.git?rev=683552d3555360152991e36eaae7279604fc0934#683552d3555360152991e36eaae7279604fc0934" }
 dependencies = [
     { name = "jsonschema" },
     { name = "pyyaml" },

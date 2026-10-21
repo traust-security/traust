@@ -87,8 +87,9 @@ def _load_raw(path: Path | None = None) -> dict:
 
 
 # How a live source is reached. `api` is the default; `air-gapped` (osv only)
-# swaps the API for an adopter-provided offline tool and database.
-ACCESS_MODES = ("api", "air-gapped")
+# swaps the API for an adopter-provided offline tool and database;
+# `disabled` (deps_dev) opts out of the source.
+ACCESS_MODES = ("api", "air-gapped", "disabled")
 
 
 def _validate(sid: str, spec: dict) -> None:

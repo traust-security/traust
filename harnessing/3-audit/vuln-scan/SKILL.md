@@ -284,6 +284,10 @@ as `"ran"`/`"skipped: <reason>"` in
   `status: degraded` (exit 3) is recorded as
   `"osv-scanner": "degraded: <counts>"`, `status: failed` (exit 2) as
   `"osv-scanner": "failed: <failure.status>"`; neither is ever clean.
+  Candidates with `version_basis: resolved` or `resolved-default` come
+  from deps.dev resolution of a manifest without a lockfile: an
+  approximation, never promoted on their own (see `/secure-code-audit`,
+  *Deterministic dependency pre-scan*, item 4).
 
 ### Dedupe against the baseline
 

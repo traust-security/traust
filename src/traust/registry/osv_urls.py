@@ -27,3 +27,13 @@ def osv_access() -> str:
     from traust.registry.feeds_config import live_sources
 
     return live_sources()["osv"].get("access", "api")
+
+
+def deps_dev_settings() -> tuple[str, str] | None:
+    """(url_template, access) of the deps_dev source, or ``None`` when absent."""
+    from traust.registry.feeds_config import live_sources
+
+    spec = live_sources().get("deps_dev")
+    if spec is None:
+        return None
+    return spec["url_template"], spec.get("access", "api")

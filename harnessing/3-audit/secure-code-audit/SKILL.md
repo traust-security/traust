@@ -907,12 +907,20 @@ Contract (identical in spirit to the govulncheck stage):
    or osv-scanner or its database missing when air-gapped) mean **no
    lookups at all**: record `"osv-scanner": "failed: <failure.status>"` plus the
    same coverage gap, and make no dependency conclusion.
-4. **`transitive_coverage: partial`** means some manifests have no
-   lockfile (`unresolved_manifests`): their direct declarations were looked
-   up at the declared floor, but their transitive dependencies were not
-   resolved. Record a `coverage_gaps` entry naming those files ("transitive
-   dependencies not assessed: no lockfile"). Never read their transitive
-   dependencies as clean.
+4. **Manifests without a lockfile.** The pre-scan resolves their
+   transitive trees through deps.dev, on by default
+   (`metadata.resolution`, `resolved_manifests`). Those candidates carry
+   `version_basis: resolved` (or `resolved-default` for a declaration with
+   no version) and `resolved_via`. Each direct dependency is resolved on
+   its own, as of today, so this is an approximation of an install, weaker
+   evidence than a lockfile: cite `resolved_via`, and **never promote a
+   finding on a `resolved` candidate alone** (it needs the installed
+   version from a lockfile, an SBOM or the build). `transitive_coverage:
+   partial` means some manifests are still unresolved
+   (`unresolved_manifests`, each with its `reason`: not found, no version,
+   deps.dev unreachable or disabled). Record a `coverage_gaps` entry naming
+   those files ("transitive dependencies not assessed: no lockfile"), and
+   never read their transitive dependencies as clean.
 5. **`severity_basis`** says where `max_severity` came from: `cvss-v3`,
    `alias-cvss-v3`, `declared`, `alias-declared`, `malicious-package`
    (always critical) or `unscored`. An `unscored` advisory is banded medium

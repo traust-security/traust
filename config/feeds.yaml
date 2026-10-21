@@ -209,6 +209,44 @@ sources:
       url: https://osv.dev/
       verified: 2026-07-18
 
+  deps_dev:
+    tier: live
+    summary: >-
+      deps.dev (Google) — resolved dependency graphs for npm, PyPI, Maven and
+      Cargo package versions. The dependency pre-scan uses it to resolve the
+      transitive tree of manifests that have no lockfile.
+    # ON BY DEFAULT; opt out with `access: disabled` (owner decision
+    # 2026-10-21). Then manifests without a lockfile stay coverage gaps
+    # (`transitive_coverage: partial`).
+    #
+    # TERMS: use of the API is subject to the Google APIs Terms of Service
+    # (https://developers.google.com/terms), which bind the operator who runs
+    # it: Google sets usage limits at its discretion (2.d), may discontinue
+    # the API at any time (8.a), California law and venue apply and a
+    # business operator indemnifies Google for misuse (9.c, 10.c). The data
+    # traust stores, resolved package/version pairs, is deps.dev-generated
+    # data licensed CC BY 4.0, and deps.dev expressly permits caching; every
+    # scan carries the attribution in metadata.resolution.attribution.
+    # Not used air-gapped (no offline mode).
+    url_template: https://api.deps.dev/v3/systems/{ident}
+    access: api
+    probe:
+      ident: npm/packages/express/versions/4.17.1:dependencies
+      expect_status: 200
+    consumers:
+      - traust.cli adapters osv (traust_engine.adapters.osv resolve_transitive)
+    license:
+      id: CC-BY-4.0
+      terms: >-
+        Data deps.dev generates (resolved dependency graphs, advisory
+        statistics) is CC BY 4.0; aggregated upstream data keeps its source's
+        terms (traust uses only resolved package/version pairs). API use is
+        subject to the Google APIs Terms of Service. Attribution: "Resolved
+        dependency data: deps.dev (Google LLC), https://deps.dev, licensed
+        under CC BY 4.0".
+      url: https://docs.deps.dev/api/v3/
+      verified: 2026-10-21
+
   nvd:
     tier: live
     summary: NVD CVE API 2.0 — CVE-keyed lookup.

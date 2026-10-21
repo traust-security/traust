@@ -2,6 +2,28 @@
 
 All notable changes to Traust are documented here.
 
+## [0.34.0]
+
+- **Manifests without a lockfile are resolved through deps.dev, on by
+  default** (owner decisions 2026-10-20 option c and 2026-10-21). Pins
+  traust-engine 0.36.0 (683552d, which includes 0.35.1).
+  - `traust adapters osv --repo` resolves the transitive tree of every
+    `package.json`, `requirements*.txt`, `pom.xml` and `Cargo.toml`
+    without a lockfile, and resolves declarations with no version at
+    deps.dev's default. The added candidates carry `version_basis:
+    resolved` / `resolved-default` and `resolved_via`. What can't be
+    resolved stays in `unresolved_manifests` with a reason.
+  - **Opt out** with `access: disabled` on the new `deps_dev` source in
+    `feeds.yaml` (also a new `ACCESS_MODES` value). A config home without
+    the source prints a NOTE and doesn't resolve.
+  - **Terms and attribution documented** in `config/feeds.yaml`,
+    `docs/external-dependencies.md` (the Google APIs Terms of Service
+    obligations on the operator, CC BY 4.0 for the resolved data, and the
+    attribution text) and `docs/setup.md`. Every scan carries the
+    attribution in `metadata.resolution.attribution`.
+  - `/secure-code-audit` and `/vuln-scan`: resolved candidates are an
+    approximation and are never promoted on their own.
+
 ## [0.33.0]
 
 - **Container audits: grype reads syft JSON, and OSV adds language-package

@@ -30,7 +30,7 @@ def _body(status, **extra):
 def test_complete_scan_writes_candidates(tmp_path, monkeypatch):
     from traust_engine.adapters import osv as osv_mod
 
-    monkeypatch.setattr(osv_mod, "scan_api", lambda repo, client: _body("complete"))
+    monkeypatch.setattr(osv_mod, "scan_api", lambda repo, client, resolver=None: _body("complete"))
     out = tmp_path / "o.json"
     assert adapters.call_osv(None, _args(tmp_path, out)) == 0
     doc = json.loads(out.read_text())
@@ -45,7 +45,7 @@ def test_degraded_scan_exits_3_and_warns(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(
         osv_mod,
         "scan_api",
-        lambda repo, client: _body(
+        lambda repo, client, resolver=None: _body(
             "degraded", packages_unanswered=4, lookup_issues={"unreachable": 4}
         ),
     )
@@ -65,14 +65,14 @@ def test_partial_transitive_coverage_is_noted(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(
         osv_mod,
         "scan_api",
-        lambda repo, client: _body(
+        lambda repo, client, resolver=None: _body(
             "complete",
             transitive_coverage="partial",
             unresolved_manifests=[{"path": "pom.xml", "ecosystem": "Maven", "declarations": 3}],
         ),
     )
     assert adapters.call_osv(None, _args(tmp_path, tmp_path / "o.json")) == 0
-    assert "no lockfile" in capsys.readouterr().err
+    assert "without a lockfile are still unresolved" in capsys.readouterr().err
 
 
 def test_an_unusable_api_is_an_error_exit_2(tmp_path, monkeypatch, capsys):
@@ -81,7 +81,7 @@ def test_an_unusable_api_is_an_error_exit_2(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(
         osv_mod,
         "scan_api",
-        lambda repo, client: {
+        lambda repo, client, resolver=None: {
             "provenance": {
                 "source": "osv-api",
                 "base_url": "https://osv.test/v1",
@@ -95,7 +95,7 @@ def test_an_unusable_api_is_an_error_exit_2(tmp_path, monkeypatch, capsys):
     assert adapters.call_osv(None, _args(tmp_path, out)) == 2
     assert json.loads(out.read_text())["metadata"]["status"] == "failed"
     err = capsys.readouterr().err
-    assert err.startswith("ERROR: OSV lookup failed at https://osv.test/v1 (unreachable)")
+    assert "ERROR: OSV lookup failed at https://osv.test/v1 (unreachable)" in err
     assert "NOT a clean scan" in err
 
 
@@ -109,7 +109,7 @@ def test_the_api_is_the_default_access(tmp_path, monkeypatch):
     from traust_engine.adapters import osv as osv_mod
 
     _access(monkeypatch, "api")
-    monkeypatch.setattr(osv_mod, "scan_api", lambda repo, client: _body("complete"))
+    monkeypatch.setattr(osv_mod, "scan_api", lambda repo, client, resolver=None: _body("complete"))
     out = tmp_path / "o.json"
     assert adapters.call_osv(None, _args(tmp_path, out, source=None)) == 0
     assert json.loads(out.read_text())["metadata"]["source"] == "osv-api"
@@ -339,3 +339,62 @@ def test_grype_without_sbom_is_a_usage_error(tmp_path):
         adapters.call_osv(None, _args(tmp_path, tmp_path / "o.json", grype=tmp_path / "g.json"))
         == 2
     )
+
+
+def _deps_dev(monkeypatch, settings):
+    from traust.registry import osv_urls
+
+    monkeypatch.setattr(osv_urls, "deps_dev_settings", lambda: settings)
+
+
+def test_deps_dev_is_on_by_default(monkeypatch):
+    from traust_engine.depsdev import DepsDevClient
+
+    _deps_dev(monkeypatch, ("https://api.deps.dev/v3/systems/{ident}", "api"))
+    r = adapters._deps_dev_resolver(None, SimpleNamespace(timeout=5))
+    assert isinstance(r, DepsDevClient)
+    assert r.base_url == "https://api.deps.dev/v3"
+
+
+def test_deps_dev_opt_out(monkeypatch):
+    _deps_dev(monkeypatch, ("https://api.deps.dev/v3/systems/{ident}", "disabled"))
+    assert adapters._deps_dev_resolver(None, SimpleNamespace(timeout=5)) is None
+
+
+def test_a_config_without_deps_dev_says_so(monkeypatch, capsys):
+    _deps_dev(monkeypatch, None)
+    assert adapters._deps_dev_resolver(None, SimpleNamespace(timeout=5)) is None
+    assert "no deps_dev source" in capsys.readouterr().err
+
+
+def test_the_shipped_feeds_yaml_enables_deps_dev_with_its_license():
+    from traust.paths import HARNESS_ROOT
+    from traust.registry import feeds_config
+
+    spec = feeds_config.load(HARNESS_ROOT / "config" / "feeds.yaml")["deps_dev"]
+    assert spec["access"] == "api"
+    assert spec["license"]["id"] == "CC-BY-4.0"
+    assert "Google APIs Terms of Service" in spec["license"]["terms"]
+
+
+def test_resolution_is_reported(tmp_path, monkeypatch, capsys):
+    from traust_engine.adapters import osv as osv_mod
+
+    seen = {}
+
+    def fake_scan(repo, client, resolver=None):
+        seen["resolver"] = resolver
+        return _body(
+            "complete",
+            transitive_coverage="partial",
+            unresolved_manifests=[{"path": "pom.xml", "reason": {"deps.dev not-found": 1}}],
+            resolution={"status": "complete", "manifests_resolved": 3, "packages_added": 40},
+        )
+
+    _deps_dev(monkeypatch, ("https://api.deps.dev/v3/systems/{ident}", "api"))
+    monkeypatch.setattr(osv_mod, "scan_api", fake_scan)
+    assert adapters.call_osv(None, _args(tmp_path, tmp_path / "o.json")) == 0
+    assert seen["resolver"] is not None
+    err = capsys.readouterr().err
+    assert "deps.dev resolved 3 manifest(s)" in err
+    assert "still unresolved" in err

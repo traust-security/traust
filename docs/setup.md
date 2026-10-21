@@ -158,6 +158,42 @@ If the API cannot be used at all, the scan fails fast: `status: failed`,
 an `ERROR:` line, exit 2, and no dependency results. A scan where only some
 lookups failed is `degraded` (exit 3). Neither is ever "no advisories".
 
+#### Manifests without a lockfile: deps.dev resolution
+
+A `package.json`, `requirements*.txt`, `pom.xml` or `Cargo.toml` with no
+lockfile beside it declares only direct dependencies. The pre-scan resolves
+the rest through the **deps.dev API**, which is on by default:
+- each direct dependency's resolved graph is added to the OSV lookup
+  (`version_basis: resolved`, with `resolved_via`);
+- a declaration with no version resolves at deps.dev's default version
+  (`version_basis: resolved-default`).
+
+For PyPI and Maven, a version the project declares itself overrides a
+resolved one. Each dependency is resolved on its own, as of today, so the
+result approximates an install; it isn't a lockfile. Whatever can't be
+resolved stays in `unresolved_manifests` with a reason
+(`transitive_coverage: partial`). npm, PyPI, Maven and Cargo only; Go needs
+none (`go.mod` lists every module).
+
+**Terms and attribution.** Use of the API is subject to the
+[Google APIs Terms of Service](https://developers.google.com/terms), which
+bind the operator who runs it. The resolved graphs are deps.dev-generated
+data licensed CC BY 4.0, and every scan carries the attribution in
+`metadata.resolution.attribution`. Details are in
+[external-dependencies.md](external-dependencies.md).
+
+**Opt out** in `$TRAUST_CONFIG_HOME/feeds.yaml`:
+
+```yaml
+sources:
+  deps_dev:
+    access: disabled   # default: api
+```
+
+Manifests without a lockfile then stay coverage gaps. Resolution isn't
+used air-gapped. A config home whose `feeds.yaml` has no `deps_dev` source
+doesn't resolve either; copy the entry from the shipped `config/feeds.yaml`.
+
 #### Air-gapped OSV scanning
 
 For deployments with no route to the OSV API, set `access: air-gapped`.
