@@ -6,7 +6,7 @@ All notable changes to Traust are documented here.
 
 - **Manifests without a lockfile are resolved through deps.dev, on by
   default** (owner decisions 2026-10-20 option c and 2026-10-21). Pins
-  traust-engine 0.36.0 (683552d, which includes 0.35.1).
+  traust-engine 0.37.0 (9916c9e: deps.dev resolution, 0.35.1 fixes and scope tagging).
   - `traust adapters osv --repo` resolves the transitive tree of every
     `package.json`, `requirements*.txt`, `pom.xml` and `Cargo.toml`
     without a lockfile, and resolves declarations with no version at
@@ -23,6 +23,12 @@ All notable changes to Traust are documented here.
     attribution in `metadata.resolution.attribution`.
   - `/secure-code-audit` and `/vuln-scan`: resolved candidates are an
     approximation and are never promoted on their own.
+  - **Test and dev dependencies are tagged, never skipped** (owner
+    decision 2026-10-21). Candidates reachable only through Maven `test`
+    scope, npm `devDependencies`, Cargo `[dev-dependencies]` or Poetry dev
+    groups carry `dependency_scope: test` / `dev`. The skills treat them
+    as build- and test-environment exposure, not shipped code. On
+    keycloak, 114 of 203 resolved candidates are `test`.
 
 ## [0.33.0]
 

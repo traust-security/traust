@@ -915,7 +915,13 @@ Contract (identical in spirit to the govulncheck stage):
    its own, as of today, so this is an approximation of an install, weaker
    evidence than a lockfile: cite `resolved_via`, and **never promote a
    finding on a `resolved` candidate alone** (it needs the installed
-   version from a lockfile, an SBOM or the build). `transitive_coverage:
+   version from a lockfile, an SBOM or the build). A candidate with
+   `dependency_scope: test` or `dev` is reachable only through test or
+   dev dependencies (Maven `test` scope, npm `devDependencies`, Cargo
+   `[dev-dependencies]`, Poetry dev groups): it is build- and
+   test-environment exposure, not shipped code. Record it in
+   `dependency_audit` with that scope and never rate it as a runtime
+   finding. No tag means runtime or unknown. `transitive_coverage:
    partial` means some manifests are still unresolved
    (`unresolved_manifests`, each with its `reason`: not found, no version,
    deps.dev unreachable or disabled). Record a `coverage_gaps` entry naming

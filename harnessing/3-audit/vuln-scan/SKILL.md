@@ -287,7 +287,8 @@ as `"ran"`/`"skipped: <reason>"` in
   Candidates with `version_basis: resolved` or `resolved-default` come
   from deps.dev resolution of a manifest without a lockfile: an
   approximation, never promoted on their own (see `/secure-code-audit`,
-  *Deterministic dependency pre-scan*, item 4).
+  *Deterministic dependency pre-scan*, item 4). `dependency_scope: test`
+  / `dev` marks test or dev dependencies, which are not shipped code.
 
 ### Dedupe against the baseline
 
