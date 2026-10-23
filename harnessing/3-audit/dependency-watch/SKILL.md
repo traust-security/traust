@@ -177,7 +177,7 @@ above runs. A 2026-10 measurement found this held in about 3 of 10 such cases,
 and feed disagreement almost never revealed it. Reading the fix against the
 installed code did.
 
-Run per repository, for Go and PyPI dependencies:
+Run per repository, for Go, PyPI, npm, Maven and Cargo dependencies:
 
 1. **Packets** (deterministic): `python3 -m traust.cli adapters below-range
    --repo <checkout> [--out <dir>]`. Every exact install is checked against
@@ -191,6 +191,8 @@ Run per repository, for Go and PyPI dependencies:
 
    Candidates that can't be checked are listed in `below-range.json`
    `coverage_gaps` with the reason. Report them; never treat one as clean.
+   Patches and sources are fetched only from the hosts the `fix-patches` and
+   `package-source` sources in `feeds.yaml` name.
 2. **Two blind reviews per packet**, as separate Task subagents that never see
    each other's output:
    - reviewer A on `python3 -m traust.cli registry models resolve --tier
@@ -217,7 +219,7 @@ Run per repository, for Go and PyPI dependencies:
    code-verified cases become findings). For each `applicable` case, run step
    3 with the verified version as the range:
    `python3 -m traust.cli impact analyze <CVE> --module <package>
-   --ecosystem go|pypi --vulnerable-range '>=<installed> <=<installed>'
+   --ecosystem go|pypi|npm|maven|cargo --vulnerable-range '>=<installed> <=<installed>'
    --feature-desc below-range-verified`.
    Then steps 4–5 as usual. Filing runs where the lane's corpus lives (the
    continuous-operations orchestrator); a local or smoke run stops at step 4.
