@@ -2,6 +2,27 @@
 
 All notable changes to Traust are documented here.
 
+## [0.40.0]
+
+- **Below-range verification's hosts come from `feeds.yaml`** (owner
+  decision D3).
+  - **Seven new sources:**
+    - `role: fix-patches`: `github-patches` and `gitlab-patches`;
+    - `role: package-source`: `go-module-proxy`, `pypi-packages`,
+      `npm-packages`, `maven-central-sources` and `crates-io-packages`.
+  - **What each entry declares:** a license block and its hosts
+    (url_template, `extra_hosts`, `redirect_hosts`).
+  - **How the command uses them:** `traust adapters below-range` fetches only
+    from those hosts (`traust.registry.applicability_sources`), and
+    `access: disabled` stops fetching from a host.
+  - **No entries:** a deployment `feeds.yaml` without them falls back to the
+    engine's built-in hosts, with a NOTE.
+  - **License rows:** in `docs/external-dependencies.md`.
+- **npm, Maven and Cargo** join Go and PyPI. This pins traust-engine 0.42.0
+  (`a5bdb3b`): npm tarballs, Maven sources jars, crates.io `.crate` files,
+  per-ecosystem rules for which versions count as installed, and deeper
+  path anchoring for Maven modules.
+
 ## [0.39.0]
 
 - **New: below-range verification in `/dependency-watch`** (CVE

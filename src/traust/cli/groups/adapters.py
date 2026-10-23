@@ -676,7 +676,7 @@ LLM_APP = OpSpec(
 
 # ---------------------------------------------------------------------------
 # below-range — evidence packets for advisories whose stated range starts above
-# the installed version (traust_engine.applicability; Go and PyPI)
+# the installed version (traust_engine.applicability; Go, PyPI, npm, Maven, Cargo)
 # ---------------------------------------------------------------------------
 
 
@@ -685,15 +685,21 @@ def add_below_range_args(ap) -> None:
     ap.add_argument(
         "--out", type=Path, help="Packet directory (default: <repo>-below-range/ beside it)"
     )
-    ap.add_argument("--ecosystems", default="Go,PyPI", help="Comma list (supported: Go, PyPI)")
+    ap.add_argument(
+        "--ecosystems",
+        default="Go,PyPI,npm,Maven,crates.io",
+        help="Comma list of OSV ecosystem names (supported: Go, PyPI, npm, Maven, crates.io)",
+    )
     ap.add_argument("--max-candidates", type=int, default=100)
     ap.add_argument("--timeout", type=int, default=60, help="Per-request OSV timeout, seconds")
 
 
 def call_below_range(_engine, args) -> int:
     from traust_engine.applicability import build
+    from traust_engine.applicability.fetch import Fetcher
     from traust_engine.osv import OsvClient, Query
 
+    from traust.registry.applicability_sources import applicability_hosts
     from traust.registry.osv_urls import osv_access, osv_query_url
 
     repo = Path(args.repo).resolve()
@@ -712,6 +718,18 @@ def call_below_range(_engine, args) -> int:
     if failure:
         print(f"OSV unreachable: {failure[0]}: {failure[1]}", file=sys.stderr)
         return 2
+    hosts = applicability_hosts()
+    if hosts is None:
+        print(
+            "NOTE: feeds.yaml names no fix-patches or package-source source: using the "
+            "engine's built-in hosts (add them from the shipped config/feeds.yaml)",
+            file=sys.stderr,
+        )
+        fetcher = Fetcher()
+    else:
+        fetcher = Fetcher(
+            forges=hosts.forges, registries=hosts.registries, redirects=hosts.redirects
+        )
     out = args.out or repo.parent / f"{repo.name}-below-range"
     index = build(
         repo,
@@ -719,6 +737,7 @@ def call_below_range(_engine, args) -> int:
         ecosystems=tuple(e.strip() for e in args.ecosystems.split(",") if e.strip()),
         max_candidates=args.max_candidates,
         client=client,
+        fetcher=fetcher,
     )
     gaps: dict[str, int] = {}
     for g in index["coverage_gaps"]:
