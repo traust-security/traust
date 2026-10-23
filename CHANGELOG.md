@@ -2,6 +2,26 @@
 
 All notable changes to Traust are documented here.
 
+## [0.38.1]
+
+- **Fleet sweep: each module keeps the ecosystem that produced its hit**
+  (`dependency-watch/scripts/fleet_sweep.py`). `query_osv_multi` tagged an
+  advisory with the first ecosystem to hit it and pooled every later
+  ecosystem's pairs under that tag. An advisory that hit a Go module and a
+  Maven artifact therefore produced Go-tagged commands for both, which had
+  three effects:
+  - the Maven coordinate failed Go's name gate, so it was rejected;
+  - other modules went to impact analysis with the wrong `--ecosystem`
+    and the wrong fix lookup;
+  - repos from the other ecosystems were left out of `in_range_repos`.
+
+  What changed:
+  - Hits now carry `by_ecosystem` (`ecosystem` and `pairs` stay for older
+    readers).
+  - Each command carries its own `ecosystem`, and rows list `ecosystems`.
+  - `verify_worklist` checks each malicious module under its own
+    ecosystem.
+
 ## [0.38.0]
 
 - **Pins traust-engine 0.40.0 (`ff92eac`): the OSV fixed version now

@@ -881,3 +881,107 @@ def test_open_ended_unfixed_advisory_flags_every_version():
     argv = cmd["impact_argv"]
     assert cmd["fix_available"] is False
     assert argv[argv.index("--vulnerable-range") + 1] == "*"
+
+
+_TWO_ECO_VULN = {
+    "id": "GHSA-twoe-coss-ystm",
+    "aliases": ["CVE-2026-0002"],
+    "summary": "one flaw shipped as a Go module and a Maven artifact",
+    "database_specific": {"severity": "HIGH"},
+    "affected": [
+        {
+            "package": {"name": "github.com/example/lib", "ecosystem": "Go"},
+            "ranges": [{"type": "SEMVER", "events": [{"introduced": "0"}, {"fixed": "1.4.0"}]}],
+        },
+        {
+            "package": {"name": "org.example:lib", "ecosystem": "Maven"},
+            "ranges": [{"type": "ECOSYSTEM", "events": [{"introduced": "0"}, {"fixed": "2.1.0"}]}],
+        },
+    ],
+}
+_TWO_ECO_PAIRS = {
+    "Go": {("github.com/example/lib", "1.2.0"): {"repo:go-svc"}},
+    "maven": {("org.example:lib", "2.0.0"): {"repo:java-svc"}},
+}
+
+
+def _two_eco_post(chunk, ecosystem):
+    return [{"vulns": [{"id": _TWO_ECO_VULN["id"]}]} for _ in chunk]
+
+
+def test_query_osv_multi_keeps_each_ecosystems_pairs_apart():
+    hits = fs.query_osv_multi(_TWO_ECO_PAIRS, jobs=1, post=_two_eco_post)
+    h = hits[_TWO_ECO_VULN["id"]]
+    assert h["by_ecosystem"] == {
+        "Go": {("github.com/example/lib", "1.2.0")},
+        "maven": {("org.example:lib", "2.0.0")},
+    }
+    # the legacy fields are still there for older readers
+    assert h["ecosystem"] == "Go"
+    assert h["pairs"] == {("github.com/example/lib", "1.2.0"), ("org.example:lib", "2.0.0")}
+
+
+def test_two_ecosystem_advisory_tags_each_command_with_its_own_ecosystem():
+    hits = fs.query_osv_multi(_TWO_ECO_PAIRS, jobs=1, post=_two_eco_post)
+    rows, rejected = fs.build_worklist(
+        fs.dedupe_by_cve({_TWO_ECO_VULN["id"]: _TWO_ECO_VULN}),
+        hits,
+        _TWO_ECO_PAIRS,
+        min_rank=fs.SEV_RANK["HIGH"],
+        deep_cap=100,
+    )
+    # previously the Maven coordinate was gated under Go's name rules
+    assert rejected == []
+    (row,) = rows
+    assert row["ecosystems"] == ["Go", "maven"]
+    # both ecosystems' repos count toward the blast radius
+    assert row["in_range_repos"] == 2
+    by_module = {c["module"]: c for c in row["commands"]}
+    go, mvn = by_module["github.com/example/lib"], by_module["org.example:lib"]
+    assert go["ecosystem"] == "Go" and mvn["ecosystem"] == "maven"
+    assert go["impact_argv"][go["impact_argv"].index("--ecosystem") + 1] == "Go"
+    assert mvn["impact_argv"][mvn["impact_argv"].index("--ecosystem") + 1] == "maven"
+    # each module's fix comes from its own ecosystem's affected entry
+    assert go["fixed_by_version"] == {"1.2.0": "1.4.0"}
+    assert mvn["fixed_by_version"] == {"2.0.0": "2.1.0"}
+
+
+def test_verify_worklist_checks_each_module_under_its_own_ecosystem():
+    mal = {
+        "id": "MAL-2026-0002",
+        "summary": "malicious in two ecosystems",
+        "affected": [
+            {"package": {"name": "evil-go", "ecosystem": "Go"}},
+            {"package": {"name": "evil-js", "ecosystem": "npm"}},
+        ],
+    }
+    pairs = {
+        "Go": {("evil-go", "1.0.0"): {"repo:a"}},
+        "npm": {("evil-js", "2.0.0"): {"repo:b"}},
+    }
+    prov = {
+        "Go": {("evil-go", "1.0.0"): {"repo:a": ["go.mod"]}},
+        "npm": {("evil-js", "2.0.0"): {"repo:b": ["package.json"]}},
+    }
+    hits = fs.query_osv_multi(
+        pairs, jobs=1, post=lambda c, e: [{"vulns": [{"id": mal["id"]}]}] * len(c)
+    )
+    rows, _ = fs.build_worklist(
+        fs.dedupe_by_cve({mal["id"]: mal}),
+        hits,
+        pairs,
+        min_rank=fs.SEV_RANK["CRITICAL"],
+        deep_cap=100,
+        prov_by_eco=prov,
+    )
+    calls = []
+
+    def fake_verify(repo, eco, module, version, paths):
+        calls.append((repo, eco, module, version))
+        return {"status": "confirmed", "evidence": "declared", "manifest": paths[0]}
+
+    fs.verify_worklist(rows, hits, verify=fake_verify)
+    assert sorted(calls) == [
+        ("repo:a", "Go", "evil-go", "1.0.0"),
+        ("repo:b", "npm", "evil-js", "2.0.0"),
+    ]
