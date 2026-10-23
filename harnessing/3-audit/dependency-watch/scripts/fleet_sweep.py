@@ -59,7 +59,7 @@ from collections import Counter
 from pathlib import Path
 
 from traust_engine.osv import BatchOutcome, OsvClient, Query
-from traust_engine.osv.ranges import containing_span, fixed_for, version_key
+from traust_engine.osv.ranges import containing_span, fixed_for, spans, version_key
 
 from traust.context import add_config_home_arg, resolve_results_root
 from traust.registry.osv_urls import osv_access, osv_query_url
@@ -299,6 +299,19 @@ def is_malicious(vid: str, vuln: dict) -> bool:
     return False
 
 
+def group_by_display_id(details: dict[str, dict]) -> dict[str, list[tuple[str, dict]]]:
+    """Display id -> every OSV record that collapses into it, as (osv id, detail).
+
+    A CVE often has several records, such as a GO- record for the Go module and a
+    GHSA record for the Maven artifact. Each record carries its own hits and
+    its own affected entries, so a row must read them all, not only the one
+    `dedupe_by_cve` picks to represent it."""
+    groups: dict[str, list[tuple[str, dict]]] = {}
+    for vid, d in details.items():
+        groups.setdefault(display_id(vid, d), []).append((vid, d))
+    return groups
+
+
 def dedupe_by_cve(details: dict[str, dict]) -> dict[str, tuple[str, dict]]:
     """Advisory dedup keyed by DISPLAY id -> (osv id, detail).
 
@@ -373,7 +386,12 @@ def build_worklist(
     prov_by_eco: dict | None = None,
     *,
     results_root: Path | None = None,
+    details: dict[str, dict] | None = None,
 ) -> tuple[list[dict], list[dict]]:
+    # `details` is every fetched OSV record. When given, a row reads the hits
+    # and affected entries of every record that collapsed into its display
+    # id (group_by_display_id), not only the representative's. Without it,
+    # only the representative is read, as before.
     # `prov_by_eco` is the source-manifest provenance from pairs_from_graph
     # ({eco: {(name, version): {repo id: [manifest paths]}}}). It is metadata
     # only — a `manifest` field surfaced on each command and rejected_inputs
@@ -390,6 +408,7 @@ def build_worklist(
     # callers keep working; their ecosystem defaults to Go.
     if pairs_by_eco and all(isinstance(k, tuple) for k in pairs_by_eco):
         pairs_by_eco = {"Go": pairs_by_eco}
+    groups = group_by_display_id(details) if details else {}
     rows = []
     rejected: list[dict] = []
     for disp, (vid, d) in by_cve.items():
@@ -407,7 +426,14 @@ def build_worklist(
         # Each ecosystem's pairs stay apart: one advisory can hit packages
         # in several ecosystems, and a module is looked up, gated and
         # analysed under the ecosystem that produced its hit.
-        eco_sets = hit_pairs_by_ecosystem(hits.get(vid))
+        members = [(vid, d)] + [(v, x) for v, x in groups.get(disp, []) if v != vid]
+        eco_sets: dict[str, set] = {}
+        for mvid, _ in members:
+            for eco, pair_set in hit_pairs_by_ecosystem(hits.get(mvid)).items():
+                if pair_set:
+                    eco_sets.setdefault(eco, set()).update(pair_set)
+        if not eco_sets:
+            eco_sets = hit_pairs_by_ecosystem(hits.get(vid))
         repos = set()
         for eco, pair_set in eco_sets.items():
             for p in pair_set:
@@ -435,8 +461,11 @@ def build_worklist(
             # metadata. An advisory with no fix still produces a row (no
             # fix available), as malware always has: never drop it.
             osv_eco = OSV_ECOSYSTEM.get(eco, eco)
+            # the record whose affected entries name this module (an alias
+            # record for another ecosystem may be the only one that does)
+            rec = next((x for _, x in members if spans(x, m, osv_eco)), d)
             versions = sorted({pv for pn, pv in pair_set if pn == m})
-            fixed_by_version = {pv: fixed_for(d, m, osv_eco, pv) for pv in versions}
+            fixed_by_version = {pv: fixed_for(rec, m, osv_eco, pv) for pv in versions}
             fixes = [f for f in fixed_by_version.values() if f]
             fixed = max(fixes, key=lambda f: version_key(f, osv_eco) or ()) if fixes else None
             # Charset validation before anything command-shaped exists
@@ -483,7 +512,7 @@ def build_worklist(
                 lasts = [
                     span.last_affected
                     for pv in versions
-                    if (span := containing_span(d, m, osv_eco, pv)) and span.last_affected
+                    if (span := containing_span(rec, m, osv_eco, pv)) and span.last_affected
                 ]
                 vuln_range, fixed_args = "*", []
                 if versions and len(lasts) == len(versions):
@@ -554,6 +583,8 @@ def build_worklist(
                     "id": disp,
                     "cve": disp if str(disp).startswith("CVE-") else None,
                     "osv": vid,
+                    # every OSV record collapsed into this row (representative first)
+                    "osv_ids": [mvid for mvid, _ in members],
                     "malicious": mal,
                     "severity": band,
                     # the first ecosystem to hit; every one is in `ecosystems`,
@@ -612,7 +643,10 @@ def verify_worklist(worklist: list[dict], hits: dict, verify=None) -> tuple[list
         if not row.get("malicious"):
             kept.append(row)
             continue
-        eco_sets = hit_pairs_by_ecosystem(hits.get(row.get("osv")))
+        eco_sets: dict[str, set] = {}
+        for mvid in row.get("osv_ids") or [row.get("osv")]:
+            for e, ps in hit_pairs_by_ecosystem(hits.get(mvid)).items():
+                eco_sets.setdefault(e, set()).update(ps)
         row_eco = row.get("ecosystem") or "Go"
         # one target per command: its module under its own ecosystem
         targets = [
@@ -820,6 +854,7 @@ def main(argv=None, post=None, client=None) -> int:
         min_rank,
         args.deep_scan_cap,
         prov_by_eco=prov_by_eco,
+        details=details,
         results_root=results,
     )
     refuted_findings: list[dict] = []
