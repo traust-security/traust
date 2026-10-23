@@ -2,6 +2,29 @@
 
 All notable changes to Traust are documented here.
 
+## [0.39.0]
+
+- **New: below-range verification in `/dependency-watch`** (CVE
+  identification plan, Phase 3). This covers a dependency CVE whose stated
+  range starts above the installed version while the vulnerable code is
+  already there.
+  - **Step 1:** `python3 -m traust.cli adapters below-range --repo <checkout>`
+    writes one evidence packet per candidate, using traust-engine's
+    `applicability` (Go and PyPI). Each packet holds the advisory, the chosen
+    fix and why, the installed source from its registry, and hunk presence.
+    Every candidate is a packet or a coverage gap.
+  - **Step 2:** the skill's `below-range <repo>` mode gives each packet two
+    blind reviews on different models (`fact-judge` at `opus-class` and at
+    its floor), with a judge on any split. No case goes to a person to
+    adjudicate.
+  - **Step 3:** confirmed cases go to `impact analyze` with the verified
+    version as the range (`--feature-desc below-range-verified`), and from
+    there through the existing filing steps (decision D1: only code-verified
+    cases become findings).
+  - Refuses to run when the osv source is air-gapped.
+- **Pins traust-engine 0.41.0 (`3f809f4`):** `traust_engine.applicability`,
+  plus `osv.Query` without a version.
+
 ## [0.38.2]
 
 - **Fleet sweep: a CVE's row reads every OSV record that has that CVE as

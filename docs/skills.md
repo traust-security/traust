@@ -153,7 +153,7 @@ Use on the daily continuous-operations cadence, or when the user asks to "check 
 
 - **Stage:** ③ Audit
 - **Tier:** `primary`
-- **Invoke:** `/dependency-watch` — arguments: `[CVE-ID | --since <date>] [--include-likely] [--dry-run]`
+- **Invoke:** `/dependency-watch` — arguments: `[CVE-ID | --since <date> | below-range <repo>] [--include-likely] [--dry-run]`
 - **Skill:** [harnessing/3-audit/dependency-watch/SKILL.md](../harnessing/3-audit/dependency-watch/SKILL.md)
 - **Produces / consumes:** [Integrations](../harnessing/3-audit/dependency-watch/SKILL.md#integrations)
 

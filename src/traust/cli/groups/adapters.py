@@ -675,6 +675,77 @@ LLM_APP = OpSpec(
 
 
 # ---------------------------------------------------------------------------
+# below-range — evidence packets for advisories whose stated range starts above
+# the installed version (traust_engine.applicability; Go and PyPI)
+# ---------------------------------------------------------------------------
+
+
+def add_below_range_args(ap) -> None:
+    ap.add_argument("--repo", type=Path, required=True, help="Target checkout")
+    ap.add_argument(
+        "--out", type=Path, help="Packet directory (default: <repo>-below-range/ beside it)"
+    )
+    ap.add_argument("--ecosystems", default="Go,PyPI", help="Comma list (supported: Go, PyPI)")
+    ap.add_argument("--max-candidates", type=int, default=100)
+    ap.add_argument("--timeout", type=int, default=60, help="Per-request OSV timeout, seconds")
+
+
+def call_below_range(_engine, args) -> int:
+    from traust_engine.applicability import build
+    from traust_engine.osv import OsvClient, Query
+
+    from traust.registry.osv_urls import osv_access, osv_query_url
+
+    repo = Path(args.repo).resolve()
+    if not repo.is_dir():
+        print(f"not a directory: {repo}", file=sys.stderr)
+        return 2
+    if osv_access() == "air-gapped":
+        print(
+            "below-range needs the OSV API and the package registries; feeds.yaml sets the "
+            "osv source air-gapped",
+            file=sys.stderr,
+        )
+        return 2
+    client = OsvClient(osv_query_url(), timeout=args.timeout)
+    failure = client.probe(Query("PyPI", "requests", "2.19.0"))
+    if failure:
+        print(f"OSV unreachable: {failure[0]}: {failure[1]}", file=sys.stderr)
+        return 2
+    out = args.out or repo.parent / f"{repo.name}-below-range"
+    index = build(
+        repo,
+        out,
+        ecosystems=tuple(e.strip() for e in args.ecosystems.split(",") if e.strip()),
+        max_candidates=args.max_candidates,
+        client=client,
+    )
+    gaps: dict[str, int] = {}
+    for g in index["coverage_gaps"]:
+        gaps[g["reason"]] = gaps.get(g["reason"], 0) + 1
+    print(
+        json.dumps(
+            {
+                "out": str(out),
+                "installed_exact": index["installed_exact"],
+                "candidates": index["candidates"],
+                "packets": len(index["packets"]),
+                "coverage_gaps": gaps,
+                "status": index["status"],
+            }
+        )
+    )
+    return 3 if index["status"] == "degraded" else 0
+
+
+BELOW_RANGE = OpSpec(
+    add_args=add_below_range_args,
+    call=call_below_range,
+    help="Evidence packets for advisories whose stated range starts above the installed version",
+)
+
+
+# ---------------------------------------------------------------------------
 # yara
 # ---------------------------------------------------------------------------
 
