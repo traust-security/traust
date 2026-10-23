@@ -247,6 +247,139 @@ sources:
       url: https://docs.deps.dev/api/v3/
       verified: 2026-10-21
 
+  # BELOW-RANGE VERIFICATION SOURCES (owner decision D3, 2026-10-23).
+  # `traust adapters below-range` fetches fix patches (`role: fix-patches`)
+  # and installed package source (`role: package-source`) ONLY from the hosts
+  # these entries name: the url_template's host, `extra_hosts`, and redirects
+  # to `redirect_hosts`. Anything else is a recorded coverage gap. Remove an
+  # entry, or set `access: disabled`, to stop fetching from that host. Nothing
+  # fetched is executed. No probe: these are fetched on demand per candidate.
+  github-patches:
+    tier: live
+    role: fix-patches
+    summary: Fix commit and pull-request patches (`<commit or PR url>.patch`) on github.com.
+    url_template: https://github.com/{ident}.patch
+    redirect_hosts: [patch-diff.githubusercontent.com]
+    access: api
+    consumers:
+      - traust.cli adapters below-range (traust_engine.applicability)
+    license:
+      id: pass-through
+      terms: >-
+        Each patch keeps its repository's license. Fetched for local analysis,
+        never redistributed. Use of github.com is subject to the GitHub Terms
+        of Service.
+      url: https://docs.github.com/en/site-policy/github-terms/github-terms-of-service
+      verified: 2026-10-23
+
+  gitlab-patches:
+    tier: live
+    role: fix-patches
+    summary: Fix commit and merge-request patches (`<commit or MR url>.patch`) on gitlab.com.
+    url_template: https://gitlab.com/{ident}.patch
+    access: api
+    consumers:
+      - traust.cli adapters below-range (traust_engine.applicability)
+    license:
+      id: pass-through
+      terms: >-
+        Each patch keeps its project's license. Fetched for local analysis,
+        never redistributed. Use of gitlab.com is subject to the GitLab terms.
+      url: https://about.gitlab.com/terms/
+      verified: 2026-10-23
+
+  go-module-proxy:
+    tier: live
+    role: package-source
+    summary: Go module zips for an installed version, from the Go module proxy.
+    url_template: https://proxy.golang.org/{ident}
+    # the proxy serves zips from its own storage bucket
+    redirect_hosts: [storage.googleapis.com]
+    access: api
+    consumers:
+      - traust.cli adapters below-range (traust_engine.applicability)
+    license:
+      id: pass-through
+      terms: >-
+        Each module keeps its own license. Fetched for local analysis, never
+        redistributed. The proxy is run by Google under its published privacy
+        and terms page.
+      url: https://proxy.golang.org/privacy
+      verified: 2026-10-23
+
+  pypi-packages:
+    tier: live
+    role: package-source
+    summary: >-
+      Python sdists (or wheels when no sdist exists) for an installed version:
+      metadata from pypi.org, files from files.pythonhosted.org.
+    url_template: https://pypi.org/pypi/{ident}/json
+    extra_hosts: [files.pythonhosted.org]
+    access: api
+    consumers:
+      - traust.cli adapters below-range (traust_engine.applicability)
+    license:
+      id: pass-through
+      terms: >-
+        Each package keeps its own license. Fetched for local analysis, never
+        redistributed. Use of PyPI is subject to the PyPI Terms of Use.
+      url: https://policies.python.org/pypi.org/Terms-of-Use/
+      verified: 2026-10-23
+
+  npm-packages:
+    tier: live
+    role: package-source
+    summary: npm package tarballs for an installed version, from the public npm registry.
+    url_template: https://registry.npmjs.org/{ident}
+    access: api
+    consumers:
+      - traust.cli adapters below-range (traust_engine.applicability)
+    license:
+      id: pass-through
+      terms: >-
+        Each package keeps its own license. Fetched for local analysis, never
+        redistributed. Use of the registry is subject to the npm Open-Source
+        Terms.
+      url: https://docs.npmjs.com/policies/open-source-terms
+      verified: 2026-10-23
+
+  maven-central-sources:
+    tier: live
+    role: package-source
+    summary: >-
+      Maven `-sources.jar` artifacts for an installed version, from Maven
+      Central. An artifact published without sources is a coverage gap.
+    url_template: https://repo1.maven.org/maven2/{ident}
+    access: api
+    consumers:
+      - traust.cli adapters below-range (traust_engine.applicability)
+    license:
+      id: pass-through
+      terms: >-
+        Each artifact keeps its own license. Fetched for local analysis, never
+        redistributed. Use of Maven Central is subject to the Central
+        Repository Terms of Service.
+      url: https://central.sonatype.org/terms.html
+      verified: 2026-10-23
+
+  crates-io-packages:
+    tier: live
+    role: package-source
+    summary: Rust `.crate` files for an installed version, from the crates.io CDN.
+    url_template: https://static.crates.io/crates/{ident}
+    access: api
+    consumers:
+      - traust.cli adapters below-range (traust_engine.applicability)
+    license:
+      id: pass-through
+      terms: >-
+        Each crate keeps its own license. Fetched for local analysis, never
+        redistributed. crates.io requires automated clients to send a
+        User-Agent that identifies them, with contact details; the engine sends
+        one naming this project.
+      url: https://crates.io/policies
+      verified: 2026-10-23
+
   nvd:
     tier: live
     summary: NVD CVE API 2.0 — CVE-keyed lookup.
