@@ -2,6 +2,13 @@
 
 All notable changes to Traust are documented here.
 
+## [0.39.1]
+
+- Consume the coordinated native scanner-observation repair: contracts 0.62.2,
+  Ledger 0.11.5 and Engine 0.41.2. Actual adapter output validates without
+  invented CWE/remediation or authored-audit conclusions. Existing raw-candidate
+  exports remain separate, and strict audit-report requirements are unchanged.
+
 ## [0.39.0]
 
 - **New: below-range verification in `/dependency-watch`** (CVE
