@@ -89,8 +89,10 @@ executive summaries, SCI) already read.
    (the highest across the installed versions it covers; per-version
    targets are in `fixed_by_version`). An advisory with no fix still
    gets a row: `fix_available: false`, no `--fixed-version`, and the
-   range bounded by `last_affected` when known, else `*`. Commit the
-   sweep artifact.
+   range bounded by `last_affected` when known, else `*`. An advisory
+   can hit packages in several ecosystems: each command carries its
+   module's own `ecosystem` (used for its gates and `--ecosystem`), and
+   the row lists them all in `ecosystems`. Commit the sweep artifact.
 
    **A degraded sweep is not a quiet day.** Exit 3 with
    `status: degraded` means some (name, version) pairs were never

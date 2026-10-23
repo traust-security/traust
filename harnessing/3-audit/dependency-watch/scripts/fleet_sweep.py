@@ -186,11 +186,14 @@ def query_osv_multi(
     issues: Counter | None = None,
     unanswered: list | None = None,
 ) -> dict[str, dict]:
-    """vuln id -> {"ecosystem": <internal tag>, "pairs": {(name, ver)}}.
+    """vuln id -> {"ecosystem", "pairs", "by_ecosystem"}.
 
     One query per (name, version) through the shared OSV client, per
-    ecosystem, mapping the internal tag to the OSV canonical name and
-    tagging every hit with the ecosystem that produced it. Lookups that
+    ecosystem, mapping the internal tag to the OSV canonical name.
+    `by_ecosystem` keeps each ecosystem's hit pairs apart ({tag: {(name,
+    ver)}}): one advisory can hit packages in several ecosystems, and each
+    pair must keep the ecosystem that produced it. `ecosystem` (the first
+    ecosystem to hit) and `pairs` (every pair) remain for older readers. Lookups that
     could not be answered are counted into `issues` and listed in
     `unanswered` (when given), never treated as zero advisories.
     `post=` is the legacy network-free test seam; `client=` the current one."""
@@ -213,8 +216,9 @@ def query_osv_multi(
                     unanswered.append((eco, m, v))
                 continue
             for vid in ids:
-                h = hits.setdefault(vid, {"ecosystem": eco, "pairs": set()})
+                h = hits.setdefault(vid, {"ecosystem": eco, "pairs": set(), "by_ecosystem": {}})
                 h["pairs"].add((m, v))
+                h["by_ecosystem"].setdefault(eco, set()).add((m, v))
     return hits
 
 
@@ -223,6 +227,18 @@ def query_osv(pairs: dict, ecosystem: str, jobs: int, post=None) -> dict[str, se
     Reimplemented on query_osv_multi; kept for pre-multi-eco callers."""
     multi = query_osv_multi({ecosystem: pairs}, jobs, post=post)
     return {vid: h["pairs"] for vid, h in multi.items()}
+
+
+def hit_pairs_by_ecosystem(raw) -> dict[str, set[tuple[str, str]]]:
+    """{ecosystem tag: hit (name, version) pairs} for one advisory's hits.
+
+    Reads the current shape and the legacy ones: {"ecosystem", "pairs"}
+    (one ecosystem) and a bare pair set (Go)."""
+    if isinstance(raw, dict) and "by_ecosystem" in raw:
+        return raw["by_ecosystem"]
+    if isinstance(raw, dict) and "pairs" in raw:
+        return {raw.get("ecosystem") or "Go": raw["pairs"]}
+    return {"Go": raw or set()}
 
 
 def sev_band(vuln: dict, malicious: bool = False) -> str:
@@ -388,19 +404,19 @@ def build_worklist(
                 {"advisory": vid, "display_id": str(disp), "reason": "advisory id charset"}
             )
             continue
-        raw = hits.get(vid)
-        if isinstance(raw, dict) and "pairs" in raw:
-            eco, pair_set = (raw.get("ecosystem") or "Go"), raw["pairs"]
-        else:
-            eco, pair_set = "Go", (raw or set())
-        eco_pairs = pairs_by_eco.get(eco, {})
-        eco_prov = prov_by_eco.get(eco, {})
+        # Each ecosystem's pairs stay apart: one advisory can hit packages
+        # in several ecosystems, and a module is looked up, gated and
+        # analysed under the ecosystem that produced its hit.
+        eco_sets = hit_pairs_by_ecosystem(hits.get(vid))
         repos = set()
-        for p in pair_set:
-            repos.update(eco_pairs.get(p, set()))
-        modules = sorted({m for m, _ in pair_set})
+        for eco, pair_set in eco_sets.items():
+            for p in pair_set:
+                repos.update(pairs_by_eco.get(eco, {}).get(p, set()))
+        modules = sorted({m for pair_set in eco_sets.values() for m, _ in pair_set})
         cmds = []
-        for m in modules:
+        for eco, m in sorted({(e, m) for e, ps in eco_sets.items() for m, _ in ps}):
+            pair_set = eco_sets[eco]
+            eco_prov = prov_by_eco.get(eco, {})
             # Source-manifest provenance for THIS module, kept per-repo:
             # {repo id: [sorted manifest paths]}. Unioned across the (m, v)
             # pairs that hit for this module; each repo keeps its own paths
@@ -521,6 +537,7 @@ def build_worklist(
             cmds.append(
                 {
                     "module": m,
+                    "ecosystem": eco,
                     "impact_argv": impact_argv,
                     "route_argv": route_argv,
                     "deep": deep,
@@ -539,7 +556,10 @@ def build_worklist(
                     "osv": vid,
                     "malicious": mal,
                     "severity": band,
-                    "ecosystem": eco,
+                    # the first ecosystem to hit; every one is in `ecosystems`,
+                    # and each command carries its own
+                    "ecosystem": next(iter(eco_sets)),
+                    "ecosystems": sorted(eco_sets),
                     "summary": (d.get("summary") or "")[:160],
                     "modules": modules,
                     "in_range_repos": len(repos),
@@ -592,16 +612,18 @@ def verify_worklist(worklist: list[dict], hits: dict, verify=None) -> tuple[list
         if not row.get("malicious"):
             kept.append(row)
             continue
-        eco = row.get("ecosystem") or "Go"
-        raw = hits.get(row.get("osv"))
-        pair_set = raw.get("pairs") if isinstance(raw, dict) and "pairs" in raw else (raw or set())
-        ver_by_mod: dict[str, str] = {}
-        for pn, pv in pair_set:
-            ver_by_mod.setdefault(pn, pv)
+        eco_sets = hit_pairs_by_ecosystem(hits.get(row.get("osv")))
+        row_eco = row.get("ecosystem") or "Go"
+        # one target per command: its module under its own ecosystem
+        targets = [
+            (c.get("ecosystem") or row_eco, c["module"], c.get("manifest") or {})
+            for c in row.get("commands") or []
+        ] or [(row_eco, m, per_repo) for m, per_repo in (row.get("manifest") or {}).items()]
         checks: list[dict] = []
-        for module, per_repo in (row.get("manifest") or {}).items():
+        for eco, module, per_repo in targets:
+            version = next((pv for pn, pv in sorted(eco_sets.get(eco, ())) if pn == module), "")
             for repo, paths in (per_repo or {}).items():
-                res = verify(repo, eco, module, ver_by_mod.get(module, ""), paths)
+                res = verify(repo, eco, module, version, paths)
                 checks.append(
                     {
                         "repo": repo,
