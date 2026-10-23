@@ -19,7 +19,7 @@ All notable changes to Traust are documented here.
     engine's built-in hosts, with a NOTE.
   - **License rows:** in `docs/external-dependencies.md`.
 - **npm, Maven and Cargo** join Go and PyPI. This pins traust-engine 0.42.0
-  (`a5bdb3b`): npm tarballs, Maven sources jars, crates.io `.crate` files,
+  (`0d076b3`): npm tarballs, Maven sources jars, crates.io `.crate` files,
   per-ecosystem rules for which versions count as installed, and deeper
   path anchoring for Maven modules.
 
