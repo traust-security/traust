@@ -2,6 +2,25 @@
 
 All notable changes to Traust are documented here.
 
+## [0.38.2]
+
+- **Fleet sweep: a CVE's row reads every OSV record that has that CVE as
+  an alias** (`dependency-watch/scripts/fleet_sweep.py`).
+  - `dedupe_by_cve` collapses records that share a CVE, such as a GO-
+    record and a GHSA record, into one row represented by a single
+    record. `build_worklist` then read hits only for that one, so packages
+    hit only through the other records never reached the worklist.
+  - This happened across ecosystems, and also within one: for
+    CVE-2026-34040, the GHSA record names `github.com/moby/moby` and the
+    GO record also names `github.com/docker/docker`.
+  - `group_by_display_id()` now collects every record for a display id.
+    `build_worklist(details=...)` merges their hits, takes each module's
+    fix from the record that names that module, and lists the records in
+    `osv_ids`.
+  - `verify_worklist` reads every listed record's hits.
+  - Without `details`, `build_worklist` keeps the old
+    representative-only behaviour.
+
 ## [0.38.1]
 
 - **Fleet sweep: each module keeps the ecosystem that produced its hit**

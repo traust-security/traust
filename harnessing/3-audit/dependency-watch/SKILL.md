@@ -92,7 +92,10 @@ executive summaries, SCI) already read.
    range bounded by `last_affected` when known, else `*`. An advisory
    can hit packages in several ecosystems: each command carries its
    module's own `ecosystem` (used for its gates and `--ecosystem`), and
-   the row lists them all in `ecosystems`. Commit the sweep artifact.
+   the row lists them all in `ecosystems`. A CVE with several OSV
+   records (say a GO- and a GHSA record) is one row that reads every
+   record's hits and affected entries; `osv_ids` lists them. Commit
+   the sweep artifact.
 
    **A degraded sweep is not a quiet day.** Exit 3 with
    `status: degraded` means some (name, version) pairs were never

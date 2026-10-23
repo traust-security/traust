@@ -985,3 +985,114 @@ def test_verify_worklist_checks_each_module_under_its_own_ecosystem():
         ("repo:a", "Go", "evil-go", "1.0.0"),
         ("repo:b", "npm", "evil-js", "2.0.0"),
     ]
+
+
+_ALIAS_GO = {
+    "id": "GO-2026-0003",
+    "aliases": ["CVE-2026-0003"],
+    "summary": "Go record",
+    "database_specific": {"severity": "HIGH"},
+    "affected": [
+        {
+            "package": {"name": "github.com/example/alias", "ecosystem": "Go"},
+            "ranges": [{"type": "SEMVER", "events": [{"introduced": "0"}, {"fixed": "1.4.0"}]}],
+        }
+    ],
+}
+_ALIAS_GHSA = {
+    "id": "GHSA-alia-sgha-maven",
+    "aliases": ["CVE-2026-0003"],
+    "summary": "Maven record",
+    "database_specific": {"severity": "HIGH"},
+    "affected": [
+        {
+            "package": {"name": "org.example:alias", "ecosystem": "Maven"},
+            "ranges": [{"type": "ECOSYSTEM", "events": [{"introduced": "0"}, {"fixed": "2.1.0"}]}],
+        }
+    ],
+}
+_ALIAS_PAIRS = {
+    "Go": {("github.com/example/alias", "1.2.0"): {"repo:go-svc"}},
+    "maven": {("org.example:alias", "2.0.0"): {"repo:java-svc"}},
+}
+
+
+def _alias_hits():
+    def post(chunk, ecosystem):
+        vid = _ALIAS_GO["id"] if ecosystem == "Go" else _ALIAS_GHSA["id"]
+        return [{"vulns": [{"id": vid}]} for _ in chunk]
+
+    return fs.query_osv_multi(_ALIAS_PAIRS, jobs=1, post=post)
+
+
+def test_aliased_records_merge_into_one_row():
+    details = {_ALIAS_GO["id"]: _ALIAS_GO, _ALIAS_GHSA["id"]: _ALIAS_GHSA}
+    rows, rejected = fs.build_worklist(
+        fs.dedupe_by_cve(details),
+        _alias_hits(),
+        _ALIAS_PAIRS,
+        min_rank=fs.SEV_RANK["HIGH"],
+        deep_cap=100,
+        details=details,
+    )
+    assert rejected == []
+    (row,) = rows
+    assert row["id"] == "CVE-2026-0003"
+    # previously only the representative record's hits were read
+    assert row["ecosystems"] == ["Go", "maven"]
+    assert row["in_range_repos"] == 2
+    assert sorted(row["osv_ids"]) == sorted(details)
+    by_module = {c["module"]: c for c in row["commands"]}
+    # each module's fix comes from the record that names it
+    assert by_module["github.com/example/alias"]["fixed_by_version"] == {"1.2.0": "1.4.0"}
+    assert by_module["org.example:alias"]["fixed_by_version"] == {"2.0.0": "2.1.0"}
+    assert by_module["org.example:alias"]["fix_available"] is True
+
+
+def test_group_by_display_id_collects_every_alias_record():
+    details = {_ALIAS_GO["id"]: _ALIAS_GO, _ALIAS_GHSA["id"]: _ALIAS_GHSA}
+    groups = fs.group_by_display_id(details)
+    assert sorted(v for v, _ in groups["CVE-2026-0003"]) == sorted(details)
+
+
+def test_verify_worklist_reads_every_alias_records_hits():
+    mal_go = {"id": "MAL-2026-0010", "aliases": ["CVE-2026-0010"], "affected": []}
+    mal_js = {
+        "id": "GHSA-mali-cjsr-ecrd",
+        "aliases": ["CVE-2026-0010"],
+        "affected": [],
+        "summary": "malicious package",
+    }
+    pairs = {"Go": {("evil-go", "1.0.0"): {"repo:a"}}, "npm": {("evil-js", "2.0.0"): {"repo:b"}}}
+    prov = {
+        "Go": {("evil-go", "1.0.0"): {"repo:a": ["go.mod"]}},
+        "npm": {("evil-js", "2.0.0"): {"repo:b": ["package.json"]}},
+    }
+    hits = fs.query_osv_multi(
+        pairs,
+        jobs=1,
+        post=lambda c, e: (
+            [{"vulns": [{"id": mal_go["id"] if e == "Go" else mal_js["id"]}]}] * len(c)
+        ),
+    )
+    details = {mal_go["id"]: mal_go, mal_js["id"]: mal_js}
+    rows, _ = fs.build_worklist(
+        fs.dedupe_by_cve(details),
+        hits,
+        pairs,
+        min_rank=fs.SEV_RANK["CRITICAL"],
+        deep_cap=100,
+        prov_by_eco=prov,
+        details=details,
+    )
+    calls = []
+
+    def fake_verify(repo, eco, module, version, paths):
+        calls.append((repo, eco, module, version))
+        return {"status": "confirmed", "evidence": "declared", "manifest": paths[0]}
+
+    fs.verify_worklist(rows, hits, verify=fake_verify)
+    assert sorted(calls) == [
+        ("repo:a", "Go", "evil-go", "1.0.0"),
+        ("repo:b", "npm", "evil-js", "2.0.0"),
+    ]
