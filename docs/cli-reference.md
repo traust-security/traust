@@ -16,12 +16,13 @@ python3 -m traust.cli check skill-alignment      # equivalent
 
 ## Command groups
 
-20 groups (plus the deprecated `tools` group below).
+21 groups (plus the deprecated `tools` group below).
 
 | Group | Description | Operations |
 |---|---|---|
 | `adapters` | Scanner adapters (deterministic pre-scans) | `checkov`, `crypto-audit`, `crypto-cluster`, `crypto-image`, `crypto-probe`, `crypto-source`, `gitleaks`, `govulncheck`, `image-packages`, `image-sbom`, `joern`, `opengrep`, `osv`, `yara` |
 | `admin` | Operator tooling | `attest-target`, `checkpoint`, `query-index`, `scan-internal-refs`, `toolchain` |
+| `assessments` | The audit skills' doors on traust-core | `prepare` |
 | `auth` | Who you act as, over traust-core's identity provider | `local`, `login`, `logout`, `refresh`, `service-account`, `status`, `token` |
 | `build` | Deterministic builders | `rescan-worklist`, `skills-reference`, `symbol-index` |
 | `check` | Deterministic gates | `citations`, `content-licenses`, `docs-consistency`, `estate-data`, `drift`, `fix-propagation`, `location-paths`, `reference-integrity`, `skill-alignment`, `skill-security` |
