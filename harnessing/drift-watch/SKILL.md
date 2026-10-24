@@ -53,7 +53,7 @@ target repos — superseded by Konflux): drift-watch checks the
 
 | Item | Staleness / drift signal |
 |---|---|
-| `feeds:*` | traust-core feed snapshot age, for every `tier: cached` security source in `config/feeds.yaml`: `epss`, `kev`, `rh-cve`, `vex`. 48h — one missed run of the daily feed router plus slack |
+| `feeds:*` | traust-core feed snapshot age, for every `tier: cached` security source in `config/feeds.yaml`: `epss`, `kev`, `rh-cve`, `vex`. Each feed's own `max_age_hours` (24h for the daily feeds), judged by traust-core (`FreshnessQuery.stale`), which also adds a readiness row per feed provider (`feed:*`) |
 | `registry:product-definitions` | a reference registry, **not a security feed** — Red Hat Product Security's product/ownership data, absent from `config/feeds.yaml` by design. It keeps its own `registry:` row, read from `feeds-meta.json` (`traust feeds fetch-products`). VPN-only and pull-through, so it refreshes at 24h but is only flagged at 168h; never fetched is `pending`, not `unavailable`, so an optional source stays out of `--fail-on` |
 | `findings.db` | `built_at` vs newest ledger/report mtime |
 | `ledger:*` | does the ledger actually COVER the corpus — nothing asked this before. `audits-without-a-layer` (an audited repo with no disposition layer), `layers-without-a-report-digest`, `incomplete-claim-hashes`, and the informational `colliding-layer-ids`. Signature coverage and the findings-db projection were both guarded; whether a ledger EXISTS per audited repo was not |

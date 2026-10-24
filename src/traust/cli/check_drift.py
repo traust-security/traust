@@ -97,12 +97,7 @@ def _module_file(module: str) -> Path | None:
     return None
 
 
-# The refresh job is daily, so a week-wide window let a dead job hide for
-# six days. 48h = one missed run plus slack: the row is the dead-timer
-# backstop for the job, and a backstop looser than the cadence it guards
-# is why a 38-day-stale EPSS/KEV cache went unreported (2026-08-25).
-FEED_STALE_HOURS = 48
-# Per-feed overrides. product-definitions refetches at 24h (upstream's own
+# product-definitions refetches at 24h (upstream's own
 # guidance to consumers) but is VPN-only and pull-through, so it only
 # refreshes when a VPN-connected consumer runs. 168h keeps a fortnight of
 # off-VPN work from turning the row red while still surfacing a cache
@@ -312,13 +307,17 @@ def _feed_row(row: str, retrieved: datetime.datetime | None, threshold: int, ref
     )
 
 
-def check_feeds(engine, statuses: list) -> list[dict]:
-    """A row per security feed traust-core snapshots (``statuses``, every feed in feeds.yaml, so a
-    new feed can't go unmonitored), and one for the product-definitions registry when configured.
+def check_feeds(engine, stale: list) -> list[dict]:
+    """traust-core's freshness rows (``FreshnessQuery.stale``: every feed in feeds.yaml against its
+    own max age, so a new feed can't go unmonitored, and provider readiness), and one for the
+    product-definitions registry when configured.
     """
+    # NEED(engine: ToolInspector): core's tool-databases row is unavailable until the engine
+    # wires it; the grype-db and external-tools rows still check the tools here.
     out = [
-        _feed_row(f"feeds:{s.name}", s.fetched_at, FEED_STALE_HOURS, "traust feeds fetch")
-        for s in statuses
+        item(s.item, s.status.value, s.detail, s.refresh)
+        for s in stale
+        if s.item != "tool-databases"
     ]
     if fetch_feeds._url() is None:
         return out
@@ -3230,7 +3229,7 @@ def main(argv=None) -> int:
         try:
             core = load_core(args.config_home)
             core.register_feeds(registry_path())
-            items.extend(check_feeds(engine, core.services().exposure.feed_statuses()))
+            items.extend(check_feeds(engine, core.services().freshness.stale()))
         except Exception as e:
             items.append(item("check_feeds", "unavailable", f"checker error: {e}"))
         for chk in CHECKS:

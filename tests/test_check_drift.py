@@ -93,31 +93,45 @@ def _product_definitions_configured(monkeypatch):
     )
 
 
-def _feed(name, retrieved=None):
-    from datetime import timedelta
+def _feed(name, status="fresh", refresh=None, kind="feeds"):
+    from traust_core.v1.models.operations import Freshness, StaleItem
 
-    from traust_core.v1.providers.feeds import FeedStatus
-
-    return FeedStatus(name=name, fetched_at=retrieved, max_age=timedelta(hours=24))
+    return StaleItem(item=f"{kind}:{name}", status=Freshness(status), detail="d", refresh=refresh)
 
 
 def test_feeds_fresh_and_stale(tmp_path, monkeypatch):
     ws = _mk_ws(tmp_path)
-    now = cd._now()
-    old = now - datetime.timedelta(hours=200)
-    statuses = [_feed("epss", now), _feed("kev", old)]
+    statuses = [_feed("epss"), _feed("kev", "stale", "fetch feed kev")]
     items = {
         i["item"]: i for i in cd.check_feeds(_engine_for_ws(tmp_path, ws, monkeypatch), statuses)
     }
     assert items["feeds:epss"]["status"] == "fresh"
+    assert "refresh" not in items["feeds:epss"]
     assert items["feeds:kev"]["status"] == "stale"
-    assert items["feeds:kev"]["refresh"] == "traust feeds fetch"
+    assert items["feeds:kev"]["refresh"] == "fetch feed kev"
 
 
 def test_feeds_absent_is_pending(tmp_path, monkeypatch):
     ws = _mk_ws(tmp_path)
     engine = _engine_for_ws(tmp_path, ws, monkeypatch)
-    assert cd.check_feeds(engine, [_feed("epss")])[0]["status"] == "pending"
+    assert cd.check_feeds(engine, [_feed("epss", "pending")])[0]["status"] == "pending"
+
+
+def test_core_freshness_rows_pass_through_but_tool_databases(tmp_path, monkeypatch):
+    """The grype-db / external-tools rows check the tools until the engine wires core's
+    ToolInspector, so core's `tool-databases: unavailable` row is not repeated."""
+    from traust_contracts import Locations
+
+    from traust.cli import fetch_feeds as _ff
+
+    monkeypatch.setattr(_ff.locations, "configured_locations", lambda: Locations())
+    ws = _mk_ws(tmp_path)
+    from traust_core.v1.models.operations import Freshness, StaleItem
+
+    databases = StaleItem(item="tool-databases", status=Freshness.UNAVAILABLE, detail="NEED")
+    rows = [_feed("epss"), _feed("kev", kind="feed"), databases]
+    items = cd.check_feeds(_engine_for_ws(tmp_path, ws, monkeypatch), rows)
+    assert [i["item"] for i in items] == ["feeds:epss", "feed:kev"]
 
 
 def test_optional_feed_never_fetched_is_pending_not_unavailable(tmp_path, monkeypatch):
@@ -128,8 +142,7 @@ def test_optional_feed_never_fetched_is_pending_not_unavailable(tmp_path, monkey
     """
     ws = _mk_ws(tmp_path)
     monkeypatch.setenv("FEEDS_CACHE_DIR", str(ws / "progress-tracker/feeds"))
-    now = cd._now()
-    statuses = [_feed("epss", now), _feed("kev", now)]
+    statuses = [_feed("epss"), _feed("kev")]
     items = {
         i["item"]: i for i in cd.check_feeds(_engine_for_ws(tmp_path, ws, monkeypatch), statuses)
     }
@@ -139,7 +152,7 @@ def test_optional_feed_never_fetched_is_pending_not_unavailable(tmp_path, monkey
 
 
 def test_optional_feed_uses_its_own_threshold(tmp_path, monkeypatch):
-    """7 days for the VPN-only optional feed, 48h for epss/kev."""
+    """7 days for the VPN-only optional feed; epss/kev rows are core's (their own max age)."""
     ws = _mk_ws(tmp_path)
     monkeypatch.setenv("FEEDS_CACHE_DIR", str(ws / "progress-tracker/feeds"))
     now = cd._now()
@@ -148,9 +161,7 @@ def test_optional_feed_uses_its_own_threshold(tmp_path, monkeypatch):
         json.dumps({"product-definitions": {"retrieved_at": _iso(ten_days)}})
     )
     engine = _engine_for_ws(tmp_path, ws, monkeypatch)
-    items = {
-        i["item"]: i for i in cd.check_feeds(engine, [_feed("epss", ten_days), _feed("kev", now)])
-    }
+    items = {i["item"]: i for i in cd.check_feeds(engine, [_feed("epss", "stale"), _feed("kev")])}
     assert items["feeds:epss"]["status"] == "stale"
     assert items["registry:product-definitions"]["status"] == "fresh"
 
@@ -158,7 +169,7 @@ def test_optional_feed_uses_its_own_threshold(tmp_path, monkeypatch):
     (ws / "progress-tracker/feeds/feeds-meta.json").write_text(
         json.dumps({"product-definitions": {"retrieved_at": _iso(forty_days)}})
     )
-    items = {i["item"]: i for i in cd.check_feeds(engine, [_feed("epss", now)])}
+    items = {i["item"]: i for i in cd.check_feeds(engine, [_feed("epss")])}
     assert items["registry:product-definitions"]["status"] == "stale"
     assert items["registry:product-definitions"]["refresh"] == "traust feeds fetch-products"
 
@@ -1490,12 +1501,6 @@ def test_every_cached_source_in_the_registry_gets_a_row():
     core = Context(Config())
     core.register_feeds(fc.registry_path())
     assert set(core.feeds.names()) == set(fc.cached_sources())
-
-
-def test_feed_stale_threshold_matches_the_daily_job():
-    """A backstop looser than the cadence it guards cannot catch a dead
-    job: at 168h a daily job could die and stay green for six days."""
-    assert cd.FEED_STALE_HOURS == 48
 
 
 # --- floor-only tool rows ---------------------------------------------------
