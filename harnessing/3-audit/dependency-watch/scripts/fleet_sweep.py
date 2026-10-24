@@ -62,7 +62,7 @@ from traust_engine.osv import BatchOutcome, OsvClient, Query
 from traust_engine.osv.ranges import containing_span, fixed_for, spans, version_key
 
 from traust.context import add_config_home_arg, resolve_results_root
-from traust.registry.osv_urls import osv_access, osv_query_url
+from traust.registry.osv_urls import nuget_ids, osv_access, osv_query_url
 
 BATCH_SIZE = 800
 SEV_RANK = {"CRITICAL": 4, "HIGH": 3, "MEDIUM": 2, "LOW": 1, "UNKNOWN": 0}
@@ -174,7 +174,9 @@ class _PostClient:
 
 
 def _default_client(jobs: int) -> OsvClient:
-    return OsvClient(osv_query_url(), batch_size=BATCH_SIZE, workers=max(1, jobs))
+    return OsvClient(
+        osv_query_url(), batch_size=BATCH_SIZE, workers=max(1, jobs), nuget_ids=nuget_ids()
+    )
 
 
 def query_osv_multi(

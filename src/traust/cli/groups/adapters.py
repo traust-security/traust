@@ -405,11 +405,12 @@ def _sbom_body(args, source: str) -> dict:
     from traust_engine.adapters import osv_sbom
     from traust_engine.osv import OsvClient
 
-    from traust.registry.osv_urls import osv_query_url
+    from traust.registry.osv_urls import nuget_ids, osv_query_url
 
     doc = osv_sbom.load_syft(args.sbom)
     if source == "api":
-        return osv_sbom.scan_sbom(doc, OsvClient(osv_query_url(), timeout=args.timeout))
+        client = OsvClient(osv_query_url(), timeout=args.timeout, nuget_ids=nuget_ids())
+        return osv_sbom.scan_sbom(doc, client)
     packages, stats = osv_sbom.collect_sbom_packages(doc)
     try:
         with tempfile.TemporaryDirectory() as tmp:
@@ -466,7 +467,7 @@ def call_osv(_engine, args) -> int:
     from traust_engine.adapters import osv as osv_mod
     from traust_engine.osv import OsvClient
 
-    from traust.registry.osv_urls import osv_access, osv_query_url
+    from traust.registry.osv_urls import nuget_ids, osv_access, osv_query_url
 
     source = args.source or ("osv-scanner" if osv_access() == "air-gapped" else "api")
     if args.sbom is not None:
@@ -490,7 +491,7 @@ def call_osv(_engine, args) -> int:
     else:
         body = osv_mod.scan_api(
             repo,
-            OsvClient(osv_query_url(), timeout=args.timeout),
+            OsvClient(osv_query_url(), timeout=args.timeout, nuget_ids=nuget_ids()),
             resolver=_deps_dev_resolver(_engine, args),
         )
     prov = body["provenance"]
@@ -703,7 +704,7 @@ def call_below_range(engine, args) -> int:
     from traust_engine.osv import OsvClient, Query
 
     from traust.registry.applicability_sources import applicability_hosts
-    from traust.registry.osv_urls import osv_access, osv_query_url
+    from traust.registry.osv_urls import nuget_ids, osv_access, osv_query_url
 
     repo = Path(args.repo).resolve()
     if not repo.is_dir():
@@ -716,7 +717,7 @@ def call_below_range(engine, args) -> int:
             file=sys.stderr,
         )
         return 2
-    client = OsvClient(osv_query_url(), timeout=args.timeout)
+    client = OsvClient(osv_query_url(), timeout=args.timeout, nuget_ids=nuget_ids())
     failure = client.probe(Query("PyPI", "requests", "2.19.0"))
     if failure:
         print(f"OSV unreachable: {failure[0]}: {failure[1]}", file=sys.stderr)
