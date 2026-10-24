@@ -239,7 +239,7 @@ Static source-code vulnerability scan. Reads a target directory (and its threat 
 
 - **Stage:** ③ Audit
 - **Tier:** `primary`
-- **Invoke:** `/vuln-scan` — arguments: `<target-dir> [--diff [--since <commit>]] [--baseline <audit.json>] [--focus <area>] [--single] [--extra <file>] [--no-score]`
+- **Invoke:** `/vuln-scan` — arguments: `<target-dir> [--diff [--since <commit>] [--baseline-assessment <id>]] [--baseline <audit.json>] [--focus <area>] [--single] [--extra <file>] [--no-score]`
 - **Skill:** [harnessing/3-audit/vuln-scan/SKILL.md](../harnessing/3-audit/vuln-scan/SKILL.md)
 - **Produces / consumes:** [Integrations](../harnessing/3-audit/vuln-scan/SKILL.md#integrations)
 

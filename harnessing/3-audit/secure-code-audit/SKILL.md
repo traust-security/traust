@@ -45,6 +45,7 @@ allowed-tools:
   - Bash(python3 *-m traust_engine.adapters.checkov:*)
   - Bash(python3 *-m traust_engine.adapters.gitleaks:*)
   - Bash(python3 *-m traust.cli adapters osv:*)
+  - Bash(python3 *-m traust.cli reporting record:*)
   - Bash(python3 *harnessing/3-audit/secure-code-audit/scripts/run_fork_advisory_lag.py:*)
   - Bash(python3 *harnessing/3-audit/secure-code-audit/scripts/expand_config_matrix.py:*)
   - Bash(python *harnessing/3-audit/secure-code-audit/scripts/expand_config_matrix.py:*)
@@ -1057,7 +1058,7 @@ Judging protocol — bounded, and every verdict is judged, never bulk-set:
    artifact's `coverage_gaps` entries into
    `metadata.additional.coverage_gaps` as
    `{tool: "config-matrix", system, reason, count}` — the structured
-   record `build_coverage_gap_rollup.py` aggregates fleet-wide. The pre-scan is an
+   record `traust assessments coverage` aggregates fleet-wide. The pre-scan is an
    accelerator, never a precondition — if PyYAML or the checkout is
    missing, perform the manual configuration review and move on.
 4. **No cross-product enumeration**: the artifact deliberately carries
@@ -1564,6 +1565,19 @@ findings/<product-name>/<repo-name>/<repo-name>-security-audit.md
 ```
 
 This Markdown file is for human consumption only — the JSON file remains the authoritative report artifact.
+
+**Step 4b — Record the audit in traust-core:**
+
+```bash
+python3 -m traust.cli reporting record <path-to-report.json> --kind secure-code \
+    --repo-url <https URL of the repository> --sha <metadata.commit, full SHA>
+```
+
+It records a secure-code assessment of that commit with the report as its
+artifact (schema-checked; the same report again is the same run, by
+`metadata.date`); `traust assessments coverage` reads the gaps it states.
+(Legacy gap: traust-core doesn't yet enter the report's findings as
+findings.)
 
 **Step 5 — Declare per-repo spend (calibration tuple):**
 

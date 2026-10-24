@@ -24,6 +24,7 @@ allowed-tools:
   - Glob
   - Bash(python3 *-m traust.cli.checkpoint:*)
   - Bash(python3 *-m traust_engine.reporting.lint:*)
+  - Bash(python3 *-m traust.cli reporting record:*)
   - Grep
   - Write
   - Bash(git log:*)
@@ -317,7 +318,15 @@ python3 -m traust.cli reporting rate-threats <repo>-threat-model.json
 python3 -m traust.cli reporting validate <repo>-threat-model.json
 python3 -m traust.cli reporting render   <repo>-threat-model.json \
     -o <repo>-threat-model.md
+python3 -m traust.cli reporting record <repo>-threat-model.json --kind threat-model \
+    --repo-url <https URL of the origin remote> --sha <the modelled commit>
 ```
+
+`reporting record` records the validated model in traust-core as a
+threat-model assessment of that commit (the JSON published as its
+artifact; the same model again is the same run, by `provenance.date`);
+the audits' `traust assessments prepare` hands it to them. `pr` mode
+writes no model and records nothing.
 
 `rate-threats` fills each `risk_rating`'s scores, levels and severity
 from the factors you scored. Author only the factors, the basis and the
@@ -467,14 +476,13 @@ The **Markdown** is consumed by `/secure-code-audit` (coverage diff),
 the JSON, the source; the rendering repeats them as a trailing column in
 sections 3, 4 and 5.
 
-The **JSON** is the contract artifact, and its consumer is the storage
-layer rather than another skill: `traust_engine.corpus.store_ingest`
-routes it as the `threat-model` family, and
-`traust_contracts.v1.storage` projects it into the `threat` table
-behind the `threat_current` and `threat_exposure` views. That is the
+The **JSON** is the contract artifact, and its consumer is traust-core
+rather than another skill: `traust reporting record` records it as a
+threat-model assessment, and `AssessmentService.threats` reads its
+threats back (the latest completed model per repository). That is the
 adopter-neutral read surface — a deployment on Postgres gets the same
-rows without any skill in the path, which is the point of emitting it.
-The skills above still read the Markdown; migrating them onto the views
+threats without any skill in the path, which is the point of emitting it.
+The skills above still read the Markdown; migrating them onto those reads
 is dashboard work, not threat-model work.
 
 Context passes may also emit doc-variance records via

@@ -448,13 +448,12 @@ EXEMPTIONS: dict[tuple[str, str], str] = {
     (
         "A9",
         "threat-model:*-threat-model.json",
-    ): "the contract artifact, whose consumer is the STORAGE LAYER rather "
-    "than a skill: store_ingest routes it as the `threat-model` family and "
-    "traust_contracts.v1.storage projects it into `threat`, read through "
-    "the `threat_current` / `threat_exposure` views. A9 can only see "
+    ): "the contract artifact, whose consumer is TRAUST-CORE rather "
+    "than a skill: `traust reporting record` records it as a threat-model "
+    "assessment and AssessmentService.threats reads it back. A9 can only see "
     "skill-to-skill wiring, and requiring one here would push the estate "
     "back to re-parsing prose — the thing the schema exists to end. A "
-    "database adopter reads the views with no skill in the path. Delete "
+    "database adopter reads the threats with no skill in the path. Delete "
     "this entry if a skill starts reading the JSON directly",
     (
         "A9",
@@ -464,7 +463,7 @@ EXEMPTIONS: dict[tuple[str, str], str] = {
         "A9",
         "vuln-scan:*-diff-packet.json",
     ): "diff-mode scratch evidence bundle produced AND consumed inside "
-    "the same skill (Step 0b build_diff_packet.py -> cluster "
+    "the same skill (Step 0 traust assessments prepare -> cluster "
     "briefs); never a campaign artifact",
     (
         "A7",
