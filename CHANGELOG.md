@@ -2,6 +2,15 @@
 
 All notable changes to Traust are documented here.
 
+## [0.40.2]
+
+- **Pins traust-engine 0.42.2 (`f0c936a`).** Below-range verification's fix
+  choice now recognizes release and version-bump commits in conventional-
+  commit form (`chore(release): v1.13.2`, `chore: bump version to ...`,
+  `Bumped v8.9.0`), and markdown-only changes. A release commit no longer
+  wins the fix choice over the real fix. In the Phase 3 acceptance run, 8
+  of 45 packets had carried a release commit or README edit.
+
 ## [0.40.1]
 
 - Consume the coordinated native scanner-observation repair: contracts 0.62.2,

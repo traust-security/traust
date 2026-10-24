@@ -7,7 +7,7 @@ name = "traust"
 # version must equal the VERSION file — check_docs_consistency.py
 # version-sync check fails the pre-push when they drift (and fails
 # closed if this field is removed)
-version = "0.40.1"
+version = "0.40.2"
 license = "Apache-2.0"
 description = "AI agent tooling for automated security audits of Red Hat Hybrid Platforms source code"
 requires-python = ">=3.11"
@@ -55,7 +55,7 @@ dev = ["ruff>=0.6", "pytest-xdist>=3", "traust-ledger[db]"]
 
 [tool.uv.sources]
 traust-contracts = { git = "https://github.com/traust-security/traust-contracts.git", rev = "25bfd178a4f595996ff2434c3ced0666dce3da96" }
-traust-engine = { git = "https://github.com/traust-security/traust-engine.git", rev = "deff762443294dd5f9f808f8a0e2765f6aa5a8e7" }
+traust-engine = { git = "https://github.com/traust-security/traust-engine.git", rev = "f0c936ad2c4838be23915d82355fb10693d5c820" }
 traust-ledger = { git = "https://github.com/traust-security/traust-ledger.git", rev = "da5fa5abd44de33ce645c4d6d4dd217f5a62bc44" }
 
 # Multi-skill CLIs live under src/traust/; harnessing/<skill>/ for single-skill
