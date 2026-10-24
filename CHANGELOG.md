@@ -2,6 +2,13 @@
 
 All notable changes to Traust are documented here.
 
+## [0.40.1]
+
+- Consume the coordinated native scanner-observation repair: contracts 0.62.2,
+  Ledger 0.11.5 and Engine 0.42.1. Actual adapter output validates without
+  invented CWE/remediation or authored-audit conclusions. Existing raw-candidate
+  exports remain separate, and strict audit-report requirements are unchanged.
+
 ## [0.40.0]
 
 - **Below-range verification's hosts come from `feeds.yaml`** (owner
