@@ -32,6 +32,7 @@ def test_all_planned_groups_registered():
         "feeds",
         "findings",
         "impact",
+        "isolation",
         "ledger",
         "metrics",
         "portfolio",

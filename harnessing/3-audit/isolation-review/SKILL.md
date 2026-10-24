@@ -43,17 +43,16 @@ methodology — [whitepaper v1.1 (PDF)](https://www.datocms-assets.com/75231/167
 
 ## Input
 
-`service` — a service name resolvable to a `product:service:<name>` node in
-the portfolio graph, or an explicit repo list for services not yet in the
-graph. Resolve the repo set from the graph's `ships` edges:
+`service` — a service name resolvable to a product registered in
+traust-core, or an explicit repo list for services not yet registered.
+Resolve the repo set from the commits the product's releases ship:
 
 ```bash
-sqlite3 analysis-results/graph/portfolio-graph.db \
-  "SELECT dst FROM edges WHERE rel='ships' AND src='product:service:<name>';"
+python3 -m traust.cli isolation repos <name>
 ```
 
-Record the graph DB path (plus its git ref or mtime) as `metadata.graph_ref`.
-If the service node does not exist, ask the user for the repo list and set
+Record the output's `graph_ref` (the product and when it was read) as `metadata.graph_ref`.
+If the product does not exist (the command exits 2), ask the user for the repo list and set
 `graph_ref` to `"manual"` with the reason in `notes`.
 
 ## Output (under `analysis-results/isolation/<service-slug>/`)
