@@ -368,3 +368,6 @@ MINE = OpSpec(
 BENCHMARK_TARGETS = passthrough_op(
     "recall", "Record the recall benchmark's answer key (benchmark-targets).", "targets"
 )
+BUILD_CANARIES = passthrough_op(
+    "recall", "Materialise canaries (or --seeded fixtures) as answer-key targets.", "canaries"
+)

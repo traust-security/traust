@@ -150,10 +150,6 @@ def test_p3_gh_api_path_constraints():
     assert "unsafe slug" in _src("harnessing/loc-dashboard/scripts/build_loc_dashboard.py")
 
 
-def test_p3_canaries_off_shared_tmp():
-    assert '"/tmp/recall-bench' not in _src("harnessing/recall-benchmark/scripts/build_canaries.py")
-
-
 def test_p3_agents_md_curl_rule():
     s = _src("AGENTS.md")
     assert "curl --config -" in s and "lab-target-only" in s

@@ -38,7 +38,7 @@ python3 -m traust.cli check skill-alignment      # equivalent
 | `registry` | Model/product registry | `models`, `products` |
 | `reporting` | Report validation & rendering | `lint`, `rate-threats`, `render`, `sarif`, `validate` |
 | `triage` | The triage skill's doors on traust-core | `check`, `intake`, `prepare`, `record`, `render` |
-| `sweep` | Class-generalization sweep; recall-benchmark answer key | `benchmark`, `benchmark-targets`, `collect`, `draft`, `emit`, `mine`, `rule-lane`, `sweep` |
+| `sweep` | Class-generalization sweep; recall-benchmark answer key | `benchmark`, `benchmark-targets`, `build-canaries`, `collect`, `draft`, `emit`, `mine`, `rule-lane`, `sweep` |
 | `util` | Utility commands | `elf`, `redact`, `safe-exec` |
 
 ## Deprecated forms

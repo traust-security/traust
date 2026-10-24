@@ -3,7 +3,7 @@
 #
 # Recall-benchmark manifest: the ANSWER KEY for /recall-benchmark. Keep the
 # real file in a private config repository: an audit agent must never read
-# it (contamination rule). build_canaries.py adds canary and seeded rows from
+# it (contamination rule). `traust sweep build-canaries` adds canary and seeded rows from
 # $TRAUST_CONFIG_HOME/recall-benchmark/{canaries,seeded}/; match_benchmark.py
 # scores runs against it. Schema: traust-contracts benchmark-target.
 
