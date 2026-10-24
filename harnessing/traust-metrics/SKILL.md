@@ -89,18 +89,14 @@ manual block that survives regeneration.
 
 ## Metrics history — the append-only improvement ledger
 
-Every run (unless `--no-history`) appends one immutable snapshot row to
-`progress-tracker/metrics/metrics-history.jsonl` and re-renders
-`metrics/metrics-history.md` — a metrics × snapshots table with per-snapshot
-notes. This is the campaign's **as-reported record**: prior rows are NEVER
-revised, so the original raw numbers (e.g. the 2026-07-14 pre-triage baseline)
-survive every counting-policy change, and methodology shifts appear as
-explained steps (via `--note "..."`) instead of silent rewrites. This matters
-because every other view rewrites history by design: regenerated dashboards
-overwrite in place, and findings-trends replays by `occurred_at`, so late
-event ingestion (e.g. a ledger backfill) retroactively changes past buckets.
-Pass `--note` with one line of context whenever a run follows a methodology
-or pipeline change. Never hand-edit or prune the JSONL.
+*Retired:* the collector no longer appends a snapshot row to
+`progress-tracker/metrics/metrics-history.jsonl` or renders
+`metrics/metrics-history.md` (`--note` and `--no-history` are gone).
+traust-core records every finding and decision with its time, so a past
+number is the view built at an earlier `as_of` (`/findings-trends`,
+`traust dashboard view … --as-of`). Rows already in the JSONL stay as they
+are; never hand-edit or prune them. When a run follows a methodology or
+pipeline change, say so when you report the numbers.
 
 ## Output
 

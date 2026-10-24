@@ -141,7 +141,6 @@ def test_a_degraded_refresh_exits_with_its_outcome(insight: Insight, tmp_path: P
     assert rc == 4
 
 
-def test_views_run_first_and_the_scoreboard_writes_no_history() -> None:
+def test_views_run_first_and_the_scoreboard_last() -> None:
     stages = refresh_dashboards.build_stages(Path("/w"), Path("/r"), False)
     assert stages[0][0] == "views" and stages[-1][0] == "scoreboard"
-    assert "--no-history" in stages[-1][2]

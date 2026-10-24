@@ -39,7 +39,7 @@ Ordering is the whole point:
    Each continues on error; failures are collected.
 3. **Scoreboard last** — `collect_harness_metrics.py` harvests headline
    numbers *from* the dashboards above, so it runs after all of them
-   (`--no-history`: a trend is the view built at an earlier `as_of`).
+   (it writes no history row: a trend is the view built at an earlier `as_of`).
 
 ## Procedure
 

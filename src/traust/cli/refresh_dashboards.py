@@ -160,15 +160,14 @@ def build_stages(
             [PYTHON, "-m", "traust.cli", "metrics", "spend", *cfg, "--workspace", str(workspace)],
         )
     )
-    # Last on purpose: the scoreboard harvests from the dashboards above. no door: ProgramView
-    # (OpsService.timeline). No history row: a trend is the view built at an earlier as_of.
+    # Last on purpose: the scoreboard harvests from the dashboards above. no door: a scoreboard
+    # view (its sources wait on their own views).
     scoreboard = [
         PYTHON,
         str(h / "harnessing/traust-metrics/scripts/collect_harness_metrics.py"),
         *path_args,
         "--workspace-root",
         str(workspace),
-        "--no-history",
     ]
     stages.append(("scoreboard", "consumer", scoreboard))
     return stages

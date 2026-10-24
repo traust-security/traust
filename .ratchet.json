@@ -78,7 +78,6 @@
   },
   "harnessing/traust-metrics/scripts/collect_harness_metrics.py": {
     "database": 1,
-    "engine-internal": 1,
     "state-file": 1
   },
   "src/traust/cli/auth.py": {

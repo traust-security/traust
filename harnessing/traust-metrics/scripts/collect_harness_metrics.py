@@ -35,8 +35,6 @@ from traust.context import (
 )
 from traust.paths import HARNESS_ROOT
 
-SOURCE = "traust-metrics"
-
 MANUAL_BEGIN = "<!-- MANUAL:BEGIN -->"
 MANUAL_END = "<!-- MANUAL:END -->"
 
@@ -655,96 +653,6 @@ def render(m, sources, ws, manual_block):
     return "\n".join(lines)
 
 
-HISTORY_KEYS = [
-    # (metric key, human label) — the improvement series rendered over time.
-    ("repos_audited", "Reports (repos/branches audited)"),
-    ("unique_repos", "Unique repositories"),
-    ("findings_total", "Findings (as counted that day)"),
-    ("sev_critical", "Critical"),
-    ("sev_high", "High"),
-    ("unique_critical", "Unique Critical"),
-    ("unique_high", "Unique High"),
-    ("repos_with_critical", "Repos with >=1 Critical"),
-    ("repos_with_high", "Repos with >=1 High"),
-    ("credential_findings", "Credential findings (unique)"),
-    ("hardening_backlog", "Hardening backlog"),
-    ("dispositioned_repos", "Repos with disposition ledger"),
-    ("ledger_coverage_pct", "Ledger coverage %"),
-    ("resolved_findings", "Findings resolved"),
-    ("open_ledger_view", "Open findings (ledger replay)"),
-    ("recall_strict", "Detection recall (strict)"),
-    ("recall_stability", "Auditor stability (Jaccard)"),
-    ("injection_pass_rate", "Injection canary pass rate"),
-    ("owasp_risk_critical", "OWASP risk rating: Critical (open)"),
-    ("owasp_risk_high", "OWASP risk rating: High (open)"),
-    ("owasp_risk_medium", "OWASP risk rating: Medium (open)"),
-    ("owasp_risk_low", "OWASP risk rating: Low/Note (open)"),
-    ("owasp_risk_high_plus_pct", "OWASP High+Critical share of open (%)"),
-    ("confirmed_exploitable", "Confirmed exploitable (live)"),
-    ("refuted", "False positives refuted (live)"),
-    ("validation_reports", "Live-validation reports"),
-    ("threat_models", "Threat models"),
-    ("threats_open", "Open threats"),
-    ("jira_tickets", "Jira defects filed"),
-]
-
-
-def history_path(engine):
-    from traust_engine.locations import METRICS_HISTORY_REL, progress_tracker_dir
-
-    return progress_tracker_dir(engine.ctx.locations) / METRICS_HISTORY_REL
-
-
-def append_history(m, engine, note):
-    """Append one immutable, hash-chained snapshot row via the shared
-    ledger. NEVER rewrite prior rows — the ledger exists so as-reported
-    numbers survive methodology changes (counting-policy shifts, late
-    event ingestion) that rewrite every replayed/regenerated view."""
-    return engine.metrics.append(
-        SOURCE,
-        {k: m.get(k) for k, _ in HISTORY_KEYS if m.get(k) is not None},
-        note=note,
-        hv=m.get("harness_version"),
-    )
-
-
-def render_history(tracker, engine, max_cols=8):
-    """Render metrics/metrics-history.md from the JSONL ledger."""
-    rows = [r for r in engine.metrics.rows() if r.get("source") == SOURCE]
-    if not rows:
-        return None
-    shown = rows[-max_cols:]
-    out = ["# Metrics Over Time — Hybrid Platforms Security", ""]
-    out.append(
-        f"Append-only hash-chained snapshot ledger (`metrics/metrics-history.jsonl`, "
-        f"{len(rows)} snapshots; last {len(shown)} shown). Each column is "
-        f"an as-reported data point — earlier numbers are never revised, "
-        f"so counting-policy changes appear as explained steps, not "
-        f"silent rewrites. Maintained by `/traust-metrics`."
-    )
-    out.append("")
-    hdr = ["Metric"] + [r["snapshot_at"][:10] for r in shown]
-    out.append("| " + " | ".join(hdr) + " |")
-    out.append("|" + "---|" * len(hdr))
-    for key, label in HISTORY_KEYS:
-        vals = [r["metrics"].get(key) for r in shown]
-        if all(v is None for v in vals):
-            continue
-        cells = [fmt(v) if isinstance(v, int) else (str(v) if v is not None else "—") for v in vals]
-        out.append(f"| {label} | " + " | ".join(cells) + " |")
-    out.append(
-        "| _harness_ | " + " | ".join(str(r.get("harness_version") or "—") for r in shown) + " |"
-    )
-    notes = [(r["snapshot_at"][:10], r.get("note")) for r in shown if r.get("note")]
-    if notes:
-        out += ["", "## Snapshot notes", ""]
-        out += [f"- **{d}** — {n}" for d, n in notes]
-    md = "\n".join(out) + "\n"
-    outp = tracker / "metrics" / "metrics-history.md"
-    outp.write_text(md, encoding="utf-8")
-    return outp
-
-
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     add_config_home_arg(ap)
@@ -766,17 +674,6 @@ def main():
         default=None,
         help="Output file (default: <progress-tracker>/metrics/traust-metrics.md)",
     )
-    ap.add_argument(
-        "--note",
-        default="",
-        help="One-line context recorded with this snapshot in the "
-        "metrics-history ledger (e.g. 'post ledger-backfill').",
-    )
-    ap.add_argument(
-        "--no-history",
-        action="store_true",
-        help="Skip appending to tracking/metrics-history.jsonl.",
-    )
     args = ap.parse_args()
 
     engine = load_engine(args.config_home)
@@ -794,15 +691,6 @@ def main():
     metrics, sources = collect(ws, results, tracker, harness)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(render(metrics, sources, ws, manual_block), encoding="utf-8")
-
-    if not args.no_history:
-        row = append_history(metrics, engine, args.note)
-        hist = render_history(tracker, engine)
-        print(f"appended snapshot to {history_path(engine)} (row_sha {row['row_sha'][:12]}…)")
-        if hist:
-            print(f"wrote {hist}")
-        for outp in engine.metrics.render():
-            print(f"wrote {outp}")
 
     missing = [label for label, (_, _, found) in sources.items() if not found]
     print(f"wrote {out}")

@@ -26,7 +26,7 @@ These skills are specific to the scanning campaign. They consume the full `*-res
 | `validation-fuzz-dashboard` | — | Combined live-validation + fuzzing results dashboard | opus-class |
 | `threat-register` | — | Fleet-wide threat roll-up from every threat-model file: open-threat exposure by product, stable `<slug>:<Tn>` keys, class-closing quick wins | opus-class |
 | `isolation-review` | — | Service-level tenant-isolation review (PEACH cited by reference only): interface inventory from the portfolio graph + existing findings, per-interface complexity, five hardening dimensions with cited evidence, posture + prioritized gaps | mythos-class |
-| `traust-metrics` | — | Campaign metrics scoreboard + append-only hash-chained metrics-history ledger and Executive-Trends dashboard under `progress-tracker/metrics/` | opus-class |
+| `traust-metrics` | — | Campaign metrics scoreboard under `progress-tracker/metrics/` | opus-class |
 | `rbac-tenancy-rollup` | — | RBAC + multi-tenancy misconfiguration rollup: executive one-pager, top-misconfigurations detail, HTML dashboard, MITRE ATT&CK candidate inference | opus-class |
 | `attack-coverage` | — | Fleet-wide MITRE ATT&CK coverage rollup joining observed (live-validation), modeled (threat-model), and derived (category-mapped) technique IDs into a Navigator layer | opus-class |
 | `compliance-check` | — | Evidence-gated per-control compliance assessment (PCI DSS, NIST 800-53, FedRAMP, SOC 2, GDPR slice); deterministic verdicts the agent cannot override | mythos-class |
