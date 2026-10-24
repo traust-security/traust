@@ -1,0 +1,3 @@
+- `verification-report.json`: traust-core `tests/fixtures/remediation/verification-report.json` (a verify-remediation report, names, URLs and code already replaced); `FINDING_ID` is filled in per test.
+- `mewt-status-*.json`: traust-core `tests/fixtures/remediation/` (real `mewt status --format json` from mewt 4.0.0 campaigns against a toy Go module).
+- `remediation-report.json`: traust-core `tests/fixtures/remediation/remediation-report.json` (every name and URL replaced); `FINDING_ID` is filled in per test.

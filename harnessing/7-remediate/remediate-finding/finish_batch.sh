@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Legacy batch mode, kept: no traust-core door selects candidates in bulk by product yet; run_one.sh
+# now takes work item ids (traust remediation open), so this CSV manifest no longer feeds it.
 # Post-process a completed remediation batch:
 #   - emit_product_index.py for each product in the batch
 #   - create + push <fork_org>/<prefix>-<product>-index (remediation.yaml)

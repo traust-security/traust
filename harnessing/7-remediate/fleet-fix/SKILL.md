@@ -9,6 +9,8 @@ allowed-tools:
   # repos; an unscoped interpreter under injected content is fleet-wide
   # code execution (audit D5, plan P2.11; A11 un-grandfathered)
   - Bash(python3 *harnessing/7-remediate/fleet-fix/scripts/apply_fleet_fix.py:*)
+  - Bash(python3 -m traust.cli remediation fleet-targets:*)
+  - Bash(python3 -m traust.cli remediation fleet-record:*)
   - Bash(bash *run_checks.sh:*)
   - Bash(git clone:*)
   - Bash(git ls-remote:*)
@@ -37,7 +39,8 @@ count drops fastest per engineering hour here.
 1. **The spec is the change.** Every transform lives as a schema-validated
    spec (`contracts/schemas/fleet-fix.schema.json`) in `specs/`, carrying its own
    golden tests. `apply_fleet_fix.py` refuses to touch any repo while a
-   golden test fails.
+   golden test fails (and `traust remediation fleet-record` refuses to
+   record the spec).
 2. **Diffs before forks, forks before MRs, humans before both.** The
    applier only modifies working clones and emits `<repo>-<id>.diff` +
    result JSON. Opening MRs is a separate stage that requires the user's
@@ -53,44 +56,41 @@ count drops fastest per engineering hour here.
 One deterministic command — never hand-grep:
 
 ```bash
-python3 harnessing/7-remediate/fleet-fix/scripts/fleet_targets.py \
-    (--cwe CWE-1104 | --rollup "pipelineRef" | \
-     --module github.com/openshift/library-go [--ecosystem npm] | \
-     --repos org/a org/b) \
-    --out /tmp/fleet-fix/<id>/fleet.json
+python3 -m traust.cli remediation fleet-targets \
+    (--cwe CWE-1104 | --package-id <package-uuid> | \
+     --repo-url https://github.com/org/a --repo-url https://github.com/org/b) \
+    -o /tmp/fleet-fix/<id>/fleet.json
 ```
 
 For dependency-bump campaigns driven by a specific CVE, an
 `/impact-analysis` artifact is a ready-made fleet: pass the repos
-classified `affected`/`likely_affected` via `--repos` (e.g.
+classified `affected`/`likely_affected` via `--repo-url` (e.g.
 `jq -r '.repos[] | select(.classification=="affected" or
 .classification=="likely_affected") | .repo'
 analysis-results/impact/<cve>-impact-analysis.json`). This scopes the
 campaign to demonstrated exposure instead of every importer of the
 module.
 
-Sources: `--cwe` reads the insecure-patterns pattern repo lists
-(CWE-class fleets); `--rollup` greps PROGRESS.md rows for the campaign
-cross-cutting patterns; `--module` queries portfolio-graph.db
-imports_package/depends_on edges — dependency fleets: every repo
-importing the module or any package under it. `--module` resolves both
-Go (`module:`/`srcpkg:`) and non-Go (`pkg:<eco>/<name>`) consumers; a
-bare short name matches across every ecosystem, so pair it with
-`--ecosystem <eco>` (npm/pypi/maven/cargo/ruby/nuget/docker/actions/helm)
-when the coordinate is non-Go to avoid a cross-ecosystem name collision.
+Sources: `--cwe` reads the repositories with an open finding of that
+class (CWE-class fleets); `--rollup` (PROGRESS.md) is *retired* — the
+CWE and package scopes read the findings themselves; `--package-id`
+reads the package's dependents in traust-core — dependency fleets: every
+repo depending on it directly, through a base image or an internal
+library. (No door looks a package up by name yet: `--module` /
+`--ecosystem` are gone until one exists.)
 Every target is enriched
-from repo-graph: **product reach** (fix highest-blast-radius repos
-first — the output is already sorted by it) and **owner team** (MR
-routing at stage 5). Targets missing from repo-graph are listed with a
-URL guess, never dropped. `fleet.json` is the campaign's target list of
-record.
+with **product reach** (fix highest-blast-radius repos
+first — the output is already sorted by it); **owner team** (MR
+routing at stage 5) has no door yet. Every target is a registered
+repository; an unknown one is refused, never guessed. `fleet.json` is the
+campaign's target list of record.
 
 > **Optional accelerator — findings-db candidate listing.** When scoping
 > a fleet by finding state rather than pattern/module (e.g. "every repo
 > with an open finding matching this fingerprint"), the C9 projection
 > answers in one query (`/findings-db`, `v_open` + `graph_edges`). Use
-> it to *shortlist*, then feed the repos through `fleet_targets.py
-> --repos …` so the target list of record still carries the standard
+> it to *shortlist*, then feed the repos through `traust remediation
+> fleet-targets --repo-url …` so the target list of record still carries the standard
 > enrichment — and confirm finding state against the live ledger before
 > generating diffs; the DB can be one census behind.
 
@@ -100,7 +100,9 @@ record.
 with a git ls-remote resolver; `ast_grep` for structural rewrites),
 rewrite template, guards, and at least one positive + one negative golden
 test. New specs get a human review of the spec itself plus one
-hand-reviewed golden diff before fleet application.
+hand-reviewed golden diff before fleet application. Record the reviewed
+spec with `python3 -m traust.cli remediation fleet-record specs/<id>.yaml`
+(its golden tests run first).
 
 ### 3. Apply across the fleet (diffs only)
 
@@ -114,6 +116,8 @@ python3 harnessing/7-remediate/fleet-fix/scripts/apply_fleet_fix.py \
     --out-dir /tmp/fleet-fix/<id>/out
 ```
 
+(`apply_fleet_fix.py` stays until traust-engine registers the applier
+traust-core's `apply_fleet_fix` door runs through.)
 Collect the per-repo results: applied / no-match / unresolved / guard
 refusals. Where the target repo has usable checks, run
 `harnessing/7-remediate/remediate-finding/run_checks.sh` against the modified clone

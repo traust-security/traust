@@ -12,7 +12,7 @@ description: Generate candidate fixes for verified security findings. Consumes
   PATCHES/bug_NN/{patch.diff,patch.patch,patch_result.json},
   PATCHES.md, and PATCHES.json. Use when asked to "fix the findings",
   "patch these vulns", "generate fixes", or "close the loop on triage".
-argument-hint: "<findings-path> [--repo PATH] [--top N] [--id fNNN] [--model M] [--fresh]"
+argument-hint: "<findings-path | work-item-id> [--repo PATH] [--top N] [--id fNNN] [--model M] [--fresh]"
 user-invocable: true
 metadata:
   harness.tier: "primary"
@@ -23,6 +23,8 @@ allowed-tools:
   - Write
   - Task
   - Bash(python3 *-m traust.cli.checkpoint:*)
+  - Bash(python3 *traust* -m traust.cli remediation next:*)
+  - Bash(python3 *traust* -m traust.cli remediation prepare:*)
   - Bash(vuln-pipeline patch:*)
   - Bash(git -C * rev-parse:*)
   - Bash(git -C * worktree:*)
@@ -68,11 +70,12 @@ traust repo root, i.e. `<skill-base>/../../..`; checkpoint I/O
 uses `python3 -m traust.cli admin checkpoint`. Resolve both to absolute
 paths once at startup.
 
-Invoke with `/patch <findings-path> [--repo PATH] [--top N] [--id fNNN]
+Invoke with `/patch <findings-path | work-item-id> [--repo PATH] [--top N] [--id fNNN]
 [--model M] [--fresh]`.
 
 **Arguments** (parse from `$ARGUMENTS`):
-- findings path (first positional, required): `<repo>-triage.json` (or legacy `TRIAGE.json`), a
+- findings path (first positional, required): a work item id (container 0
+  below), `<repo>-triage.json` (or legacy `TRIAGE.json`), a
   `<repo>-security-audit.json` report, `*-vuln-findings.json` (or legacy
   `VULN-FINDINGS.json`), `*-pqc-facts.json` (PQC readiness Layer 1
   output), an external
@@ -160,7 +163,7 @@ Inspect the findings path:
   `reports/manifest.jsonl` OR `found_bugs.jsonl` OR `run_*/result.json`
   (pipeline output). The findings have PoC bytes + ASAN traces + reproduction
   commands; the pipeline's verification ladder applies.
-- **static mode** otherwise: `*-triage.json` / legacy `TRIAGE.json`, `*-security-audit.json`,
+- **static mode** otherwise: a work item, `*-triage.json` / legacy `TRIAGE.json`, `*-security-audit.json`,
   `*-vuln-findings.json`/`VULN-FINDINGS.json`, `*-pqc-facts.json`,
   generic finding JSON, or
   markdown. No PoC; the
@@ -183,6 +186,13 @@ flat `findings[]` of dicts. Pull what's present; never guess what's absent.
 
 ### 1a. Recognized containers (priority order)
 
+0. **A work item** (traust-core) — `traust remediation prepare <work-item>`
+   (`traust remediation next --repo-url <url>` names the repository's
+   oldest one still waiting for a patch). Read `.items[]`: each finding as
+   it stands (`finding.title`, `effective_severity`, `cwes`, `locations[0]`
+   → `file`/`line`), every decision on it (the triage rationale among
+   them) and `strategy`, the preferred fix for its class. A work item
+   opens only on confirmed, open findings, so no filter applies.
 1. **`<repo>-triage.json`** (or legacy `TRIAGE.json`) — read `.findings[]`. **Filter to `verdict ==
    "true_positive"`.** This is the canonical input: already verified,
    deduped, ranked, owner-tagged, and (since harness 0.37.0) carrying the
@@ -938,7 +948,8 @@ unattributed run is a calibration gap.
 
 ## Integrations
 
-**Consumes:** `<repo>-triage.json` (preferred; legacy `TRIAGE.json`
+**Consumes:** a work item (`traust remediation prepare`) opened by
+`/remediate-finding`; `<repo>-triage.json` (preferred; legacy `TRIAGE.json`
 accepted) from `/triage`; `<repo>-security-audit.json` from
 `/secure-code-audit` or `*-vuln-findings.json` from `/vuln-scan`
 (unverified-input warning); `*-pqc-facts.json` from `/pqc-readiness`.

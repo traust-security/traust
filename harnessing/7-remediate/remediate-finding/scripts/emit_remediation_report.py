@@ -3,8 +3,10 @@
 Assemble a ``*-remediation.json`` report from a prepared worktree.
 
 Inputs:
-  --rem-id ID            manifest row to report on (required)
+  --prepared FILE        the work item, as `traust remediation prepare` printed it (required)
   --worktree DIR         git worktree containing the fix branch (required)
+  --product SLUG         metadata.logical_product: the product this fix ships in (required)
+  --out FILE             write JSON here (required); the diff goes beside it
   --checks FILE          JSON array of check objects (from run_checks.sh)
   --strategy S           patch.strategy enum value
   --rationale TEXT       patch.rationale (>= 50 chars)
@@ -12,19 +14,17 @@ Inputs:
   --residual TEXT        patch.residual_risk
   --tests-added T[,T…]   regression tests added
   --status S             override summary.status (default derived from checks)
-  --out FILE             write JSON here (default: manifest report_path)
 
-The script computes the diff, diffstat, files_changed, fix_commit, and
-populates source_findings[] from the triage + audit reports referenced
-by the manifest row.  The result is validated by the caller via
-``traust reporting validate --schema remediation.schema.json``.
+The script computes the diff, diffstat, files_changed and fix_commit, and
+populates source_findings[] from the work item's findings (traust-core has no
+door that assembles a worktree's diff). Validate with
+``traust reporting validate --schema remediation.schema.json``, then record it
+with ``traust remediation record``.
 """
 
 from __future__ import annotations
 
 import argparse
-import contextlib
-import csv
 import datetime as dt
 import hashlib
 import json
@@ -32,13 +32,6 @@ import re
 import subprocess
 import sys
 from pathlib import Path
-
-from traust.context import (
-    add_config_home_arg,
-    load_engine,
-    resolve_results_root,
-    workspace_dir,
-)
 
 HERE = Path(__file__).resolve().parent
 # Harness root: the directory holding VERSION, walked rather than counted.
@@ -64,72 +57,31 @@ def harness_version() -> str:
     return f"{ver}-{sha}" if sha else ver
 
 
-def load_row(rem_id: str, manifest: Path) -> dict:
-    with manifest.open(newline="", encoding="utf-8") as f:
-        for r in csv.DictReader(f):
-            if r["rem_id"] == rem_id:
-                return r
-    raise KeyError(f"rem_id {rem_id!r} not in manifest")
+def _lines(loc: dict) -> str:
+    return f"{loc['line_start']}-{loc['line_end'] or loc['line_start']}"
 
 
-def load_json(p: Path) -> dict:
-    try:
-        return json.loads(p.read_text(encoding="utf-8")) if p.is_file() else {}
-    except json.JSONDecodeError:
-        # External findings (e.g. security-tracker advisories) may reference a
-        # Markdown file instead of a JSON report; fall back to manifest fields.
-        return {}
-
-
-def build_source_findings(row: dict, workspace: Path) -> list[dict]:
-    triage = load_json(workspace / row["triage_path"]) if row.get("triage_path") else {}
-    audit = load_json(workspace / row["audit_path"]) if row.get("audit_path") else {}
-
-    tf = next((f for f in triage.get("findings", []) if str(f.get("id")) == row["finding_id"]), {})
-    af = next(
-        (f for f in audit.get("findings", []) if str(f.get("id")) == row.get("audit_finding_id")),
-        {},
-    )
-
-    cwes = af.get("cwes") or [c for c in (row.get("cwes") or "").split(";") if c]
-    if not cwes:
-        cwes = ["CWE-0"]  # schema requires ≥1; flag for human review
-
-    locs = af.get("locations") or []
-    if not locs and row.get("file"):
-        locs = [{"path": row["file"], "lines": str(row.get("line") or "")}]
-    if not locs:
-        locs = [{"path": "(unknown)", "lines": ""}]
-
-    sev = (row.get("severity") or af.get("severity") or "medium").lower()
-    if sev not in ("critical", "high", "medium", "low", "informational"):
-        sev = "medium"
-
-    ref = (
-        f"{Path(row['triage_path']).name}#{row['finding_id']}"
-        if row.get("triage_path")
-        else row["finding_id"]
-    )
-
-    out = {
-        "finding_ref": ref,
-        "title": row.get("title") or tf.get("title") or af.get("title") or row["rem_id"],
-        "severity": sev,
-        "cwes": cwes,
-        "locations": locs,
-    }
-    if row.get("confidence"):
-        with contextlib.suppress(ValueError):
-            out["triage_confidence"] = float(row["confidence"])
-    vv = row.get("validation_verdict") or "not_validated"
-    out["validation_verdict"] = vv if vv else "not_validated"
-    if row.get("audit_path"):
-        out["audit_report_path"] = row["audit_path"]
-    if row.get("triage_path"):
-        out["triage_report_path"] = row["triage_path"]
-    if row.get("validation_report"):
-        out["validation_report_path"] = row["validation_report"]
-    return [out]
+def build_source_findings(prepared: dict) -> list[dict]:
+    out = []
+    for item in prepared["items"]:
+        view = item["finding"]
+        locations = [
+            {"path": loc["path"], "lines": _lines(loc)}
+            if loc.get("line_start")
+            else {"path": loc["path"]}
+            for loc in view["locations"]
+        ]
+        out.append(
+            {
+                "finding_ref": view["finding"]["id"],
+                "title": view["finding"]["title"],
+                "severity": view["effective_severity"],
+                "cwes": view["cwes"] or ["CWE-0"],  # schema requires >= 1; flag for human review
+                "locations": locations or [{"path": "(unknown)"}],
+                "validation_verdict": "not_validated",
+            }
+        )
+    return out
 
 
 def compute_patch(work: Path, base: str, out_dir: Path, rem_id: str) -> tuple[dict, str]:
@@ -222,10 +174,10 @@ def load_evidence(paths):
 
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    add_config_home_arg(ap)
-    ap.add_argument("--results-root", type=Path, default=None)
-    ap.add_argument("--rem-id", required=True)
+    ap.add_argument("--prepared", required=True, type=Path)
     ap.add_argument("--worktree", required=True, type=Path)
+    ap.add_argument("--product", required=True)
+    ap.add_argument("--out", required=True, type=Path)
     ap.add_argument("--checks", type=Path)
     ap.add_argument("--strategy", default="other")
     ap.add_argument("--rationale", required=True)
@@ -244,31 +196,17 @@ def main(argv: list[str]) -> int:
         "proof carried both observations.",
     )
     ap.add_argument("--status")
-    ap.add_argument("--out", type=Path)
     args = ap.parse_args(argv)
 
-    engine = load_engine(args.config_home)
-    workspace = workspace_dir(engine)
-    analysis = resolve_results_root(args)
-    manifest = analysis / "remediations" / "_manifest" / "remediation-manifest.csv"
+    prepared = json.loads(args.prepared.read_text(encoding="utf-8"))
+    subject, item, fork = prepared["subject"], prepared["work_item"], prepared["fork"]
+    out_path = args.out
+    out_path.parent.mkdir(parents=True, exist_ok=True)
 
-    row = load_row(args.rem_id, manifest)
-    # containment: report_path is manifest-derived (ultimately from
-    # report-influenced ids) — resolved target must stay under the
-    # remediations tree (audit B1, plan P0.2)
-    dest = (workspace / row["report_path"]).resolve()
-    allowed = (analysis / "remediations").resolve()
-    if not dest.is_relative_to(allowed):
-        raise SystemExit(f"refusing to write outside {allowed}: {row['report_path']!r}")
-    out_dir = dest.parent
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = args.out or dest
-
-    base = row.get("audited_commit") or "HEAD~1"
-    if base == "HEAD":
-        base = sh_ok(args.worktree, "git", "rev-parse", "origin/HEAD") or "HEAD~1"
-
-    patch_block, fix_commit = compute_patch(args.worktree, base, out_dir, args.rem_id)
+    base = subject["sha"]
+    patch_block, fix_commit = compute_patch(
+        args.worktree, base, out_path.parent, item["work_item_id"]
+    )
     patch_block["strategy"] = args.strategy
     patch_block["rationale"] = args.rationale
     patch_block["behaviour_change"] = args.behaviour
@@ -285,33 +223,33 @@ def main(argv: list[str]) -> int:
     passed = sum(1 for c in checks if c.get("outcome") == "pass")
 
     fork_block = {
-        "url": row["fork_url"],
-        "host": "github" if "github.com" in row["fork_url"] else "other",
-        "visibility": "private",
-        "upstream_remote": row["upstream_url"],
-        "base_ref": row.get("audited_commit") or "HEAD",
-        "fix_branch": row["fix_branch"],
+        "url": f"https://{fork['url']['host']}/{fork['url']['path']}",
+        "host": fork["host"],
+        "visibility": fork["visibility"],
+        "upstream_remote": subject["repository_url"],
+        "base_ref": base,
+        "base_commit": base,
+        "fix_branch": prepared["fix_branch"],
     }
-    if re.fullmatch(r"[0-9a-f]{7,40}", row.get("audited_commit") or ""):
-        fork_block["base_commit"] = row["audited_commit"]
     if re.fullmatch(r"[0-9a-f]{7,40}", fix_commit or ""):
         fork_block["fix_commit"] = fix_commit
 
     meta = {
         "date": dt.date.today().isoformat(),
         "harness_version": harness_version(),
-        "logical_product": row["logical_product"],
-        "repository": row["upstream_url"],
+        "logical_product": args.product,
+        "repository": subject["repository_url"],
+        "audited_commit": base,
     }
-    if re.fullmatch(r"[0-9a-f]{7,40}", row.get("audited_commit") or ""):
-        meta["audited_commit"] = row["audited_commit"]
-    if row.get("jira_key"):
-        meta["jira_keys"] = [row["jira_key"]]
+    if item.get("tracker") and item["tracker"]["system"] == "jira":
+        meta["jira_keys"] = [item["tracker"]["ref"]]
 
+    findings = build_source_findings(prepared)
+    repo_name = subject["repository_url"].rstrip("/").rsplit("/", 1)[-1]
     report = {
-        "title": f"{row['repo_name']} — automated remediation for {row['finding_id']}",
+        "title": f"{repo_name} — automated remediation for {findings[0]['title']}",
         "metadata": meta,
-        "source_findings": build_source_findings(row, workspace),
+        "source_findings": findings,
         "fork": fork_block,
         "patch": patch_block,
         "checks": checks,
@@ -319,7 +257,7 @@ def main(argv: list[str]) -> int:
             "status": status,
             "checks_passed": passed,
             "checks_total": len(checks),
-            "findings_addressed": 1,
+            "findings_addressed": len(findings),
             "ready_for_review": status in ("checks_passed", "revalidated_fixed", "pr_opened"),
         },
     }
@@ -329,7 +267,7 @@ def main(argv: list[str]) -> int:
         report["evidence"] = evidence
 
     out_path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
-    print(str(out_path.relative_to(workspace)))
+    print(str(out_path))
     return 0
 
 

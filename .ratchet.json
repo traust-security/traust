@@ -52,17 +52,6 @@
   "harnessing/7-remediate/fleet-fix/scripts/apply_fleet_fix.py": {
     "contracts": 1
   },
-  "harnessing/7-remediate/fleet-fix/scripts/fleet_targets.py": {
-    "database": 1,
-    "state-file": 2
-  },
-  "harnessing/7-remediate/remediate-finding/scripts/build_remediation_manifest.py": {
-    "engine-internal": 1
-  },
-  "harnessing/8-verify/verify-remediation/scripts/build_verify_sweep.py": {
-    "engine-internal": 1,
-    "state-file": 1
-  },
   "harnessing/financial-tracking/scripts/build_financial_report.py": {
     "database": 1,
     "engine-internal": 7
