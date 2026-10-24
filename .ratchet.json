@@ -165,24 +165,8 @@
   "src/traust/lib/event_time.py": {
     "contracts": 1
   },
-  "src/traust/ops/build_critical_misses.py": {
-    "state-file": 1
-  },
-  "src/traust/ops/build_crown_jewel_tiers.py": {
-    "database": 1,
-    "state-file": 4
-  },
-  "src/traust/ops/build_iac_inventory.py": {
-    "state-file": 1
-  },
-  "src/traust/ops/build_org_index.py": {
-    "state-file": 1
-  },
   "src/traust/ops/calibrate_compliance.py": {
     "engine-internal": 1
-  },
-  "src/traust/ops/doctor.py": {
-    "contracts": 1
   },
   "src/traust/ops/score_compliance_efficacy.py": {
     "database": 1,

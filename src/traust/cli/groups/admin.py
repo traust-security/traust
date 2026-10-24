@@ -5,6 +5,7 @@ from __future__ import annotations
 from traust.cli.groups._registry import passthrough_op
 
 _ENTRIES: tuple[tuple[str, str, str], ...] = (
+    ("doctor", "doctor", "Environment preflight: traust-core, tools, auth, network, gates."),
     (
         "toolchain",
         "toolchain",

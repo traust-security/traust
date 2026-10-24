@@ -52,7 +52,6 @@ Four outputs for four audiences: `.json` is canonical and machine-readable,
 **Read by:** `/census` (report population, and repo liveness),
 `/portfolio-graph` (as its L0 spine), `/secure-code-audit` (CVE enrichment),
 `/fleet-fix` (target selection), `/drift-watch` (staleness), plus
-`ops/build_crown_jewel_tiers` (tiering) and
 `migrations/resolve_docs_version_refs` (doc-version resolution).
 
 ## portfolio-graph — the code-level layers
@@ -82,7 +81,7 @@ crypto-dependency scans), `/isolation-review` (resolving a service's repo
 set), `/fleet-fix` (every repo affected by one systemic pattern),
 `/dependency-watch` (fleet advisory sweep), `/refresh-dashboards` (dependency
 exposure), `/drift-watch` (staleness), plus `cli/build_rescan_worklist`
-(rescan routing) and `ops/build_crown_jewel_tiers` (tiering).
+(rescan routing).
 
 ## Not a graph: `findings.db`
 

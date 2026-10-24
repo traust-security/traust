@@ -1,4 +1,4 @@
-"""Phase 4 tests: idempotence gate, N-pass enforcement, precision."""
+"""Phase 4 tests: idempotence gate and N-pass enforcement."""
 
 import json
 import os
@@ -33,7 +33,6 @@ def _load(name):
 
     pkg_paths = {
         "calibrate_compliance": "traust.ops.calibrate_compliance",
-        "compliance_precision": "traust.ops.compliance_precision",
         "build_compliance_dashboard": "traust_engine.compliance.dashboard",
     }
     if name in pkg_paths:
@@ -48,7 +47,6 @@ def _load(name):
 
 cal = _load("calibrate_compliance")
 vca = _load("validate_compliance_assessment")
-prec = _load("compliance_precision")
 
 
 # ---------------- idempotence (offline, real calibration snapshot) ----
@@ -125,78 +123,6 @@ def test_not_assessed_needs_no_agreement():
     doc["results"][0].pop("evidence")
     doc["results"][0]["reason"] = "awaiting artifact"
     assert vca.n_pass_failures(doc) == []
-
-
-# ---------------- precision tracker ----------------
-
-
-def _assessment(tmp_path, name, results):
-    p = tmp_path / name
-    p.write_text(
-        json.dumps({"metadata": {"artifact": "compliance-assessment"}, "results": results})
-    )
-    return p
-
-
-def test_precision_aggregates_overrides(tmp_path):
-    _assessment(
-        tmp_path,
-        "a1.json",
-        [
-            {
-                "framework": "nist-800-53-rev5",
-                "control_id": "sc-28",
-                "classification": "deterministic",
-                "verdict": "not_satisfied",
-                "verdict_source": "check",
-                "check_id": "chk-encryption-at-rest",
-            },
-            {
-                "framework": "nist-800-53-rev5",
-                "control_id": "ac-6",
-                "classification": "deterministic",
-                "verdict": "satisfied",
-                "verdict_source": "human_override",
-                "check_id": "chk-no-rbac-wildcards",
-                "override": {
-                    "by": "u",
-                    "date": "2026-07-19",
-                    "rationale": "fp — templated file",
-                    "overridden_check_verdict": "not_satisfied",
-                },
-            },
-        ],
-    )
-    _assessment(
-        tmp_path,
-        "a2.json",
-        [
-            {
-                "framework": "pci-dss-v4",
-                "control_id": "7.2.1",
-                "classification": "deterministic",
-                "verdict": "not_satisfied",
-                "verdict_source": "check",
-                "check_id": "chk-no-rbac-wildcards",
-            },
-        ],
-    )
-    report = prec.aggregate(tmp_path)
-    by = {r["check_id"]: r for r in report["checks"]}
-    enc = by["chk-encryption-at-rest"]
-    assert enc["fired"] == 1 and enc["dismissed"] == 0
-    assert enc["precision"] == 1.0
-    rbac = by["chk-no-rbac-wildcards"]
-    assert rbac["fired"] == 2 and rbac["dismissed"] == 1
-    assert rbac["precision"] == 0.5
-    assert rbac["flagged"] is True  # at the 0.5 gate boundary
-    assert enc["flagged"] is False
-
-
-def test_precision_empty_tree_is_honest(tmp_path):
-    report = prec.aggregate(tmp_path)
-    assert report["checks"] == []
-    assert "no assessment artifacts" in report["note"]
 
 
 # ---------------- Phase 5: dashboard builder ----------------
