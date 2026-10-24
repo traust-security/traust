@@ -2,7 +2,7 @@
 
 The schemas, packaged CLIs and key scripts that make up the harness's deterministic tooling.
 
-The schemas below (from the installed `traust-contracts` package) are the complete set; the scripts listed are the key entry points — packaged CLIs live under `src/traust/`, and skill-specific tooling lives alongside each skill in its own `scripts/` — under a stage directory for workflow skills (`harnessing/3-audit/vuln-scan/scripts/`), at the `harnessing/` root for the rest.
+The schemas below (from the installed `traust-contracts` package) are the complete set; the scripts listed are the key entry points — packaged CLIs live under `src/traust/`, and skill-specific tooling lives alongside each skill in its own `scripts/` — under a stage directory for workflow skills (`harnessing/3-audit/secure-code-audit/scripts/`), at the `harnessing/` root for the rest.
 
 | Component | Purpose |
 |---|---|
