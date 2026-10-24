@@ -109,9 +109,7 @@ def build_item(
         f"on the unpatched revision ({base_ref}) the property {_describe(base_rc)} "
         f"— log at {base_log}"
     )
-    item["patched_observation"] = (
-        f"on the patched revision the property {_describe(patched_rc)}"
-    )
+    item["patched_observation"] = f"on the patched revision the property {_describe(patched_rc)}"
 
     if base_rc == PYTEST_FAILED and patched_rc == PYTEST_PASSED:
         item["outcome"] = "proves"

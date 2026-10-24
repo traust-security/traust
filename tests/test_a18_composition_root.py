@@ -52,11 +52,7 @@ def test_catches_a_second_engine_resolution(repo):
     _write(
         repo,
         "bad1.py",
-        (
-            "from traust_engine import HarnessEngine\n"
-            "def bad():\n"
-            "    return HarnessEngine.load()\n"
-        ),
+        ("from traust_engine import HarnessEngine\ndef bad():\n    return HarnessEngine.load()\n"),
     )
     out = _run(repo)
     assert len(out) == 1

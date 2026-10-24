@@ -18,7 +18,6 @@ yaml = pytest.importorskip("yaml")
 
 from tests.compliance_paths import compliance_fixtures_dir, compliance_registry, org_parameters
 
-
 _SPEC = importlib.util.spec_from_file_location(
     "compliance_assert", skill_dir("compliance-check") / "scripts" / "compliance_assert.py"
 )

@@ -298,7 +298,11 @@ def add_finding_identity_args(ap) -> None:
     p1.add_argument(
         "--allow-identity-move",
         action="store_true",
-        help="permit re-stamping to CHANGE an existing fingerprint. Ledger events are keyed on these values, so a move orphans that history -- only with a plan for the orphaned events.",
+        help=(
+            "permit re-stamping to CHANGE an existing fingerprint. Ledger events are keyed "
+            "on these values, so a move orphans that history -- only with a plan for the "
+            "orphaned events."
+        ),
     )
 
     p4 = sub.add_parser(
@@ -329,7 +333,11 @@ def add_finding_identity_args(ap) -> None:
     p2.add_argument(
         "--allow-identity-move",
         action="store_true",
-        help="permit re-stamping to CHANGE an existing fingerprint. Ledger events are keyed on these values, so a move orphans that history -- only with a plan for the orphaned events.",
+        help=(
+            "permit re-stamping to CHANGE an existing fingerprint. Ledger events are keyed "
+            "on these values, so a move orphans that history -- only with a plan for the "
+            "orphaned events."
+        ),
     )
 
     p3 = sub.add_parser(

@@ -17,7 +17,6 @@ clean scan would manufacture evidence out of a rule-pack change.
 """
 
 import importlib.util
-import json
 import sys
 from pathlib import Path
 
@@ -39,10 +38,14 @@ RULE = "traust-python-injection-subprocess-shell"
 
 def _item(base, patched, rule_id=RULE, file=None):
     return sd.build_item(
-        tool="opengrep", rule_id=rule_id, file=file,
+        tool="opengrep",
+        rule_id=rule_id,
+        file=file,
         base_facts=sd.load_facts(base) if base else None,
         patched_facts=sd.load_facts(patched) if patched else None,
-        base_ref="fa4b872", base_report=str(base), patched_report=str(patched),
+        base_ref="fa4b872",
+        base_report=str(base),
+        patched_report=str(patched),
     )
 
 
@@ -84,8 +87,14 @@ def test_selector_ignores_line_numbers():
     base = sd.load_facts(BASE)
     moved = [dict(base[0], start_line=base[0]["start_line"] + 40)]
     item = sd.build_item(
-        tool="opengrep", rule_id=RULE, file=None, base_facts=base,
-        patched_facts=moved, base_ref="r", base_report="b", patched_report="p",
+        tool="opengrep",
+        rule_id=RULE,
+        file=None,
+        base_facts=base,
+        patched_facts=moved,
+        base_ref="r",
+        base_report="b",
+        patched_report="p",
     )
     assert item["outcome"] == "fails_to_prove"
 

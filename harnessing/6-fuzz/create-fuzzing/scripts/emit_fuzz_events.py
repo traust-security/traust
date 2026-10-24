@@ -202,9 +202,7 @@ def mint_finding(bug: dict, target: dict, fid: str) -> dict:
     # match is on real declared data rather than a guess. No match falls
     # back to every harness on the target, which is what this did before.
     matched = [h for h in harnesses if _names_function(bug.get("title", ""), h.get("fuzz", ""))]
-    locations = [
-        {"path": h["dest"], "symbol": h.get("fuzz", "")} for h in (matched or harnesses)
-    ]
+    locations = [{"path": h["dest"], "symbol": h.get("fuzz", "")} for h in (matched or harnesses)]
     if not locations:
         # The crasher is in this repo but the harness declaration does not say
         # where. Name the repo rather than invent a file.
@@ -411,8 +409,15 @@ def plan(
                     "audit_ref": audit_ref,
                     "reproducers": reproducers,
                     "event": build_event(
-                        bug, target, finding_ref, source_ref, reproducers, carried,
-                        recorded_at, hv, fp
+                        bug,
+                        target,
+                        finding_ref,
+                        source_ref,
+                        reproducers,
+                        carried,
+                        recorded_at,
+                        hv,
+                        fp,
                     ),
                 }
             )

@@ -2,6 +2,11 @@
 
 All notable changes to Traust are documented here.
 
+## [Unreleased]
+
+- Clear the existing Ruff lint and formatting failures without changing CLI
+  help text, validation behavior, or test expectations.
+
 ## [0.40.2]
 
 - **Pins traust-engine 0.42.2 (`f0c936a`).** Below-range verification's fix

@@ -85,7 +85,11 @@ def _describe(facts: list[dict]) -> str:
     for f in facts[:3]:
         loc = f.get("file") or "?"
         line = f.get("start_line")
-        bits.append(f"{f.get('rule_id', '?')} at {loc}:{line}" if line else f"{f.get('rule_id', '?')} in {loc}")
+        bits.append(
+            f"{f.get('rule_id', '?')} at {loc}:{line}"
+            if line
+            else f"{f.get('rule_id', '?')} in {loc}"
+        )
     more = f" (+{len(facts) - 3} more)" if len(facts) > 3 else ""
     return "; ".join(bits) + more
 
@@ -154,8 +158,12 @@ def build_item(
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--base-report", required=True, help="adapter result for the unpatched revision")
-    ap.add_argument("--patched-report", required=True, help="adapter result for the patched revision")
+    ap.add_argument(
+        "--base-report", required=True, help="adapter result for the unpatched revision"
+    )
+    ap.add_argument(
+        "--patched-report", required=True, help="adapter result for the patched revision"
+    )
     ap.add_argument("--base-ref", required=True)
     ap.add_argument("--tool", default="opengrep")
     ap.add_argument("--rule-id", default=None, help="restrict to one rule (recommended)")
@@ -163,7 +171,10 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
 
     if not args.rule_id and not args.file:
-        ap.error("give --rule-id and/or --file: an unrestricted differential answers a question nobody asked")
+        ap.error(
+            "give --rule-id and/or --file: an unrestricted differential "
+            "answers a question nobody asked"
+        )
 
     print(
         json.dumps(

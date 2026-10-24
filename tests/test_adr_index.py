@@ -5,8 +5,7 @@ import sys
 
 import pytest
 
-from traust.paths import HARNESS_ROOT
-from traust.paths import skill_dir
+from traust.paths import HARNESS_ROOT, skill_dir
 
 
 def _load(name):
