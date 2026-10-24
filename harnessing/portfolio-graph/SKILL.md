@@ -18,6 +18,7 @@ allowed-tools:
   - Grep
   - Write
   - Bash(python3 *traust* -m traust.cli portfolio:*)
+  - Bash(python3 *-m traust.cli impact sbom:*)
   - Bash(sqlite3:*)
   - Bash(ls:*)
   - Bash(jq:*)
@@ -46,7 +47,7 @@ Design, layer roadmap, and per-layer dependencies are recorded in
 `plans/portfolio-graph-plan.md` under the configured `progress-tracker` root
 (an external workspace artifact, not bundled with this skill).
 **L1 is multi-ecosystem**: Go (`go.mod`) plus npm, PyPI, Maven, Cargo,
-RubyGems, and NuGet manifests (python3 -m traust.cli portfolio parsers), language-gated
+RubyGems, and NuGet manifests, language-gated
 per repo against a `gh-languages` cache. Non-Go package nodes are namespaced
 `pkg:<eco>/<name>` (a distinct id space from Go's `module:<path>`) and their
 `depends_on` edges carry an `ecosystem` attr — `blast-radius` and the other
@@ -59,17 +60,20 @@ filename rather than language-gated: Docker base images (`Dockerfile*`
 `FROM`, `pkg:docker/<img>`), GitHub Actions (`uses:` in
 `.github/workflows/*.y{,a}ml`, `pkg:actions/<owner/repo>`), and Helm chart
 dependencies (`Chart.yaml`, `pkg:helm/<name>`) — `--no-universal` on
-`build`/`deps-multi` skips them. Of the three, only GitHub Actions has an
+`build` skips them. Of the three, only GitHub Actions has an
 OSV CVE lane; Docker and Helm are graph/blast-radius surfaces only (their
 vuln lane is the container-SBOM/grype path, never OSV — see
-`/dependency-watch` and `/impact-analysis`). `harnessing/portfolio-graph/scripts/smoke_deps_multi.py`
-is the offline completeness checker for this layer (presence, per-ecosystem
-coverage ratio, Go no-regression snapshot, id-space collision check;
-universal surfaces are checked presence-only, no coverage floor) — run
-it after any backfill or ecosystem-scope change. The builder persists
+`/dependency-watch` and `/impact-analysis`). traust-core records each
+commit's dependencies from its manifest SBOM
+(`python3 -m traust.cli impact sbom --repo-url <url> --sha <commit>`: syft over
+the checkout, every ecosystem syft reads); `traust portfolio dependencies` and
+`dependents` read them. The offline completeness checker
+(`smoke_deps_multi.py`) is *retired*: it checked the manifest parsers, which
+syft replaces, and packages are keyed by ecosystem and name, so ids cannot
+collide. The builder persists
 `analysis-results/graph/deps-multi-stats.json` (per-ecosystem
 `repos_with_manifest`) as the authoritative coverage denominator —
-`smoke_deps_multi.py` and other consumers prefer it over the
+consumers prefer it over the
 language-cache count, which overcounts repos that declare a language but
 carry no manifest.
 **Implemented: L0 spine + L1 dependencies + L2 Kubernetes interfaces**
@@ -125,16 +129,7 @@ python3 -m traust.cli portfolio build \
   # Gemfile.lock. The three universal surfaces (docker/actions/helm) run
   # alongside it by default; --no-universal skips them. `build` stays
   # exit 0 even if one ecosystem comes back silently broken (prints a
-  # WARNING) — run smoke_deps_multi.py to catch that case loudly.
-
-# Non-Go L1 only, against an existing db (resumable via the disk cache;
-# e.g. after adding an ecosystem or re-running a partial backfill without
-# re-touching the Go layer):
-python3 -m traust.cli portfolio deps-multi \
-  --db analysis-results/graph/portfolio-graph.db --jobs 4 \
-  --ecosystems npm,pypi
-  # --no-universal here too, if you want the language-gated ecosystems
-  # only (e.g. re-running just a language-manifest backfill).
+  # WARNING).
   #
   # RATE LIMITS & RESUMABILITY (a full backfill is a wide fleet sweep —
   # one git-tree call + N manifest fetches per repo — so it WILL hit
@@ -148,12 +143,11 @@ python3 -m traust.cli portfolio deps-multi \
   # the same command: ok/absent results are disk-cached, so it picks up
   # exactly where it stopped. A full portfolio backfill can therefore take
   # several passes / a couple hours; each pass is cheap over the cache.
+  # (The non-Go-only backfill, `portfolio deps-multi`, is retired: re-run
+  # `build`.)
 
-# Completeness check after any multi-ecosystem build/backfill (presence,
-# per-ecosystem coverage ratio, Go no-regression snapshot, id-space
-# collision check between module:<path> and pkg:<eco>/<name>; reads
-# deps-multi-stats.json when present for the authoritative denominator):
-python harnessing/portfolio-graph/scripts/smoke_deps_multi.py --db analysis-results/graph/portfolio-graph.db
+# One commit's dependencies into traust-core (syft over the checkout):
+python3 -m traust.cli impact sbom --repo-url <url> --sha <commit>
 
 # Layer 2 — clone sweep (long on a cold cache; resume-safe, re-run freely)
 python3 -m traust.cli portfolio interfaces \
@@ -204,6 +198,11 @@ python3 -m traust.cli portfolio query --db <db> internal-coupling
 # Everything coupled to one API group: CRD owners, requirers, code
 # consumers, RBAC granters, webhook interceptors
 python3 -m traust.cli portfolio query --db <db> crd-consumers route.openshift.io
+
+# traust-core: one commit's packages, then the commits a package reaches
+# (directly, through a base image or an internal library)
+python3 -m traust.cli portfolio dependencies --repo-url <url> --sha <commit>
+python3 -m traust.cli portfolio dependents --package-id <package_id>
 ```
 
 Anything beyond the canned set: query the SQLite schema directly —
@@ -247,7 +246,7 @@ refreshes (inventory changes), or when a consumer needs freshness —
 `/drift-watch`'s `portfolio-graph` row flags a build stamp older than
 the inputs HEAD. The fetch cache makes off-cadence rebuilds cheap.
 
-The multi-ecosystem L1 layer (`deps-multi`) is **tree-driven and part of
+The multi-ecosystem L1 layer is **tree-driven and part of
 the standard `build`** — manifests are discovered by walking each repo's
 git tree (subdir-aware) and re-parsed on every rebuild, so a rebuild is
 the refresh. Three `/drift-watch` rows are the coverage backstops between

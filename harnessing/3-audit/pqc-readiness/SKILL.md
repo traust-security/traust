@@ -523,7 +523,7 @@ using RSA key exchange" becomes a SQL lookup over
 `scan_crypto_deps_graph.py --results-root <dir>` goes the OTHER direction:
 it **reads** the portfolio graph's multi-ecosystem `depends_on` edges
 (`repo -[depends_on {version, ecosystem, manifest}]-> pkg:<eco>/<name>`,
-built by `python3 -m traust.cli portfolio deps-multi` for npm / pypi / maven /
+built by `python3 -m traust.cli portfolio build` for npm / pypi / maven /
 cargo / ruby / nuget) to discover crypto-relevant dependencies **across
 languages**, not just the Go/TLS surface `pqc_facts.py` covers. The set
 of crypto packages it looks for is a **curated STARTER seed list**,

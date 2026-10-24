@@ -65,7 +65,7 @@ Four outputs for four audiences: `.json` is canonical and machine-readable,
 | **L3** | artifacts / SBOM, built during a shallow clone→extract→delete sweep, cached per repo |
 | **L4** | symbols, via tree-sitter extraction |
 
-All four are implemented. L1's non-Go half (`deps-multi`) is tree-driven and
+All four are implemented. L1's non-Go half is tree-driven and
 resumable from a disk cache, which matters because a full rebuild is not cheap.
 
 **`repo-graph.json` is the L0 layer this builds on**, so repo-graph is a

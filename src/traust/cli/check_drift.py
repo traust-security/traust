@@ -2901,7 +2901,7 @@ def check_language_coverage(ws: Path) -> list[dict]:
                         f"ecosystem {eco}: {rwm} repos_with_manifest but 0 "
                         f"dep_edges — the extraction lane produced nothing "
                         f"(silently-broken surface / coverage regression)",
-                        "re-run build_portfolio_graph deps-multi for this "
+                        "re-run `traust portfolio build` for this "
                         "ecosystem and inspect its parser — a discovered "
                         "manifest yielding no edges is a broken lane",
                     )

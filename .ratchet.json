@@ -67,10 +67,6 @@
     "database": 1,
     "engine-internal": 7
   },
-  "harnessing/portfolio-graph/scripts/smoke_deps_multi.py": {
-    "database": 1,
-    "engine-internal": 2
-  },
   "harnessing/refresh-dashboards/scripts/build_dependency_exposure.py": {
     "database": 1,
     "engine-internal": 2,
@@ -132,7 +128,7 @@
     "engine-internal": 2
   },
   "src/traust/cli/groups/portfolio.py": {
-    "engine-internal": 3
+    "engine-internal": 2
   },
   "src/traust/cli/groups/registry.py": {
     "contracts": 1,
