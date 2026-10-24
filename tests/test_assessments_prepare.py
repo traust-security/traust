@@ -1,4 +1,4 @@
-"""`traust assessments prepare|coverage`: the CLI layer only. URL and commit become a ref, then one
+"""`traust assessments prepare|record|coverage`: the CLI layer only. URL and commit become a ref, then one
 `AssessmentService.prepare`; a refused diff is exit 3 with the verdict. The door's behaviour
 (baseline, anchor, clusters, hunks, callers, refusals) is traust-core's tests."""
 
@@ -24,7 +24,8 @@ from traust_core.v1.models.assessment import (
     DiffRequest,
     GapSignal,
 )
-from traust_core.v1.models.common import Page
+from traust_core.v1.models.common import ArtifactRef, Page
+from traust_core.v1.models.vocabulary import RefKind
 
 from traust.cli import assessments
 
@@ -65,6 +66,7 @@ def doors(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
         ),
     )
     monkeypatch.setattr(Context, "services", lambda self: services)
+    stub.services = services
     return stub
 
 
@@ -197,3 +199,66 @@ def test_coverage_is_one_door_call_over_every_repository(
     assert (body["examined"], body["total"], body["ratio"]) == (1, 2, 0.5)
     assert body["gaps"][0]["examples"] == [URL]
     assert body["gaps"][0]["tool"] == "route-guards"
+
+
+MODEL = {
+    "system": "widget",
+    "provenance": {"mode": "bootstrap", "date": "2026-10-01", "target": URL},
+    "threats": [],
+}
+
+
+class Publisher:
+    def __init__(self) -> None:
+        self.published: list[Any] = []
+
+    def publish_ref(self, doc: Any) -> ArtifactRef:
+        self.published.append(doc)
+        return ArtifactRef(id=uuid.uuid4(), name=doc.name, digest="0" * 64)
+
+
+@pytest.fixture
+def recorder(monkeypatch: pytest.MonkeyPatch, doors: SimpleNamespace) -> SimpleNamespace:
+    publisher = Publisher()
+    record_door = Door(SimpleNamespace(id=uuid.uuid4()))
+    doors.services.assessment.record = record_door
+    monkeypatch.setattr(Context, "artifact_publisher", lambda self, specs: publisher)
+    return SimpleNamespace(publisher=publisher, record=record_door, doors=doors)
+
+
+def record(home: Path, document: Path, *argv: str) -> tuple[int, str, str]:
+    out, err = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        rc = assessments.record(
+            ["--config-home", str(home), str(document), "--repo-url", URL, "--sha", SHA, *argv]
+        )
+    return rc, out.getvalue().strip(), err.getvalue()
+
+
+def test_record_publishes_then_records_one_assessment(
+    recorder: SimpleNamespace, home: Path, tmp_path: Path
+) -> None:
+    doc = tmp_path / "widget-threat-model.json"
+    doc.write_text(json.dumps(MODEL))
+    rc, out, _ = record(home, doc, "--kind", "threat-model", "--branch", "main")
+    assert rc == 0
+    assert recorder.doors.register_ref.calls[0][2:] == ("main", RefKind.BRANCH)
+    (published,) = recorder.publisher.published
+    (call,) = recorder.record.calls
+    doc_arg, ref_id, kind, assessor, _version, provenance = call
+    assert doc_arg is published
+    assert (ref_id, kind, assessor) == (REF.id, AssessmentKind.THREAT_MODEL, "skill:threat-model")
+    assert provenance.artifact is not None
+    assert json.loads(out)["assessment_id"] == str(recorder.record.result.id)
+
+
+def test_record_refuses_an_invalid_document(
+    recorder: SimpleNamespace, home: Path, tmp_path: Path
+) -> None:
+    doc = tmp_path / "bad.json"
+    doc.write_text("{}")
+    rc, _, err = record(home, doc, "--kind", "threat-model")
+    assert rc == 2
+    assert "system" in err
+    assert recorder.publisher.published == []
+    assert recorder.record.calls == []
