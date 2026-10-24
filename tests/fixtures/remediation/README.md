@@ -1,0 +1,1 @@
+- `verification-report.json`: traust-core `tests/fixtures/remediation/verification-report.json` (a verify-remediation report, names, URLs and code already replaced); `FINDING_ID` is filled in per test.

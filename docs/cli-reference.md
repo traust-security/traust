@@ -36,6 +36,7 @@ python3 -m traust.cli check skill-alignment      # equivalent
 | `portfolio` | Portfolio graph; `observe` is the `repo_state` materializer; `plan` / `onboard` / `owner-hints` / `import-owners` are add-inputs' doors on traust-core | `artifacts`, `build`, `deps-multi`, `freshness`, `import-owners`, `interfaces`, `observe`, `onboard`, `owner-hints`, `parsers`, `plan`, `population`, `query`, `stats`, `symbols` |
 | `products` | corpus-intake's doors on traust-core: products and their corpus ownership | `add`, `list`, `update` |
 | `registry` | Model/product registry | `models`, `products` |
+| `remediation` | The remediation loop's doors on traust-core (verify-remediation) | `verifications`, `verify-differential`, `verify-prepare`, `verify-record`, `verify-sweep` |
 | `reporting` | Report validation & rendering | `lint`, `rate-threats`, `render`, `sarif`, `validate` |
 | `triage` | The triage skill's doors on traust-core | `check`, `intake`, `prepare`, `record`, `render` |
 | `sweep` | Class-generalization sweep | `benchmark`, `collect`, `draft`, `emit`, `mine`, `rule-lane`, `sweep` |
