@@ -15,7 +15,7 @@ description: >-
   building, running, or network. Use when asked to "scan for vulns",
   "review this code for security issues", "find bugs in <dir>", "re-sweep
   an audited repo", or as the step between /threat-model and /triage.
-argument-hint: "<target-dir> [--diff [--since <commit>]] [--baseline <audit.json>] [--focus <area>] [--single] [--extra <file>] [--no-score]"
+argument-hint: "<target-dir> [--diff [--since <commit>] [--baseline-assessment <id>]] [--baseline <audit.json>] [--focus <area>] [--single] [--extra <file>] [--no-score]"
 user-invocable: true
 metadata:
   harness.tier: "primary"
@@ -51,14 +51,13 @@ allowed-tools:
   - Bash(python3 *-m traust.cli reporting validate:*)
   - Bash(python3 *-m traust_engine.adapters.checkov:*)
   - Bash(python3 *-m traust.cli adapters opengrep:*)
-  # Diff-mode scoping ONLY (see "## Diff mode (--diff)"): reads the
-  # existing clone + findings.db read-only, list-argv git, no network,
-  # no writes outside --out. Do not widen to other interpreters/scripts.
-  - Bash(python3 *harnessing/3-audit/vuln-scan/scripts/resolve_baseline.py:*)
-  # Diff-mode context packet (Step 0b): deterministic evidence bundle
-  # from the scope package — read-only over the clone, list-argv git,
-  # writes only its --out. Never authors a finding.
-  - Bash(python3 *harnessing/3-audit/vuln-scan/scripts/build_diff_packet.py:*)
+  # Diff-mode scope and context packet ONLY (see "## Diff mode (--diff)"):
+  # traust-core reads the existing clone read-only (list-argv git, no
+  # network) and traust's store; writes only its -o. Never authors a
+  # finding. Do not widen to other interpreters/scripts.
+  - Bash(python3 *-m traust.cli assessments prepare:*)
+  # Records the validated report in traust-core (Step 5); reads only the report file.
+  - Bash(python3 *-m traust.cli reporting record:*)
   # Precision Gate FP-precedent check (Step 3c): `match` mode only —
   # reads the prebuilt cache JSON + a candidates file, no network, no
   # cache writes. Never run `build` from this skill.
@@ -135,11 +134,12 @@ scripts or pipe target content into a shell interpreter.
   The baseline and anchor are AUTO-RESOLVED; `--since`/`--baseline` are
   overrides only.
 - `--since <commit>` (diff mode only) — explicit anchor commit,
-  overriding the baseline report's `metadata.commit` (for cross-ref
+  overriding the baseline audit's commit (for cross-ref
   diffs, ad-hoc comparisons, or pre-branch-awareness reports).
+- `--baseline-assessment <id>` (diff mode only) — the recorded audit to
+  diff against, overriding the auto-resolved baseline.
 - `--baseline <audit.json>` — explicit path to the target's existing
-  `<repo>-security-audit.json` (overrides auto-discovery, Step 1.3; in
-  diff mode, overrides the findings.db baseline resolution).
+  `<repo>-security-audit.json` (overrides auto-discovery, Step 1.3).
 - `--focus <area>` — scan only this focus area (repeatable). Skips recon.
 - `--single` — no subagent fan-out; one sequential pass. Use on tiny targets
   or when debugging the prompt.
@@ -157,7 +157,7 @@ The economical middle lane between full audits
 spec and thresholds). Invocation:
 
 ```
-/vuln-scan <target-dir> --diff [--since <commit>] [--baseline <audit.json>]
+/vuln-scan <target-dir> --diff [--since <commit>] [--baseline-assessment <id>]
 ```
 
 Everything below **replaces the corresponding step of the standard
@@ -171,27 +171,31 @@ would refuse are pre-routed away at the router (`build_rescan_worklist.py`
 refusal pre-route). Individual runs need no approval; batch/drain dispatch
 is scheduled by the operator (docs/continuous-operations.md, trickle-drain).
 
-### Step 0 (replaces recon) — resolve the baseline and scope package
+### Step 0 (replaces recon) — resolve the baseline and build the context packet
 
-Run the deterministic resolver (it routes attention only — it never
-authors a finding):
+Ask traust-core for the scope and its evidence in one call (it routes
+attention only — it never authors a finding):
 
 ```bash
-python3 <skill-base>/scripts/resolve_baseline.py <target-dir> \
-    [--db <workspace>/analysis-results/graph/findings.db] \
-    [--since <commit>] [--baseline <audit.json>] \
-    --out /tmp/<repo>-diff-scope.json
+python3 -m traust.cli assessments prepare --kind vuln-scan \
+    --repo-url <https URL of the origin remote> \
+    --sha <git -C <target-dir> rev-parse HEAD> \
+    --diff <target-dir> [--since <commit>] [--baseline-assessment <id>] \
+    -o /tmp/<repo>-diff-packet.json
 ```
 
-It identifies the repo from the clone's origin remote, resolves the
-newest valid HEAD code-audit report for it from `findings.db` (producer:
-python3 -m traust.cli corpus findings-db; `--since`/`--baseline` override, recorded
-as `resolution_source: override` vs `auto`), extracts the anchor SHA
-from the baseline's `metadata.commit`, verifies the anchor is reachable
-in the clone, and computes the per-file diff with the SAME first-party
-filter and narrow sensitive matcher as the rescan router
-(python3 -m traust.cli build rescan-worklist — imported, so router and scanner
-cannot diverge).
+`--repo-url` is the origin remote as https (`git@host:ns/repo.git` →
+`https://host/ns/repo`, no credentials); the repository must be
+registered in traust (exit 2 says so otherwise). traust-core runs git
+only when `core.yaml` lists it under `process.allowed_binaries`.
+
+It resolves the newest completed `secure-code` audit of the repository's
+default branch (`--since`/`--baseline-assessment` override, recorded as
+`diff.resolution: override` vs `auto`), anchors the diff at that
+audit's commit, verifies the anchor is reachable in the clone, and
+computes the per-file diff with the SAME first-party filter and narrow
+sensitive matcher as the rescan router (one owner in traust-core, so
+router and scanner cannot diverge).
 
 **If it refuses (exit 3), STOP.** It refuses when >30% of first-party
 files changed, when C ≥ 8,000 first-party changed lines, when no
@@ -202,31 +206,20 @@ never silently widen to a whole-repo scan (that forfeits the cost
 contract) and never silently narrow past the refusal (that forfeits the
 assurance contract). The recommendation is `/secure-code-audit`.
 
-On success the scope package contains: `baseline_report`, `anchor`,
-`resolution_source`, `changed_files` (per-file added/deleted/sensitive),
-`clusters` (changed paths grouped by top-level dir/component, 1–5
-groups), `C`, `sensitive_lines`, `deps_manifests_changed`, and
-`baseline_findings_for_changed_files` (fingerprints + titles + paths of
-baseline findings touching changed files).
+On success the packet's `diff` carries: `baseline_assessment_id`,
+`anchor`, `resolution`, `changed_lines` (C), `sensitive_lines`,
+`deps_manifests_changed`, and `clusters` (changed paths grouped by
+top-level dir/component, 1–5 groups), each with its `files` (per-file
+added/deleted/sensitive) and its `baseline` (the repository's findings
+as of the baseline audit that touch those files).
 
-### Step 0b — build the context packet
-
-Turn the scope package into the deterministic evidence bundle the
-review agents judge (this replaces the manual symbol-index build/query
-choreography — the builder runs it for you):
-
-```bash
-python3 <skill-base>/scripts/build_diff_packet.py \
-    --scope /tmp/<repo>-diff-scope.json \
-    --out /tmp/<repo>-diff-packet.json
-```
-
-Per cluster it embeds: the changed hunks themselves
-(`git diff -U10 <anchor>..HEAD` per file, byte-capped with an explicit
-`omitted` ledger — nothing is silently dropped), the **direct callers**
-of symbols defined in the changed files (symbol index, each site with
-±3 lines of context), and the pre-sliced
-`baseline_findings_for_changed_files` rows. `callers_note` records an
+This is the deterministic evidence bundle the review agents judge (no
+manual symbol-index build/query choreography). Per cluster it embeds:
+the changed hunks themselves (`git diff -U10 <anchor>..HEAD` per file,
+byte-capped with an explicit `omitted` ledger — nothing is silently
+dropped), the **direct callers** of symbols defined in the changed files
+(symbol index, each site with ±3 lines of context), and the pre-sliced
+`baseline` rows. `callers_note` records an
 honest skip when the index cannot build — enumerate callers manually
 (python3 -m traust.cli admin query-index --refs) in that case. The packet routes
 attention and carries evidence only; it never authors a finding.
@@ -280,7 +273,7 @@ as `"ran"`/`"skipped: <reason>"` in
   among the changed files; use only the `KHS-*` facts citing changed
   manifests.
 - `python3 -m traust.cli adapters osv --repo <target-dir>` (OSV API) —
-  only when the scope package says `deps_manifests_changed: true`.
+  only when the packet says `deps_manifests_changed: true`.
   `status: degraded` (exit 3) is recorded as
   `"osv-scanner": "degraded: <counts>"`, `status: failed` (exit 2) as
   `"osv-scanner": "failed: <failure.status>"`; neither is ever clean.
@@ -292,7 +285,7 @@ as `"ran"`/`"skipped: <reason>"` in
 
 ### Dedupe against the baseline
 
-Dedupe candidates against `baseline_findings_for_changed_files` by
+Dedupe candidates against each cluster's `baseline` rows by
 fingerprint **AND** by fuzzy title/path match — fingerprints are
 unstable across runs (median overlap 0.14, measured), so a fingerprint
 miss is never evidence of novelty; same file + same weakness class at
@@ -312,9 +305,9 @@ additions under `metadata.additional`:
   "changed_files_covered": ["relative/path.go"],
   "callers_covered": ["relative/caller.go"],
   "refused_or_skipped": ["<file or step>: <reason>"],
-  "baseline_report": "<path from the scope package>",
+  "baseline_report": "<diff.baseline_assessment_id from the packet>",
   "anchor": "<sha>",
-  "resolution_source": "auto"
+  "resolution_source": "<diff.resolution: auto | override>"
 }
 ```
 
@@ -341,10 +334,10 @@ instead of — the `model_registry.py spend` declaration below.
 
 Inherited **unchanged**: read-only discipline, the adversarial-content
 doctrine (CWE-1427), and the A11-narrowed allowed-tools.
-`resolve_baseline.py` and `build_diff_packet.py` are the only
-additions to the allowlist: both work on the existing clone read-only
-(list-argv git, no shell, no URL fetching of any kind), write only
-their `--out`, and never fall back to whole-repo scope. Packet hunks
+`traust assessments prepare` is the only
+addition to the allowlist: it works on the existing clone read-only
+(list-argv git, no shell, no URL fetching of any kind), writes only
+its `-o`, and never falls back to whole-repo scope. Packet hunks
 are target content — the adversarial-content doctrine applies to them
 exactly as it does to files read from the checkout.
 
@@ -909,28 +902,22 @@ Tell the user:
      state) and bypasses the rescan router's authority over when a new
      baseline is cut.
 
-     The scan's verified new findings (they passed the per-finding
-     confidence pass and the Precision Gate) each become **one event on
-     the repo's `<repo>-findings-layer.json`, carrying the finding's claim
-     in the event's `finding` block** (contracts `$defs/event_finding`).
-     `build_cumulative` unions event-carried findings with the baseline's
-     at replay, so the finding is exactly as visible in
-     `*-findings-current.*` and every dashboard.
+     Record the scan in traust-core once the validator passes:
 
-     Event shape: `source.type: vuln_scan_report`, machine actor
-     `vuln-scan`, `disposition: {resolution: "open"}` (an arrival is not a
-     determination — validity stays unstated; nothing at scan time sets
-     `confirmed`, that takes execution evidence or a human reviewer).
-     The carried `finding` uses the
-     `contracts/schemas/report.schema.json` finding shape — keep this
-     scan's campaign `id`; `cwe` → `cwes[]` (`CWE-\d{1,5}`, at least one
-     entry); `file`/`line` → `locations: [{path, lines}]`;
-     `recommendation` → `remediation`;
-     `validation_status: not_verified`; `origin: "vuln-scan"`; set
-     `source_findings` to the scan report path. Pin its claim hash into
-     `metadata.claim_hashes` (add-only), then stamp and sign the layer.
+     ```bash
+     python3 -m traust.cli reporting record <target-dir>/<repo>-vuln-findings.json \
+         --kind vuln-scan --repo-url <https URL of the origin remote> \
+         --sha <the scanned commit>
+     ```
 
-     Mechanics and worked examples: [docs/findings-routing.md](../../../docs/findings-routing.md).
+     It records a vuln-scan assessment of that commit with the report as
+     its artifact (schema-checked; a retried run adds nothing), and
+     `traust findings surfaces` merges its `review_surface_coverage`
+     into the repository's record; re-recording the same report is the
+     same run (`scanned_at`).
+     (Legacy gap: traust-core doesn't yet enter the report's findings as
+     findings; the per-finding events this step wrote went with the
+     retired findings layer.)
 
      `/triage` remains the **downstream adjudicator**: its verdicts, and
      any refutations, flow through the disposition ledger
@@ -980,11 +967,11 @@ Consumed artifacts (producer named per artifact):
 - `<repo>-security-audit.json` baseline — produced by
   `/secure-code-audit`; read-only dedupe table (Step 1.3 / diff-mode
   dedupe), never modified here.
-- `findings.db` — produced by python3 -m traust.cli corpus findings-db (the
-  `/findings-db` skill); diff mode's `resolve_baseline.py` resolves the
-  baseline report from it read-only.
+- traust-core's assessments and findings — diff mode's baseline audit,
+  its commit and the repository's findings as of it, read through
+  `traust assessments prepare` (Step 0).
 - `<repo>-diff-packet.json` — produced and consumed inside this skill's
-  diff mode (Step 0b, `build_diff_packet.py` → cluster briefs); a
+  diff mode (Step 0, `traust assessments prepare` → cluster briefs); a
   scratch evidence bundle, not a campaign artifact.
 - Deterministic pre-scan facts from python3 -m traust.cli adapters checkov,
   python3 -m traust.cli adapters opengrep, python3 -m traust.cli adapters gitleaks, and

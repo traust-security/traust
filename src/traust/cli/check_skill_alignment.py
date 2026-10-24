@@ -464,7 +464,7 @@ EXEMPTIONS: dict[tuple[str, str], str] = {
         "A9",
         "vuln-scan:*-diff-packet.json",
     ): "diff-mode scratch evidence bundle produced AND consumed inside "
-    "the same skill (Step 0b build_diff_packet.py -> cluster "
+    "the same skill (Step 0 traust assessments prepare -> cluster "
     "briefs); never a campaign artifact",
     (
         "A7",

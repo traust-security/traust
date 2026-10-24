@@ -295,12 +295,11 @@ this.
 
 `diff-scan` / `diff-scan-quarterly` rows are dispatched as
 `/vuln-scan <checkout> --diff` (`harnessing/3-audit/vuln-scan/SKILL.md`, "Diff
-mode"). The mode auto-resolves its own baseline — the skill's deterministic
-`harnessing/3-audit/vuln-scan/scripts/resolve_baseline.py` looks up the newest
-valid HEAD code-audit report for the checkout's repo URL in `findings.db` and
-anchors the diff at that report's pinned SHA, using the router's own
-first-party filter and sensitive matcher (imported from
-python3 -m traust.cli build rescan-worklist, so the two can never
+mode"). The mode auto-resolves its own baseline — `traust assessments prepare
+--diff` (traust-core's `AssessmentService.prepare`) looks up the newest
+completed `secure-code` audit of the repository's default branch and
+anchors the diff at that audit's commit, using the router's first-party
+filter and sensitive matcher (one owner in traust-core, so the two can never
 disagree). `--since`/`--baseline` exist as overrides only. When the diff
 invalidates the baseline (>30% of first-party files changed, C ≥ 8,000
 first-party lines, no baseline resolvable, or anchor unreachable) the resolver
@@ -515,7 +514,7 @@ python3 harnessing/2-threat-model/threat-model/scripts/emit_drain_tranche.py [--
 #
 #    lane diff-scan | diff-scan-quarterly:
 #      scan:     /vuln-scan <scratch>/clone --diff
-#                (packet path: resolver → build_diff_packet.py →
+#                (packet path: traust assessments prepare --diff →
 #                 packet-first review; a resolver refusal is a valid
 #                 terminal outcome — the row routes to full-audit on
 #                 the next router run, never widen the scan)

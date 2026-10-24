@@ -45,10 +45,6 @@
   "harnessing/3-audit/secure-code-audit/scripts/enumerate_route_guards.py": {
     "database": 1
   },
-  "harnessing/3-audit/vuln-scan/scripts/resolve_baseline.py": {
-    "database": 1,
-    "engine-internal": 1
-  },
   "harnessing/7-remediate/fleet-fix/scripts/apply_fleet_fix.py": {
     "contracts": 1
   },

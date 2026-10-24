@@ -5,6 +5,7 @@ from __future__ import annotations
 from traust.cli.groups import (
     adapters,
     admin,
+    assessments,
     auth,
     build,
     check,
@@ -44,6 +45,7 @@ GROUPS: dict[str, dict[str, object]] = {
         "image-packages": adapters.IMAGE_PACKAGES,
     },
     "admin": dict(admin.ADMIN),
+    "assessments": dict(assessments.ASSESSMENTS),
     "auth": dict(auth.AUTH),
     "build": dict(build.BUILD),
     "check": dict(check.CHECK),

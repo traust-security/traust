@@ -21,6 +21,7 @@ from traust_core.v1.models.artifacts import (
     IsolationReviewArtifact,
     PrivProfileArtifact,
     SecurityAuditArtifact,
+    VulnFindingsArtifact,
 )
 from traust_core.v1.models.assessment import AssessmentFilter, AssessmentKind
 from traust_core.v1.models.values import GitSha, HttpsRepoUrl
@@ -263,3 +264,45 @@ def test_record_on_core_rerecording_a_report_is_the_same_run(core_home, tmp_path
         assert rc == 0, out
         ids.add(out["id"])
     assert len(ids) == 1
+
+
+VULN_FINDINGS = {
+    "target": "widget-operator",
+    "scanned_at": "2026-10-24T09:00:00Z",
+    "focus_areas": ["parser"],
+    "metadata": {
+        "repo": "widget-operator",
+        "repo_slug": "WIDGET_OPERATOR",
+        "scanned_ref": SHA[:7],
+        "harness_version": "0.1.0-abc1234",
+        "baseline": None,
+        "baseline_findings": 0,
+    },
+    "findings": [],
+    "known_findings": [],
+    "summary": dict.fromkeys(
+        ("total", "critical", "high", "medium", "low", "informational", "known", "low_confidence"),
+        0,
+    ),
+}
+
+
+def test_record_files_a_vuln_scan_at_its_scan_time(doors, home, tmp_path):
+    path = document(tmp_path, VULN_FINDINGS)
+    for _ in range(2):
+        rc, _ = run(home, str(path), "--kind", "vuln-scan", "--repo-url", URL, "--sha", SHA)
+        assert rc == 0
+    (doc, ref, kind, assessor, _, _provenance) = doors.record.calls[0]
+    assert isinstance(doc, VulnFindingsArtifact)
+    assert (ref, kind, assessor) == (REF, AssessmentKind.VULN_SCAN, "skill:vuln-scan")
+    assert [c[-1].occurred_at for c in doors.record.calls] == [
+        datetime(2026, 10, 24, 9, tzinfo=UTC)
+    ] * 2
+
+
+def test_record_refuses_a_vuln_scan_time_without_a_zone(doors, home, tmp_path):
+    path = document(tmp_path, {**VULN_FINDINGS, "scanned_at": "2026-10-24T09:00:00"})
+    rc, err = run(home, str(path), "--kind", "vuln-scan", "--repo-url", URL, "--sha", SHA)
+    assert rc == 2
+    assert "time zone" in err
+    assert doors.record.calls == []
