@@ -177,7 +177,8 @@ above runs. A 2026-10 measurement found this held in about 3 of 10 such cases,
 and feed disagreement almost never revealed it. Reading the fix against the
 installed code did.
 
-Run per repository, for Go, PyPI, npm, Maven and Cargo dependencies:
+Run per repository, for Go, PyPI, npm, Maven, Cargo, RubyGems and NuGet
+dependencies:
 
 1. **Packets** (deterministic): `python3 -m traust.cli adapters below-range
    --repo <checkout> [--out <dir>]`. Every exact install is checked against
@@ -185,7 +186,9 @@ Run per repository, for Go, PyPI, npm, Maven and Cargo dependencies:
    leave out becomes a packet directory holding:
    - `packet.json`: the advisory, the chosen fix and why, the installed
      source's registry URL and digest, and per-hunk presence of the fix's
-     removed and added lines;
+     removed and added lines. NuGet packages hold compiled assemblies, so
+     their source is the repository archive at the commit the nuspec
+     declares (`installed_source.declared_by`), the publisher's claim;
    - `fix.patch`;
    - the installed source, under `_sources/`.
 

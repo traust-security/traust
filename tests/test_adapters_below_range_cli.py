@@ -16,7 +16,7 @@ def _args(repo, **kw):
     return SimpleNamespace(
         repo=repo,
         out=None,
-        ecosystems="Go,PyPI,npm,Maven,crates.io",
+        ecosystems="Go,PyPI,npm,Maven,crates.io,RubyGems,NuGet",
         max_candidates=100,
         timeout=5,
         **kw,
@@ -71,7 +71,7 @@ def test_hands_off_to_the_engine_and_summarizes(tmp_path, monkeypatch, capsys):
     repo.mkdir()
     assert adapters.call_below_range(None, _args(repo)) == 0
     assert seen["out"] == tmp_path / "svc-below-range"
-    assert seen["ecosystems"] == ("Go", "PyPI", "npm", "Maven", "crates.io")
+    assert seen["ecosystems"] == ("Go", "PyPI", "npm", "Maven", "crates.io", "RubyGems", "NuGet")
     summary = json.loads(capsys.readouterr().out)
     assert summary["packets"] == 1 and summary["coverage_gaps"] == {"source_unavailable": 1}
 
@@ -133,9 +133,15 @@ def test_shipped_feeds_yaml_names_every_below_range_host():
         "registry.npmjs.org",
         "repo1.maven.org",
         "static.crates.io",
+        "rubygems.org",
+        "api.nuget.org",
+        "github.com",
     }
     assert hosts.redirects["proxy.golang.org"] == {"storage.googleapis.com"}
-    assert hosts.redirects["github.com"] == {"patch-diff.githubusercontent.com"}
+    assert hosts.redirects["github.com"] == {
+        "patch-diff.githubusercontent.com",
+        "codeload.github.com",
+    }
 
 
 def test_a_disabled_source_contributes_no_host():
