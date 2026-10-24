@@ -75,24 +75,48 @@ def test_unexercised_mutants_block_a_proof_claim():
     evidence kind is for.
     """
     status = json.dumps(
-        {"targets": [{"path": "./pkg/x/x.go", "total_mutants": 10, "tested": 4,
-                      "untested": 0, "caught": 4, "uncaught": 0, "timeout": 0,
-                      "skipped": 6}]}
+        {
+            "targets": [
+                {
+                    "path": "./pkg/x/x.go",
+                    "total_mutants": 10,
+                    "tested": 4,
+                    "untested": 0,
+                    "caught": 4,
+                    "uncaught": 0,
+                    "timeout": 0,
+                    "skipped": 6,
+                }
+            ]
+        }
     )
-    item = me.build_item(target="./pkg/x", rc=0, tool_version="mewt 4.0.0",
-                         log_path="l", status_text=status)
+    item = me.build_item(
+        target="./pkg/x", rc=0, tool_version="mewt 4.0.0", log_path="l", status_text=status
+    )
     assert item["outcome"] == "fails_to_prove"
     assert "not every mutant was run" in item["patched_observation"]
 
 
 def test_timed_out_mutants_block_a_proof_claim():
     status = json.dumps(
-        {"targets": [{"path": "./pkg/x/x.go", "total_mutants": 5, "tested": 5,
-                      "untested": 0, "caught": 4, "uncaught": 0, "timeout": 1,
-                      "skipped": 0}]}
+        {
+            "targets": [
+                {
+                    "path": "./pkg/x/x.go",
+                    "total_mutants": 5,
+                    "tested": 5,
+                    "untested": 0,
+                    "caught": 4,
+                    "uncaught": 0,
+                    "timeout": 1,
+                    "skipped": 0,
+                }
+            ]
+        }
     )
-    item = me.build_item(target="./pkg/x", rc=0, tool_version="mewt 4.0.0",
-                         log_path="l", status_text=status)
+    item = me.build_item(
+        target="./pkg/x", rc=0, tool_version="mewt 4.0.0", log_path="l", status_text=status
+    )
     assert item["outcome"] == "fails_to_prove"
 
 
@@ -109,15 +133,15 @@ def test_missing_status_is_not_attempted_not_a_verdict():
 
 
 def test_unparseable_status_is_not_attempted():
-    item = me.build_item(target="./p", rc=0, tool_version="", log_path="l",
-                         status_text="not json at all")
+    item = me.build_item(
+        target="./p", rc=0, tool_version="", log_path="l", status_text="not json at all"
+    )
     assert item["outcome"] == "not_attempted: mewt status json was unparseable"
 
 
 def test_no_source_targets_is_not_attempted():
     status = json.dumps({"targets": [{"path": "./p/p_test.go", "total_mutants": 3}]})
-    item = me.build_item(target="./p", rc=0, tool_version="", log_path="l",
-                         status_text=status)
+    item = me.build_item(target="./p", rc=0, tool_version="", log_path="l", status_text=status)
     assert item["outcome"].startswith("not_attempted: mewt generated no mutants")
 
 
@@ -134,7 +158,10 @@ def test_boundary_is_recorded_in_the_command():
     equally strong; the artifact has to say which produced it."""
     for boundary in ("podman", "attested:konflux-job"):
         item = me.build_item(
-            target="./pkg/x", rc=0, tool_version="mewt 4.0.0", log_path="l",
+            target="./pkg/x",
+            rc=0,
+            tool_version="mewt 4.0.0",
+            log_path="l",
             status_text=(FIXTURES / "status-all-caught.json").read_text(),
             boundary=boundary,
         )
