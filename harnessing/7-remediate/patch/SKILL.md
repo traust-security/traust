@@ -199,8 +199,9 @@ flat `findings[]` of dicts. Pull what's present; never guess what's absent.
    `Warning: vuln-scan output is unverified scanner candidates. Consider
    /triage first.` and continue.
 4. **`*-pqc-blockers.json`** (findings projection of the pqc-readiness
-   report; shape contract: `contracts/schemas/pqc-blockers.schema.json`, emitted and
-   gated by `harnessing/3-audit/pqc-readiness/scripts/build_pqc_blockers.py`) — detect by
+   report; shape contract: `contracts/schemas/pqc-blockers.schema.json`, emitted by the
+   retired `build_pqc_blockers.py`; `traust pqc blockers --repo <URL> <sha>
+   --patchable` now derives the same items) — detect by
    `"artifact": "pqc-blockerss"` in the top-level object. Read
    `.findings[]` exactly like a security-audit report (same field
    vocabulary: `locations[0]` → `file`/`line`, `remediation` →

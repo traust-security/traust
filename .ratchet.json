@@ -9,9 +9,6 @@
   "harnessing/3-audit/compliance-check/scripts/validate_compliance_assessment.py": {
     "contracts": 1
   },
-  "harnessing/3-audit/pqc-readiness/scripts/build_pqc_blockers.py": {
-    "contracts": 1
-  },
   "harnessing/3-audit/pqc-readiness/scripts/build_pqc_product_reports.py": {
     "database": 1,
     "engine-internal": 1,

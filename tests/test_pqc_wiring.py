@@ -3,7 +3,6 @@
 decision-tree artifact, probe catalogue, chain vocabulary, validator."""
 
 import json
-import sys
 import unittest
 from pathlib import Path
 
@@ -139,76 +138,3 @@ class TestPqcCaps(unittest.TestCase):
 
         self.assertFalse(set(chain.PQC_CAPS) & set(chain.MITRE_MAP))
         self.assertFalse(set(chain.PQC_CAPS) & set(chain.CAP_IMPLIES))
-
-
-class TestReadinessValidatorNewFields(unittest.TestCase):
-    def _base(self):
-        return {
-            "title": "t",
-            "metadata": {"repository": "https://x/y", "assessment_basis": "source", "tool": {}},
-            "summary": {"by_rule": {}},
-            "status": "ready",
-            "who_sets_tls": "this_app",
-            "quantum_ready": "yes_by_default",
-            "why_not": [],
-            "do_next": [],
-            "capabilities": {},
-            "scores": {d: {"score": 0, "checks": []} for d in ("VULN", "AGIL", "PQCA", "HNDL")},
-            "flags": {
-                "has_2030_clock_items": False,
-                "hndl_priority": False,
-                "runtime_verification_required": True,
-            },
-            "provenance_summary": {"counts": {}, "dominant": "none"},
-            "readiness_bucket": "ready",
-        }
-
-    def _run(self, doc):
-        import subprocess
-        import tempfile
-
-        p = Path(tempfile.mkdtemp()) / "r.json"
-        p.write_text(json.dumps(doc))
-        return subprocess.run(
-            [
-                sys.executable,
-                str(ROOT / "harnessing/3-audit/pqc-readiness/scripts/pqc_facts.py"),
-                "--validate-readiness",
-                str(p),
-            ],
-            capture_output=True,
-            text=True,
-        ).returncode
-
-    def test_valid_new_fields_pass(self):
-        doc = self._base()
-        doc["readiness_bucket"] = "partial"
-        doc["clock_items"] = [
-            {
-                "fact_ids": ["f1"],
-                "primitive": "RSA-2048",
-                "disallowed_after": 2035,
-                "remediation_effort": "trivial",
-            }
-        ]
-        doc["fips_interaction"] = {"verdict": "no-penalty", "fact_ids": ["f2"]}
-        self.assertEqual(self._run(doc), 0)
-
-    def test_bad_bucket_and_effort_fail(self):
-        doc = self._base()
-        doc["readiness_bucket"] = "great"
-        self.assertEqual(self._run(doc), 1)
-        doc = self._base()
-        doc["clock_items"] = [
-            {
-                "fact_ids": [],
-                "primitive": "x",
-                "disallowed_after": None,
-                "remediation_effort": "easy",
-            }
-        ]
-        self.assertEqual(self._run(doc), 1)
-
-
-if __name__ == "__main__":
-    unittest.main()

@@ -1,0 +1,60 @@
+{
+ "title": "PQC readiness — widget",
+ "metadata": {
+  "repository": "https://github.com/acme/widget",
+  "commit": "f1b29843254b34f95ee1b36f1accca0380070962",
+  "assessed_at": "2026-08-06",
+  "assessment_basis": "source",
+  "facts_ref": "widget-pqc-facts.json",
+  "cbom_ref": "widget-cbom.json",
+  "harness_version": "0.252.0",
+  "tool": {
+   "pqc_scan_commit": "be5c760adb7d1d4d99e39d35d87d2956079db76e",
+   "rules_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+   "binary_sha256": null,
+   "adapter_version": "1.4.0"
+  }
+ },
+ "summary": "Needs work: the metrics listener ignores the platform TLS profile.",
+ "status": "needs_work",
+ "who_sets_tls": "this_app",
+ "quantum_ready": "yes_if_configured",
+ "why_not": ["curves_pinned"],
+ "do_next": [
+  {
+   "who": "app",
+   "do": "Remove the CurvePreferences pin to allow ML-KEM negotiation.",
+   "how": "Delete CurvePreferences from the tls.Config at the cited site. With it unset, Go 1.24+ negotiates X25519MLKEM768 by default.",
+   "locations": ["pkg/server/tls.go:88"]
+  }
+ ],
+ "capabilities": [{"id": "go", "version": "1.24"}],
+ "scores": {
+  "VULN": {"score": 55, "assessable_checks": 2, "checks": [
+   {"id": "VULN-1", "result": "partial", "fact_ids": ["F0003"]},
+   {"id": "VULN-2", "result": "yes"}]},
+  "AGIL": {"score": 50, "assessable_checks": 1, "checks": [
+   {"id": "AGIL-1", "result": "no", "fact_ids": ["F0004"]}]},
+  "PQCA": {"score": 60, "assessable_checks": 1, "checks": [{"id": "PQCA-1", "result": "yes"}]},
+  "HNDL": {"score": 70, "assessable_checks": 1, "checks": [{"id": "HNDL-1", "result": "na"}]},
+  "overall": 57.5
+ },
+ "flags": {"has_2030_clock_items": true, "hndl_priority": false, "runtime_verification_required": true},
+ "provenance_summary": {"counts": {"inherited-constrained": 1, "native-first-party": 2}, "dominant": "native-first-party"},
+ "clock_items": [
+  {"fact_ids": ["F0003"], "primitive": "RSA-2048", "deprecated_after": 2030, "disallowed_after": 2035,
+   "remediation_effort": "moderate", "blast_radius": "service"}
+ ],
+ "readiness_bucket": "partial",
+ "remediations": [
+  {"id": "WIDGET-f1b2984-REM-001", "category": "fix-now",
+   "action": "Remove the CurvePreferences pin — it blocks ML-KEM negotiation.",
+   "target": "X25519MLKEM768", "locations": ["pkg/server/tls.go:88"],
+   "remediation_effort": "trivial", "recipe": "remediation/tls-ke-client/go.md"},
+  {"id": "WIDGET-f1b2984-REM-002", "category": "deadline",
+   "action": "Replace RSA-2048 signing keys before 2030.", "deadline": 2030,
+   "locations": ["pkg/sign/keys.go:41"], "remediation_effort": "moderate", "blast_radius": "service"},
+  {"id": "WIDGET-f1b2984-REM-003", "category": "waiting-on-upstream",
+   "action": "Track the ORM driver's PQC TLS roadmap.", "blocked_on": "example-db-driver"}
+ ]
+}

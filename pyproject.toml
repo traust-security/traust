@@ -81,8 +81,6 @@ ignore = ["RUF001", "RUF002", "RUF003"]
 "harnessing/**/build_rbac_tenancy_rollup.py" = ["E501"]
 "harnessing/**/emit_product_index.py" = ["E501", "PTH123", "SIM102", "RUF012"]
 "harnessing/**/collect_harness_metrics.py" = ["E501"]
-"harnessing/**/backfill_remediations.py" = ["E501"]
-"harnessing/**/build_pqc_dashboard.py" = ["E501"]
 "harnessing/**/build_executive_summary.py" = [
     "E501",
     "PTH123",

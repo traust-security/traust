@@ -36,7 +36,7 @@ The schemas below (from the installed `traust-contracts` package) are the comple
 | `schemas/v1/compliance-scope.schema.json` | JSON Schema for a compliance boundary declaration (recorded by `python3 -m traust.cli compliance declare`; repo membership resolved from the inventory by `python3 -m traust.cli compliance resolve`) |
 | `schemas/v1/pqc-facts.schema.json` | JSON Schema for the deterministic Layer 1 crypto census (`*-pqc-facts.json`) — the contract `/patch`'s pqc ingest and the Layer 2 prepass consume |
 | `schemas/v1/pqc-readiness.schema.json` | JSON Schema for PQC readiness reports |
-| `schemas/v1/pqc-blockers.schema.json` | JSON Schema for the findings-shaped projection of readiness remediations (`*-pqc-blockers.json`, emitted by `build_pqc_blockers.py`) — mirrors the security-audit findings vocabulary without claiming `report.schema.json` conformance |
+| `schemas/v1/pqc-blockers.schema.json` | JSON Schema for the findings-shaped projection of readiness remediations (no longer emitted: `traust pqc blockers` derives the items from the recorded report) — mirrors the security-audit findings vocabulary without claiming `report.schema.json` conformance |
 | `schemas/v1/pqc-decision-tree.schema.json` | JSON Schema for the PQC provenance decision tree |
 | `schemas/v1/fleet-fix.schema.json` | JSON Schema for fleet-fix transform specs |
 | `schemas/v1/sla-policy.schema.json` | JSON Schema for SLA policy files (sla-view) — adopters configuring their own service levels start at [sla-policy.md](sla-policy.md) |
