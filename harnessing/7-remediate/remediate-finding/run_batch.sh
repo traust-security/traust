@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Legacy batch mode, kept: no traust-core door selects candidates in bulk by product yet; run_one.sh
+# now takes work item ids (traust remediation open), so this CSV manifest no longer feeds it.
 # Drive one full-portfolio remediation batch (CAMPAIGN-PLAN.md).
 #
 # Usage:

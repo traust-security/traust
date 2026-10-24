@@ -196,14 +196,6 @@ EXEMPTIONS: dict[tuple[str, str], str] = {
     "rendered method strings, no execution",
     (
         "S10",
-        "harnessing/remediate-finding/scripts/mutation_evidence.py",
-    ): "reviewed — pure JSON builder for a patch_evidence item; imports only "
-    "argparse/json/sys/pathlib and runs nothing. 'go test ./...' appears as "
-    "the descriptive `command` field recorded in the evidence so a reader can "
-    "re-run it. Execution lives in run_mutation.sh, under the container "
-    "boundary (ToB plan item 3)",
-    (
-        "S10",
         "harnessing/remediate-finding/run_checks.sh",
     ): "reviewed — build/test leg is container-sandboxed (rootless "
     "podman, cap-drop, --network=none test phase, env-stripped "
