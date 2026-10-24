@@ -380,6 +380,63 @@ sources:
       url: https://crates.io/policies
       verified: 2026-10-23
 
+  rubygems-packages:
+    tier: live
+    role: package-source
+    summary: >-
+      Ruby `.gem` files for an installed version, and version publish times,
+      from rubygems.org.
+    url_template: https://rubygems.org/downloads/{ident}
+    access: api
+    consumers:
+      - traust.cli adapters below-range (traust_engine.applicability)
+    license:
+      id: pass-through
+      terms: >-
+        Each gem keeps its own license. Fetched for local analysis, never
+        redistributed. Use of rubygems.org is subject to its Terms of Service.
+      url: https://rubygems.org/policies/terms-of-service
+      verified: 2026-10-24
+
+  nuget-packages:
+    tier: live
+    role: package-source
+    summary: >-
+      NuGet `.nuspec` metadata for an installed version, from the nuget.org
+      flat container. NuGet packages hold compiled assemblies; the nuspec names
+      the repository and commit the source is read from.
+    url_template: https://api.nuget.org/v3-flatcontainer/{ident}
+    access: api
+    consumers:
+      - traust.cli adapters below-range (traust_engine.applicability)
+    license:
+      id: pass-through
+      terms: >-
+        Each package keeps its own license. Fetched for local analysis, never
+        redistributed. Use of nuget.org is subject to its Terms of Use.
+      url: https://www.nuget.org/policies/Terms
+      verified: 2026-10-24
+
+  github-source-archives:
+    tier: live
+    role: package-source
+    summary: >-
+      Repository archives at a commit (`<owner>/<repo>/archive/<commit>.tar.gz`):
+      the source of a NuGet package, at the commit its nuspec declares.
+    url_template: https://github.com/{ident}
+    redirect_hosts: [codeload.github.com]
+    access: api
+    consumers:
+      - traust.cli adapters below-range (traust_engine.applicability)
+    license:
+      id: pass-through
+      terms: >-
+        Each archive keeps its repository's license. Fetched for local
+        analysis, never redistributed. Use of github.com is subject to the
+        GitHub Terms of Service.
+      url: https://docs.github.com/en/site-policy/github-terms/github-terms-of-service
+      verified: 2026-10-24
+
   nvd:
     tier: live
     summary: NVD CVE API 2.0 — CVE-keyed lookup.

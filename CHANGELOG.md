@@ -7,6 +7,20 @@ All notable changes to Traust are documented here.
 - Clear the existing Ruff lint and formatting failures without changing CLI
   help text, validation behavior, or test expectations.
 
+## [0.42.0]
+
+- **The below-range lane covers RubyGems and NuGet** (traust-engine 0.44.0).
+  `adapters below-range` checks both by default. `feeds.yaml` gains three
+  `package-source` entries:
+  - `rubygems-packages`: rubygems.org;
+  - `nuget-packages`: the nuget.org flat container, for nuspecs;
+  - `github-source-archives`: GitHub archives at a commit, redirecting to
+    codeload.github.com.
+
+  NuGet packages hold compiled assemblies, so their source is the
+  repository archive at the commit the nuspec declares. Packets record that
+  declaration as `installed_source.declared_by`.
+
 ## [0.41.0]
 
 - **Below-range packets carry the dependencies the fix's code imports.**

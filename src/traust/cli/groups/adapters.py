@@ -687,8 +687,11 @@ def add_below_range_args(ap) -> None:
     )
     ap.add_argument(
         "--ecosystems",
-        default="Go,PyPI,npm,Maven,crates.io",
-        help="Comma list of OSV ecosystem names (supported: Go, PyPI, npm, Maven, crates.io)",
+        default="Go,PyPI,npm,Maven,crates.io,RubyGems,NuGet",
+        help=(
+            "Comma list of OSV ecosystem names "
+            "(supported: Go, PyPI, npm, Maven, crates.io, RubyGems, NuGet)"
+        ),
     )
     ap.add_argument("--max-candidates", type=int, default=100)
     ap.add_argument("--timeout", type=int, default=60, help="Per-request OSV timeout, seconds")
