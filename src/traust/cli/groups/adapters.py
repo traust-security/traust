@@ -694,7 +694,7 @@ def add_below_range_args(ap) -> None:
     ap.add_argument("--timeout", type=int, default=60, help="Per-request OSV timeout, seconds")
 
 
-def call_below_range(_engine, args) -> int:
+def call_below_range(engine, args) -> int:
     from traust_engine.applicability import build
     from traust_engine.applicability.fetch import Fetcher
     from traust_engine.osv import OsvClient, Query
@@ -738,6 +738,9 @@ def call_below_range(_engine, args) -> int:
         max_candidates=args.max_candidates,
         client=client,
         fetcher=fetcher,
+        # the dependencies a fix's code imports, resolved as the OSV pre-scan
+        # resolves them (deps.dev; `access: disabled` turns it off)
+        resolver=_deps_dev_resolver(engine, args),
     )
     gaps: dict[str, int] = {}
     for g in index["coverage_gaps"]:

@@ -192,7 +192,11 @@ Run per repository, for Go, PyPI, npm, Maven and Cargo dependencies:
    Candidates that can't be checked are listed in `below-range.json`
    `coverage_gaps` with the reason. Report them; never treat one as clean.
    Patches and sources are fetched only from the hosts the `fix-patches` and
-   `package-source` sources in `feeds.yaml` name.
+   `package-source` sources in `feeds.yaml` name. When a file the fix touches
+   imports a direct dependency, that dependency's source is in the packet too
+   (`dependency_sources`; resolved through deps.dev, or go.mod for Go). Packets
+   also carry each candidate commit's date and each fixed version's publish
+   time, as facts for review.
 2. **Two blind reviews per packet**, as separate Task subagents that never see
    each other's output:
    - reviewer A on `python3 -m traust.cli registry models resolve --tier
@@ -207,7 +211,8 @@ Run per repository, for Go, PyPI, npm, Maven and Cargo dependencies:
    text). When `fix.chosen.release_commit` is true, the advisory linked only
    release or version-bump commits, so the patch holds no fix code: judge from
    the advisory text and the installed code. Tell them, too, that hunk
-   presence is a lead, not a verdict.
+   presence is a lead, not a verdict, and to read `dependency_sources` where
+   the behaviour depends on a dependency's code.
 3. **Judge on a split**: a third subagent on the opus-class model, given
    both reviews and the packet, settles any case where the reviews disagree
    or either is `undetermined`. What it can't settle stays `undetermined`,
