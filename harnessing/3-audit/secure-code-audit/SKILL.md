@@ -1057,7 +1057,7 @@ Judging protocol — bounded, and every verdict is judged, never bulk-set:
    artifact's `coverage_gaps` entries into
    `metadata.additional.coverage_gaps` as
    `{tool: "config-matrix", system, reason, count}` — the structured
-   record `build_coverage_gap_rollup.py` aggregates fleet-wide. The pre-scan is an
+   record `traust assessments coverage` aggregates fleet-wide. The pre-scan is an
    accelerator, never a precondition — if PyYAML or the checkout is
    missing, perform the manual configuration review and move on.
 4. **No cross-product enumeration**: the artifact deliberately carries

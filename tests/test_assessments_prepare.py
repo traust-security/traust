@@ -1,4 +1,4 @@
-"""`traust assessments prepare`: the CLI layer only. URL and commit become a ref, then one
+"""`traust assessments prepare|coverage`: the CLI layer only. URL and commit become a ref, then one
 `AssessmentService.prepare`; a refused diff is exit 3 with the verdict. The door's behaviour
 (baseline, anchor, clusters, hunks, callers, refusals) is traust-core's tests."""
 
@@ -15,7 +15,16 @@ from typing import Any
 import pytest
 import yaml
 from traust_core.v1.context import Context
-from traust_core.v1.models.assessment import AssessmentKind, DiffRefused, DiffRequest
+from traust_core.v1.models.assessment import (
+    AssessmentFilter,
+    AssessmentKind,
+    Coverage,
+    CoverageGap,
+    DiffRefused,
+    DiffRequest,
+    GapSignal,
+)
+from traust_core.v1.models.common import Page
 
 from traust.cli import assessments
 
@@ -150,3 +159,41 @@ def test_bad_since_is_exit_2(doors: SimpleNamespace, home: Path, tmp_path: Path)
     assert rc == 2
     assert "7-40 hex" in err
     assert doors.prepare.calls == []
+
+
+def test_coverage_is_one_door_call_over_every_repository(
+    monkeypatch: pytest.MonkeyPatch, home: Path
+) -> None:
+    other = uuid.uuid4()
+    found = Coverage(
+        examined=1,
+        total=2,
+        gaps=(
+            CoverageGap(
+                tool="route-guards",
+                system="fastapi",
+                repositories=1,
+                signals={GapSignal.STRUCTURED: 1},
+                example_repository_ids=(REPO.id,),
+            ),
+        ),
+    )
+    coverage_door = Door(found)
+    services = SimpleNamespace(
+        assessment=SimpleNamespace(coverage=coverage_door),
+        portfolio=SimpleNamespace(
+            list_repositories=lambda _filter, _page: Page(
+                items=[SimpleNamespace(id=REPO.id, url=URL), SimpleNamespace(id=other, url="u2")]
+            )
+        ),
+    )
+    monkeypatch.setattr(Context, "services", lambda self: services)
+    out, err = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        rc = assessments.coverage(["--config-home", str(home)])
+    assert rc == 0
+    assert coverage_door.calls == [(AssessmentFilter(), [REPO.id, other])]
+    body = json.loads(out.getvalue())
+    assert (body["examined"], body["total"], body["ratio"]) == (1, 2, 0.5)
+    assert body["gaps"][0]["examples"] == [URL]
+    assert body["gaps"][0]["tool"] == "route-guards"
