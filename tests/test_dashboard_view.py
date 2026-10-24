@@ -16,6 +16,7 @@ import pytest
 import yaml
 from traust_core.v1.context import Context
 from traust_core.v1.errors import ValidationError
+from traust_core.v1.models import insight
 from traust_core.v1.models.common import TimeBucket, TimeWindow
 from traust_core.v1.models.insight import FindingsTrend, RenderedView, ViewFilter, ViewName
 
@@ -85,6 +86,26 @@ def test_no_scope_is_one_publish_and_three_files(publish: Door, home: Path, tmp_
     assert (out / "findings-trend.md").read_text() == RENDERED.markdown
     assert json.loads((out / "findings-trend.json").read_text())["repositories"] == 2
     assert answer["model"]["repositories"] == 2
+
+
+def test_loc_writes_the_lines_of_code_view(publish: Door, home: Path, tmp_path: Path) -> None:
+    publish.result = RenderedView(
+        view=ViewName.LOC,
+        stem="lines-of-code",
+        model=insight.LocDashboard(code=120, total=150),
+        markdown="# Lines of code\n",
+        html="<!doctype html><title>Lines of code</title>",
+    )
+    out = tmp_path / "dashboards"
+    rc, answer = run(home, "loc", "--product", "alpha", "--out", str(out))
+    assert rc == 0
+    assert publish.calls == [(ViewName.LOC, ViewFilter(product_ids=(ALPHA.id,)))]
+    assert sorted(p.name for p in out.iterdir()) == [
+        "lines-of-code.html",
+        "lines-of-code.json",
+        "lines-of-code.md",
+    ]
+    assert answer["model"]["code"] == 120
 
 
 def test_scope_window_and_bucket_go_into_one_filter(

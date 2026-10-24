@@ -40,11 +40,11 @@ dev = ["ruff>=0.6", "pytest-xdist>=3", "psycopg[binary]>=3.1"]
 # traust's traust-core pin wins over the engine's, so a core bump needs no engine PR.
 [tool.uv]
 override-dependencies = [
-  "traust-core @ git+https://github.com/traust-security/traust-core.git@ba746d102797d328350771b2c58cd9313addcb49",
+  "traust-core @ git+https://github.com/traust-security/traust-core.git@f260fc06c272b2026d61a6c8aec38a06eb9cf264",
 ]
 
 [tool.uv.sources]
-traust-core = { git = "https://github.com/traust-security/traust-core.git", rev = "ba746d102797d328350771b2c58cd9313addcb49" }
+traust-core = { git = "https://github.com/traust-security/traust-core.git", rev = "f260fc06c272b2026d61a6c8aec38a06eb9cf264" }
 traust-engine = { git = "https://github.com/traust-security/traust-engine.git", rev = "302e8e4d2623359a0a80d2f5b1e3aaa7bb2184f1" }
 
 # Multi-skill CLIs live under src/traust/; harnessing/<skill>/ for single-skill
@@ -77,7 +77,6 @@ ignore = ["RUF001", "RUF002", "RUF003"]
 # templates and data strings that are inherently wide.
 "harnessing/**/build_priv_profile.py" = ["E501"]
 "harnessing/**/build_fuzz_rollup.py" = ["E501"]
-"harnessing/**/build_loc_dashboard.py" = ["E501"]
 "harnessing/**/build_rbac_tenancy_rollup.py" = ["E501"]
 "harnessing/**/emit_product_index.py" = ["E501", "PTH123", "SIM102", "RUF012"]
 "harnessing/**/collect_harness_metrics.py" = ["E501"]

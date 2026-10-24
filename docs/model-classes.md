@@ -235,7 +235,7 @@ answer for them anyway, since that is what actually decides the floor:
 | `create-fuzzing` | `fuzz-author` | `opus-class` |
 | `executive-summary-findings` | `render-narrate` over deterministic aggregates | `opus-class` in practice; the narration step may drop to `haiku-class` |
 | `findings-trends` | deterministic replay + narration | `opus-class` |
-| `loc-dashboard` | deterministic, cache-only | `opus-class` |
+| `loc-dashboard` | deterministic, reads stored code facts | `opus-class` |
 
 ### Making this mechanical
 

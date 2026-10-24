@@ -76,10 +76,9 @@ Ordering is the whole point:
   default job skips it to stay orchestrator-portable. Pass
   `--spend-actuals` when running on a workstation that has transcripts;
   the `dashboards:spend-actuals` drift row guards this leg either way.
-- **LoC language-cache refresh** — the `loc` stage rebuilds the
-  dashboard from the committed `gh-languages-cache.jsonl` only
-  (`--no-fetch`); refreshing the cache sweeps the GitHub API and stays
-  with `/loc-dashboard` under the gh-api fleet-sweep constraints.
+- **LoC measurement** — the `views` stage renders `loc` from the
+  lines the code-facts scan already stored; measuring them is the
+  scan's job, not this one's.
 - **Agent-built views** — the threat register (`/threat-register`)
   involves judgment, not just aggregation, and is rebuilt by its owning
   skill on its own cadence. The scoreboard reads whatever its latest
@@ -97,7 +96,7 @@ Ordering is the whole point:
 
 | Stage | Tier | Builder |
 |---|---|---|
-| `views` | core | `InsightService.refresh` via `DashboardsMaterializer` (every built view: `findings-rollup`, `findings-trend`) |
+| `views` | core | `InsightService.refresh` via `DashboardsMaterializer` (every view traust-core has built) |
 | `exec-summary` | consumer | `RETIRED:build_executive_summary.py` |
 | `insecure-patterns` | consumer | `RETIRED:build_insecure_patterns.py` |
 | `validation-fuzz` | consumer | `harnessing/validation-fuzz-dashboard/scripts/build_validation_fuzz_dashboard.py` |
@@ -105,7 +104,7 @@ Ordering is the whole point:
 | `sla` | consumer | python3 -m traust.cli metrics sla |
 | `compliance` | consumer | python3 -m traust.cli compliance dashboard |
 | `attack-coverage` | consumer | `harnessing/attack-coverage/scripts/build_attack_coverage.py` |
-| `loc` | consumer | `harnessing/loc-dashboard/scripts/build_loc_dashboard.py --no-fetch` (committed gh-languages cache only) |
+| `loc` | — | *retired:* rendered by the `views` stage (`LocView`) |
 | `dependency-exposure` | consumer | `harnessing/refresh-dashboards/scripts/build_dependency_exposure.py` (portfolio-graph dependency layer + impact/fleet-OSV artifacts; degrades gracefully when absent) |
 | `spend-actuals` | consumer, opt-in | python3 -m traust.cli metrics collect-spend --append |
 | `spend` | consumer | python3 -m traust.cli metrics spend |

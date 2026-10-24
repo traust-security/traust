@@ -467,7 +467,7 @@ Use when the user asks which insecure coding patterns recur across the portfolio
 
 ## loc-dashboard
 
-Use when the user asks how many lines of code have been scanned/audited, wants a LoC breakdown by language or repo across the security-audit campaign, or asks to (re)build the LoC dashboard. Produces gh-languages-cache.jsonl and a self-contained loc-dashboard.html from the campaign manifests.
+Use when the user asks how many lines of code have been scanned/audited, wants a LoC breakdown by language or repo across the security-audit campaign, or asks to (re)build the LoC dashboard. Produces the lines-of-code view {json,md,html} from the code facts traust-core has measured.
 
 - **Stage:** —
 - **Tier:** `tertiary`

@@ -110,19 +110,6 @@ def build_stages(
                 *path_args,
             ],
         ),
-        # no door: LocView. --no-fetch: rebuild from the committed gh-languages cache only;
-        # refreshing the cache hits the GitHub API and stays with the
-        # owning skill (see gh-api fleet-sweep constraints).
-        (
-            "loc",
-            "consumer",
-            [
-                PYTHON,
-                str(h / "harnessing/loc-dashboard/scripts/build_loc_dashboard.py"),
-                *path_args,
-                "--no-fetch",
-            ],
-        ),
         # no door: ExposureView (ExposureService.summary). Reads the portfolio graph's
         # dependency layer + impact/fleet-OSV artifacts; degrades when they are absent.
         (

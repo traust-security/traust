@@ -147,7 +147,6 @@ def test_p3_sweep_engine_dir_prefix():
 
 def test_p3_gh_api_path_constraints():
     assert "_GH_NAME_RE" in _src("harnessing/census/scripts/check_repo_liveness.py")
-    assert "unsafe slug" in _src("harnessing/loc-dashboard/scripts/build_loc_dashboard.py")
 
 
 def test_p3_canaries_off_shared_tmp():
