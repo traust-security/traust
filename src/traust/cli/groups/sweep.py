@@ -6,14 +6,13 @@ import sys
 from pathlib import Path
 
 from traust_contracts import DeploymentConfigMissing
-from traust_core.v1.errors import ValidationError
-from traust_core.v1.models.detection_quality import RulePack, RuleRef
+from traust_core.v1.errors import NotFoundError
 from traust_engine.locations import SWEEPS_REL
 from traust_engine.sweep.engine import DEFAULT_SWEEP_LIMIT
 
 from traust.cli._doors import run
 from traust.cli.groups._registry import OpSpec, passthrough_op
-from traust.context import load_services, rule_drafts_dir
+from traust.context import load_engine_core, rule_drafts_dir
 
 
 def _add_common_sweep_args(ap) -> None:
@@ -323,34 +322,28 @@ RULE_LANE = OpSpec(
 def add_mine_args(ap) -> None:
     ap.add_argument(
         "--pack",
-        type=Path,
-        default=None,
-        help="Rule pack for coverage matching (default: context opengrep rules)",
+        default="traust",
+        help="rule pack name (default: traust, from locations.opengrep_rules or bundled; an "
+        "enabled rule-pack-allowlist supplement by its name)",
     )
     ap.add_argument("--out", type=Path, default=None, help="also write the result here (JSON)")
 
 
 def call_mine(engine, args) -> int:
-    """The confirmed TPs in traust-core against the pack; the pack is read from its directory
-    until traust-engine registers core's RulePackSource (NEED(engine: rule-pack source))."""
-    from traust_engine.sweep import mining as m
+    """The confirmed TPs in traust-core against a rule pack from traust-engine's RulePackSource."""
 
     def call() -> dict:
-        try:
-            directory = args.pack if args.pack is not None else engine.adapters.rule_pack_dir()
-        except ValueError as e:
-            raise ValidationError(str(e)) from e
-        if not directory.is_dir():
-            raise ValidationError(f"rule pack {directory} is not a directory")
-        rules = tuple(RuleRef.model_validate(r) for r in m.load_pack_rules(directory))
-        pack = RulePack(name=directory.name, version="", rules=rules)
-        mining = load_services(args.config_home).detection_quality.mine_rules(pack)
+        quality = load_engine_core(args.config_home).services().detection_quality
+        packs = {p.name: p for p in quality.rule_packs()}
+        if args.pack not in packs:
+            raise NotFoundError(f"no rule pack {args.pack!r}; have {sorted(packs)}")
+        mining = quality.mine_rules(packs[args.pack])
         if args.out is not None:
             args.out.parent.mkdir(parents=True, exist_ok=True)
             args.out.write_text(mining.model_dump_json(indent=2) + "\n", encoding="utf-8")
         return {
-            "pack": str(directory),
-            "pack_rules": len(rules),
+            "pack": f"{mining.pack.name} {mining.pack.version}",
+            "pack_rules": len(mining.pack.rules),
             "confirmed_tps": len(mining.corpus),
             "ruleable_tps": mining.ruleable,
             **mining.model_dump(mode="json", exclude={"pack", "corpus"}),

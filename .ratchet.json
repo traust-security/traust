@@ -144,7 +144,7 @@
   },
   "src/traust/cli/groups/sweep.py": {
     "contracts": 1,
-    "engine-internal": 5
+    "engine-internal": 4
   },
   "src/traust/cli/groups/util.py": {
     "engine-internal": 3
