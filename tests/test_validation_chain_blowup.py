@@ -24,7 +24,7 @@ from pathlib import Path
 SKILL = Path(__file__).resolve().parents[1] / "harnessing/5-validate/validate-findings"
 sys.path.insert(0, str(SKILL))
 
-import report as R  # noqa: E402
+import report as R
 
 
 @dataclass
@@ -56,8 +56,15 @@ class _Chain:
 def _chain_steps(results, chain):
     """Run chain assembly and return the steps it produced."""
     doc = R.build_validation_json(
-        _Normalized(), _Scope(), results, [chain], [],
-        audit_path="a", audit_sha256="d", flags=[], approval={},
+        _Normalized(),
+        _Scope(),
+        results,
+        [chain],
+        [],
+        audit_path="a",
+        audit_sha256="d",
+        flags=[],
+        approval={},
     )
     return doc["attack_chains"][0]["steps"]
 
@@ -115,7 +122,7 @@ def test_a_chain_stays_the_size_of_its_path():
     assembles 40 steps instead of 4."""
     results = []
     for fid in ("F1", "F2", "F3", "F4"):
-        for repeat in range(5):          # the same result recorded 5x
+        for repeat in range(5):  # the same result recorded 5x
             results.append(_Result(fid, f"{fid}-s1"))
             results.append(_Result(fid, f"{fid}-glue-{repeat}", verb="glue"))
     steps = _chain_steps(results, _Chain(finding_ids=["F1", "F2", "F3", "F4"]))

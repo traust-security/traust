@@ -180,7 +180,7 @@ def scan(root: Path, *, staged: bool = False) -> list[dict]:
     """
     findings: list[dict] = []
     migrations = root / "src" / "traust" / "migrations"
-    for path in (staged_files(root) if staged else tracked_files(root)):
+    for path in staged_files(root) if staged else tracked_files(root):
         if not path.is_file():
             continue
         rel = path.relative_to(root).as_posix()

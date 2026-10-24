@@ -44,7 +44,9 @@ def test_derived_markdown_path_is_absolute_when_the_html_path_is():
 def test_string_html_path_is_accepted():
     """build() receives --out as a str, not a Path."""
     out = "/tmp/pt/metrics/dashboards/" + HTML
-    assert vfd.markdown_path(out) == Path("/tmp/pt/metrics/dashboards/Live-validation-fuzz-dashboard.md")
+    assert vfd.markdown_path(out) == Path(
+        "/tmp/pt/metrics/dashboards/Live-validation-fuzz-dashboard.md"
+    )
 
 
 def test_explicit_out_md_wins():

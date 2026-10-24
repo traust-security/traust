@@ -69,8 +69,13 @@ def test_non_verdict_exit_codes_are_not_attempted(rc):
     """pytest exited without running tests — never a verdict."""
     for base, patched in ((rc, 0), (0, rc)):
         item = pe.build_item(
-            test_path="t.py", base_ref="r", base_rc=base, patched_rc=patched,
-            tool_version="", base_log="b", patched_log="p",
+            test_path="t.py",
+            base_ref="r",
+            base_rc=base,
+            patched_rc=patched,
+            tool_version="",
+            base_log="b",
+            patched_log="p",
         )
         assert item["outcome"].startswith("not_attempted:"), (base, patched)
         assert "base_observation" not in item
@@ -97,8 +102,13 @@ def test_a_proof_claim_always_carries_both_observations():
 def test_boundary_is_recorded_in_the_command():
     for boundary in ("podman", "attested:konflux-job"):
         item = pe.build_item(
-            test_path="t.py", base_ref="r", base_rc=1, patched_rc=0,
-            tool_version="hypothesis 6.168.0", base_log="b", patched_log="p",
+            test_path="t.py",
+            base_ref="r",
+            base_rc=1,
+            patched_rc=0,
+            tool_version="hypothesis 6.168.0",
+            base_log="b",
+            patched_log="p",
             boundary=boundary,
         )
         assert f"[boundary: {boundary}]" in item["command"]

@@ -37,8 +37,8 @@ import importlib.util
 import json
 import os
 import subprocess
-import tempfile
 import sys
+import tempfile
 from pathlib import Path
 
 from traust_contracts.paths import schema_dir
@@ -3770,13 +3770,14 @@ def check_agent_plugins(ws: Path) -> list[dict]:
     try:
         state = json.loads(_PLUGIN_STATE.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
-        return out + [
+        return [
+            *out,
             item(
                 "agent-plugins",
                 "unavailable",
                 f"cannot read {_PLUGIN_STATE} — plugins are a per-workstation "
                 "install, so this row is silent on a headless runner",
-            )
+            ),
         ]
 
     for e in checkable:
@@ -3791,7 +3792,7 @@ def check_agent_plugins(ws: Path) -> list[dict]:
                 item(
                     row,
                     "pending",
-                    f"declared in agent-plugins.yaml but not installed",
+                    "declared in agent-plugins.yaml but not installed",
                     f"/plugin marketplace add {marketplace} && /plugin install {name}",
                 )
             )

@@ -164,8 +164,18 @@ class MarketplaceLookup(unittest.TestCase):
             subprocess.run(["git", "init", "-q", str(repo)], check=True)
             subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True)
             subprocess.run(
-                ["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t",
-                 "commit", "-qm", "x"],
+                [
+                    "git",
+                    "-C",
+                    str(repo),
+                    "-c",
+                    "user.email=t@t",
+                    "-c",
+                    "user.name=t",
+                    "commit",
+                    "-qm",
+                    "x",
+                ],
                 check=True,
             )
             version, err = D._marketplace_version(str(repo), "demo")

@@ -120,7 +120,7 @@ class TestContentLicenseGuard(unittest.TestCase):
             self.assertNotIn("ShareAlike license marker", failures[0])
 
     def test_sharealike_prose_without_a_marker_passes(self):
-        """"share alike" as ordinary words, and an unrelated licence name."""
+        """ "share alike" as ordinary words, and an unrelated licence name."""
         with tempfile.TemporaryDirectory() as d:
             repo = _mini_repo(
                 Path(d),

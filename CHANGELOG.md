@@ -2,6 +2,11 @@
 
 All notable changes to Traust are documented here.
 
+## [Unreleased]
+
+- Clear the existing Ruff lint and formatting failures without changing CLI
+  help text, validation behavior, or test expectations.
+
 ## [0.41.0]
 
 - **Below-range packets carry the dependencies the fix's code imports.**
