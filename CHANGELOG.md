@@ -7,6 +7,18 @@ All notable changes to Traust are documented here.
 - Clear the existing Ruff lint and formatting failures without changing CLI
   help text, validation behavior, or test expectations.
 
+## [0.41.0]
+
+- **Below-range packets carry the dependencies the fix's code imports.**
+  This pins traust-engine 0.43.0 (`c2645a5`). `traust adapters below-range`
+  passes the deps.dev resolver the OSV pre-scan uses, so `access: disabled`
+  on the `deps_dev` source turns it off. When a file the fix touches imports
+  one of the installed version's direct dependencies, that dependency's
+  source joins the packet. Packets also carry candidate commit dates and fix
+  release times, for review.
+- `/dependency-watch below-range` tells reviewers to read
+  `dependency_sources` where the behaviour depends on a dependency's code.
+
 ## [0.40.2]
 
 - **Pins traust-engine 0.42.2 (`f0c936a`).** Below-range verification's fix

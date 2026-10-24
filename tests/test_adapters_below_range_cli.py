@@ -56,7 +56,7 @@ def test_hands_off_to_the_engine_and_summarizes(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(osv, "OsvClient", lambda *a, **kw: _Client())
     seen = {}
 
-    def fake_build(repo, out, *, ecosystems, max_candidates, client, fetcher):
+    def fake_build(repo, out, *, ecosystems, max_candidates, client, fetcher, resolver=None):
         seen.update(repo=repo, out=out, ecosystems=ecosystems, fetcher=fetcher)
         return {
             "installed_exact": 3,
@@ -100,7 +100,7 @@ def test_hosts_come_from_feeds_yaml(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr("traust.registry.applicability_sources.applicability_hosts", lambda: hosts)
     seen = {}
 
-    def fake_build(repo, out, *, ecosystems, max_candidates, client, fetcher):
+    def fake_build(repo, out, *, ecosystems, max_candidates, client, fetcher, resolver=None):
         seen["fetcher"] = fetcher
         return {
             "installed_exact": 0,
@@ -117,7 +117,7 @@ def test_hosts_come_from_feeds_yaml(tmp_path, monkeypatch, capsys):
     f = seen["fetcher"]
     assert f.forges == {"github.com"} and f.registries == {"pypi.org"}
     assert f.redirects == {"pypi.org": frozenset({"cdn.example"})}
-    assert "NOTE" not in capsys.readouterr().err
+    assert "no fix-patches or package-source" not in capsys.readouterr().err
 
 
 def test_shipped_feeds_yaml_names_every_below_range_host():
@@ -152,3 +152,34 @@ def test_a_disabled_source_contributes_no_host():
     hosts = applicability_hosts(sources)
     assert hosts.registries == frozenset() and hosts.forges == {"github.com"}
     assert applicability_hosts({"x": {"url_template": "https://x.example/"}}) is None
+
+
+def test_the_deps_dev_resolver_is_passed_and_respects_disabled(tmp_path, monkeypatch):
+    monkeypatch.setattr("traust.registry.osv_urls.osv_access", lambda: "api")
+    monkeypatch.setattr(osv, "OsvClient", lambda *a, **kw: _Client())
+    seen = []
+
+    def fake_build(repo, out, *, ecosystems, max_candidates, client, fetcher, resolver=None):
+        seen.append(resolver)
+        return {
+            "installed_exact": 0,
+            "candidates": 0,
+            "packets": [],
+            "coverage_gaps": [],
+            "status": "complete",
+        }
+
+    monkeypatch.setattr(applicability, "build", fake_build)
+    repo = tmp_path / "svc"
+    repo.mkdir()
+    monkeypatch.setattr(
+        "traust.registry.osv_urls.deps_dev_settings", lambda: ("https://api.deps.dev", "api")
+    )
+    assert adapters.call_below_range(None, _args(repo)) == 0
+    monkeypatch.setattr(
+        "traust.registry.osv_urls.deps_dev_settings", lambda: ("https://api.deps.dev", "disabled")
+    )
+    assert adapters.call_below_range(None, _args(repo)) == 0
+    from traust_engine.depsdev import DepsDevClient
+
+    assert isinstance(seen[0], DepsDevClient) and seen[1] is None
