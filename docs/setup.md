@@ -340,8 +340,8 @@ Three ways to populate it:
   ownership changes are reviewed and the graphs can detect when it moves
   (`/drift-watch` compares the inventory's HEAD with each graph's build stamp).
 
-Then register the *output* tree the audits write to with `/corpus-intake`,
-and build the graph with `/repo-graph`. Unset, `locations.inputs` defaults to
+Then register the *output* tree the audits write to with `/corpus-intake`.
+Unset, `locations.inputs` defaults to
 `<workspace>/inputs`.
 
 ### Remote results and graph

@@ -9,7 +9,7 @@ and `portfolio-graph-summary.json` report yours after a build.
 
 | Graph | Artifact | Question it answers | Built by |
 |---|---|---|---|
-| **repo-graph** | `repo-graph.{json,dot,gexf,html}` + `repo-graph-stats.md` | which repos exist, who owns them, what has been audited | [`/repo-graph`](../harnessing/repo-graph/SKILL.md) |
+| **repo-graph** | `repo-graph.{json,dot,gexf,html}` + `repo-graph-stats.md` | which repos exist, who owns them, what has been audited | *retired*: traust-core's portfolio (`repository`, `product`, `release`, `component`, `ownership`) and assessment coverage answer it; nothing builds the file |
 | **portfolio-graph** | `portfolio-graph.db` (SQLite) + `portfolio-graph-summary.json` | what the code depends on, and what a change reaches | [`/portfolio-graph`](../harnessing/portfolio-graph/SKILL.md) |
 | **ATT&CK coverage layer** | `attack-navigator-layer.json` (Navigator format 4.5) | which adversary techniques the portfolio's findings and validated chains cover | [`/attack-coverage`](../harnessing/attack-coverage/SKILL.md) |
 | **attack chains** | `attack_chains[]` inside validation reports | how a confirmed finding chains from entry point to terminal asset | [`/validate-findings`](../harnessing/5-validate/validate-findings/SKILL.md) |
@@ -30,7 +30,13 @@ census is the denominator authority
 
 ## repo-graph — coverage and ownership
 
-Built from the inputs inventory (segment CSVs + `owners.csv`) cross-referenced
+*Retired*: the `/repo-graph` skill is gone. traust-core holds the same facts as
+tables (products, releases, components, repositories, owner teams) and reads
+them through `PortfolioService` (`list_products_shipping`,
+`list_owned_repositories`) and `AssessmentService.coverage` (traust-core#123). The readers below
+still name `repo-graph.json` until their own ports.
+
+It was built from the inputs inventory (segment CSVs + `owners.csv`) cross-referenced
 against the findings tree.
 
 Hierarchy: `segment` → `release`/`product` → `product-version` → `category` →

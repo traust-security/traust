@@ -5,7 +5,6 @@ import importlib.util
 import json
 import os
 import shutil
-import subprocess
 import sys
 from pathlib import Path
 
@@ -208,42 +207,6 @@ def test_rule_mining_pending_fresh_stale(tmp_path):
     now = cd._now().timestamp()
     os.utime(art, (now, now))
     assert cd.check_rule_mining(ws)[0]["status"] == "fresh"
-
-
-@pytest.mark.requires_git
-def test_repo_graph_stale_when_inputs_move(tmp_path):
-    ws = _mk_ws(tmp_path)
-    inputs = ws / "inputs"
-    inputs.mkdir()
-    subprocess.run(["git", "init", "-q", str(inputs)], check=True)
-    (inputs / "x.csv").write_text("a\n")
-    subprocess.run(
-        ["git", "-C", str(inputs), "-c", "user.email=t@t", "-c", "user.name=t", "add", "-A"],
-        check=True,
-    )
-    subprocess.run(
-        [
-            "git",
-            "-C",
-            str(inputs),
-            "-c",
-            "user.email=t@t",
-            "-c",
-            "user.name=t",
-            "commit",
-            "-qm",
-            "x",
-        ],
-        check=True,
-    )
-    # graph "generated" long before the inputs commit
-    (ws / "analysis-results/graph/repo-graph.json").write_text(
-        json.dumps({"generated": "2020-01-01", "nodes": [], "edges": []})
-    )
-    items = {i["item"]: i for i in cd.check_graphs(ws)}
-    assert items["repo-graph"]["status"] == "stale"
-    assert "inputs" in items["repo-graph"]["detail"]
-    assert items["portfolio-graph"]["status"] == "pending"
 
 
 def test_adr_registry_pending_then_checked(tmp_path, monkeypatch):

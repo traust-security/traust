@@ -8,7 +8,7 @@ This file provides guidance to AI coding agents when working with code in this r
 
 This is **Traust**, an agent harness for automated vulnerability discovery, validation, and remediation across a software portfolio — source repositories, container images, RPM packages, Kubernetes operators, infrastructure-as-code and the services built from them — at the scale of hundreds or thousands of repositories. Which repositories that is comes from the deployment's inventory (`locations.inputs`), never from this tree; the executive-summary dashboard under the configured `progress-tracker` root reports current coverage.
 
-The harness contains 51 active skills, slash commands, JSON schemas, report tooling, and the prompt engineering that drives autonomous multi-framework security assessments. It is designed to be agent-agnostic, with current implementations for Claude Code and Crush.
+The harness contains 50 active skills, slash commands, JSON schemas, report tooling, and the prompt engineering that drives autonomous multi-framework security assessments. It is designed to be agent-agnostic, with current implementations for Claude Code and Crush.
 
 ## Repository Architecture
 

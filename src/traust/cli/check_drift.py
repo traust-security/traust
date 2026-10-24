@@ -438,11 +438,6 @@ def check_graphs(ws: Path) -> list[dict]:
     inputs = _inputs_root(ws)
     inputs_head = _git_head_date(inputs)
     for name, path, stamp_getter in (
-        (
-            "repo-graph",
-            ws / "analysis-results/graph/repo-graph.json",
-            lambda p: _parse_iso((json.loads(p.read_text(encoding="utf-8"))).get("generated", "")),
-        ),
         ("portfolio-graph", ws / "analysis-results/graph/portfolio-graph.db", _mtime),
     ):
         if not path.is_file():
@@ -464,13 +459,7 @@ def check_graphs(ws: Path) -> list[dict]:
         if inputs_head is None:
             out.append(item(name, "unavailable", "inputs inventory not readable"))
             continue
-        # repo-graph's `generated` stamp is date-only — compare at day
-        # granularity or every same-day inputs commit false-positives
-        if name == "repo-graph":
-            is_stale = inputs_head.date() > stamp.date()
-        else:
-            is_stale = inputs_head > stamp
-        if is_stale:
+        if inputs_head > stamp:
             out.append(
                 item(
                     name,

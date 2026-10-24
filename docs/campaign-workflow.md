@@ -20,7 +20,6 @@ These skills are specific to the scanning campaign. They consume the full `*-res
 | `financial-tracking` | — | Campaign cost over time: per-lane spend, **per-business-unit** split (bridged from transcript paths via findings.db `business_unit`; partial coverage, always stated), unit economics ($/repo, $/finding), month-over-month trend, and an `--invoice` seam. All figures are **list-price estimates, never invoiced actuals** | opus-class |
 | `executive-summary-findings` | — | Cross-portfolio leadership roll-up dashboard (deterministic builder + machine sidecar for the scoreboard) | haiku-class (`render-narrate` floor) |
 | `loc-dashboard` | — | Lines-of-code coverage dashboard (also reads the inputs inventory) | haiku-class (`render-narrate` floor) |
-| `repo-graph` | — | Portfolio segment→product→repo→findings graph (JSON/DOT/GEXF/HTML; also reads the inputs inventory) | opus-class |
 | `insecure-patterns` | — | Cross-portfolio insecure-coding-pattern roll-up (CWE → OWASP ASVS taxonomy) | mythos-class |
 | `findings-trends` | — | Up/down trend dashboard by ledger replay: burndown, headline risk signals (`owasp_high_plus_pct`, `mean_cvss_open`), velocity, MTTR, accepted-risk register | haiku-class (`render-narrate` floor) |
 | `validation-fuzz-dashboard` | — | Combined live-validation + fuzzing results dashboard | opus-class |

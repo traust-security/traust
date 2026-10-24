@@ -30,7 +30,7 @@ team-report   findings-      file-security-defect
               owners
 ```
 
-Supporting skills (e.g. `executive-summary-findings`, `loc-dashboard`, `repo-graph`, `insecure-patterns`, `findings-trends`, `track-findings`, `reassign-findings-owners`, `threat-model`, `patch`, `remediate-finding`) run outside or alongside the main pipeline.
+Supporting skills (e.g. `executive-summary-findings`, `loc-dashboard`, `insecure-patterns`, `findings-trends`, `track-findings`, `reassign-findings-owners`, `threat-model`, `patch`, `remediate-finding`) run outside or alongside the main pipeline.
 
 **Storage.** Where each kind of data lives and which variable places it:
 [storage.md](storage.md).

@@ -29,7 +29,7 @@ allowed-tools:
 
 This skill adds one or more repositories (or every non-archived, non-fork repository in a
 GitHub organization) to the repository inventory so that
-downstream skills (security audits, triaging, repo-graph, dashboards) can
+downstream skills (security audits, triaging, dashboards) can
 discover and operate on them.
 
 It is the lightweight counterpart of `inventory-repositories`, which

@@ -75,7 +75,6 @@ field on every skill.
 | [rbac-tenancy-rollup](#rbac-tenancy-rollup) | — | `secondary` | `/rbac-tenancy-rollup` |
 | [recall-benchmark](#recall-benchmark) | — | `secondary` | `/recall-benchmark` |
 | [refresh-dashboards](#refresh-dashboards) | — | `secondary` | `/refresh-dashboards` |
-| [repo-graph](#repo-graph) | — | `secondary` | `/repo-graph` |
 | [sla-view](#sla-view) | — | `secondary` | `/sla-view` |
 | [threat-register](#threat-register) | — | `secondary` | `/threat-register` |
 | [traust-metrics](#traust-metrics) | — | `secondary` | `/traust-metrics` |
@@ -101,7 +100,7 @@ Use when the user wants to register, update, or review a corpus tree or scan eng
 
 ## inventory-repositories
 
-Use when the user asks to list, discover, inventory, or extract the source repositories that ship in a release payload image or an OLM operator bundle/catalog — e.g. "inventory release 4.21", "which repos ship in the foo operator 2.3", "refresh the payload inventory". Writes the per-segment CSV inventory that repo-graph and the dashboards read, and registers the repositories and their owner teams in traust-core.
+Use when the user asks to list, discover, inventory, or extract the source repositories that ship in a release payload image or an OLM operator bundle/catalog — e.g. "inventory release 4.21", "which repos ship in the foo operator 2.3", "refresh the payload inventory". Writes the per-segment CSV inventory that the dashboards read, and registers the repositories and their owner teams in traust-core.
 
 - **Stage:** ① Inventory
 - **Tier:** `secondary`
@@ -486,7 +485,7 @@ Use when the user asks to mine the disposition ledger for confirmed true positiv
 
 ## portfolio-graph
 
-Use when the user asks code-level portfolio questions or to build/refresh/query the portfolio source-code graph — "which products depend on module X" / CVE blast radius, "top shared libraries", "internal library coupling", "rebuild the portfolio graph", "query the code graph". Distinct from /repo-graph (the organizational coverage graph): this one holds the code-level layers — module dependencies (L1), Kubernetes interfaces (L2), artifacts/SBOM (L3), and symbols (L4), all implemented — in a queryable SQLite database built by python3 -m traust.cli portfolio.
+Use when the user asks code-level portfolio questions or to build/refresh/query the portfolio source-code graph — "which products depend on module X" / CVE blast radius, "top shared libraries", "internal library coupling", "rebuild the portfolio graph", "query the code graph". Distinct from the retired /repo-graph (the organizational coverage graph): this one holds the code-level layers — module dependencies (L1), Kubernetes interfaces (L2), artifacts/SBOM (L3), and symbols (L4), all implemented — in a queryable SQLite database built by python3 -m traust.cli portfolio.
 
 - **Stage:** —
 - **Tier:** `secondary`
@@ -521,16 +520,6 @@ Use when the user asks to refresh, rebuild, or update all the dashboards — "re
 - **Invoke:** `/refresh-dashboards` — arguments: `[--only <stage...>] [--skip <stage>] [--spend-actuals] [--view <name>] [--out <dir>]`
 - **Skill:** [harnessing/refresh-dashboards/SKILL.md](../harnessing/refresh-dashboards/SKILL.md)
 - **Produces / consumes:** [Integrations](../harnessing/refresh-dashboards/SKILL.md#integrations)
-
-## repo-graph
-
-Build or refresh the portfolio repository graph. Reads every segment of the inputs inventory (`locations.inputs`) by the kind declared in `<inputs>/inventory.yaml` (groups / release-payload / catalog / services; ansible/ excluded by default), cross-references every repo against analysis-results/findings/ coverage (audit/triage/threat-model + severity), and emits repo-graph.{json,dot,gexf,html} + repo-graph-stats.md into analysis-results/graph/. Use when asked to "build the repo graph", "update the portfolio graph", "map repos to findings", "which repos have no coverage", or "what ships kube-rbac-proxy".
-
-- **Stage:** —
-- **Tier:** `secondary`
-- **Invoke:** `/repo-graph` — arguments: `[--inputs DIR] [--findings DIR] [--out DIR] [--exclude SEGMENT]... [--date YYYY-MM-DD]`
-- **Skill:** [harnessing/repo-graph/SKILL.md](../harnessing/repo-graph/SKILL.md)
-- **Produces / consumes:** [Integrations](../harnessing/repo-graph/SKILL.md#integrations)
 
 ## sla-view
 

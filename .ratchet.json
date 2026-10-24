@@ -106,7 +106,7 @@
     "contracts": 1,
     "database": 1,
     "engine-internal": 1,
-    "state-file": 5
+    "state-file": 4
   },
   "src/traust/cli/check_skill_alignment.py": {
     "state-file": 1

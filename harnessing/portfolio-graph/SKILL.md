@@ -5,7 +5,7 @@ description: >-
   build/refresh/query the portfolio source-code graph — "which products
   depend on module X" / CVE blast radius, "top shared libraries",
   "internal library coupling", "rebuild the portfolio graph", "query
-  the code graph". Distinct from /repo-graph (the organizational
+  the code graph". Distinct from the retired /repo-graph (the organizational
   coverage graph): this one holds the code-level layers — module
   dependencies (L1), Kubernetes interfaces (L2), artifacts/SBOM (L3),
   and symbols (L4), all implemented — in a queryable SQLite database
@@ -36,7 +36,7 @@ allowed-tools:
 
 
 The queryable **source-code** graph of the Hybrid Platforms portfolio.
-Where `/repo-graph` maps organization and audit coverage (segments →
+Where the retired `/repo-graph` mapped organization and audit coverage (segments →
 products → repos → findings dirs), this skill maps **how code connects**:
 which repos declare and depend on which Go modules (with versions,
 direct/indirect, and internal-library marking), joined to the product
@@ -102,7 +102,8 @@ layers are now implemented.
 
   `STALE` means the the inputs inventory inventories changed after the
   spine was generated, or the spine exceeds the 30-day age backstop —
-  **run `/repo-graph` to regenerate the spine, then come back here**.
+  **`/repo-graph` is retired, so nothing regenerates the spine: build from
+  the existing one with `--allow-stale`, or stop**.
   `build` enforces the same check and refuses a stale spine
   (`--allow-stale` overrides, e.g. offline). `FRESH` means skip the
   `/repo-graph` run entirely; rebuilding a fresh spine is wasted work.
@@ -241,8 +242,8 @@ if it ever recurs.
 ## Refresh cadence
 
 Human-decision, drift-flagged (see docs/continuous-operations.md,
-"Standing jobs — the complete inventory"): rebuild after `/repo-graph`
-refreshes (inventory changes), or when a consumer needs freshness —
+"Standing jobs — the complete inventory"): rebuild after the inputs
+inventory changes, or when a consumer needs freshness —
 `/impact-analysis` states graph freshness as a precondition, and
 `/drift-watch`'s `portfolio-graph` row flags a build stamp older than
 the inputs HEAD. The fetch cache makes off-cadence rebuilds cheap.
@@ -264,8 +265,8 @@ portfolio, so that row guards the guard.
 ## Integrations
 
 **Consumes:** `repo-graph.json` as its L0 spine — a stale repo-graph yields a
-portfolio-graph with the wrong repo set, so `/repo-graph` is a prerequisite
-rather than an alternative. Then the repos' own manifests and source for
+portfolio-graph with the wrong repo set, so `/repo-graph` was a prerequisite
+rather than an alternative (it is retired: the existing spine is the last one). Then the repos' own manifests and source for
 L1–L4.
 
 **Emits:** `analysis-results/graph/portfolio-graph.db` (SQLite `nodes` +

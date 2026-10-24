@@ -57,9 +57,9 @@ For repos or whole orgs outside those discovery paths, `add-inputs`
 registers them in traust-core under a product (`traust portfolio onboard`). When the addition is a new scan engagement,
 `corpus-intake` registers the matching *output* tree in
 traust-core's corpus registry, linking the
-two sides. The full sequence — both registrations, census confirmation,
-repo-graph rebuild — is a deployment procedure; each step is its own skill
-(`/add-inputs`, `/corpus-intake`, `/census`, `/repo-graph`).
+two sides. The full sequence — both registrations and census confirmation
+— is a deployment procedure; each step is its own skill
+(`/add-inputs`, `/corpus-intake`, `/census`).
 
 **Output:** CSV inventories and Markdown analysis reports pushed to the
 **inventory repository** (see Repository Map); repositories and owner teams
