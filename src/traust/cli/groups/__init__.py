@@ -21,7 +21,6 @@ from traust.cli.groups import (
     registry,
     reporting,
     sweep,
-    tools,
     triage,
     util,
 )
@@ -49,7 +48,6 @@ GROUPS: dict[str, dict[str, object]] = {
     "check": dict(check.CHECK),
     "cloud-config": dict(cloud_config.CLOUD_CONFIG),
     "compliance": {
-        "dashboard": compliance.DASHBOARD,
         "declare": compliance.DECLARE,
         "scopes": compliance.SCOPES,
         "resolve": compliance.RESOLVE,
@@ -106,7 +104,6 @@ GROUPS: dict[str, dict[str, object]] = {
         "rule-lane": sweep.RULE_LANE,
         "mine": sweep.MINE,
     },
-    "tools": tools.TOOLS,
     "triage": dict(triage.TRIAGE),
     "util": {
         "redact": util.REDACT,

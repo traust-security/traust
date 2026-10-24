@@ -26,7 +26,7 @@ python3 -m traust.cli check skill-alignment      # equivalent
 | `build` | Deterministic builders | `rescan-worklist`, `skills-reference`, `symbol-index` |
 | `check` | Deterministic gates | `citations`, `content-licenses`, `docs-consistency`, `estate-data`, `drift`, `fix-propagation`, `location-paths`, `reference-integrity`, `skill-alignment`, `skill-security` |
 | `cloud-config` | The cloud-config-audit skill's doors on traust-core | `check`, `record`, `run` |
-| `compliance` | Compliance reporting; boundary doors on traust-core | `dashboard`, `declare`, `resolve`, `scopes` |
+| `compliance` | Boundary doors on traust-core (posture: `dashboard view compliance`) | `declare`, `resolve`, `scopes` |
 | `dashboard` | Dashboard rebuilds, the team report and one insight view | `refresh`, `team-report`, `view` |
 | `feeds` | Security feed snapshots (traust-core) and the product-definitions cache | `fetch`, `fetch-products` |
 | `findings` | track-findings' and findings-db's doors on traust-core | `baseline`, `confirm`, `decide`, `find`, `history`, `import`, `queue`, `refuted`, `reject`, `sarif`, `status`, `summary`, `surfaces`, `tickets`, `timeline` |
@@ -49,7 +49,6 @@ command wrappers:
 | Form | Example | Use instead |
 |---|---|---|
 | Pre-grouping module invocation | `python3 -m traust.cli.check_skill_alignment` | `python3 -m traust.cli check skill-alignment` |
-| `tools` group alias | `python3 -m traust.cli tools check-skill-alignment` | `python3 -m traust.cli check skill-alignment` |
 
 The dot-separated form keeps working because each `src/traust/cli/<module>.py`
 carries an `__main__` delegate that forwards to the grouped parser — which is

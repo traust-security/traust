@@ -34,7 +34,7 @@ Ordering is the whole point:
    the others still render.
 2. **Consumers** — executive summary,
    insecure-patterns, validation-fuzz dashboard, RBAC/tenancy rollup,
-   SLA view, compliance dashboard, ATT&CK coverage rollup,
+   SLA view, ATT&CK coverage rollup,
    LoC dashboard (cache-only), dependency-exposure, spend dashboard.
    Each continues on error; failures are collected.
 3. **Scoreboard last** — `collect_harness_metrics.py` harvests headline
@@ -103,7 +103,7 @@ Ordering is the whole point:
 | `validation-fuzz` | consumer | `harnessing/validation-fuzz-dashboard/scripts/build_validation_fuzz_dashboard.py` |
 | `rbac-tenancy` | consumer | `RETIRED:build_rbac_tenancy_rollup.py` |
 | `sla` | consumer | python3 -m traust.cli metrics sla |
-| `compliance` | consumer | python3 -m traust.cli compliance dashboard |
+| `compliance` | — | *retired:* rendered by the `views` stage (`ComplianceDashboardView`) |
 | `attack-coverage` | consumer | `harnessing/attack-coverage/scripts/build_attack_coverage.py` |
 | `loc` | consumer | `harnessing/loc-dashboard/scripts/build_loc_dashboard.py --no-fetch` (committed gh-languages cache only) |
 | `dependency-exposure` | consumer | `harnessing/refresh-dashboards/scripts/build_dependency_exposure.py` (portfolio-graph dependency layer + impact/fleet-OSV artifacts; degrades gracefully when absent) |

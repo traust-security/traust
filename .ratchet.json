@@ -95,9 +95,6 @@
   "src/traust/cli/build_symbol_index.py": {
     "database": 1
   },
-  "src/traust/cli/calibrate_rule_pack.py": {
-    "engine-internal": 1
-  },
   "src/traust/cli/check_docs_consistency.py": {
     "contracts": 1,
     "state-file": 2
@@ -122,9 +119,6 @@
   },
   "src/traust/cli/groups/adapters.py": {
     "engine-internal": 3
-  },
-  "src/traust/cli/groups/compliance.py": {
-    "contracts": 1
   },
   "src/traust/cli/groups/metrics.py": {
     "contracts": 1,

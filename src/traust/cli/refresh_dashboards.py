@@ -94,12 +94,6 @@ def build_stages(
         ),
         # no door: an SLA view (profiles, clock ladder, digest); reads the retired findings.db
         ("sla", "consumer", [PYTHON, "-m", "traust.cli", "metrics", "sla", *cfg]),
-        # no door: ComplianceDashboardView
-        (
-            "compliance",
-            "consumer",
-            [PYTHON, "-m", "traust.cli", "compliance", "dashboard", *path_args],
-        ),
         # no door: AttackCoverageView; its modeled leg reads AssessmentService.threats
         (
             "attack-coverage",

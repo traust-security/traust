@@ -130,11 +130,9 @@ census.
 
 ### Step 2d — Compliance-assessed coverage line
 
-The compliance posture cut lives in
-`progress-tracker/metrics/dashboards/compliance/` (built by
-python3 -m traust.cli compliance dashboard on the census's own corpus
-resolver, so its population block reconciles with this census by
-construction). When reporting census results, include the
+The compliance posture cut is traust-core's compliance view
+(python3 -m traust.cli dashboard view compliance --out <dir>), read live
+from the recorded assessments and boundary declarations. When reporting census results, include the
 "compliance-assessed targets" line from that dashboard — it is a
 coverage cut over this census's denominators, never a separate
 population.
