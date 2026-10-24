@@ -15,7 +15,7 @@ import hashlib
 import json
 import sys
 from pathlib import Path
-from typing import ClassVar
+from typing import Any, ClassVar
 
 try:
     import yaml
@@ -24,13 +24,23 @@ except ImportError:  # pragma: no cover
 
 if __package__:
     from . import soundness
-    from .adapters import StepResult, get_adapter, kubeargv
+    from .adapters import (
+        Fingerprint,
+        StepResult,
+        kubeargv,
+        new_adapter,
+    )
     from .novel import diff_surfaces, probe_steps
     from .scope import Action, Scope
 else:
     sys.path.insert(0, str(Path(__file__).parent))
     import soundness
-    from adapters import StepResult, get_adapter, kubeargv
+    from adapters import (
+        Fingerprint,
+        StepResult,
+        kubeargv,
+        new_adapter,
+    )
     from novel import diff_surfaces, probe_steps
     from scope import Action, Scope
 
@@ -87,6 +97,10 @@ def _step_actions(step: dict) -> tuple[list[Action], str | None]:
     actions = [base_action]
     if base_action.adapter != "k8s":
         return actions, None
+    if step.get("target", {}).get("http") is not None:
+        if step.get("cmd") or step.get("rollback"):
+            return actions, "structured HTTP steps cannot carry command or rollback text"
+        return actions, None
     cmd = step.get("cmd") or ""
     if not cmd:
         return actions, None
@@ -113,7 +127,7 @@ def _step_actions(step: dict) -> tuple[list[Action], str | None]:
                     context=base_action.context,
                     namespace=ns,
                     resource=k.resource or base_action.resource,
-                    name=base_action.name,
+                    name=None if k.resource in {"node", "nodes"} else base_action.name,
                     image=base_action.image,
                 )
             )
@@ -159,14 +173,24 @@ def _load_evidence(r: StepResult, artifacts_dir: Path) -> str:
     return r.observed or ""
 
 
-def preflight(scope):
+def _auto_profile_map() -> dict[str, Any] | None:
+    from traust.context import load_engine
+
+    try:
+        return load_engine().adapters.safe_exec_profile_map()
+    except Exception as exc:
+        raise RuntimeError(f"Failed to load safe_exec configuration from estate: {exc}") from exc
+
+
+def preflight(scope: Scope, *, profile_map: dict[str, Any] | None = None) -> list[Fingerprint]:
     """Capture target fingerprints for ``metadata.target_fingerprint``.
 
     run.py calls this as ``ex.preflight(scope)`` (it always has — the
     function just never existed, so fingerprints came back empty).
     Delegates to each bound adapter's own ``preflight()``.
     """
-    fps = []
+    profiles = profile_map if profile_map is not None else _auto_profile_map()
+    fps: list[Fingerprint] = []
     seen = set()
     bound = []
     if getattr(scope, "clusters", None):
@@ -180,7 +204,10 @@ def preflight(scope):
             continue
         seen.add(name)
         with contextlib.suppress(Exception):
-            fps.extend(get_adapter(name).preflight(scope))
+            adapter = new_adapter(name)
+            adapter.bind_scope(scope)
+            adapter.bind_profile_map(profiles)
+            fps.extend(adapter.preflight(scope))
     return fps
 
 
@@ -191,7 +218,19 @@ def run(
     *,
     permit_destructive: bool = False,
     second_pass_novel: bool = True,
+    profile_map: dict[str, Any] | None = None,
 ) -> tuple[list[StepResult], AuditLog]:
+    profiles = profile_map if profile_map is not None else _auto_profile_map()
+    adapters = {}
+
+    def get_adapter(name: str) -> Any:
+        if name not in adapters:
+            adapter = new_adapter(name)
+            adapter.bind_scope(scope)
+            adapter.bind_profile_map(profiles)
+            adapters[name] = adapter
+        return adapters[name]
+
     plan = _load_plan(plan_path)
     steps: list[dict] = list(plan.get("steps", []))
     artifacts_dir = out_dir / "artifacts"
@@ -239,6 +278,19 @@ def run(
         sid = step["id"]
         verb = step.get("verb", "")
         cls = step.get("classification", "safe")
+        http = step.get("target", {}).get("http")
+        if isinstance(http, dict):
+            method = http.get("method", "GET")
+            severity = (
+                "destructive"
+                if method == "DELETE"
+                else "mutating"
+                if method in {"POST", "PUT", "PATCH"}
+                else "safe"
+            )
+            ranks = {"safe": 0, "mutating": 1, "destructive": 2}
+            cls = max((cls, severity), key=lambda value: ranks.get(value, 2))
+            step["classification"] = cls
 
         # pre-skipped in plan
         if step.get("skip") and verb != "placeholder":
@@ -367,7 +419,11 @@ def run(
             )
 
         # rollback mutating steps immediately after evidence capture
-        if cls == "mutating":
+        if (
+            cls == "mutating"
+            and not http
+            and res.verdict not in {"blocked_by_scope", "not_attempted"}
+        ):
             try:
                 ok_rb, rb_out = adapter.rollback(step, res)
             except Exception as e:
