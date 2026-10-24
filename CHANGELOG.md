@@ -7,6 +7,15 @@ All notable changes to Traust are documented here.
 - Clear the existing Ruff lint and formatting failures without changing CLI
   help text, validation behavior, or test expectations.
 
+## [0.41.1]
+
+- **Below-range fix choice reads the advisory's wording** (traust-engine
+  0.43.1, engine#78). Among linked patches that don't name the advisory, the
+  words they share with its summary now outrank whether they touch files in
+  the installed tree, so an unrelated commit no longer wins when the real
+  fix's files are absent from the older version. Packets record
+  `advisory_words_shared` per alternative.
+
 ## [0.41.0]
 
 - **Below-range packets carry the dependencies the fix's code imports.**
