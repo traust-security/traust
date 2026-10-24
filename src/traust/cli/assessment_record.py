@@ -16,6 +16,8 @@ from traust_core.v1.models.artifacts import (
     IsolationReviewArtifact,
     PrivProfileArtifact,
     SecurityAuditArtifact,
+    ThreatModelArtifact,
+    VulnFindingsArtifact,
 )
 from traust_core.v1.models.assessment import AssessmentKind
 from traust_core.v1.models.common import Provenance
@@ -31,6 +33,9 @@ RECORDS: dict[AssessmentKind, tuple[str, type[ArtifactDocument]]] = {
     AssessmentKind.RPM: ("secure-rpm-audit", SecurityAuditArtifact),
     AssessmentKind.ISOLATION_REVIEW: ("isolation-review", IsolationReviewArtifact),
     AssessmentKind.PRIV_PROFILE: ("operator-priv-profile", PrivProfileArtifact),
+    AssessmentKind.VULN_SCAN: ("vuln-scan", VulnFindingsArtifact),
+    AssessmentKind.SECURE_CODE: ("secure-code-audit", SecurityAuditArtifact),
+    AssessmentKind.THREAT_MODEL: ("threat-model", ThreatModelArtifact),
 }
 
 
@@ -40,6 +45,10 @@ def ran_at(kind: AssessmentKind, doc: ArtifactDocument) -> datetime:
         return datetime.now(UTC)  # a profile states no run time: each record is a new run
     if kind is AssessmentKind.ISOLATION_REVIEW and (reviewed := when(doc.metadata.reviewed_at)):
         return reviewed
+    if kind is AssessmentKind.THREAT_MODEL:  # schema: provenance.date, a date
+        return datetime.combine(date.fromisoformat(doc.provenance.date), time(), UTC)
+    if kind is AssessmentKind.VULN_SCAN:
+        return when(doc.scanned_at)  # schema: required, a time with a zone
     return datetime.combine(date.fromisoformat(doc.metadata.date), time(), UTC)  # schema: a date
 
 

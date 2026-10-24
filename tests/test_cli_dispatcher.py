@@ -23,6 +23,7 @@ def test_all_planned_groups_registered():
     assert set(GROUPS) == {
         "adapters",
         "admin",
+        "assessments",
         "auth",
         "build",
         "check",

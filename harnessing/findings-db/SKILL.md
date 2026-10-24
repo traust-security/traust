@@ -102,7 +102,6 @@ or substitute for the ledger):
 
 | Skill | Touchpoint |
 |---|---|
-| `/vuln-scan` | diff-mode baseline resolution (`resolve_baseline.py --db`) |
 | `/verify-remediation` | sweep scoping / accelerator queries |
 | `/dependency-watch` | `impact` table + `repos` baselines |
 | `/compliance-check` | `findings_db` collector — pre-shaped views over ledger conclusions |

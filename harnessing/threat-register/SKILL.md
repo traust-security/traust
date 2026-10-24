@@ -5,11 +5,10 @@ description: >-
   (not findings) — "how many unmitigated critical threats do we have",
   "threat register", "which products carry the most open threat exposure",
   "what class-closing mitigations would pay off fleet-wide" — or asks to
-  (re)build the threat register. Deterministically aggregates every
-  *-threat-model.md (and legacy THREAT_MODEL.md) under analysis-results into
-  progress-tracker/metrics/dashboards/threat-register/threat-register.{json,md,html}, keyed by the stable
-  compound key <model-slug>:<Tn>.
-argument-hint: "[--root <analysis-results>] [--out <dir>]"
+  (re)build the threat register. Deterministically lists every threat the
+  registered repositories' latest recorded threat models state (traust
+  assessments threats), each keyed by a stable id per model and <Tn>.
+argument-hint: "[--status <status>] [--technique <attack-id>]"
 user-invocable: true
 metadata:
   harness.tier: "secondary"
@@ -17,13 +16,14 @@ allowed-tools:
   - Read
   - Glob
   - Bash(python3 *-m traust_engine.reporting.lint:*)
+  - Bash(python3 *-m traust.cli assessments threats:*)
   - Bash(ls:*)
   - Bash(wc:*)
 ---
 
 # threat-register
 
-> **Being ported to traust-core** (progress-tracker skill port 13, threat-register): build_threat_register.py retired with the traust-core hub (it ran on the old ledger / corpus code). The steps marked RETIRED don't run until the port lands.
+> **Being ported to traust-core** (progress-tracker skill port 13, threat-register): build_threat_register.py retired with the traust-core hub (it ran on the old ledger / corpus code). Run now lists the register's threats from traust-core; the steps marked RETIRED (the roll-ups and the json/md/html register) don't run until traust-core's threat-register view lands.
 
 > **Paths.** `analysis-results/…` and `progress-tracker/…` in this skill are the
 > default workspace layout. They resolve through `locations.yaml` in
@@ -42,26 +42,27 @@ most".
 
 Threat IDs are document-scoped (`T1`, `T2`, …) by design — a threat must
 not be SHA-pinned, and the disposition ledger tracks findings, not
-threats. The register derives a **stable compound key**
-`<product>/<model-slug>:<Tn>` for every threat; it is durable because
-schema.md forbids renumbering or reusing threat IDs, and the builder
-requalifies any colliding slug with its full path, so keys are globally
-unique. Threats cite canonical finding IDs in their `evidence` column —
+threats. The register derives a **stable id** from the recorded model's
+assessment and the threat's `<Tn>` (`label`), with the `repository` it
+belongs to; it is durable because schema.md forbids renumbering or
+reusing threat IDs, so ids are globally unique. Threats cite canonical finding IDs in their `evidence` column —
 that is the join to the ledger, and it runs in that direction only.
 
 ## Run
 
 ```bash
-python3 <skill-dir>/build_threat_register.py --root <analysis-results>
+python3 -m traust.cli assessments threats [--status unmitigated] [--technique T1190]
 ```
 
-One deterministic pass (seconds, even for a corpus of thousands). The builder reuses
-python3 -m traust.cli reporting lint's parser, so it reads exactly what the
-contract gate enforces; models that do not conform are skipped and
-counted (`models_skipped_nonconforming`) — if that count is nonzero,
-run the linter to find them, fix, and rebuild. It never edits a model.
+One deterministic read (`--status` repeats). It reads each registered
+repository's latest completed threat model recorded by `/threat-model`
+(`traust reporting record`), which passed the contract gate on the way
+in, so nothing is skipped; a repository whose model isn't recorded has no
+rows. It never edits a model.
 
 ## Output
+
+RETIRED until traust-core's threat-register view lands (`assessments threats` prints `total` and the threat rows as JSON meanwhile):
 
 `progress-tracker/metrics/dashboards/threat-register/threat-register.{json,md,html}` (legacy fallback `<root>/threat-register/` when the progress-tracker sibling is absent). Each run also appends a `threat-register` snapshot (threat models, total/unmitigated/partially-mitigated/open threats, quick wins) to the central hash-chained metrics ledger — no-op when unchanged — and injects a trend-vs-previous banner into the md/html, so threat trends are visible per-register and in Executive-Trends:
 
@@ -127,8 +128,8 @@ lives in the linked isolation review, never here.
 
 ## Keeping it current
 
-The register is a projection: regenerate after any batch of
-`/threat-model` runs, reviews, or updates (it is cheap enough to rebuild
-on every consumption). Downstream: `/generate-team-report` and the
+The register is a projection: it is read from the latest recorded
+models on every call, so `/threat-model` runs, reviews, or updates show
+up once they are recorded. Downstream: `/generate-team-report` and the
 executive summary may cite per-product rows; `/threat-model review`
-verdicts change `status` fields, which the next rebuild picks up.
+verdicts change `status` fields, which the next read picks up.
