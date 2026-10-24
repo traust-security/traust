@@ -29,6 +29,20 @@ def osv_access() -> str:
     return live_sources()["osv"].get("access", "api")
 
 
+def nuget_ids():
+    """The resolver OsvClient uses to retry a NuGet lookup under nuget.org's
+    casing (OSV matches NuGet ids case-sensitively), or ``None`` when
+    feeds.yaml disables the nuget-packages source."""
+    from traust_engine.osv import NugetIds
+
+    from traust.registry.feeds_config import live_sources
+
+    spec = live_sources().get("nuget-packages") or {}
+    if spec.get("access", "api") == "disabled":
+        return None
+    return NugetIds()
+
+
 def deps_dev_settings() -> tuple[str, str] | None:
     """(url_template, access) of the deps_dev source, or ``None`` when absent."""
     from traust.registry.feeds_config import live_sources

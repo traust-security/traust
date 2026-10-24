@@ -9,6 +9,14 @@ All notable changes to Traust are documented here.
 
 ## [0.42.0]
 
+- **NuGet lookups no longer miss advisories over casing** (traust-engine
+  0.44.0). OSV matches NuGet ids case-sensitively, so every OSV client
+  traust builds now passes a `NugetIds` resolver: `adapters osv` (repository
+  and SBOM scans), `adapters below-range` and the fleet sweep. A NuGet lookup that comes
+  back empty is retried under the id nuget.org publishes. The resolver is
+  off when `feeds.yaml` disables `nuget-packages`, whose entry now lists
+  these consumers.
+
 - **The below-range lane covers RubyGems and NuGet** (traust-engine 0.44.0).
   `adapters below-range` checks both by default. `feeds.yaml` gains three
   `package-source` entries:
