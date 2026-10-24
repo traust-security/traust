@@ -152,7 +152,7 @@ RC=$?
 STATUS_JSON="$OUT/mutation-status.json"
 mewt_in_boundary mewt status --format json >"$STATUS_JSON" 2>/dev/null || true
 
-python3 "$(dirname "$0")/scripts/mutation_evidence.py" \
+python3 -m traust.cli remediation mutation-evidence \
   --log "$LOG" --rc "$RC" --target "$TARGET" \
   --tool-version "$MEWT_VERSION" --status-json "$STATUS_JSON" \
   --boundary "$BOUNDARY"

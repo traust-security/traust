@@ -15,6 +15,10 @@ spec (contracts/schemas/fleet-fix.schema.json) and a CLEAN working clone, it
   4. enforces guards (max_files_changed, clean tree) and writes
      <repo>-<spec-id>.diff + <repo>-<spec-id>-result.json to --out-dir.
 
+Interactive apply stays here until traust has an ops CLI to submit/approve/claim
+a fleet-fix run order - NEED(ops CLI); under a leased order, use
+`traust remediation fleet-apply` (traust-core's apply_fleet_fix door).
+
 It NEVER commits, forks, or opens MRs — those are the skill's later,
 human-gated stages. Exit 0 = applied (or no matches — see result JSON);
 2 = guard/golden-test refusal; 1 = tool failure.

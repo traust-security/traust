@@ -23,7 +23,7 @@ allowed-tools:
   # finding prose and target source; an unscoped interpreter under injection
   # is code execution. Scope every script individually.
   - Bash(bash *run_property.sh:*)
-  - Bash(python3 *traust/harnessing/7-remediate/property-test/scripts/property_evidence.py:*)
+  - Bash(python3 -m traust.cli remediation property-evidence:*)
 ---
 
 # Property test authoring

@@ -47,7 +47,7 @@ assets:
     freshness: {fail: 14d}
     runner: {labels: [deterministic]}
 
-  verify_remediation:  # skill session: build_verify_sweep.py → /verify-remediation full-sweep
+  verify_remediation:  # skill session: traust remediation verify-sweep → /verify-remediation full-sweep
     trigger: {every: 7d}
     priority: 50
     freshness: {fail: 14d}

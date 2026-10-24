@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Legacy batch mode, kept: no traust-core door selects candidates in bulk by product yet; run_one.sh
+# now takes work item ids (traust remediation open), so this CSV manifest no longer feeds it.
 """
 Emit a per-product remediation index repository.
 
