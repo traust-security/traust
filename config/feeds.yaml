@@ -402,13 +402,16 @@ sources:
     tier: live
     role: package-source
     summary: >-
-      NuGet `.nuspec` metadata for an installed version, from the nuget.org
-      flat container. NuGet packages hold compiled assemblies; the nuspec names
-      the repository and commit the source is read from.
+      nuget.org metadata. A `.nuspec` names the repository and commit an
+      installed version's source is read from (NuGet packages hold compiled
+      assemblies), and the registration index gives an id's published casing,
+      under which an empty OSV lookup is retried (OSV matches NuGet ids
+      case-sensitively).
     url_template: https://api.nuget.org/v3-flatcontainer/{ident}
     access: api
     consumers:
       - traust.cli adapters below-range (traust_engine.applicability)
+      - traust.cli adapters osv (repository and SBOM scans) and the dependency-watch fleet sweep (traust_engine.osv.NugetIds)
     license:
       id: pass-through
       terms: >-

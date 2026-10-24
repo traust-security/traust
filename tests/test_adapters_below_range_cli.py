@@ -189,3 +189,18 @@ def test_the_deps_dev_resolver_is_passed_and_respects_disabled(tmp_path, monkeyp
     from traust_engine.depsdev import DepsDevClient
 
     assert isinstance(seen[0], DepsDevClient) and seen[1] is None
+
+
+def test_nuget_ids_resolver_follows_the_nuget_packages_source(monkeypatch):
+    from traust_engine.osv import NugetIds
+
+    from traust.registry import feeds_config, osv_urls
+
+    monkeypatch.setattr(feeds_config, "live_sources", lambda: {"nuget-packages": {"access": "api"}})
+    assert isinstance(osv_urls.nuget_ids(), NugetIds)
+    monkeypatch.setattr(feeds_config, "live_sources", lambda: {})
+    assert isinstance(osv_urls.nuget_ids(), NugetIds)  # absent: the engine default, on
+    monkeypatch.setattr(
+        feeds_config, "live_sources", lambda: {"nuget-packages": {"access": "disabled"}}
+    )
+    assert osv_urls.nuget_ids() is None

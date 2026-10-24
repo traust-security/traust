@@ -7,6 +7,19 @@ All notable changes to Traust are documented here.
 - Clear the existing Ruff lint and formatting failures without changing CLI
   help text, validation behavior, or test expectations.
 
+## [0.42.1]
+
+- **NuGet lookups no longer miss advisories over casing** (traust-engine
+  0.44.1). OSV matches NuGet ids case-sensitively, so every OSV client
+  traust builds now passes a `NugetIds` resolver:
+  - `adapters osv` (repository and SBOM scans);
+  - `adapters below-range`;
+  - the fleet sweep.
+
+  A NuGet lookup that comes back empty is retried under the id nuget.org
+  publishes. The resolver is off when `feeds.yaml` disables
+  `nuget-packages`, whose entry now lists these consumers.
+
 ## [0.42.0]
 
 - **The below-range lane covers RubyGems and NuGet** (traust-engine 0.44.0).
