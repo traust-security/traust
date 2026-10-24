@@ -28,11 +28,15 @@ allowed-tools:
   - Bash(python3 *traust* -m traust.cli adapters opengrep:*)
   - Bash(python3 *traust* -m traust_engine.adapters.checkov:*)
   - Bash(python3 *traust* -m traust.cli reporting validate:*)
-  - Bash(python3 *traust/harnessing/8-verify/verify-remediation/scripts/build_verify_sweep.py:*)
-  - Bash(python3 *traust/harnessing/8-verify/verify-remediation/scripts/scanner_differential.py:*)
+  - Bash(python3 *traust* -m traust.cli remediation verify-sweep:*)
+  - Bash(python3 *traust* -m traust.cli remediation verify-prepare:*)
+  - Bash(python3 *traust* -m traust.cli remediation verify-differential:*)
+  - Bash(python3 *traust* -m traust.cli remediation verify-record:*)
+  - Bash(python3 *traust* -m traust.cli remediation verifications:*)
+  - Bash(python3 *traust* -m traust.cli triage intake:*)
+  - Bash(python3 *traust* -m traust.cli findings baseline:*)
+  - Bash(python3 *traust* -m traust.cli findings find:*)
   - Bash(python3 *traust* -m traust.cli.emit_triage_ledger_events:*)
-  - Bash(python3 *traust* -m traust.cli.emit_verification_ledger_events:*)
-  - Bash(python3 *traust* -m traust.cli.route_regressions:*)
   # Confinement added 2026-07-31 (P1-W4): S1 exemption retired. Never
   # widen to a bare interpreter — scope scripts individually.
 ---
@@ -72,6 +76,8 @@ introduced by the patch itself.
 `$ARGUMENTS` contains:
 
 1. **The original audit report** — one of:
+   - A work item id: `traust remediation verify-prepare <work-item>` prints
+     its findings, every decision on them and earlier verifications
    - Path to a `*-security-audit.json` file (preferred)
    - Path to a `*-security-audit.md` file (parsed for finding data)
    - A `<product>/<repo>` shorthand resolved to
@@ -126,14 +132,15 @@ removal usually fixes, but **judge it** (renamed vendor path?) rather
 than auto-resolving. `not_observed` means the commit has no SBOM yet:
 record one; never read it as consumed.
 
-**Ledger mapping** (consumed by `/track-findings` ingest): `resolved` +
+**Ledger mapping** (`traust remediation verify-record` applies it): `resolved` +
 `consumed` → resolution `resolved`; `partially_resolved` + `pending` →
 resolution `fix_in_progress` with `evidence_refs` carrying the fix
 repo's commit and this verification report; re-run the propagation check
 (cheap, deterministic) when the original repo's HEAD moves, and promote
-on `consumed`. Record `metadata.fix_repository`/`fix_ref` so the sweep's
-`covered_elsewhere` logic can fan the adjudication out to sibling
-filings.
+on `consumed`. Record the fix repository per finding in its `cross_repo`
+block, never as `metadata.fix_repository`/`fix_ref` (`verify-record`
+refuses those); a repository is one record, so there are no sibling
+filings to fan out to.
 
 Examples:
 ```
@@ -153,8 +160,8 @@ Examples:
    (full audits / diff scans), while this skill remains the only lane
    that resolves existing findings; the two consult the same
    `metadata.commit` anchors but never substitute for each other. Remaining tokens pass through to
-   `build_verify_sweep.py` (`--include-branches`, `--no-network`,
-   `--force`, `--roots …`), plus two sweep-loop controls handled by the
+   `traust remediation verify-sweep` (`--repo-url …`, `--product …`;
+   default every registered repository), plus two sweep-loop controls handled by the
    skill itself: `--tier T1[,T2…]` limits execution to the named tiers,
    `--limit N` caps the number of repos verified this run,
    `--impact-filter <path>` scopes the sweep to repos classified
@@ -180,22 +187,23 @@ untouched has still completed its scope:
 | Class | Default behavior | Rationale |
 |---|---|---|
 | **Unchanged HEAD** | Skipped in sweep mode (`skip:head_unchanged`); single-repo runs short-circuit in Phase 2b | If the repo HEAD still equals the audited SHA, not a single commit has landed since the audit — nothing can have been fixed, and every verdict would trivially be `unresolved` at the same pin. The repo re-enters scope automatically on the next worklist rebuild after its HEAD drifts. |
-| **Release-branch re-audits** (`<repo>__release-*` reports) | Excluded from sweeps unless `--include-branches` | Verification targets the repo's canonical HEAD filing; the HEAD sweep covers the repo. Branch-pinned audit dirs never get their own report unless explicitly requested. |
-| **Sibling filings** (same repo audited under several product dirs) | Deduped by normalized repository URL — one verification, written beside the **highest-priority canonical** report; sibling dirs are recorded in that entry's `duplicate_report_dirs` | One repo state warrants one verification; per-sibling reports would re-derive identical verdicts. Sibling trees share the canonical result. |
-| **Unreachable remotes** | Skipped (`skip:unreachable`) but **listed** in the worklist so they aren't silently lost | The patched tree cannot be cloned (repo gone, renamed, or permission-gated — e.g. VPN-only GitLab). Retry when access changes. |
-| **Covered elsewhere** (sibling filing of a repo already verified at the current HEAD) | Skipped (`skip:covered_elsewhere`) unless `--force` | A sibling product filing whose repo has a same-URL verification report pinning the live HEAD is already adjudicated — it needs ledger fan-out at most, never a fresh run. Without this class, the sweep's own fan-out ledger events re-queue verified siblings as T1 on every rebuild (treadmill feedback loop). |
+| **Release-branch re-audits** (`<repo>__release-*` reports) | *Retired:* the sweep reads each repository's observed default-branch head; release branches are refs of the same repository | Verification targets the repo's canonical HEAD filing; the HEAD sweep covers the repo. Branch-pinned audit dirs never get their own report unless explicitly requested. |
+| **Sibling filings** (same repo audited under several product dirs) | *Retired:* a repository is one record however many products ship it, so it gets one verification | One repo state warrants one verification; per-sibling reports would re-derive identical verdicts. Sibling trees share the canonical result. |
+| **Unobserved heads** | Skipped (`skip: unobserved`) but **listed** in the worklist so they aren't silently lost | No default-branch head has been observed for the repository (`traust portfolio observe`): repo gone, renamed, or permission-gated — e.g. VPN-only GitLab. Retry when access changes. |
+| **Covered elsewhere** (sibling filing of a repo already verified at the current HEAD) | *Retired:* one record per repository, so a verification at the head is `skip: already_verified` | A sibling product filing whose repo has a same-URL verification report pinning the live HEAD is already adjudicated — it needs ledger fan-out at most, never a fresh run. Without this class, the sweep's own fan-out ledger events re-queue verified siblings as T1 on every rebuild (treadmill feedback loop). |
 
-Already-verified repos (`skip:already_verified`) are also skipped unless
-`--force` — this is what makes an interrupted sweep resumable, and it
-means a report's absence (not its age) is the queueing signal.
+Already-verified repos (`skip: already_verified`, a verification of the
+current head is recorded) are also skipped — this is what makes an
+interrupted sweep resumable, and it means a verification's absence (not
+its age) is the queueing signal. Repositories with nothing open and no
+claimed fix are `skip: nothing_open`.
 
 Consequence for anyone auditing coverage: the number of
-verification reports on disk will always be far smaller than the number
-of audit reports. To see why any specific folder has no report, rebuild
-the worklist (Full-Sweep Step 1) and look the folder up in
-`findings/_manifest/verify-sweep-worklist.json` — excluded reports each
-have a row in the top-level `skipped[]` array with their `skip_reason`;
-deduped sibling dirs appear in a queued entry's `duplicate_report_dirs`
+recorded verifications will always be far smaller than the number
+of audit reports. To see why any specific repository has no verification,
+rebuild the worklist (Full-Sweep Step 1) and look the repository up in
+the `traust remediation verify-sweep` output — excluded repositories each
+have a row in the top-level `skipped[]` array with their `skip`
 (artifact format documented in Full-Sweep Step 1).
 
 ---
@@ -520,17 +528,19 @@ scanner checks mechanically.
    turns the result from prose into a checkable claim:
 
    ```bash
-   python3 -m traust.cli adapters opengrep <original-checkout> --out /tmp/<repo>-og-base.json
-   python3 harnessing/8-verify/verify-remediation/scripts/scanner_differential.py \
-     --base-report /tmp/<repo>-og-base.json \
-     --patched-report /tmp/<repo>-og-verify.json \
-     --base-ref <original_commit> --rule-id <the finding's rule_id> \
-     >> <out>/verification-evidence.jsonl
+   # the scanner run that backed the findings is already recorded on the
+   # original commit; record the same scanner's run of the patched commit
+   python3 -m traust.cli triage intake <patched-scan.sarif> --format sarif \
+     --repo-url <repository> --sha <patched_commit> --origin verify-remediation
+   python3 -m traust.cli remediation verify-differential <work-item> \
+     --repo-url <repository> --sha <patched_commit>
    ```
 
-   Pass `--rule-id` (and/or `--file`) per finding: an unrestricted
-   differential answers a question nobody asked. Collect the items into the
-   report's `evidence[]` (contracts >= 0.4.0).
+   (The door restricts the comparison to the work item's findings' rules and
+   paths: an unrestricted differential answers a question nobody asked.)
+   Collect the item into the report's `evidence[]` (contracts >= 0.4.0).
+   Without a work item there is no door yet: compare the two runs as in
+   step 3 and say so in the evidence.
 
    | `outcome` | Meaning |
    |---|---|
@@ -791,7 +801,7 @@ The report must validate against `contracts/schemas/verification.schema.json`
   },
   "verified_findings": [
     {
-      "original_id": "<finding ID from original report>",
+      "original_id": "<finding id: verify-prepare, or traust findings find for a report entry>",
       "original_title": "<finding title>",
       "original_severity": "<severity>",
       "verdict": "resolved|partially_resolved|unresolved|new_approach|regression|false_positive|risk_accepted",
@@ -988,44 +998,11 @@ Regressions are audit-grade new findings and become **first-class ledger
 findings directly** — no `/triage` precondition (user directive
 2026-07-27; parity with the scanning skills, whose findings enter
 reports/ledger at birth as `not_verified` with triage adjudicating
-downstream). After the report validates, run the deterministic router
-(from the workspace root):
-
-```bash
-traust/.venv/bin/python \
-  python3 -m traust.cli route regressions \
-  <path-to>/<repo-name>-remediation-verification.json
-```
-
-Per regression it mints a campaign-compliant finding ID at the patched
-sha — `{REPO_SLUG}-{PATCHED_SHA7}-{NNN}`, numbering continuing where the
-baseline's existing findings at that sha leave off (001 for a new sha;
-IDs are sha-scoped so collisions cannot occur) — then:
-
-- **carries the transcribed finding on its ledger event** (`event.finding`,
-  contracts >= 0.4.4; `build_cumulative` unions event-carried findings with the
-  baseline's, plan B2). The baseline itself is **never written** — gate A15
-  reserves that for `/secure-code-audit`, `/secure-rpm-audit` and
-  `/secure-container-audit`. Same convention as `/vuln-scan` and
-  `/create-fuzzing` follow-ups. Recorded with
-  `validation_status: not_verified`, `origin: "verify-remediation"`, a
-  script-computed fingerprint (python3 -m traust.cli corpus finding-identity), and
-  provenance both ways: the REG id + verification report path in the
-  finding's `source_findings`, and `routed_id` written back onto the
-  verification report's regression entry;
-- **pins the new claim hash** into the disposition layer (add-only,
-  `baseline_claims` semantics) and **appends one ledger birth event**
-  (`source.type: verification_report`, machine actor
-  `verify-remediation`, `disposition: {resolution: "open"}` — validity
-  stays the `not_verified` default; the verification report is the
-  `evidence_ref`);
-- **rebuilds the cumulative** `*-findings-current.{json,md}` via
-  `build_cumulative.py`, then re-validate the layer and cumulative with
-  `validate_report.py`.
-
-Re-running is idempotent (routed_id / source_findings back-references +
-deterministic event_ids). The router routes and records — it never
-authors a verdict; the routed findings await triage/validation
+downstream). (`traust remediation verify-record`, 7b, takes every
+`regressions[]` entry in as a finding of the patched commit, `origin:
+verify-remediation`, not yet validated, with the verification as its
+evidence; re-recording the same report changes nothing.) It records — it
+never authors a verdict; the routed findings await triage/validation
 adjudication like any other claimed finding
 (docs/findings-routing.md).
 
@@ -1058,16 +1035,16 @@ Present a summary table to the user:
 After delivering, emit resolution events into the findings ledger so
 the cumulative status reflects verification verdicts:
 
-> The emitter (`ledger emit-verification`) retired with the traust-core hub;
-> this skill's record door replaces it with its port to traust-core
-> (progress-tracker skill port 31). Until then this step doesn't run.
+```bash
+python3 -m traust.cli remediation verify-record \
+  <path-to>/<repo-name>-remediation-verification.json
+```
 
 This maps each verified finding's verdict to a `disposition.resolution`
 event (`resolved`, `partially_resolved`, `fix_in_progress`, `open`,
 `regression_introduced`, `risk_accepted`) or a `disposition.validity`
-event (`false_positive`). Regressions routed in Phase 7a2 are not
-re-emitted (the emitter skips `regressions[]`; `route_regressions` is
-idempotent).
+event (`false_positive`, waiting for a person's countersign). Regressions
+are taken in once (Phase 7a2).
 
 #### 7c. Clean up
 
@@ -1086,17 +1063,9 @@ re-audit; the sweep spends it only where a fix can possibly exist.
 ### Step 1 — Build the worklist (deterministic, no subagent)
 
 ```bash
-traust/.venv/bin/python \
-    traust/harnessing/8-verify/verify-remediation/scripts/build_verify_sweep.py \
-    [--results-root <analysis-results>] [--include-branches] \
-    [--no-network] [--force]
+python3 -m traust.cli remediation verify-sweep \
+    [--repo-url <url>]… [--product <slug>]… [-o <worklist.json>]
 ```
-
-Use the **harness venv interpreter**, not bare `python3` — the builder
-imports python3 -m traust.cli corpus, which needs PyYAML; outside the venv it
-dies on `ModuleNotFoundError: No module named 'yaml'` before scanning
-anything. The same applies to every harness script this skill invokes
-(4-pre scanners, `validate_report.py`).
 
 > **Optional accelerator — findings-db candidate listing.** For quick
 > scoping questions before (or instead of) a full worklist rebuild —
@@ -1109,105 +1078,72 @@ anything. The same applies to every harness script this skill invokes
 > emissions won't appear in it until a rebuild. The DB lists
 > candidates; the ledger decides.
 
-The script walks every canonical (non-symlink) `*-security-audit.json`
-under `findings/`, and for each repo compares the pinned audit SHA
-against the live HEAD (`git ls-remote`, parallel), reads the sibling
-disposition ledger for remediation-claim events
-(`fix_in_progress`/`resolved`/`partially_resolved`), and checks for an
-existing `*-remediation-verification.json`. It writes
-`findings/_manifest/verify-sweep-worklist.{json,md}` with a tiered
-queue:
+(The door reads each registered repository in traust-core: the last
+commit its findings were judged on against its observed default-branch
+head, the claimed fixes — a finding whose latest resolution is
+`fix_in_progress`/`resolved`/`partially_resolved` from anything but a
+verification — and whether a verification of that head is recorded.) It
+prints a tiered queue:
 
 | Tier | Meaning | Why this order |
 |---|---|---|
-| T1 | ledger remediation signal | someone claims work happened — verify the claim first |
+| T1 | claimed fix | someone claims work happened — verify the claim first |
 | T2 | HEAD drifted + ≥1 critical | highest risk retired first |
 | T3 | HEAD drifted + ≥1 high | |
 | T4 | HEAD drifted, other | |
 
-The script applies the **Coverage Semantics** exclusions above and
+The door applies the **Coverage Semantics** exclusions above and
 records each one explicitly in the worklist:
 
-- **Unchanged HEAD** → `skip:head_unchanged` (nothing changed → nothing
+- **Unchanged HEAD** → `skip: head_unchanged` (nothing changed → nothing
   fixed; re-queued automatically on a later rebuild once HEAD drifts)
-- **Already verified** → `skip:already_verified` unless `--force`
+- **Already verified** → `skip: already_verified`
   (resumability: an interrupted sweep re-queues only what is still
   unverified)
-- **Unreachable remotes** → `skip:unreachable`, listed rather than
+- **Unobserved heads** → `skip: unobserved`, listed rather than
   dropped so VPN-only GitLab repos aren't silently lost
-- **Covered elsewhere** → `skip:covered_elsewhere` unless `--force`: a
-  sibling filing whose repo already has a same-URL verification report
-  pinning the live HEAD (needs fan-out at most; prevents the sweep's own
-  fan-out ledger events from re-queueing verified siblings as T1)
-- **Release-branch (`__release-*`) reports** → excluded from discovery
-  unless `--include-branches`
-- **Sibling filings** → after tiering, the queue is deduped by
-  normalized repository URL: the highest-priority entry is kept and its
-  `duplicate_report_dirs` lists every sibling dir that shares the repo
+- **Nothing open** → `skip: nothing_open`: no open finding and no claimed
+  fix, so there is nothing a verification could cover
 
-The script routes only — it never authors a verification verdict.
+The door routes only — it never authors a verification verdict.
 
-**Worklist artifact format.** `verify-sweep-worklist.json` has four
-top-level sections (the `.md` beside it renders the same data as the
-tier table plus the queue):
+**Worklist artifact format.** The output has two top-level sections:
 
 ```json
 {
-  "metadata": {
-    "artifact": "verify-remediation-sweep-worklist",
-    "role": "deterministic shortlist … routes only, never authors a verification verdict",
-    "generated_at": "<ISO 8601 UTC>",
-    "network": true,
-    "roots": ["<findings trees scanned>"]
-  },
-  "summary": {
-    "reports_scanned": 0,
-    "queued": 0,
-    "by_tier": {"T1": 0, "T2": 0, "T3": 0, "T4": 0},
-    "skipped": {"head_unchanged": 0, "already_verified": 0,
-                "covered_elsewhere": 0, "unreachable": 0, "no_repo_url": 0}
-  },
-  "worklist": [
+  "queued": [
     {
-      "report": "<path to the canonical *-security-audit.json>",
-      "repo_dir": "<findings dir containing it>",
-      "base": "<repo report basename>",
-      "repository": "<normalized repo URL>",
-      "pinned_sha": "<audit SHA or null>",
-      "head_sha": "<live HEAD or null (offline)>",
-      "findings": 0, "criticals": 0, "highs": 0,
-      "ledger_signal_events": 0,
-      "verification_exists": false,
+      "repository_id": "<uuid>",
+      "repository": "<repo URL>",
+      "head_sha": "<observed default-branch head>",
+      "pinned_sha": "<last commit its findings were judged on, or null>",
+      "verified_at_head": false,
+      "open_findings": 0, "criticals": 0, "highs": 0,
+      "claims": 0,
+      "archived": false,
       "tier": "T1|T2|T3|T4",
-      "skip_reason": null,
-      "repo_status": "<liveness: active|archived|…|unknown>",
-      "duplicate_report_dirs": ["<sibling dirs sharing this repo>"]
+      "skip": null
     }
   ],
   "skipped": [
-    {
-      "report": "<audit report path>",
-      "repo_dir": "<findings dir>",
-      "repository": "<repo URL or null>",
-      "skip_reason": "head_unchanged|already_verified|covered_elsewhere|unreachable|no_repo_url"
-    }
+    {"repository_id": "<uuid>", "repository": "<repo URL>", "…": "…",
+     "tier": null, "skip": "unobserved|already_verified|nothing_open|head_unchanged"}
   ]
 }
 ```
 
-`worklist[]` holds only queued repos (tier set, `skip_reason: null`);
-`skipped[]` holds one row per excluded report so a folder's absence is
-explainable from the artifact alone. `repo_status` is annotated from the
-census-owned `progress-tracker/metrics/repo-liveness.json` artifact —
-liveness annotates the queue, it never skips a repo.
+`queued[]` holds only queued repos (tier set, `skip: null`), by tier then
+criticals and highs; `skipped[]` holds one row per excluded repository so
+its absence is explainable from the artifact alone. `archived` annotates
+the queue, it never skips a repo.
 
 ### Step 1b — Apply impact-analysis filter (optional)
 
 When `--impact-filter <path>` is passed, read the
 `*-impact-analysis.json` artifact (produced by `/impact-analysis`). Build
-a set of repo IDs classified `affected` or `likely_affected`. Filter the
-worklist to only include repos whose `repo:github.com/<org>/<repo>`
-matches one of those IDs. Skip repos classified `not_observed`,
+a set of repo IDs classified `affected` or `likely_affected`. Build the
+worklist from only those repos: pass each as
+`--repo-url https://github.com/<org>/<repo>` to Step 1. Skip repos classified `not_observed`,
 `version_not_in_range`, or `not_imported` — they are not worth the
 verification cost for this CVE. Log the filter summary:
 `"Impact filter: {N}/{M} worklist repos retained (CVE {cve}, {affected}
@@ -1226,7 +1162,8 @@ estimate.
 For each worklist entry, in order:
 
 1. Run the standard procedure (Phases 1–7) with the original report =
-   `entry.report` and the patched repository =
+   the entry's recorded findings (`traust findings baseline --repo-url
+   <entry.repository>`) and the patched repository =
    `entry.repository@entry.head_sha` (pin the HEAD the sweep observed,
    so results stay reproducible even if the repo moves again mid-sweep).
    The 4-pre deterministic re-scan is cheap per repo (seconds) — run it
@@ -1235,18 +1172,13 @@ For each worklist entry, in order:
    Write the verification report beside the audit report in the
    findings tree.
 2. Emit resolution events into the ledger:
-   (Retired with the traust-core hub: `ledger emit-verification`. This
-   skill's record door replaces it with its port to traust-core.)
+   `traust remediation verify-record <report>` (Phase 7b).
    Verification reports are class-1 evidence, the only sanctioned path
-   to `resolution: resolved`. Phase 7a2 regression routing
-   (`route_regressions`) is idempotent and separate — the emitter
-   skips `regressions[]`.
-3. If the entry has `duplicate_report_dirs`, do **not** author separate
-   reports for them — the canonical verification covers the same repo
-   state. Feed the same verification report into each sibling's ledger
-   (`/track-findings` per sibling filing) so every product tree's
-   cumulative status reflects it.
-4. Continue to the next entry. The verification report on disk IS the
+   to `resolution: resolved`. Phase 7a2 regression routing happens in the
+   same call, once.
+3. *Retired:* `duplicate_report_dirs` — a repository is one record, so
+   every product that ships it reads the same verification.
+4. Continue to the next entry. The recorded verification IS the
    checkpoint — an interrupted sweep resumes by re-running Step 1.
 
 ### Step 4 — Sweep summary
@@ -1412,30 +1344,29 @@ Consumed artifacts (producer named per artifact):
   `/cloud-config-audit` / `/secure-container-audit` for those profiles);
   the original report whose findings are verified, and the baseline the
   Phase 7a2 regression routing appends to.
-- `findings/_manifest/verify-sweep-worklist.json` — produced and
-  consumed inside this skill (`build_verify_sweep.py` → Step 3).
-- `*-findings-layer.json` — produced by `/track-findings`; read by
-  `build_verify_sweep.py` for remediation-claim signals (T1 tiering).
+- `traust remediation verify-sweep` worklist — produced and
+  consumed inside this skill (traust-core `VerificationService.sweep` → Step 3).
+- Recorded decisions on findings — produced by `/track-findings` and the
+  other skills; read by `verify-sweep` for claimed fixes (T1 tiering).
 - `*-impact-analysis.json` — produced by `/impact-analysis`; optional
   sweep filter (`--impact-filter`).
-- `progress-tracker/metrics/repo-liveness.json` — produced by `/census`;
-  annotates the worklist (`repo_status`), never skips a repo.
+- Repository `archived` flag — recorded by `/census`;
+  annotates the worklist (`archived`), never skips a repo.
 - Deterministic re-scan facts from python3 -m traust.cli adapters checkov,
   python3 -m traust.cli adapters opengrep, and the crypto-analysis skill (4-pre
   differential) — evidence, never verdicts.
 
 Emitted artifacts:
 
-- `*-remediation-verification.json` — consumed by `/track-findings`
-  (verdicts → resolution events, class-1 evidence, the only sanctioned
-  path to `resolved`) and by python3 -m traust.cli route regressions (Phase 7a2:
-  `regressions[]` → campaign-ID findings carried on ledger birth events, never
-  written to the baseline (gate A15), `routed_id` written back). Regressions are
+- `*-remediation-verification.json` — recorded by
+  `traust remediation verify-record` (verdicts → resolution decisions, class-1
+  evidence, the only sanctioned path to `resolved`; Phase 7a2:
+  `regressions[]` → findings of the patched commit). Regressions are
   therefore never terminal in this report — they enter the repo's
-  `*-findings-current.{json,md}` and every downstream dashboard.
+  findings and every downstream dashboard.
 - `*-remediation-verification.md` — human companion of the JSON.
-- Baseline appends (via `route_regressions.py`) — consumed by
-  `/track-findings` / `build_cumulative.py`, `/triage` (downstream
+- Regression findings (via `verify-record`) — consumed by
+  `/track-findings`, `/triage` (downstream
   adjudication), `/findings-trends`, `/executive-summary-findings`.
 
 ## Spend declaration (calibration tuple)

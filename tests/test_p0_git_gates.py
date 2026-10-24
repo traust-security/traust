@@ -25,9 +25,6 @@ def _load(name, rel):
 
 
 aff = _load("apply_fleet_fix_p0", "harnessing/7-remediate/fleet-fix/scripts/apply_fleet_fix.py")
-bvs = _load(
-    "build_verify_sweep_p0", "harnessing/8-verify/verify-remediation/scripts/build_verify_sweep.py"
-)
 brm = _load(
     "build_remediation_manifest_p0",
     "harnessing/7-remediate/remediate-finding/scripts/build_remediation_manifest.py",
@@ -80,22 +77,6 @@ def test_fleet_fix_ls_remote_env_caps_protocol(monkeypatch):
     assert aff.ls_remote_sha("https://github.com/o/r", "main") == "a" * 40
     assert seen["env"].get("GIT_ALLOW_PROTOCOL") == "https"
     assert "--" in seen["argv"]
-
-
-@pytest.mark.parametrize("url", MALICIOUS_URLS)
-def test_verify_sweep_ls_remote_rejects_before_subprocess(monkeypatch, url):
-    monkeypatch.setattr(bvs.subprocess, "run", _Boom())
-    assert bvs.ls_remote_head(url) is None
-
-
-def test_verify_sweep_no_raw_repository_fallback():
-    """The A2 fix: non-normalizable metadata.repository must resolve to
-    None (skip), never pass through raw."""
-    src = (
-        _ROOT / "harnessing/8-verify/verify-remediation/scripts/build_verify_sweep.py"
-    ).read_text()
-    assert '(meta.get("repository") or "").strip()' not in src
-    assert bvs.normalize_repo_url("ext::sh -c evil") is None
 
 
 def test_manifest_fid_gate():

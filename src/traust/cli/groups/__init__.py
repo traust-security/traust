@@ -19,6 +19,7 @@ from traust.cli.groups import (
     portfolio,
     products,
     registry,
+    remediation,
     reporting,
     sweep,
     tools,
@@ -88,6 +89,7 @@ GROUPS: dict[str, dict[str, object]] = {
         "import-owners": portfolio.IMPORT_OWNERS,
         "population": portfolio.POPULATION,
     },
+    "remediation": dict(remediation.REMEDIATION),
     "reporting": {
         "validate": reporting.VALIDATE,
         "lint": reporting.LINT,

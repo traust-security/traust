@@ -308,7 +308,7 @@ Generate candidate fixes for verified security findings. Consumes <repo>-triage.
 
 - **Stage:** ⑦ Remediation
 - **Tier:** `primary`
-- **Invoke:** `/patch` — arguments: `<findings-path> [--repo PATH] [--top N] [--id fNNN] [--model M] [--fresh]`
+- **Invoke:** `/patch` — arguments: `<findings-path | work-item-id> [--repo PATH] [--top N] [--id fNNN] [--model M] [--fresh]`
 - **Skill:** [harnessing/7-remediate/patch/SKILL.md](../harnessing/7-remediate/patch/SKILL.md)
 - **Produces / consumes:** [Integrations](../harnessing/7-remediate/patch/SKILL.md#integrations)
 
