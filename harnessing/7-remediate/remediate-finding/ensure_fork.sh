@@ -56,7 +56,7 @@ fi
 export GIT_ALLOW_PROTOCOL=https
 
 if [[ -z "$FORK_URL" ]]; then
-  FORK_URL="$(python3 "$HERE/fork_map.py" "$UPSTREAM" | python3 -c 'import sys,json;print(json.load(sys.stdin)["fork_url"])')"
+  FORK_URL="$(python3 -m traust.cli remediation fork --repo-url "$UPSTREAM" | python3 -c 'import sys,json;print(json.load(sys.stdin)["url"])')"
 fi
 
 : "${GITHUB_TOKEN:?GITHUB_TOKEN must be set to push to the private fork}"
