@@ -100,3 +100,5 @@ All security testing performed by this workflow engine is authorised. The `AGENT
 ## License
 
 Apache License 2.0 — see [`LICENSE`](LICENSE). Portions are derivative works of third-party projects (the `triage`, `threat-model`, `patch`, and `vuln-scan` skills and python3 -m traust.cli admin checkpoint derive from Anthropic's Apache-2.0-licensed defending-code-reference-harness; parts of `vuln-scan` are adapted from the MIT-licensed claude-code-security-review). See [`NOTICE`](NOTICE) for attributions and `LICENSES/` for the full third-party license texts.
+
+<!-- build nudge: force a push event so Konflux rebuilds main -->
