@@ -8,7 +8,7 @@ description: Use when determining which portfolio repositories are affected by
   a manifest-level SurfaceAnalyzer for the universal Docker/GitHub
   Actions/Helm surfaces) to classify every importing repo. Emits a
   schema-validated artifact consumed by /triage and /verify-remediation.
-argument-hint: "<advisory-id> --module <mod> [--ecosystem go|npm|pypi|maven|cargo|ruby|nuget|actions|docker|helm] [--packages <p1,p2>] [--vulnerable-range '<v'] [--fixed-version v1.0.1] [--feature-desc '...'] [--skip-scan] [--jobs N]"
+argument-hint: "<advisory-id> --module <mod> [--ecosystem go|npm|pypi|maven|cargo|ruby|nuget|actions|docker|helm] [--packages <p1,p2>] [--feature-desc '...'] [--advisory-file <osv.json>] [--skip-scan] [--jobs N]"
 user-invocable: true
 metadata:
   harness.tier: "primary"
@@ -179,13 +179,28 @@ Parse from `$ARGUMENTS`:
   resolves against the multi-ecosystem portfolio-graph L1 layer the same
   way Go does; `actions`/`docker`/`helm` route to the manifest-level
   `SurfaceAnalyzer` (no reachability tier, ceiling `likely_affected`).
+  OSV publishes no `docker` or `helm` advisories, so those are not
+  assessed (the range has no record to come from).
 - `--packages <p1,p2>` — vulnerable packages within the module.
 - `--symbols <s1,s2>` — vulnerable symbols (informational).
-- `--vulnerable-range '<v1.64.1'` — version constraint. Both an upper
-  bound (`<`/`<=`) and a LOWER bound (`>=`/`>`) are honored, and a range may
-  carry both (`'>=2.5.3 <2.8.0'`); a version below the lower bound is
-  `version_not_in_range` even when it is below `--fixed-version`.
-- `--fixed-version v1.64.1` — first safe version.
+- **No range or fixed-version flags.** `analyze` fetches the advisory's OSV
+  record through the feeds registry (`config/feeds.yaml`, the `osv` source)
+  and decides every version on the record's spans, lower bounds and separate
+  release lines included. The record's URL goes into `advisory_sources`; the
+  artifact's `vulnerable_range` renders the spans and `fixed_version` is the
+  highest fix. An ID OSV doesn't serve for the package (a CVE whose records
+  are GHSA/PYSEC entries) is found through the package's advisories, and
+  every record used is recorded. A record that can't be fetched, or that
+  names no affected version of `--module`, exits 2: the advisory is **not
+  assessed**.
+- `--advisory-file <osv.json>` — the advisory's OSV record, exported on a
+  connected host. Required when the `osv` source is `access: air-gapped`;
+  its `file://` path is the recorded source.
+- `--verified-version <v>` (repeatable) with `--verified-by <verdicts.json>`
+  — dependency-watch's below-range lane only: versions two blind reviews
+  and a judge verified affected although the record leaves them out. Each
+  needs a final `applicable` verdict in the file for that package, version
+  and advisory; the file joins `advisory_sources`.
 - `--feature-desc "..."` — what capability must be in use.
 - `--db <path>` — portfolio-graph.db (default:
   `analysis-results/graph/portfolio-graph.db`).
@@ -219,11 +234,12 @@ python3 harnessing/3-audit/impact-analysis/scripts/fetch_advisory.py csaf <cve-i
 When symbols aren't in the advisory, read the fix commit diff to identify
 the affected API surface.
 
-**The vulnerable range and fixed version come from a fetched advisory,
-never from memory.** If every fetch above fails (non-zero exit), stop and
-report the CVE as not assessed. Never supply `--vulnerable-range` or
-`--fixed-version` from recall. Record each advisory you used in
-`advisory_sources`.
+**The vulnerable range and fixed version come from the fetched OSV record,
+never from memory.** Step 2 fetches it itself and records it in
+`advisory_sources`; the fetches above are for reading the advisory (affected
+packages, symbols, the feature in question), not for supplying a range. If
+`analyze` exits 2 because the record is unavailable, report the CVE as not
+assessed.
 
 ### Step 2: Run the analysis
 
@@ -231,8 +247,6 @@ report the CVE as not assessed. Never supply `--vulnerable-range` or
 python3 -m traust.cli impact analyze <CVE-ID> \
     --module <module> \
     --packages <p1,p2> \
-    --vulnerable-range '<v1.64.1' \
-    --fixed-version v1.64.1 \
     --feature-desc 'description of the vulnerable feature' \
     --db analysis-results/graph/portfolio-graph.db \
     --jobs 4

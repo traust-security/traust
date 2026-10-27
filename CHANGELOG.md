@@ -7,6 +7,31 @@ All notable changes to Traust are documented here.
 - Clear the existing Ruff lint and formatting failures without changing CLI
   help text, validation behavior, or test expectations.
 
+## [0.43.0]
+
+- **Impact analysis takes the advisory from the feeds, not from a typed
+  range.** It pins traust-engine 0.46.0 (`a4e3a0b`; engine#109 and #110).
+  - **The problem:** `traust impact analyze` used whatever
+    `--vulnerable-range` and `--fixed-version` it was given, and every
+    artifact's `advisory_sources` was empty. A mistyped or remembered range
+    decided every repo's verdict, and nothing showed where it came from.
+  - **The change:** `analyze` resolves the advisory's OSV record through the
+    feeds registry (`config/feeds.yaml`, the `osv` source). The record's
+    spans decide every version, and its URL is recorded in
+    `advisory_sources`. The range flags are gone. A record that can't be
+    fetched, or that doesn't name the module, exits 2: the advisory is not
+    assessed.
+  - **Air-gapped** (`access: air-gapped`) runs need `--advisory-file`, the
+    OSV record exported on a connected host. `docs/setup.md` and the `osv`
+    feed entry say so.
+  - **Below-range lane** (`/dependency-watch` step 5) now passes
+    `--verified-version <installed> --verified-by verdicts.json` instead of
+    its own range. The version counts as affected only with an `applicable`
+    verdict for it, and `verdicts.json` rows carry the packet's `candidate`.
+  - **`fleet_sweep`** commands carry no range. The `< fix` it built dropped
+    lower bounds and separate release lines. `fixed_version` stays on each
+    command as metadata.
+
 ## [0.42.2]
 
 - **Pins traust-engine 0.44.2 (`aef43e6`), with two impact-analysis fixes:**

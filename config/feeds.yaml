@@ -185,8 +185,13 @@ sources:
     #               OSV_SCANNER_LOCAL_DB_CACHE_DIRECTORY to it on the scanning
     #               host. The database is only as current as your last copy.
     #               Missing binary or database = `status: failed`, exit 2.
-    #               The other OSV consumers listed below query the API and are
-    #               unavailable in this mode; they report the lookup as failed.
+    #               Impact analysis (`traust impact analyze`) then needs
+    #               `--advisory-file`: the advisory's OSV record exported on a
+    #               connected host (GET <api>/v1/vulns/<id>); its path is the
+    #               artifact's recorded source. Without one the advisory is not
+    #               assessed (exit 2). The other OSV consumers listed below
+    #               query the API and are unavailable in this mode; they report
+    #               the lookup as failed.
     #               See docs/setup.md "Air-gapped OSV scanning".
     access: api
     ident: package
@@ -201,6 +206,7 @@ sources:
       - traust.cli.resolve_advisory_symbols
       - traust.ops.cve_replay_monitor
       - traust.cli adapters osv (traust_engine.adapters.osv, the dependency pre-scan)
+      - traust.cli impact analyze (traust_engine.impact.advisory, the advisory record and its ranges)
     license:
       id: pass-through
       terms: >-

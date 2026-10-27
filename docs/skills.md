@@ -163,7 +163,7 @@ Use when determining which portfolio repositories are affected by an advisory (C
 
 - **Stage:** ③ Audit
 - **Tier:** `primary`
-- **Invoke:** `/impact-analysis` — arguments: `<advisory-id> --module <mod> [--ecosystem go|npm|pypi|maven|cargo|ruby|nuget|actions|docker|helm] [--packages <p1,p2>] [--vulnerable-range '<v'] [--fixed-version v1.0.1] [--feature-desc '...'] [--skip-scan] [--jobs N]`
+- **Invoke:** `/impact-analysis` — arguments: `<advisory-id> --module <mod> [--ecosystem go|npm|pypi|maven|cargo|ruby|nuget|actions|docker|helm] [--packages <p1,p2>] [--feature-desc '...'] [--advisory-file <osv.json>] [--skip-scan] [--jobs N]`
 - **Skill:** [harnessing/3-audit/impact-analysis/SKILL.md](../harnessing/3-audit/impact-analysis/SKILL.md)
 
 ## isolation-review
