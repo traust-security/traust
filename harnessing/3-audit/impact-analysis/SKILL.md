@@ -262,7 +262,7 @@ need human review.
 |---|---|---|
 | `affected` | Vulnerable symbol reachable or feature in use | govulncheck `symbol_reachable` or feature-pattern match |
 | `likely_affected` | Package imported, no deep scan yet | L4 import + no govulncheck/ELF result |
-| `not_observed` | Vulnerable package/symbol not observed | govulncheck `*_not_observed`, L4 no import, or binary scan negative |
+| `not_observed` | Vulnerable package/symbol not observed | govulncheck `*_not_observed`, L4 no import (Go only: an installed PyPI/npm/… dependency is loaded by other libraries without a first-party import, so there the manifest scan decides), or binary scan negative |
 | `version_not_in_range` | At safe version | L1 version ≥ fix |
 | `not_imported` | Module not in dep graph | blast-radius miss |
 | `inconclusive` | Analysis hit limits | clone failed, non-Go repo, unsafe/reflect |

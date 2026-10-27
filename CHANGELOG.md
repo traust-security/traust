@@ -7,6 +7,19 @@ All notable changes to Traust are documented here.
 - Clear the existing Ruff lint and formatting failures without changing CLI
   help text, validation behavior, or test expectations.
 
+## [0.42.2]
+
+- **Pins traust-engine 0.44.2 (`aef43e6`), with two impact-analysis fixes:**
+  - **PyPI/npm repos are no longer cleared for lacking an import.**
+    `/impact-analysis` now applies the L4 "package not imported" →
+    `not_observed` rule to Go only. An installed manifest dependency is
+    loaded by other libraries (urllib3 decodes `br` through any installed
+    `brotli`), so those repos go on to the manifest scan. GHSA-9v8h-qqgm-4m35
+    had cleared three brotli-pinning repos without scanning them.
+  - **Impact-analysis artifacts validate.** They are portfolio-wide and
+    carry no `metadata.repository`.
+- The skill's classification rubric says the L4 rule is Go-only.
+
 ## [0.42.1]
 
 - **NuGet lookups no longer miss advisories over casing** (traust-engine
