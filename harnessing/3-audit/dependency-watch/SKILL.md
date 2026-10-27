@@ -88,12 +88,13 @@ executive summaries, SCI) already read.
    call per array, no shell string joining, no edits) in order
    (severity, then blast radius). Inputs failing the charset gates are
    listed under `rejected_inputs` — review them, never hand-repair
-   them into commands (assessment 2026-07-31 H1). Each command's
-   `--fixed-version` is the fix for the installed version's own span
-   (the highest across the installed versions it covers; per-version
-   targets are in `fixed_by_version`). An advisory with no fix still
-   gets a row: `fix_available: false`, no `--fixed-version`, and the
-   range bounded by `last_affected` when known, else `*`. An advisory
+   them into commands (assessment 2026-07-31 H1). Commands carry no
+   range: `analyze` fetches the advisory's OSV record and decides every
+   version on its spans. Each command's `fixed_version` (metadata) is the
+   fix for the installed version's own span (the highest across the
+   installed versions it covers; per-version targets are in
+   `fixed_by_version`). An advisory with no fix still gets a row:
+   `fix_available: false`, `fixed_version: null`. An advisory
    can hit packages in several ecosystems: each command carries its
    module's own `ecosystem` (used for its gates and `--ecosystem`), and
    the row lists them all in `ecosystems`. A CVE with several OSV
@@ -138,7 +139,8 @@ executive summaries, SCI) already read.
 3. **Blast radius + reachability** per advisory affecting a module the
    portfolio uses: run `/impact-analysis` (or its script directly):
    `python3 -m traust.cli impact analyze <CVE>
-   --module <m> --vulnerable-range '<r>' --fixed-version <v> ...` —
+   --module <m> --ecosystem <eco> ...` (the range comes from the
+   advisory's OSV record, recorded in `advisory_sources`) —
    writes `analysis-results/impact/<cve>-impact-analysis.json`.
    **Precondition:** a fresh portfolio graph — the graph is the blast
    radius; check `/drift-watch`'s `portfolio-graph` item first and say
@@ -220,15 +222,20 @@ dependencies:
    both reviews and the packet, settles any case where the reviews disagree
    or either is `undetermined`. What it can't settle stays `undetermined`,
    with what would settle it. No case is handed to a person to adjudicate.
-4. **Record** `<out>/verdicts.json`: one row per packet, with the case, the
-   two reviews, the judge's ruling if any, and the final verdict. Include the
+4. **Record** `<out>/verdicts.json` as `{"verdicts": [...]}`, one row per
+   packet: `case`, `candidate` (copied from the packet unchanged), the two
+   reviews, the judge's ruling if any, and the final `verdict`. Include the
    coverage gaps unchanged.
 5. **Hand confirmed cases to the chain above** (decision D1: only
    code-verified cases become findings). For each `applicable` case, run step
    3 with the verified version as the range:
    `python3 -m traust.cli impact analyze <CVE> --module <package>
-   --ecosystem go|pypi|npm|maven|cargo --vulnerable-range '>=<installed> <=<installed>'
-   --feature-desc below-range-verified`.
+   --ecosystem go|pypi|npm|maven|cargo --verified-version <installed>
+   --verified-by <out>/verdicts.json --feature-desc below-range-verified`.
+   Each `verdicts.json` row carries the packet's `candidate` (ecosystem,
+   package, version, advisory_id, aliases) and its final `verdict`; analyze
+   counts the version affected only for an `applicable` row matching all
+   of them, and records the file in `advisory_sources`.
    Then steps 4–5 as usual. Filing runs where the lane's corpus lives (the
    continuous-operations orchestrator); a local or smoke run stops at step 4.
 

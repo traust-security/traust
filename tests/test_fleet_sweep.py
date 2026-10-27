@@ -429,8 +429,10 @@ def test_ghsa_without_cve_row_uses_ghsa_id():
     assert rows[0]["severity"] == "HIGH"
     argv = rows[0]["commands"][0]["impact_argv"]
     assert "GHSA-cccc-dddd-eeee" in argv
-    # has a fixed version, so a real remediation target is present
-    assert argv[argv.index("--fixed-version") + 1] == "2.0.1"
+    # has a fixed version, so a real remediation target is present (metadata;
+    # analyze takes the range from the record itself)
+    assert rows[0]["commands"][0]["fixed_version"] == "2.0.1"
+    assert "--fixed-version" not in argv and "--vulnerable-range" not in argv
 
 
 def test_ghsa_with_cve_alias_display_id_is_cve():
@@ -850,14 +852,11 @@ def test_fix_follows_each_installed_span():
     )
     # only 1.x installed: the 1.x fix, not the record's last one
     cmd = _one_row(vuln, [("two-lines", "1.2.0")])
-    argv = cmd["impact_argv"]
-    assert argv[argv.index("--fixed-version") + 1] == "1.5.0"
-    assert argv[argv.index("--vulnerable-range") + 1] == "< 1.5.0"
+    assert cmd["fixed_version"] == "1.5.0"
     assert cmd["fix_available"] is True
     # 1.x and 2.x installed: one command carrying the highest fix
     cmd = _one_row(vuln, [("two-lines", "1.2.0"), ("two-lines", "2.1.0")])
-    argv = cmd["impact_argv"]
-    assert argv[argv.index("--fixed-version") + 1] == "2.3.0"
+    assert cmd["fixed_version"] == "2.3.0"
     assert cmd["fixed_by_version"] == {"1.2.0": "1.5.0", "2.1.0": "2.3.0"}
 
 
@@ -870,8 +869,8 @@ def test_unfixed_advisory_produces_a_no_fix_row():
     argv = cmd["impact_argv"]
     assert cmd["fix_available"] is False
     assert cmd["fixed_by_version"] == {"1.2.0": None}
-    assert "--fixed-version" not in argv
-    assert argv[argv.index("--vulnerable-range") + 1] == "<= 1.4.0"
+    assert cmd["fixed_version"] is None
+    assert "--fixed-version" not in argv and "--vulnerable-range" not in argv
     assert argv[argv.index("--feature-desc") + 1] == "fleet-osv-sweep"
 
 
@@ -880,7 +879,7 @@ def test_open_ended_unfixed_advisory_flags_every_version():
     cmd = _one_row(vuln, [("open-lib", "3.0.0")])
     argv = cmd["impact_argv"]
     assert cmd["fix_available"] is False
-    assert argv[argv.index("--vulnerable-range") + 1] == "*"
+    assert "--vulnerable-range" not in argv
 
 
 _TWO_ECO_VULN = {

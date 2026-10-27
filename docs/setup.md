@@ -229,7 +229,12 @@ run govulncheck, which carries its own database, for Go. The other OSV
 consumers query the API and do not run air-gapped: the fleet sweep
 (`dependency-watch`) writes a `failed` worklist and exits 2, and advisory
 fetches (`fetch_advisory.py`, `resolve-advisory-symbols`, the CVE-replay
-monitor) report their lookups as failed.
+monitor) report their lookups as failed. Impact analysis
+(`traust impact analyze`) takes its vulnerable range only from the
+advisory's OSV record, so air-gapped it needs `--advisory-file`: export the
+record on a connected host (`GET https://api.osv.dev/v1/vulns/<id>`) and copy
+it across. The file's path is recorded as the artifact's advisory source.
+Without it the advisory is not assessed (exit 2).
 
 ### Container image (CI, platform worker, air gap)
 

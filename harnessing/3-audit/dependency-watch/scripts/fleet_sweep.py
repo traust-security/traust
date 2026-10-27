@@ -59,7 +59,7 @@ from collections import Counter
 from pathlib import Path
 
 from traust_engine.osv import BatchOutcome, OsvClient, Query
-from traust_engine.osv.ranges import containing_span, fixed_for, spans, version_key
+from traust_engine.osv.ranges import fixed_for, spans, version_key
 
 from traust.context import add_config_home_arg, resolve_results_root
 from traust.registry.osv_urls import nuget_ids, osv_access, osv_query_url
@@ -500,56 +500,29 @@ def build_worklist(
                 )
                 continue
             deep = len(repos) <= deep_cap
-            if fixed:
-                vuln_range = f"< {fixed}"
-                fixed_args = ["--fixed-version", str(fixed)]
-            elif mal:
-                # Malware has no fixed version — the whole package is
-                # compromised, so flag every version and carry no target.
-                vuln_range, fixed_args = "*", []
-            else:
-                # No fix: bound the range by the spans' last affected
-                # version when every installed version has one, else flag
-                # every version (impact analysis then decides per repo).
-                lasts = [
-                    span.last_affected
-                    for pv in versions
-                    if (span := containing_span(rec, m, osv_eco, pv)) and span.last_affected
-                ]
-                vuln_range, fixed_args = "*", []
-                if versions and len(lasts) == len(versions):
-                    last = max(lasts, key=lambda v: version_key(v, osv_eco) or ())
-                    if _version_ok(eco, last):
-                        vuln_range = f"<= {last}"
+            # The range is not ours to pass: analyze fetches the advisory's
+            # OSV record itself and decides every version on its spans.
             impact_out = impact_dir / f"{disp.lower()}-impact-analysis.json"
-            impact_argv = (
-                [
-                    sys.executable,
-                    "-m",
-                    "traust.cli",
-                    "impact",
-                    "analyze",
-                    disp,
-                    "--module",
-                    m,
-                    "--ecosystem",
-                    eco,
-                    "--vulnerable-range",
-                    vuln_range,
-                ]
-                + fixed_args
-                + [
-                    "--feature-desc",
-                    "malicious-package" if mal else "fleet-osv-sweep",
-                    "--db",
-                    str(graph_db),
-                    "--out",
-                    str(impact_out),
-                    "--jobs",
-                    "4",
-                ]
-                + ([] if deep else ["--skip-scan"])
-            )
+            impact_argv = [
+                sys.executable,
+                "-m",
+                "traust.cli",
+                "impact",
+                "analyze",
+                disp,
+                "--module",
+                m,
+                "--ecosystem",
+                eco,
+                "--feature-desc",
+                "malicious-package" if mal else "fleet-osv-sweep",
+                "--db",
+                str(graph_db),
+                "--out",
+                str(impact_out),
+                "--jobs",
+                "4",
+            ] + ([] if deep else ["--skip-scan"])
             route_argv = (
                 [
                     "python3",
@@ -573,6 +546,8 @@ def build_worklist(
                     "route_argv": route_argv,
                     "deep": deep,
                     "fix_available": bool(fixed),
+                    # the bump target that clears every installed version (metadata)
+                    "fixed_version": fixed,
                     # metadata only — NOT in impact_argv
                     "fixed_by_version": fixed_by_version,
                     # provenance metadata only — NOT in impact_argv

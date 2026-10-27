@@ -29,8 +29,27 @@ def add_analyze_args(ap) -> None:
         ],
         help="Package ecosystem of --module (default: go).",
     )
-    ap.add_argument("--vulnerable-range", default="", help="Version constraint (e.g. '< v1.64.1')")
-    ap.add_argument("--fixed-version", default=None, help="First safe version")
+    # No range or fixed-version flags: analyze fetches the advisory's OSV record
+    # through the feeds registry and decides every version on its spans.
+    ap.add_argument(
+        "--advisory-file",
+        default=None,
+        help="OSV record JSON for the advisory, exported on a connected host "
+        "(required when feeds.yaml sets the osv source to air-gapped)",
+    )
+    ap.add_argument(
+        "--verified-version",
+        action="append",
+        default=[],
+        help="A version below-range review verified affected although the record "
+        "leaves it out (repeatable; needs --verified-by)",
+    )
+    ap.add_argument(
+        "--verified-by",
+        default=None,
+        help="The below-range verdicts.json holding an applicable verdict for each "
+        "--verified-version",
+    )
     ap.add_argument("--symbols", default="", help="Comma-separated vulnerable symbols")
     ap.add_argument("--packages", default="", help="Comma-separated vulnerable packages")
     ap.add_argument(
@@ -53,12 +72,25 @@ def add_analyze_args(ap) -> None:
 
 
 def call_analyze(engine, args) -> int:
+    import sys
+
+    from traust.registry.osv_urls import osv_access, osv_query_url
+
+    if osv_access() == "air-gapped" and not args.advisory_file:
+        print(
+            f"ERROR: {args.cve} not assessed: the osv source is air-gapped, so pass "
+            "--advisory-file with the advisory's OSV record",
+            file=sys.stderr,
+        )
+        return 2
     return engine.impact.analyze(
         cve=args.cve,
         module=args.module,
         ecosystem=args.ecosystem,
-        vulnerable_range=args.vulnerable_range,
-        fixed_version=args.fixed_version,
+        osv_url=osv_query_url(),
+        advisory_file=args.advisory_file,
+        verified_versions=tuple(args.verified_version),
+        verified_by=args.verified_by,
         symbols=args.symbols,
         packages=args.packages,
         feature_desc=args.feature_desc,
