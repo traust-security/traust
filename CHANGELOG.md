@@ -4,6 +4,9 @@ All notable changes to Traust are documented here.
 
 ## [Unreleased]
 
+- Pin traust-engine `13bdce3` (engine#117, rule pack v1.11): TypeScript/JavaScript
+  XSS, path traversal and open redirect rules, and more SSRF sinks, now run in
+  default opengrep scans on `main`.
 - Clear the existing Ruff lint and formatting failures without changing CLI
   help text, validation behavior, or test expectations.
 
