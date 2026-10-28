@@ -223,8 +223,8 @@ does not install them, and continuous operations do not keep them current.
 A missing binary or database is `status: failed`, exit 2 (osv-scanner
 itself exits 127 with an empty, clean-looking result in that case; the
 adapter reads that as a failure). Coverage differs from the API: offline
-osv-scanner reports no Go standard-library advisories (measured on etcd,
-2026-10-20: 73 of the API's 122 candidates, the gap all `stdlib` but 3), so
+osv-scanner reports no Go standard-library advisories (measured on a real
+Go checkout, 2026-10-20: 73 of the API's 122 candidates, the gap all `stdlib` but 3), so
 run govulncheck, which carries its own database, for Go. The other OSV
 consumers query the API and do not run air-gapped: the fleet sweep
 (`dependency-watch`) writes a `failed` worklist and exits 2, and advisory
