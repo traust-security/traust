@@ -1,12 +1,16 @@
 """Tests for traust.cli.build_rescan_worklist — the continuous-operations
-router. No network: gh/glab fetchers are monkeypatched throughout."""
+router. No network: gh fetchers and the forge REST api are monkeypatched throughout."""
 
+import contextlib
+import io
 import json
 import sqlite3
 from decimal import Decimal
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
+from traust_core.v1.errors import ServiceError
 from traust_core.v1.models.operations import Budget
 
 from traust.cli import build_rescan_worklist as rw
@@ -277,7 +281,7 @@ class TestInjectionGuards:
         assert not rw.safe_project_path("group/../other")
         assert not rw.safe_project_path("group//repo")
         assert not rw.safe_project_path("")
-        res = rw.gitlab_repo_info("gitlab.example.com", "a/../b")
+        res = rw.gitlab_repo_info(None, "gitlab.example.com", "a/../b")
         assert not res["ok"] and "unsafe" in res["error"]
 
     def test_safe_paths_pass(self):
@@ -314,28 +318,81 @@ class TestCountDiffLines:
         assert rw.count_diff_lines(None) == 0
 
 
-class TestGitlabCompare:
-    def test_normalizes_payload(self, monkeypatch):
+class TestGitlabRest:
+    """The GitLab stages over core's ForgeApi: no glab CLI, the token a forge_tokens
+    header. API errors stay per-repo data, never fatal."""
+
+    def _api(self, payload: dict) -> SimpleNamespace:
+        return SimpleNamespace(get=lambda host, endpoint: payload)
+
+    def test_repo_info_normalizes_the_project_payload(self):
+        api = self._api(
+            {
+                "last_activity_at": "2026-07-25T00:00:00Z",
+                "archived": False,
+                "default_branch": "main",
+                "visibility": "private",
+                "forked_from_project": {"path_with_namespace": "up/stream"},
+            }
+        )
+        assert rw.gitlab_repo_info(api, "gitlab.example.com", "g/r") == {
+            "ok": True,
+            "pushed_at": "2026-07-25T00:00:00Z",
+            "archived": False,
+            "default_branch": "main",
+            "visibility": "private",
+            "fork": True,
+            "parent": "up/stream",
+        }
+
+    def test_compare_normalizes_payload(self):
         payload = {
             "commits": [{}, {}],
             "compare_timeout": False,
             "diffs": [{"new_path": "pkg/auth.go", "diff": DIFF}],
         }
-        monkeypatch.setattr(rw, "_glab_api", lambda host, path: {"ok": True, "payload": payload})
-        res = rw.gitlab_compare("gitlab.example.com", "g/r", "a" * 40, "main")
+        res = rw.gitlab_compare(self._api(payload), "gitlab.example.com", "g/r", "a" * 40, "main")
         assert res["ok"] and res["ahead_by"] == 2
         assert res["files"] == [{"filename": "pkg/auth.go", "changes": 3}]
         assert not res["truncated"]
 
-    def test_truncated_on_timeout_or_cap(self, monkeypatch):
+    def test_truncated_on_timeout_or_cap(self):
         payload = {"commits": [], "compare_timeout": True, "diffs": []}
-        monkeypatch.setattr(rw, "_glab_api", lambda host, path: {"ok": True, "payload": payload})
-        assert rw.gitlab_compare("gitlab.com", "g/r", "a" * 40, "main")["truncated"]
+        api = self._api(payload)
+        assert rw.gitlab_compare(api, "gitlab.com", "g/r", "a" * 40, "main")["truncated"]
 
-    def test_no_credentials_when_glab_missing(self, monkeypatch):
-        monkeypatch.setattr(rw.shutil, "which", lambda name: None)
-        res = rw._glab_api("gitlab.example.com", "projects/x")
-        assert not res["ok"] and res["kind"] == "no-credentials"
+    @pytest.mark.parametrize(
+        ("error", "kind"),
+        [
+            (ServiceError("https://h/api/v4/x: HTTP 401", status=401), "no-credentials"),
+            (ServiceError("https://h/api/v4/x: HTTP 403", status=403), "no-credentials"),
+            (
+                ServiceError("https://h/api/v4/x: gave up after 3 attempts", status=None),
+                "unreachable",
+            ),
+            (ServiceError("https://h/api/v4/x: HTTP 404", status=404), "error"),
+        ],
+    )
+    def test_rest_failures_map_to_per_repo_kinds(self, error: ServiceError, kind: str):
+        def raise_(host: str, endpoint: str) -> dict:
+            raise error
+
+        res = rw.gitlab_repo_info(SimpleNamespace(get=raise_), "gitlab.example.com", "g/r")
+        assert res == {"ok": False, "kind": kind, "error": str(error)[:120]}
+
+
+def test_the_forge_client_knows_git_hosts_and_forge_tokens(monkeypatch: pytest.MonkeyPatch):
+    core = SimpleNamespace(
+        http=None,
+        config=SimpleNamespace(
+            forge_hosts={"github.com": "github"},
+            forge_token_values=lambda: {"gitlab.example.com": "glpat-x"},
+        ),
+    )
+    api = rw._forge_api(core)
+    assert api.kind("gitlab.example.com") == "gitlab"  # widened by GIT_HOSTS
+    assert api.headers("gitlab.example.com") == {"PRIVATE-TOKEN": "glpat-x"}
+    assert api.kind("ghe.example.com") is None  # unknown to both config and env
 
 
 class TestErrorClassification:
@@ -676,6 +733,8 @@ class TestMainEndToEnd:
 
     def _patch_network(self, monkeypatch, quota=100_000):
         monkeypatch.setattr(rw, "gh_rate_remaining", lambda: quota)
+        # gitleaks is required up front; the tripwire itself never runs here (no patches)
+        monkeypatch.setattr(rw, "preflight_failures", lambda checks: [])
 
         def fake_gh_info(project):
             if project == "o/nosha-quiet":  # push predates the audit
@@ -702,7 +761,7 @@ class TestMainEndToEnd:
                 }
             return {"ok": True, "ahead_by": 0, "truncated": False, "files": []}
 
-        def fake_gl_info(host, project):
+        def fake_gl_info(api, host, project):
             return {
                 "ok": False,
                 "kind": "unreachable",
@@ -829,6 +888,43 @@ class TestMainEndToEnd:
         out = tmp_path / "out" / "rescan-worklist.json"
         rc = rw.main(["--db", str(db), "--events", str(events), "--out", str(out)])
         assert rc == 0  # undeterminable quota: stage 1 surfaces per-repo
+
+    def test_gitleaks_missing_refuses_before_the_worklist_builds(self, tmp_path, monkeypatch):
+        """`requires: tools: [gitleaks]` semantics: the tripwire's requirement is refused up
+        front with its fix, before any stage runs — never scanner_unavailable mid-run."""
+        db, events = self._setup(tmp_path)
+        monkeypatch.setattr(rw, "gh_rate_remaining", lambda: 100_000)
+        monkeypatch.setattr(
+            rw,
+            "preflight_failures",
+            lambda checks: [
+                "gitleaks: not found on PATH (install it at the external-tools.yaml pin, "
+                "gitleaks >= 8.21.2)"
+            ],
+        )
+        out = tmp_path / "out" / "rescan-worklist.json"
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            rc = rw.main(["--db", str(db), "--events", str(events), "--out", str(out)])
+        assert rc == 2
+        assert not out.exists()  # refused: no worklist that looks complete
+        assert "gitleaks is required for the tripwire" in err.getvalue()
+        assert "external-tools.yaml pin" in err.getvalue()
+
+    def test_no_tripwire_skips_the_gitleaks_requirement(self, tmp_path, monkeypatch):
+        db, events = self._setup(tmp_path)
+        self._patch_network(monkeypatch)
+        monkeypatch.setattr(
+            rw,
+            "preflight_failures",
+            lambda checks: (_ for _ in ()).throw(
+                AssertionError("the tripwire is off: gitleaks must not be preflighted")
+            ),
+        )
+        out = tmp_path / "out" / "rescan-worklist.json"
+        rc = rw.main(["--db", str(db), "--events", str(events), "--out", str(out), "--no-tripwire"])
+        assert rc == 0
+        assert out.exists()
 
     def test_no_network_run(self, tmp_path, monkeypatch):
         db, events = self._setup(tmp_path)
@@ -996,7 +1092,6 @@ class TestTripwire:
         return rows, by_key
 
     def test_hit_escalates_below_threshold_rows_only(self, monkeypatch):
-        monkeypatch.setattr(rw.shutil, "which", lambda _: "/bin/gitleaks")
         rows, by_key = self._rows_and_keys()
         stats = rw.run_tripwire(
             rows,
@@ -1015,7 +1110,6 @@ class TestTripwire:
         assert rows[2]["lane"] == "full-audit"  # never touched
 
     def test_no_hits_no_escalation(self, monkeypatch):
-        monkeypatch.setattr(rw.shutil, "which", lambda _: "/bin/gitleaks")
         rows, by_key = self._rows_and_keys()
         stats = rw.run_tripwire(
             rows,
@@ -1028,15 +1122,7 @@ class TestTripwire:
         assert stats["escalated"] == 0
         assert rows[0]["lane"] == "diff-scan-quarterly"
 
-    def test_scanner_missing_records_and_skips(self, monkeypatch):
-        monkeypatch.setattr(rw.shutil, "which", lambda _: None)
-        rows, by_key = self._rows_and_keys()
-        stats = rw.run_tripwire(rows, by_key, jobs=2)
-        assert stats["scanner_unavailable"] == 2
-        assert rows[0]["lane"] == "diff-scan-quarterly"
-
     def test_quota_short_skips_github_fetches(self, monkeypatch):
-        monkeypatch.setattr(rw.shutil, "which", lambda _: "/bin/gitleaks")
         rows, by_key = self._rows_and_keys()
         stats = rw.run_tripwire(
             rows,
@@ -1292,12 +1378,13 @@ class TestDrainAndExposureEndToEnd(TestMainEndToEnd):
             }
 
         monkeypatch.setattr(rw, "gh_rate_remaining", lambda: 100_000)
+        monkeypatch.setattr(rw, "preflight_failures", lambda checks: [])
         monkeypatch.setattr(rw, "gh_repo_info", fake_gh_info)
         monkeypatch.setattr(rw, "gh_compare", fake_gh_cmp)
         monkeypatch.setattr(
             rw,
             "gitlab_repo_info",
-            lambda h, p: {"ok": False, "kind": "unreachable", "error": "x"},
+            lambda api, h, p: {"ok": False, "kind": "unreachable", "error": "x"},
         )
         out = tmp_path / "out" / "rescan-worklist.json"
         rc = rw.main(
@@ -1446,7 +1533,7 @@ class TestBanBreaker:
 
         monkeypatch.setattr(rw, "BAN_STREAK_THRESHOLD", 5)
         entries = [{"repo_url": f"https://github.com/o/r{i}"} for i in range(40)]
-        rw.stage1(entries, jobs=1, gh_info=failing_gh)
+        rw.stage1(entries, 1, None, gh_info=failing_gh)
         skipped = [e for e in entries if e["status"] == "ban-suspected"]
         assert calls["n"] <= 6  # stopped calling after the trip
         assert len(skipped) >= 30  # remainder skipped, not churned

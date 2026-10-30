@@ -263,7 +263,6 @@ DEPS_ONLY = {"changed_lines": 10, "deps_only": True}  # rule 3b
 def test_tripwire_matches_the_legacy_router(
     monkeypatch: pytest.MonkeyPatch, fields: dict[str, Any], hits: int | None
 ) -> None:
-    monkeypatch.setattr(rw.shutil, "which", lambda _: "/bin/gitleaks")
     state = _state(**fields, secret_hits=hits, threat_model_age_days=10)
     rule, lane = decide(state)
     row = {
