@@ -41,7 +41,7 @@ OPS_DB_PASS="${OPS_DB_PASS:-traust}"
 OPS_DB_NAME="${OPS_DB_NAME:-traust}"
 OPS_DSN="postgresql://${OPS_DB_USER}:${OPS_DB_PASS}@localhost:${OPS_PORT}/${OPS_DB_NAME}"
 OPS_EVERY="${OPS_EVERY:-1m}"            # engine --every: minutes, hours or days
-OPS_ENGINE_SRC="${OPS_ENGINE_SRC:-git+https://github.com/traust-security/traust-engine@fe9e9129e2e4682fc8b7d0040efe4fee7c748073}"
+OPS_ENGINE_SRC="${OPS_ENGINE_SRC:-git+https://github.com/traust-security/traust-engine@779471df5b9473bbf31cf0ad78d213f88bda9153}"
 OPS_SMOKE_REPO="${OPS_SMOKE_REPO:-https://github.com/octocat/Hello-World}"
 
 CONFIG_HOME="$REPO_ROOT/$OPS_DIR/config"
@@ -143,6 +143,9 @@ locations:
   workspace: $RUN_DIR/workspace
   analysis_results: $RUN_DIR/analysis-results
   progress_tracker: $RUN_DIR/progress-tracker
+# manifest_sbom runs syft through core's ProcessRunner, which runs only what is listed here.
+process:
+  allowed_binaries: [syft]
 EOF
     fi
     mkdir -p "$RUN_DIR/home" "$RUN_DIR/workspace" "$RUN_DIR/analysis-results" "$RUN_DIR/progress-tracker" "$OPS_DIR/pack"
@@ -266,18 +269,23 @@ cmd_smoke() {
     local repo="${1:-$OPS_SMOKE_REPO}"
     echo "smoke: onboarding $repo"
     traust_cli portfolio onboard --product local-rig --label "Local rig" --repo "$repo" >/dev/null
-    echo "smoke: one engine pass (applies the schema, plans what is due)"
-    engine run --router traust.ops.router:SecurityRouter --once >/dev/null
-    echo "smoke: claiming until the queue drains"
-    local idle=0 _
-    for _ in $(seq 1 40); do
-        if engine claim | grep -q '"claimed": null'; then
-            idle=$((idle + 1))
-            [ "$idle" -ge 2 ] && break
-        else
-            idle=0
-        fi
-        sleep 2
+    # Two passes: the first observes the repository, the second plans what depends on it
+    # (manifest_sbom waits on repo_state).
+    local pass idle _
+    for pass in 1 2; do
+        echo "smoke: engine pass $pass (applies the schema, plans what is due)"
+        engine run --router traust.ops.router:SecurityRouter --once >/dev/null
+        echo "smoke: claiming until the queue drains"
+        idle=0
+        for _ in $(seq 1 40); do
+            if engine claim | grep -q '"claimed": null'; then
+                idle=$((idle + 1))
+                [ "$idle" -ge 2 ] && break
+            else
+                idle=0
+            fi
+            sleep 2
+        done
     done
     echo "smoke: orders by asset and state"
     "$CT" exec "$OPS_CONTAINER" psql -U "$OPS_DB_USER" -d "$OPS_DB_NAME" \
@@ -292,6 +300,9 @@ cmd_smoke() {
     "$CT" exec "$OPS_CONTAINER" psql -U "$OPS_DB_USER" -d "$OPS_DB_NAME" -tAc \
         "select count(*) from traust_ops.run_order where asset = 'repo_state' and state in ('succeeded', 'degraded')" \
         | grep -qx 0 && { echo "smoke: no completed repo_state order" >&2; bad=1; }
+    "$CT" exec "$OPS_CONTAINER" psql -U "$OPS_DB_USER" -d "$OPS_DB_NAME" -tAc \
+        "select count(*) from traust_ops.run_order where asset = 'manifest_sbom' and state in ('succeeded', 'degraded')" \
+        | grep -qx 0 && { echo "smoke: no completed manifest_sbom order" >&2; bad=1; }
     if [ "${OPS_TEARDOWN:-0}" = "1" ]; then
         "$CT" rm -f "$OPS_CONTAINER" >/dev/null 2>&1 || true
         "$CT" volume rm "$OPS_VOLUME" >/dev/null 2>&1 || true

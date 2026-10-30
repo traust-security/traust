@@ -14,15 +14,12 @@ import pytest
 import yaml
 from traust_core.v1.context import observation
 from traust_core.v1.errors import NotFoundError
-from traust_core.v1.models.artifacts import AdapterResultArtifact
 from traust_core.v1.models.assessment import Assessment, AssessmentKind
 from traust_core.v1.models.inventory import RepositoryRef
 from traust_core.v1.models.observation import ComparisonStatus
 from traust_core.v1.models.operations import AssetRequest, JobResult, OrderReason
 from traust_core.v1.models.values import HttpsRepoUrl
-from traust_core.v1.providers.base import Acquisition, ProviderRegistry, Readiness, Result
 from traust_core.v1.repositories.contract import SqlTraustUnitOfWork
-from traust_core.v1.services.observation import GITLEAKS
 
 from traust.cli import portfolio_observe
 from traust.context import load
@@ -56,60 +53,17 @@ def home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     (config / "traust.yaml").write_text(yaml.safe_dump({"home": str(tmp_path / "store")}))
 
     forge_api(monkeypatch, lambda host, endpoint, headers=None: FORGE[endpoint])
-    # A changed repository's observation scans its patch for secrets (gitleaks required,
-    # core's fail-loud rule); the runner image's scanner is not this test's subject.
-    clean_scanner(monkeypatch)
     return config
 
 
 def forge_api(monkeypatch: pytest.MonkeyPatch, get: Any) -> None:
-    """Core's forge reads GitHub over its ForgeApi; answer them from `get` (and the compare
-    patch from `stream`)."""
+    """Core's forge reads GitHub over its ForgeApi; answer them from `get`."""
     wire = observation.command_source
-    api = SimpleNamespace(
-        get=get,
-        stream=lambda host, endpoint, consume, headers=None: consume(
-            io.BytesIO(b"+++ b/x.py\n+x = 1\n")
-        ),
-    )
+    api = SimpleNamespace(get=get)
     monkeypatch.setattr(
         "traust_core.v1.context.context.command_source",
         lambda hosts, **kw: wire(hosts, **{**kw, "api": api}),
     )
-
-
-class CleanGitleaks:
-    """The scanner the observation requires over a changed repo's patch, finding nothing."""
-
-    name = GITLEAKS
-
-    def check(self) -> Readiness:
-        return Readiness(ready=True)
-
-    def acquire(self, request: object) -> Result[AdapterResultArtifact]:
-        return Result(
-            AdapterResultArtifact.from_document(
-                {
-                    "target": "change",
-                    "scanned_at": "2026-10-23T00:00:00Z",
-                    "metadata": {"tool": GITLEAKS, "scanner_version": "8.30.0"},
-                    "findings": [],
-                }
-            ),
-            Acquisition(provider=self.name, acquired_at=datetime(2026, 10, 23, tzinfo=UTC)),
-        )
-
-
-def clean_scanner(monkeypatch: pytest.MonkeyPatch) -> None:
-    real_load = portfolio_observe.load
-
-    def load_with_scanner(config_home: Path | None) -> Any:
-        core = real_load(config_home)
-        core.tools = ProviderRegistry("tool")
-        core.tools.register(CleanGitleaks.name, CleanGitleaks)
-        return core
-
-    monkeypatch.setattr(portfolio_observe, "load", load_with_scanner)
 
 
 def observe(home: Path, repo: str) -> tuple[int, dict[str, Any]]:
@@ -152,20 +106,26 @@ def test_an_audited_fork_is_observed_kept_and_its_upstream_inventoried(home: Pat
         assert uow.repositories.find_by_url(REPO).upstream_id == upstream.id
 
 
-def test_a_never_audited_repository_observes_its_forge_head(
+def test_a_never_audited_repository_keeps_its_head_with_no_comparison(
     home: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     register(home, audited=False)
-    requests: list[tuple[str, str]] = []
+    asked: list[str] = []
 
-    def get(host: str, endpoint: str, headers: dict[str, str] | None = None) -> dict[str, Any]:
-        requests.append((host, endpoint))
+    def get(host: str, endpoint: str, headers: Any = None) -> Any:
+        asked.append(endpoint)
         return FORGE[endpoint]
 
     forge_api(monkeypatch, get)
     assert observe(home, REPO)[0] == 0
-    assert ("github.com", "repos/org/app") in requests
-    assert ("github.com", "repos/org/app/branches/main") in requests
+    assert asked == ["repos/org/app", "repos/org/app/branches/main"]
+    core = load(home)
+    repo = core.services().portfolio.find_repository(HttpsRepoUrl.parse(REPO, HOSTS))
+    assert repo is not None and repo.id is not None
+    head = core.services().portfolio.default_ref(repo.id)
+    assert head is not None and head.sha == "b" * 40
+    with core.repository_observation() as observation:
+        assert observation.query.repo_state(repo_url=REPO).status == "never-audited"
 
 
 def test_a_repository_outside_the_inventory_is_refused(home: Path) -> None:

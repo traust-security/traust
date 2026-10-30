@@ -572,8 +572,17 @@ skill sessions fail as `runner-crashed`. Routed lanes (`full_audit`,
 `diff_scan`) queue for approval by design — CI never approves, so a smoke
 run exercises the deterministic assets without spend. `make ops-smoke`
 (what the `ops-smoke` workflow runs on demand) asserts the cycle end to
-end: orders drain, `feeds_cache` and `repo_state` complete (degraded on a
-failing feed source is a pass), nothing left running or queued.
+end over two engine passes: orders drain, `feeds_cache`, `repo_state` and
+`manifest_sbom` complete (degraded on a failing feed source is a pass),
+nothing left running or queued.
+
+A deployment needs the same pieces the rig writes: `process.allowed_binaries`
+in `traust.yaml` lists `syft` (core's process runner runs nothing else, and
+`manifest_sbom` runs it); `ledger_audit` is refused as `ledger_unconfigured`
+until `traust.yaml` has a `ledger:` section; a runner from the runtime image
+reads the harness payload (`harnessing/`, `packs/`) from `HARNESS_ROOT`, which the
+image sets. A never-audited repository is observed too: `repo_state` keeps its
+default head, so `manifest_sbom` and below-range cover it before its first audit.
 
 ## Standing weekly drain — orchestrator contract
 

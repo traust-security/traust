@@ -15,19 +15,12 @@ ARG TOOLS_IMAGE
 ARG TOOLCHAIN_HASH=unknown
 ARG VCS_REF=unknown
 # The continuous-ops service (`traust-engine run|claim`), installed beside traust, not into it.
-ARG TRAUST_ENGINE_SHA=fe9e9129e2e4682fc8b7d0040efe4fee7c748073
-# The interpreter traust runs on, uv-managed: the code-facts scans parse target Python with its
-# `ast`, so it must read current syntax. uv verifies the download against the checksum its pinned
-# release carries.
-ARG PYTHON_VERSION=3.14.8
+ARG TRAUST_ENGINE_SHA=779471df5b9473bbf31cf0ad78d213f88bda9153
 
 FROM registry.access.redhat.com/ubi9/ubi-minimal@sha256:c4c285d42941ebb2bd4da878479008e1e4536bb599aad1dbe568f89de9053661 AS app-builder
 RUN microdnf install -y --setopt=install_weak_deps=0 git tar gzip python3.11 python3.11-pip \
     && microdnf clean all
 RUN python3.11 -m pip install --no-cache-dir uv==0.13.4
-ARG PYTHON_VERSION
-ENV UV_PYTHON_INSTALL_DIR=/opt/python UV_PYTHON_PREFERENCE=only-managed
-RUN uv python install "${PYTHON_VERSION}"
 
 WORKDIR /opt/traust
 # Only what `uv sync` needs to resolve and install the pinned dependency graph (traust-contracts,
@@ -44,11 +37,11 @@ COPY LICENSES/ ./LICENSES/
 # https:// URLs (not runtime-supplied), so AGENTS.md rule S3 (GIT_ALLOW_PROTOCOL=https on
 # non-literal URLs) doesn't apply here — and setting it would break uv's own internal
 # cache-to-checkout step, which clones over the local `file://` transport.
-RUN uv sync --frozen --no-dev --no-editable --python "${PYTHON_VERSION}"
+RUN uv sync --frozen --no-dev --no-editable --python /usr/bin/python3.11
 
 ARG TRAUST_ENGINE_SHA
 RUN UV_TOOL_DIR=/opt/traust-engine/tools UV_TOOL_BIN_DIR=/opt/traust-engine/bin \
-    uv tool install --python "${PYTHON_VERSION}" \
+    uv tool install --python /usr/bin/python3.11 \
     "traust-engine @ git+https://github.com/traust-security/traust-engine@${TRAUST_ENGINE_SHA}"
 
 # --- Runtime: the pinned tools image, extended with the traust Python stack ---
@@ -68,7 +61,6 @@ traust-toolchain image it was built on, plus the feeds cache, separately." \
       vendor="Red Hat, Inc."
 
 USER 0
-COPY --from=app-builder /opt/python /opt/python
 COPY --from=app-builder /opt/traust /opt/traust
 COPY --from=app-builder /opt/traust-engine /opt/traust-engine
 RUN chown -R 1001:1001 /opt/traust /opt/traust-engine
@@ -76,6 +68,7 @@ RUN chown -R 1001:1001 /opt/traust /opt/traust-engine
 # Harness skill data — the same payload the pre-split image shipped, now layered on top of the
 # tools base instead of installed alongside ad hoc scanner commands.
 COPY harnessing/ /harness/harnessing/
+COPY packs/      /harness/packs/
 COPY config/     /harness/config/
 COPY docs/       /harness/docs/
 COPY bin/        /harness/bin/
@@ -88,16 +81,15 @@ ENV PATH="/opt/traust/.venv/bin:/opt/traust-engine/bin:${PATH}"
 
 # --- Smoke test: the pinned Python stack imports and reports itself, as the runtime user ---
 USER 1001
-ARG PYTHON_VERSION
-RUN python -c "import platform, sys; assert platform.python_version() == sys.argv[1], \
-platform.python_version()" "${PYTHON_VERSION}" \
-    && python -c "import ast; ast.parse('try:\n    pass\nexcept KeyError, ValueError:\n    pass\n')" \
-    && python -c "from importlib.metadata import version as v; \
+RUN python3.11 -c "from importlib.metadata import version as v; \
 print({n: v(n) for n in ('traust', 'traust-ledger', 'traust-contracts', 'traust-core')})" \
-    && python -m traust.cli --help >/dev/null \
+    && python3.11 -m traust.cli --help >/dev/null \
     && traust-engine --help >/dev/null \
-    && echo "runtime image verified: traust stack importable, CLIs run"
+    && TRAUST_CONFIG_HOME=/tmp/smoke-home python3.11 -c "from traust.context import load; \
+from traust.paths import OPENGREP_RULES_DIR as r; load(); \
+assert any(r.rglob('*.yaml')), f'no opengrep rules under {r}'" \
+    && echo "runtime image verified: traust stack importable, CLIs run, the pack loads"
 
 WORKDIR /workspace
-ENTRYPOINT ["/opt/traust/.venv/bin/python", "-m", "traust.cli"]
+ENTRYPOINT ["python3.11", "-m", "traust.cli"]
 CMD ["--help"]

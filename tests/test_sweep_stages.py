@@ -40,6 +40,7 @@ from traust_core.v1.models.validation_benchmark import (
 )
 
 from traust.cli.groups import sweep
+from traust.paths import skill_dir
 
 NOW = datetime(2026, 10, 27, tzinfo=UTC)
 RID = "traust-go-sweep-cwe-78"
@@ -354,6 +355,17 @@ def test_plan_writes_the_worklist_beside_the_benchmark(
     assert f"oc apply -f {bench}/fixtures/v.yaml" in out
     (claim,) = json.loads((bench / "benchmark-findings.json").read_text())["findings"]
     assert claim["id"] == "VB-1" and "validation_status" not in claim
+
+
+def test_plan_reads_the_shipped_benchmark_and_writes_to_the_estate(
+    quality: SimpleNamespace, tmp_path: Path
+) -> None:
+    quality.benchmark_worklist = Door(lambda b: BenchmarkWorklist.of(b, NOW))
+    rc, out, _ = call(sweep.call_benchmark, benchmark_cmd="plan", benchmark_dir=None)
+    shipped = skill_dir("validate-findings") / "benchmark"
+    assert rc == 0 and f"oc apply -f {shipped}/fixtures/" in out
+    assert (tmp_path / "ar" / sweep.VALIDATION_BENCHMARK_REL / "benchmark-findings.json").is_file()
+    assert not (shipped / "benchmark-findings.json").exists()
 
 
 @pytest.mark.parametrize(("value", "code"), [(1.0, 0), (0.5, 1)])

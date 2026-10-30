@@ -17,7 +17,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: traust-security/traust-engine
-          ref: fe9e9129e2e4682fc8b7d0040efe4fee7c748073
+          ref: 779471df5b9473bbf31cf0ad78d213f88bda9153
           path: traust-engine
       - uses: astral-sh/setup-uv@v5
       - run: make ops-smoke

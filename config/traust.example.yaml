@@ -73,4 +73,4 @@ execution:
 # overrides:                    # optional: supplemental rule packs (shipped: none enabled)
 #   rule_pack_allowlist: rule-pack-allowlist.yaml    # template: config/rule-pack-allowlist.example.yaml
 
-# process: {timeout_seconds: 600}   # process, http and logging keep core's defaults unless set
+# process: {allowed_binaries: [syft], timeout_seconds: 600}   # core runs only listed binaries (default none); manifest_sbom needs syft. http and logging keep core's defaults unless set
