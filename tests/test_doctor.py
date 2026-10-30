@@ -1,5 +1,6 @@
-"""`traust admin doctor`: the traust-core rows only. One store read, then each registered
-provider's readiness from `ProviderCatalog.readiness`; the store and catalog are core's tests."""
+"""`traust admin doctor`: core's preflight (the same findings the engine's start gate refuses
+on) as FAIL rows, the store/catalog rows, and each value's source. The store and catalog are
+core's tests."""
 
 from __future__ import annotations
 
@@ -12,12 +13,14 @@ from typing import Any
 
 import pytest
 import yaml
-from traust_core.v1.context import Context
-from traust_core.v1.errors import ConfigError
+from traust_core.v1.context import Context, validate_config
+from traust_core.v1.errors import ConfigError, PreflightError
+from traust_core.v1.models.operations import Requirement
 from traust_core.v1.providers.base import Readiness
 from traust_core.v1.services.provider_catalog import Capability, CapabilityKind, ProviderBinding
 
 from traust.cli import doctor
+from traust.context import load
 
 CHECKOV = ProviderBinding(
     capability=Capability(kind=CapabilityKind.TOOL, name="checkov"),
@@ -53,8 +56,30 @@ def stub(monkeypatch: pytest.MonkeyPatch, list_products: Any) -> list[Any]:
 def home(tmp_path: Path) -> Path:
     config = tmp_path / "config"
     config.mkdir()
-    (config / "traust.yaml").write_text(yaml.safe_dump({"home": str(tmp_path / "store")}))
+    _fill(config, tmp_path)
     return config
+
+
+def _fill(config: Path, tmp_path: Path) -> None:
+    """A home the completeness audit accepts: traust.yaml with the estate keys set, plus the
+    shipped model registry install_traust copies."""
+    (config / "traust.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "home": str(tmp_path / "store"),
+                "locations": {
+                    "workspace": str(tmp_path / "ws"),
+                    "analysis_results": str(tmp_path / "ar"),
+                    "progress_tracker": str(tmp_path / "pt"),
+                },
+                "ledger": {"public_key_path": str(tmp_path / "cosign.pub")},
+            }
+        )
+    )
+    repo = Path(__file__).resolve().parents[1]
+    (config / "model-registry.yaml").write_text(
+        (repo / "config" / "model-registry.yaml").read_text()
+    )
 
 
 def test_a_reachable_store_and_every_providers_readiness(
@@ -84,7 +109,7 @@ def test_an_unreachable_store_fails_and_skips_the_catalog(
 
     asked = stub(monkeypatch, refused)
     results: list[tuple[str, str]] = []
-    doctor.check_core(results, home)
+    assert doctor.check_core(results, home) is None
     assert asked == []
     assert results == [(doctor.FAIL, "traust-core store not reachable — no database")]
 
@@ -99,8 +124,161 @@ def test_main_reports_the_core_rows_and_exits_by_failures(
     with contextlib.redirect_stdout(out):
         rc = doctor.main(["--config-home", str(home), "--quick", "--json"])
     assert rc == 0
-    assert json.loads(out.getvalue())[0]["check"] == "traust-core store reachable"
+    rows = json.loads(out.getvalue())
+    assert rows[0]["check"] == "traust-core store reachable"
     assert asked == [(None, False)]  # --quick skips the feed sources' network probes
+
+
+def _doctor(home: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[int, list[dict[str, str]]]:
+    stub(monkeypatch, lambda page: SimpleNamespace(items=[]))
+    for check in ("check_python", "check_tools", "check_gates"):
+        monkeypatch.setattr(doctor, check, lambda results: None)
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        rc = doctor.main(["--config-home", str(home), "--quick", "--json"])
+    return rc, json.loads(out.getvalue())
+
+
+def test_a_required_gap_is_a_fail_row_and_a_nonzero_exit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    home = tmp_path / "config"
+    home.mkdir()
+    _fill(home, tmp_path)
+    (home / "traust.yaml").write_text(yaml.safe_dump({"home": str(tmp_path / "store")}))
+    rc, rows = _doctor(home, monkeypatch)
+    assert rc == 1
+    assert [r["check"] for r in rows if r["status"] == "FAIL"] == [
+        "traust.yaml: locations.workspace unset",
+        "traust.yaml: locations.analysis_results unset",
+        "traust.yaml: locations.progress_tracker unset",
+        "traust.yaml: ledger.public_key_path unset — layer signatures are not verified",
+    ]
+
+
+def _pack_requires(path: Path) -> list[Requirement]:
+    """The pack fixture's requirements, parsed the way the engine's start gate does: the
+    `requires:` blocks of every enabled asset (the pack file is the shared fixture)."""
+    raw = yaml.safe_load(path.read_text())
+    validate_config("pack", raw)
+    return [
+        Requirement(**asset["requires"])
+        for asset in raw["assets"].values()
+        if asset.get("enabled") is not False and asset.get("requires")
+    ]
+
+
+PACK_FIXTURE = """\
+pack: fixture
+assets:
+  tool_asset:
+    run: [/bin/true]
+    requires: {tools: [gitleaks]}
+  estate_asset:
+    run: [/bin/true]
+    requires: {config: [identity], facts: [sla-policy], secrets: [GITLAB_TOKEN]}
+  disabled_asset:
+    run: [/bin/true]
+    enabled: false
+    requires: {tools: [syft]}
+"""
+
+
+def test_doctor_and_the_engine_start_gate_agree_on_one_home(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """One preflight path: doctor's FAIL rows are exactly the findings the engine's start
+    gate (Context.preflight on the same pack) refuses on, for the same home."""
+    home = tmp_path / "config"
+    home.mkdir()
+    _fill(home, tmp_path)
+    pack = tmp_path / "assets.yaml"
+    pack.write_text(PACK_FIXTURE)
+    monkeypatch.setattr(doctor, "PACK_ASSETS", pack)
+    for var in ("GITLAB_TOKEN", "CCA_BICEP", "FEEDS_CACHE_DIR", "GIT_HOSTS"):
+        monkeypatch.delenv(var, raising=False)
+
+    rc, rows = _doctor(home, monkeypatch)
+    assert rc == 1
+    reported = sorted(r["check"] for r in rows if r["status"] == "FAIL")
+
+    # The engine's start gate: Context.preflight on the same pack, the home named by the
+    # environment (core's preflight audits the env-resolved home, as it does for the engine).
+    monkeypatch.setenv("TRAUST_CONFIG_HOME", str(home))
+    with pytest.raises(PreflightError) as refused:
+        load(home).preflight(_pack_requires(pack))
+    gated = sorted(
+        line[2:]
+        for line in str(refused.value).splitlines()[1:]  # past "preflight: N unmet requirement(s):"
+        if line.startswith("- ")
+    )
+    assert reported == gated
+    assert any("facts: sla-policy is not recorded" in finding for finding in gated)
+    assert any("secrets: $GITLAB_TOKEN is not set" in finding for finding in gated)
+    assert any("config: `identity` is not set" in finding for finding in gated)
+
+
+def test_a_fresh_home_from_traust_example_yaml_names_exactly_what_is_still_needed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Lean adoption: copy traust.example.yaml, run doctor — it fails naming exactly the keys
+    still needed (no facts: traust's composition root registers the pack's defaults) and
+    passes once they are set."""
+    repo = Path(__file__).resolve().parents[1]
+    home = tmp_path / "config"
+    home.mkdir()
+    (home / "traust.yaml").write_text((repo / "config" / "traust.example.yaml").read_text())
+    (home / "model-registry.yaml").write_text((repo / "config" / "model-registry.yaml").read_text())
+    rc, rows = _doctor(home, monkeypatch)
+    assert rc == 1
+    assert [r["check"] for r in rows if r["status"] == "FAIL"] == [
+        "traust.yaml: locations.workspace unset",
+        "traust.yaml: locations.analysis_results unset",
+        "traust.yaml: locations.progress_tracker unset",
+        "traust.yaml: ledger.public_key_path unset — layer signatures are not verified",
+    ]
+
+    (home / "traust.yaml").write_text(
+        (repo / "config" / "traust.example.yaml").read_text()
+        + yaml.safe_dump(
+            {
+                "locations": {
+                    "workspace": str(tmp_path / "ws"),
+                    "analysis_results": str(tmp_path / "ar"),
+                    "progress_tracker": str(tmp_path / "pt"),
+                },
+                "ledger": {"public_key_path": str(tmp_path / "cosign.pub")},
+            }
+        )
+    )
+    rc, rows = _doctor(home, monkeypatch)
+    assert rc == 0
+    assert "preflight: every enabled asset's requirements are met" in [r["check"] for r in rows]
+
+
+def test_the_convention_paths_show_as_defaults_in_use(
+    home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("FEEDS_CACHE_DIR", raising=False)
+    monkeypatch.delenv("GIT_HOSTS", raising=False)
+    results: list[tuple[str, str]] = []
+    doctor.check_defaults(results, load(home))
+    rows = {m.split(": ", 1)[0]: m for _, m in results}
+    assert rows["feeds cache"].endswith("(default <progress_tracker>/feeds)")
+    assert rows["extra forges (GIT_HOSTS)"] == (
+        "extra forges (GIT_HOSTS): none — github.com/gitlab.com only"
+    )
+    assert rows["bicep"].startswith("bicep: ")
+
+    monkeypatch.setenv("FEEDS_CACHE_DIR", "/shared/feeds")
+    monkeypatch.setenv("GIT_HOSTS", "gitlab:gitlab.example.com")
+    results = []
+    doctor.check_defaults(results, load(home))
+    rows = {m.split(": ", 1)[0]: m for _, m in results}
+    assert rows["feeds cache"] == "feeds cache: /shared/feeds (env FEEDS_CACHE_DIR)"
+    assert rows["extra forges (GIT_HOSTS)"] == (
+        "extra forges (GIT_HOSTS): gitlab:gitlab.example.com"
+    )
 
 
 def _config_rows(home: Path | None) -> dict[str, str]:

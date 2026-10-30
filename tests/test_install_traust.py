@@ -59,30 +59,16 @@ def test_doctor_fails_closed_when_unset_and_default_absent(tmp_path):
     assert r.returncode == 1 and "run scripts/install_traust" in r.stdout
 
 
-def test_doctor_smoke_on_a_fresh_install(tmp_path):
-    """Fresh install: the copied traust.yaml loads; unset locations are warnings, not errors."""
+def test_doctor_delegates_to_traust_admin_doctor(tmp_path):
+    """One code path: --doctor runs `traust admin doctor` (core's preflight), so a fresh
+    install fails naming exactly the keys still to fill in."""
     home = tmp_path / "cfg"
     _run(["--yes", "--config-home", str(home), "--no-toolchain", "--no-profile-write"])
-    r = _run(
-        ["--doctor", "--toolchain", "ledger-signing"], env_extra={"TRAUST_CONFIG_HOME": str(home)}
-    )
-    assert "traust configuration loads" in r.stdout, r.stdout
-    assert "locations.workspace unset" in r.stdout
-    assert "none left in the home" in r.stdout
-
-
-def test_doctor_names_retired_files_and_the_migrate_command(tmp_path):
-    home = tmp_path / "cfg"
-    _run(["--yes", "--config-home", str(home), "--no-toolchain", "--no-profile-write"])
-    (home / "locations.yaml").write_text("workspace: /w\n")
-    (home / "feeds.yaml").write_text("sources: {}\n")
-    r = _run(
-        ["--doctor", "--toolchain", "ledger-signing"], env_extra={"TRAUST_CONFIG_HOME": str(home)}
-    )
-    assert (
-        "no longer read: locations.yaml feeds.yaml — fold them into traust.yaml with: " in r.stdout
-    )
-    assert f"traust config migrate {home}" in r.stdout
+    r = _run(["--doctor"], env_extra={"TRAUST_CONFIG_HOME": str(home), "HOME": str(tmp_path)})
+    assert r.returncode == 1, r.stdout + r.stderr
+    assert "harness doctor" in r.stdout
+    assert "traust.yaml: locations.workspace unset" in r.stdout
+    assert "preflight: every enabled asset's requirements are met" not in r.stdout
 
 
 @pytest.mark.skipif(
@@ -90,8 +76,8 @@ def test_doctor_names_retired_files_and_the_migrate_command(tmp_path):
     reason="no operational config in this environment (the suite fixture is a bare template)",
 )
 def test_doctor_passes_on_the_operational_config():
-    """With a real TRAUST_CONFIG_HOME (developer workstation / SCI) the doctor's
-    file + config-load sections pass; toolchain is checked for the smallest profile."""
-    r = _run(["--doctor", "--toolchain", "ledger-signing"])
-    assert "traust configuration loads" in r.stdout, r.stdout
-    assert "missing" not in r.stdout.split("3. Retired files")[0]
+    """With a real TRAUST_CONFIG_HOME (developer workstation / SCI) the doctor's preflight
+    finds no gap in the operator's own home."""
+    r = _run(["--doctor"])
+    assert "traust-core store reachable" in r.stdout, r.stdout
+    assert "locations.workspace unset" not in r.stdout

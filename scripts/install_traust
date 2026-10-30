@@ -18,16 +18,14 @@
 #   scripts/install_traust --config-home DIR     # preset the location
 #   scripts/install_traust --yes --toolchain secure-code-audit   # non-interactive
 #   scripts/install_traust --yes --no-toolchain --no-profile-write
-#   scripts/install_traust --doctor [--toolchain PROFILE]        # check an install
+#   scripts/install_traust --doctor              # check an install
 #
-# --doctor verifies: the variable resolves, the directory exists, traust.yaml and
-# model-registry.yaml parse, no retired file is left in the home, traust loads
-# the config, completeness (unset locations, no ledger key); and (via the
-# toolchain doctor) the scanner binaries are present.
-# Exit status 1 on any failure, so it can gate CI.
+# --doctor runs `traust admin doctor` — the one preflight the engine's start
+# gate uses — against this shell's TRAUST_CONFIG_HOME. Exit status 1 on any
+# failure, so it can gate CI.
 #
 # Requires: bash, python3 (with the harness installed — `uv sync` — for the
-# config and toolchain checks). Runs on macOS bash 3.2 and Linux.
+# doctor). Runs on macOS bash 3.2 and Linux.
 
 set -euo pipefail
 
@@ -43,9 +41,6 @@ COPYABLE="traust.yaml"
 # contracts require it there). The copy in TRAUST_CONFIG_HOME wins; refresh
 # with --force when the harness updates the shipped one.
 SHIPPED_COPY="model-registry.yaml"
-# Files traust.yaml replaced or that ship with traust-core now: `traust config
-# migrate <home>` folds an old home into traust.yaml.
-RETIRED_FILES="core.yaml locations.yaml ledger.yaml storage.yaml budget-policy.yaml execution-boundaries.yaml remediation.yaml campaign.yaml feeds.yaml external-tools.yaml safe-exec-profiles.yaml corpus-config.yaml hardening-risk-weights.json"
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[0;33m'; BOLD='\033[1m'; NC='\033[0m'
 info()  { echo -e "${BOLD}==> $1${NC}"; }
@@ -194,122 +189,22 @@ do_install() {
   info "Next steps"
   echo "  1. Edit $CONFIG_HOME/traust.yaml — fill in what you use, delete the rest"
   echo "     (each section documents itself, the ledger key generation included)."
-  echo "  2. Verify:  scripts/install_traust --doctor  (and traust admin doctor for every value's source)"
+  echo "  2. Verify:  scripts/install_traust --doctor  (traust admin doctor — the same preflight the engine gates on)"
   echo "  Docs: config/README.md, docs/setup.md"
 }
 
 # --- Doctor -------------------------------------------------------------------
 do_doctor() {
-  local failures=0
   echo ""
   echo -e "${BOLD}traust — configuration doctor${NC}"
-
-  info "1. Location"
-  local home=""
-  if [[ -n "${TRAUST_CONFIG_HOME:-}" ]]; then
-    home="${TRAUST_CONFIG_HOME/#\~/$HOME}"; ok "TRAUST_CONFIG_HOME is set: $home"
-  elif [[ -d "$HOME/.traust/config" ]]; then
-    home="$HOME/.traust/config"; warn "TRAUST_CONFIG_HOME unset; using the default $home (set it explicitly for CI)"
-  else
-    fail "TRAUST_CONFIG_HOME is unset and $HOME/.traust/config does not exist — run scripts/install_traust"
+  local py; py="$(python_bin)"
+  if [[ -z "$py" ]]; then
+    fail "no python found — install the harness first (uv sync); the doctor is traust admin doctor"
     return 1
   fi
-  if [[ ! -d "$home" ]]; then fail "directory does not exist: $home"; return 1; fi
-  if [[ ! -r "$home" ]]; then fail "directory is not readable: $home"; return 1; fi
-  ok "directory exists and is readable"
-
-  info "2. Files"
-  local py; py="$(python_bin)"
-  if [[ ! -f "$home/traust.yaml" ]]; then
-    warn "traust.yaml absent — zero-config local defaults (copy config/traust.example.yaml to set locations and the ledger key)"
-  elif [[ -n "$py" ]] && "$py" -c "import sys,yaml; yaml.safe_load(open(sys.argv[1]))" "$home/traust.yaml" 2>/dev/null; then
-    ok "traust.yaml parses"
-  else
-    fail "traust.yaml does not parse"; failures=$((failures+1))
-  fi
-  for f in $SHIPPED_COPY; do
-    if [[ -f "$home/$f" ]]; then
-      if [[ -n "$py" ]] && "$py" -c "import sys,yaml; yaml.safe_load(open(sys.argv[1]))" "$home/$f" 2>/dev/null; then ok "$f parses (deployment copy; overrides the shipped one)"
-      else fail "$f does not parse"; failures=$((failures+1)); fi
-      if [[ -f "$TEMPLATE_DIR/$f" ]] && ! cmp -s "$home/$f" "$TEMPLATE_DIR/$f"; then
-        warn "$f differs from the shipped copy — intentional override, or stale? (install_traust --force refreshes it)"
-      fi
-    else
-      fail "$f missing — run install_traust to copy the shipped one"; failures=$((failures+1))
-    fi
-  done
-
-  info "3. Retired files"
-  local retired=""
-  for f in $RETIRED_FILES; do [[ -f "$home/$f" ]] && retired="$retired $f"; done
-  if [[ -n "$retired" ]]; then
-    warn "no longer read:$retired — fold them into traust.yaml with: traust config migrate $home"
-  else
-    ok "none left in the home"
-  fi
-
-  info "4. Config load (authoritative — exactly what traust.context.load() requires)"
-  if [[ -z "$py" ]]; then
-    warn "skipped (no python)"
-  elif TRAUST_CONFIG_HOME="$home" "$py" - <<'PYEOF'
-import sys
-try:
-    from traust.context import load
-except ImportError:
-    print("  traust not importable — run `uv sync`"); sys.exit(1)
-try:
-    ctx = load()
-except SystemExit:
-    sys.exit(1)
-print("  load() OK — traust will start with this config")
-if ctx.config.ledger is not None and ctx.config.ledger.public_key_path is not None:
-    print("  signing: key present (ledger signatures verified)")
-else:
-    print("  signing: DISABLED — no ledger public key in traust.yaml; the ledger records "
-          "unsigned layers and verification is skipped. Provide a key "
-          "(ledger.public_key_path) + ledger.required to enforce integrity.")
-sys.exit(0)
-PYEOF
-  then ok "traust configuration loads"
-  else fail "traust will NOT start with this config (fill the file named above)"; failures=$((failures+1)); fi
-
-  info "5. Completeness (estate readiness)"
-  if [[ -z "$py" ]]; then
-    warn "skipped (no python)"
-  elif comp=$(TRAUST_CONFIG_HOME="$home" "$py" - <<'PYEOF'
-import sys
-from traust_core.v1.context import config_completeness_audit
-errors, warnings = config_completeness_audit()
-for e in errors:
-    print(f"  ERROR {e}")
-for w in warnings:
-    print(f"  warn  {w}")
-sys.exit(1 if errors else 0)
-PYEOF
-  ); then
-    [[ -n "$comp" ]] && printf '%s\n' "$comp"
-    ok "estate complete — no blocking gaps"
-  else
-    printf '%s\n' "$comp"
-    fail "estate incomplete — resolve the ERROR item(s) above"; failures=$((failures+1))
-  fi
-
-  info "6. Toolchain"
-  if [[ -z "$py" ]]; then
-    warn "skipped (no python)"
-  else
-    local prof="${TOOLCHAIN_PROFILE:-secure-code-audit}"
-    if (cd "$REPO_ROOT" && "$py" -m traust.cli.toolchain doctor --profile "$prof"); then
-      ok "toolchain doctor passed for profile $prof"
-    else
-      fail "toolchain doctor reported problems (profile $prof) — scripts/install-toolchain.sh $prof"
-      failures=$((failures+1))
-    fi
-  fi
-
-  echo ""
-  if [[ $failures -eq 0 ]]; then ok "configuration looks good"; return 0; fi
-  fail "$failures problem(s) found"; return 1
+  # One code path: traust admin doctor (core's preflight) — not a second set of
+  # shell checks beside it.
+  (cd "$REPO_ROOT" && "$py" -m traust.cli admin doctor)
 }
 
 case "$MODE" in
