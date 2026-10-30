@@ -111,10 +111,10 @@ Two properties of declared rows to keep in mind:
   Actual cost is measured from the runtime's own usage records by the
   deployment's spend-collection chain, which is deployment tooling, not part
   of this contract.
-- **Embedded environments may skip the declaration cleanly.** A workspace with
-  no `model-registry.yaml` in its config home (a platform worker that records usage itself) skips at the
-  script level; `HARNESS_REQUIRE_SPEND_LEDGER=1` turns the skip into a failure
-  where the ledger is mandatory.
+- **The registry is required.** A config home without `model-registry.yaml`
+  (a platform worker that records usage itself) still copies the shipped one
+  — `scripts/install_traust` does — and `traust registry models spend` refuses,
+  naming the fix, rather than silently recording an unpriced declaration.
 
 Cost, where a dashboard shows one, comes from the registry rate card
 (`price_per_mtok_*`); verify it against the current published prices before

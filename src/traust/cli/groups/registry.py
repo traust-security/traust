@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import os
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
@@ -78,18 +77,14 @@ def call_models(args) -> int:
 
 
 def _declare_spend(args) -> int:
-    # PENDING(plan 11-consumer-adoption/09 fail-loud preflight: the registry becomes required)
     core = load(args.config_home)
     if core.model_catalog is None:
-        msg = (
-            f"spend: no {MODEL_REGISTRY} in the config home — declaration skipped; "
-            "the embedding platform records usage itself"
+        print(
+            f"spend: no {MODEL_REGISTRY} in the config home — copy config/{MODEL_REGISTRY} "
+            "there (spend pricing and the spend view need it)",
+            file=sys.stderr,
         )
-        if os.environ.get("HARNESS_REQUIRE_SPEND_LEDGER") == "1":
-            print(msg + " (HARNESS_REQUIRE_SPEND_LEDGER=1: failing)", file=sys.stderr)
-            return 1
-        print(msg, file=sys.stderr)
-        return 0
+        return 1
     for flag in ("repo", "loc", "batch", "note"):
         if getattr(args, flag) is not None:
             print(f"spend: --{flag} {UNSTORED}", file=sys.stderr)
