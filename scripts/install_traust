@@ -19,10 +19,13 @@
 #   scripts/install_traust --yes --toolchain secure-code-audit   # non-interactive
 #   scripts/install_traust --yes --no-toolchain --no-profile-write
 #   scripts/install_traust --doctor              # check an install
+#   scripts/install_traust --doctor --config-home DIR [--toolchain PROFILE]
 #
 # --doctor runs `traust admin doctor` — the one preflight the engine's start
-# gate uses — against this shell's TRAUST_CONFIG_HOME. Exit status 1 on any
-# failure, so it can gate CI.
+# gate uses — against this shell's TRAUST_CONFIG_HOME, or DIR when --config-home
+# names one. --toolchain PROFILE adds the profile's scanner check
+# (`traust admin toolchain doctor`). Exit status 1 on any failure, so it can
+# gate CI.
 #
 # Requires: bash, python3 (with the harness installed — `uv sync` — for the
 # doctor). Runs on macOS bash 3.2 and Linux.
@@ -203,8 +206,16 @@ do_doctor() {
     return 1
   fi
   # One code path: traust admin doctor (core's preflight) — not a second set of
-  # shell checks beside it.
-  (cd "$REPO_ROOT" && "$py" -m traust.cli admin doctor)
+  # shell checks beside it. The wrapper's --config-home names the home checked;
+  # --toolchain PROFILE adds the profile's scanner doctor on explicit request.
+  local rc=0
+  (cd "$REPO_ROOT" && "$py" -m traust.cli admin doctor \
+      ${CONFIG_HOME:+--config-home "${CONFIG_HOME/#\~/$HOME}"}) || rc=1
+  if [[ "$RUN_TOOLCHAIN" == "yes" ]]; then
+    (cd "$REPO_ROOT" && "$py" -m traust.cli admin toolchain doctor \
+        --profile "${TOOLCHAIN_PROFILE:-secure-code-audit}") || rc=1
+  fi
+  return $rc
 }
 
 case "$MODE" in

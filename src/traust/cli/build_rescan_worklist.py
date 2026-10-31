@@ -34,7 +34,8 @@ dropped):
     300 — a 300-file diff exceeds every threshold, so `truncated` is a
     flag, not a gap). org/name are validated against a strict charset
     before path interpolation (same guard as check_repo_liveness.py).
-  github.com / gitlab.com (plus any host in $GIT_HOSTS) — stage 1
+  github.com / gitlab.com (plus any host in $GIT_HOSTS or traust.yaml
+    `forge_hosts`) — stage 1
     GET /api/v4/projects/:urlencoded_path (last_activity_at as
     pushed_at, archived, default_branch); stage 2
     GET /api/v4/projects/:path/repository/compare?from=<sha>&to=<branch>
@@ -216,8 +217,9 @@ def _normalize_repo_url(raw: str | None) -> str | None:
 #
 #   GIT_HOSTS="gitlab:gitlab.example.com,github:ghe.example.com"
 #
-# Classification only: this widens which URLs are RECOGNISED, never what
-# the tool is permitted to reach.
+# Not classification only: _forge_api() merges these hosts into the forge
+# client's set, so a host here is also one the run will reach (with the token
+# traust.yaml names for it).
 def _git_hosts() -> dict[str, str]:
     hosts = {"github.com": "github", "gitlab.com": "gitlab"}
     for entry in os.environ.get("GIT_HOSTS", "").split(","):
@@ -233,12 +235,16 @@ def _git_hosts() -> dict[str, str]:
 GIT_HOSTS = _git_hosts()
 
 
+def _known_hosts(core) -> dict[str, str]:
+    """Every host the run classifies and reaches: traust.yaml's forge_hosts widened by
+    $GIT_HOSTS — the same merge the forge client gets, so a host named only in config
+    classifies too instead of landing unsupported-host."""
+    return {**core.config.forge_hosts, **GIT_HOSTS}
+
+
 def _forge_api(core) -> ForgeApi:
-    """The GitLab transport: core's ForgeApi over traust.yaml's forge hosts and tokens,
-    widened by $GIT_HOSTS (the host classification this script has always run on)."""
-    return ForgeApi(
-        core.http, {**core.config.forge_hosts, **GIT_HOSTS}, core.config.forge_token_values()
-    )
+    """The GitLab transport: core's ForgeApi over the known hosts and traust.yaml's tokens."""
+    return ForgeApi(core.http, _known_hosts(core), core.config.forge_token_values())
 
 
 # The first-party filter, NARROW sensitive matcher (rescan-cadence plan §2.2) and deps
@@ -438,16 +444,20 @@ def parse_pinned_sha(commit_field: str | None) -> str | None:
 # ---------------------------------------------------------------------------
 
 
-def split_repo_url(url: str | None) -> tuple[str | None, str | None, str | None]:
+def split_repo_url(
+    url: str | None, hosts: dict[str, str] | None = None
+) -> tuple[str | None, str | None, str | None]:
     """-> (kind, host, project_path). kind is 'github' | 'gitlab' | None
     (unsupported host). project_path is 'org/name' for GitHub, the full
-    (possibly subgrouped) namespace path for GitLab."""
+    (possibly subgrouped) namespace path for GitLab. `hosts` is the known-host
+    mapping; the default is $GIT_HOSTS alone, main passes the configured merge
+    (_known_hosts) so hosts named only in traust.yaml classify too."""
     m = re.match(r"^https://([^/]+)/(.+)$", url or "")
     if not m:
         return None, None, None
     host, path = m.group(1).lower(), m.group(2).strip("/")
     path = path.removesuffix(".git")
-    kind = GIT_HOSTS.get(host)
+    kind = (GIT_HOSTS if hosts is None else hosts).get(host)
     if kind == "github":
         parts = path.split("/")
         if len(parts) >= 2:
@@ -1931,7 +1941,14 @@ class _BanBreaker:
                 self.tripped = True
 
 
-def stage1(entries: list[dict], jobs: int, api: ForgeApi, gh_info=None, gl_info=None) -> None:
+def stage1(
+    entries: list[dict],
+    jobs: int,
+    api: ForgeApi,
+    gh_info=None,
+    gl_info=None,
+    hosts: dict[str, str] | None = None,
+) -> None:
     """Fleet refresh: annotate each entry with pushed_at/archived/
     default_branch or a status kind. Mutates entries in place.
     Fetchers resolve at call time (module globals) so tests can
@@ -1942,7 +1959,7 @@ def stage1(entries: list[dict], jobs: int, api: ForgeApi, gh_info=None, gl_info=
     breaker = _BanBreaker()
 
     def work(e: dict) -> None:
-        kind, host, project = split_repo_url(e["repo_url"])
+        kind, host, project = split_repo_url(e["repo_url"], hosts)
         e["host_kind"], e["host"], e["project"] = kind, host, project
         if e["repo_url"] is None:
             e["status"] = "no-repo-url"
@@ -2176,6 +2193,7 @@ def main(argv=None) -> int:
         e["audit_age_days"] = (today - d).days if d else None
 
     network = not args.no_network
+    hosts = _known_hosts(core)
     if network:
         # Guard stage 1 only: a full fleet needs ~1 call/repo for stage 1
         # plus ~0.45/repo for stage 2 — together that brushes the 5K/hr
@@ -2185,7 +2203,7 @@ def main(argv=None) -> int:
         # the worklist looks legitimate (observed live: well over half
         # of one sweep's calls errored) — refuse that outright.
         gh_needed = int(
-            1.05 * sum(1 for e in entries if split_repo_url(e["repo_url"])[0] == "github")
+            1.05 * sum(1 for e in entries if split_repo_url(e["repo_url"], hosts)[0] == "github")
         )
         quota = gh_rate_remaining()
         if quota is not None and quota < gh_needed and not args.ignore_rate_limit:
@@ -2201,10 +2219,10 @@ def main(argv=None) -> int:
             f"[+] stage 1: fleet refresh over {len(entries)} repos ({args.jobs} workers) …",
             file=sys.stderr,
         )
-        stage1(entries, args.jobs, _forge_api(core))
+        stage1(entries, args.jobs, _forge_api(core), hosts=hosts)
     else:
         for e in entries:
-            kind, host, project = split_repo_url(e["repo_url"])
+            kind, host, project = split_repo_url(e["repo_url"], hosts)
             e["host_kind"], e["host"], e["project"] = kind, host, project
             if e["repo_url"] is None:
                 e["status"] = "no-repo-url"

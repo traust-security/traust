@@ -7,6 +7,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+import yaml
 
 REPO = Path(__file__).resolve().parents[1]
 SCRIPT = REPO / "scripts" / "install_traust"
@@ -57,6 +58,51 @@ def test_doctor_fails_closed_when_unset_and_default_absent(tmp_path):
         cwd=REPO,
     )
     assert r.returncode == 1 and "run scripts/install_traust" in r.stdout
+
+
+def test_doctor_checks_the_config_home_the_wrapper_was_given(tmp_path):
+    """--config-home names the home --doctor audits: the wrapper's flag wins over
+    TRAUST_CONFIG_HOME, so it never reports on a different installation."""
+    complete = tmp_path / "complete"
+    complete.mkdir()
+    (complete / "traust.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "home": str(tmp_path / "store"),
+                "locations": {
+                    "workspace": str(tmp_path / "ws"),
+                    "analysis_results": str(tmp_path / "ar"),
+                    "progress_tracker": str(tmp_path / "pt"),
+                },
+                "ledger": {"public_key_path": str(tmp_path / "cosign.pub")},
+            }
+        )
+    )
+    (complete / "model-registry.yaml").write_text(
+        (REPO / "config" / "model-registry.yaml").read_text()
+    )
+    bare = tmp_path / "bare"
+    bare.mkdir()
+    (bare / "traust.yaml").write_text((REPO / "config" / "traust.example.yaml").read_text())
+    (bare / "model-registry.yaml").write_text((REPO / "config" / "model-registry.yaml").read_text())
+    r = _run(
+        ["--doctor", "--config-home", str(bare)],
+        env_extra={"TRAUST_CONFIG_HOME": str(complete), "HOME": str(tmp_path)},
+    )
+    assert r.returncode == 1, r.stdout + r.stderr
+    assert "traust.yaml: locations.workspace unset" in r.stdout
+
+
+def test_doctor_with_toolchain_runs_the_profiles_scanner_check(tmp_path):
+    """--toolchain PROFILE keeps its meaning beside --doctor: the profile's scanner
+    check (traust admin toolchain doctor) runs too, so a degraded profile surfaces."""
+    home = tmp_path / "cfg"
+    _run(["--yes", "--config-home", str(home), "--no-toolchain", "--no-profile-write"])
+    r = _run(
+        ["--doctor", "--toolchain", "secure-code-audit"],
+        env_extra={"TRAUST_CONFIG_HOME": str(home), "HOME": str(tmp_path)},
+    )
+    assert "Toolchain doctor for profile: secure-code-audit" in r.stdout
 
 
 def test_doctor_delegates_to_traust_admin_doctor(tmp_path):

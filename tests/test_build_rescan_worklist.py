@@ -395,6 +395,36 @@ def test_the_forge_client_knows_git_hosts_and_forge_tokens(monkeypatch: pytest.M
     assert api.kind("ghe.example.com") is None  # unknown to both config and env
 
 
+def test_a_host_configured_only_in_traust_yaml_classifies_and_routes():
+    """Classification follows the configured merge (_known_hosts — the same mapping the
+    forge client gets), not $GIT_HOSTS alone: a private GitLab host named only in
+    traust.yaml's forge_hosts routes through stage 1 instead of unsupported-host."""
+    core = SimpleNamespace(config=SimpleNamespace(forge_hosts={"gitlab.corp.example": "gitlab"}))
+    hosts = rw._known_hosts(core)
+    assert rw.split_repo_url("https://gitlab.corp.example/g/r", hosts) == (
+        "gitlab",
+        "gitlab.corp.example",
+        "g/r",
+    )
+    assert rw.split_repo_url("https://gitlab.corp.example/g/r")[0] is None  # $GIT_HOSTS alone
+
+    seen = []
+
+    def gl_info(api, host, project):
+        seen.append((host, project))
+        return {
+            "ok": True,
+            "pushed_at": "2026-07-25T00:00:00Z",
+            "archived": False,
+            "default_branch": "main",
+        }
+
+    entries = [{"repo_url": "https://gitlab.corp.example/g/r"}]
+    rw.stage1(entries, 1, None, gl_info=gl_info, hosts=hosts)
+    assert seen == [("gitlab.corp.example", "g/r")]
+    assert entries[0]["status"] == "ok"
+
+
 class TestErrorClassification:
     def test_unauthorized_is_no_credentials(self):
         assert rw._classify_stderr("HTTP 401: Unauthorized") == "no-credentials"
