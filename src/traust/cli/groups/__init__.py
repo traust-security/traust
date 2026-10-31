@@ -109,6 +109,8 @@ GROUPS: dict[str, dict[str, object]] = {
         "release-changes": portfolio.RELEASE_CHANGES,
         "population": portfolio.POPULATION,
         "liveness": portfolio.LIVENESS,
+        "checkout-refresh": portfolio.CHECKOUT_REFRESH,
+        "mirror-evict": portfolio.MIRROR_EVICT,
     },
     "remediation": dict(remediation.REMEDIATION),
     "repo": dict(repo.REPO),

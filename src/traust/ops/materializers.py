@@ -8,6 +8,7 @@ from collections import Counter
 from collections.abc import Iterable
 from http import HTTPStatus
 from pathlib import Path
+from typing import Any
 from uuid import UUID
 
 from traust_core.v1.context import Services
@@ -17,7 +18,7 @@ from traust_core.v1.models.dependencies import FeedName
 from traust_core.v1.models.insight import RenderedView, ViewFilter, ViewName
 from traust_core.v1.models.observation import ComparisonStatus
 from traust_core.v1.models.operations import AssetRequest, DegradedKey, JobResult, OrderReason
-from traust_core.v1.models.values import HttpsRepoUrl
+from traust_core.v1.models.values import GitSha, HttpsRepoUrl
 
 log = logging.getLogger(__name__)
 
@@ -90,6 +91,76 @@ class ManifestSbomMaterializer:
             log.warning("run %s: %s: %s", request.run_id, reason, e)
             return JobResult.refused(reason) if gone else JobResult.failed(reason)
         return JobResult.succeeded(written=(str(sbom.id),))
+
+
+class RepoCheckoutRefreshMaterializer:
+    """`repo_checkout_refresh`: fetch one inventory repository's git mirror to its observed
+    default head, but only when repo_state says the head moved (pushed since its last audit) —
+    a pre-warm for the lanes' checkouts, so a mirror is never seeded for a repository at rest
+    (a headless one included: no work, no head needed)."""
+
+    asset = "repo_checkout_refresh"
+
+    def __init__(self, services: Services, states: Any, hosts: Iterable[str]) -> None:
+        self._portfolio = services.portfolio
+        self._checkouts = services.checkouts
+        self._states = states  # the Context's repo_state query (core's `RepoStateQuery`)
+        self._hosts = tuple(hosts)
+
+    def materialize(self, request: AssetRequest) -> JobResult:
+        try:
+            url = HttpsRepoUrl.parse(request.partition or "", self._hosts)
+        except ValidationError as e:
+            log.warning("run %s: %s: %s", request.run_id, OrderReason.BAD_REQUEST, e)
+            return JobResult.failed(OrderReason.BAD_REQUEST)
+        try:
+            state = self._states.repo_state(repo_url=str(url))
+        except NotFoundError as e:
+            log.warning("run %s: %s: %s", request.run_id, OrderReason.NOT_FOUND, e)
+            return JobResult.refused(OrderReason.NOT_FOUND)
+        if not state.push_changed:
+            return JobResult.succeeded()
+        head = self._portfolio.default_ref(state.repository_id)
+        if head is None:
+            log.warning(
+                "run %s: %s: no observed default head for %s",
+                request.run_id,
+                OrderReason.NOT_FOUND,
+                url,
+            )
+            return JobResult.refused(OrderReason.NOT_FOUND)
+        try:
+            self._checkouts.refresh(url, GitSha.parse(head.sha))
+        except NotFoundError as e:
+            log.warning("run %s: %s: %s", request.run_id, OrderReason.NOT_FOUND, e)
+            return JobResult.refused(OrderReason.NOT_FOUND)
+        except ServiceError as e:
+            log.warning("run %s: %s: %s", request.run_id, OrderReason.SOURCE_UNAVAILABLE, e)
+            return JobResult.failed(OrderReason.SOURCE_UNAVAILABLE)
+        return JobResult.succeeded(written=(head.sha,))
+
+
+# A mirror no checkout has touched in this many days is dropped; only a checkout (or the seed)
+# touches its last-use marker, so a mirror refreshed but never used is reclaim, not cache.
+EVICT_IDLE_DAYS = 30
+
+
+class MirrorEvictMaterializer:
+    """`mirror_evict`: drop every git mirror no checkout has touched in the eviction window;
+    the repos dropped are the run's record."""
+
+    asset = "mirror_evict"
+
+    def __init__(self, services: Services) -> None:
+        self._checkouts = services.checkouts
+
+    def materialize(self, request: AssetRequest) -> JobResult:
+        try:
+            dropped = self._checkouts.evict(EVICT_IDLE_DAYS)
+        except ServiceError as e:
+            log.warning("run %s: %s: %s", request.run_id, OrderReason.SOURCE_UNAVAILABLE, e)
+            return JobResult.failed(OrderReason.SOURCE_UNAVAILABLE)
+        return JobResult.succeeded(written=tuple(map(str, dropped)))
 
 
 # A run by hand, not for an engine order.

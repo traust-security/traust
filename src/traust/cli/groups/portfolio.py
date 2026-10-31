@@ -33,3 +33,13 @@ DEPENDENTS = passthrough_op(
 LIVENESS = passthrough_op(
     "portfolio_liveness", "Each registered repository's archived flag and push.", "main"
 )
+CHECKOUT_REFRESH = passthrough_op(
+    "portfolio_checkout",
+    "Fetch a repository's git mirror to its observed head (the repo_checkout_refresh asset).",
+    "refresh",
+)
+MIRROR_EVICT = passthrough_op(
+    "portfolio_checkout",
+    "Drop git mirrors idle for the eviction window (the mirror_evict asset).",
+    "evict",
+)

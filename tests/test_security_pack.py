@@ -36,6 +36,8 @@ ASSETS = {
     # the refresh half; its rescan router is the pack router (route_on: repo_state)
     "Fleet refresh + rescan router": "repo_state",
     "Manifest SBOM sweep": "manifest_sbom",
+    "Mirror-cache refresh (the repo checkout service)": "repo_checkout_refresh",
+    "Mirror-cache eviction": "mirror_evict",
     "Below-range verification (packets, then review)": "below_range_packets",
     "Weekly diff-drain tranche": "diff_scan_quarterly",
     # the calendar backstop; the release review is routed (ROUTED), and the `pr` stamp rides

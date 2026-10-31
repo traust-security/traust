@@ -140,6 +140,31 @@ assets:
     admission: {quota: {key: "forge:{host}", per_hour: 1000}, pacing: {per_tick: 30}}
     runner: {labels: [deterministic]}
 
+  repo_checkout_refresh:  # RepoCheckoutService.refresh through traust.ops.materializers
+    # A pre-warm for the lanes' checkouts: repo_state says the head moved (pushed since the last
+    # audit), so the repository's mirror is fetched to the observed head before an order needs
+    # it; a repository at rest keeps whatever mirror it has. One mirror fetch is one forge
+    # call, from the same bucket as repo_state and manifest_sbom; pacing spreads the first full
+    # pass over ticks instead of a burst.
+    run: [python3, -m, traust.cli, portfolio, checkout-refresh, --repo, "{repo_url}", --run-id, "{run_id}"]
+    params: {repo_url: HttpsRepoUrl}
+    partitions: dynamic:repo
+    deps: [repo_state]
+    trigger: {every: 24h}
+    priority: 30
+    freshness: {fail: 48h}
+    admission: {quota: {key: "forge:{host}", per_hour: 1000}, pacing: {per_tick: 30}}
+    runner: {labels: [deterministic]}
+
+  mirror_evict:  # RepoCheckoutService.evict through traust.ops.materializers
+    # A mirror no checkout has touched in 30 days is dropped; the next checkout re-seeds it
+    # with one full fetch. Reclaim, never a gate: a dropped mirror only costs that fetch.
+    run: [python3, -m, traust.cli, portfolio, mirror-evict, --run-id, "{run_id}"]
+    trigger: {every: 24h}
+    priority: 60
+    freshness: {fail: 48h}
+    runner: {labels: [deterministic]}
+
   below_range_packets:  # BelowRangeService.scan through traust.ops.materializers
     run: [python3, -m, traust.cli, impact, below-range-scan, --repo, "{repo_url}", --run-id, "{run_id}"]
     params: {repo_url: HttpsRepoUrl}
