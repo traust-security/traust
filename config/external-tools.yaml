@@ -46,6 +46,34 @@ tools:
     version_cmd: ["gitleaks", "version"]
     upstream: {kind: github, ref: gitleaks/gitleaks}
     expected: "8.30.1"
+    # ⚠️  CVE WAIVER — upstream v8.30.1 (latest, 2026-03-12) ships
+    # golang.org/x/crypto v0.35.0 which Clair flags for 7 CVEs fixed in
+    # x/crypto >= 0.52.0. All 7 are in x/crypto/ssh and x/crypto/ssh/agent
+    # — packages gitleaks does not import.
+    #
+    # govulncheck v1.6.0 against the v8.30.1 source (2026-10-27) confirms
+    # none of the 7 are reachable: all appear under "vulnerabilities in
+    # modules you require, but your code doesn't appear to call".
+    #
+    # Upstream has not bumped x/crypto or cut a new release; master still
+    # pins v0.35.0. Bump this pin when upstream ships a fix.
+    #
+    # GHSA                  CVE               GO advisory  Severity  Package
+    # GHSA-5cgq-3rg8-m6cv   CVE-2026-42508    GO-2026-5021 Critical  ssh/knownhosts
+    # GHSA-x527-x647-q7gg   CVE-2026-46595    GO-2026-5023 Critical  ssh
+    # GHSA-f5wc-c3c7-36mc   CVE-2026-39832    GO-2026-5006 Critical  ssh/agent
+    # GHSA-vgwf-h737-ff37   CVE-2026-39830    GO-2026-5017 Critical  ssh
+    # GHSA-w879-237q-wc7r   CVE-2026-39829    GO-2026-5018 High      ssh
+    # GHSA-45gg-vh54-h5m9   CVE-2026-39828    GO-2026-5014 Medium    ssh
+    # GHSA-78mq-xcr3-xm33   CVE-2026-39835    GO-2026-5015 Medium    ssh
+    cve_waiver:
+      package: "golang.org/x/crypto"
+      embedded_version: "0.35.0"
+      fixed_in: "0.52.0"
+      govulncheck_reachable: false
+      govulncheck_version: "1.6.0"
+      verified_date: "2026-10-27"
+      reason: "gitleaks does not import x/crypto/ssh or x/crypto/ssh/agent"
     consumers: [secure-code-audit, vuln-scan, dependency-watch]
 
   - name: syft
