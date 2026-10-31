@@ -20,6 +20,11 @@ jobs:
           ref: 779471df5b9473bbf31cf0ad78d213f88bda9153
           path: traust-engine
       - uses: astral-sh/setup-uv@v5
+      - name: Install pinned Syft for manifest SBOM smoke
+        run: |
+          uv sync --quiet
+          HARNESS_BIN_DIR="$RUNNER_TEMP/bin" bash scripts/install-toolchain.sh local-ops
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
       - run: make ops-smoke
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
