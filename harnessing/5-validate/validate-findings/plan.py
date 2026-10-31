@@ -862,196 +862,44 @@ def _http_adapted_step(
         if cs and cs.explicit_namespaces
         else [p for p in (cs.namespaces if cs else []) if "*" not in p]
     )
-    ns = nss[0] if nss else ""
-    ns_list = " ".join(nss) or ns
-    hint = _svc_hint(f)
-    # H4: hostNetwork-only listener — port-forward targets the pod
-    # netns, so a host-namespace socket isn't reachable that way.
-    # Probe from the node itself via ``oc debug node``.
-    # r4 refinement: trigger ONLY on the TITLE (descriptions of CSI
-    # findings routinely mention "hostNetwork: true on the node
-    # DaemonSet" as context while the claim is about the controller's
-    # in-pod listener — H4 v1 hijacked 10 such findings) AND only
-    # when a concrete port was extracted (defaulting to 8080 is
-    # never right; it produced connection-refused on every node).
-    if port and re.search(
-        r"(?i)\bhostNetwork\b|node IP|node.s primary interface"
-        r"|bound (?:directly )?on the node",
-        f.title or "",
-    ):
-        hp = port
-        cmd = (
-            f"NODE=$(oc --context {ctx} get node -o name | head -1); "
-            f"oc --context {ctx} debug $NODE -- chroot /host "
-            f"curl -sS --max-time 10 http://127.0.0.1:{hp}{path} "
-            f"-w '\\nvf-http-status:%{{http_code}}'"
-        )
-        return Step(
-            id=sid,
-            technique="adapted",
-            adapter="k8s",
-            verb="port-forward+http",
-            finding_ref=f.id,
-            target={"context": ctx, "namespace": ns, "method": method, "path": path, "port": hp},
-            cmd=cmd,
-            classification="mutating",
-            expected=f.attack_pattern or f.title,
-            rollback="# debug pod auto-removed on exit",
-            summary=f"hostNetwork node-debug probe {method} :{hp}{path}",
-        )
-    # H1: admin/debug paths and the monitoring CO are NOT router-
-    # exposed — Route-first selection hits the HAProxy "503 Application
-    # is not available" page for all 11 monitoring findings.  Skip the
-    # Route loop entirely and go straight to port-forward against a
-    # Service whose name matches the source-repo hint.
-    skip_route = bool(
-        re.search(r"^/debug/|^/-/|/api/v\d+/admin", path) or "openshift-monitoring" in nss
-    )
-    # r4 refinement: the static _SVC_HINT_RE matched generic words
-    # ("router", "webhook") that appear in finding text as feature
-    # names, not service names.  When skip_route is set (port-forward-
-    # only path), the repo-derived hint is the right selector
-    # (prometheus → "prometheus", thanos → "thanos", etc.); the
-    # generic regex hint sent every monitoring probe to
-    # vf-no-svc-in-scope:router.  Same for console findings: the
-    # title's "webhook" is a feature, the svc is "console".
-    if skip_route or hint in ("webhook", "router", "kube-rbac-proxy"):
-        hint = _svc_hint(f, repo_only=True)
-    # Route-first (core-OCP web components are Route-exposed); fall back to
-    # an inline port-forward against the first Service in the namespace.
-    # The bearer token is a short-lived low-privilege one — matches the
-    # "any authenticated user" precondition typical of these findings.
-    #
-    # CSRF round-trip: prime a cookie jar with GET / (Authorization header
-    # set so console's auth handler issues the csrf-token cookie), then
-    # replay the probe with -b jar + X-CSRFToken header.  Harmless on
-    # endpoints without CSRF (header ignored, jar empty).  Avoids the
-    # false ``refuted`` from `403 invalid CSRFToken` seen in the
-    # core-ocp-4.22 console pilot.
-    probe = (
-        "JAR=$(mktemp); "
-        'curl -sk -c "$JAR" "$BASE/" -o /dev/null; '
-        r'CSRF=$(awk "/[Cc][Ss][Rr][Ff]/ {print \$NF; exit}" "$JAR"); '
-        'rm -f "$JAR"; '
-        # Send ONLY the csrf cookie — replaying the full jar can include an
-        # anonymous session cookie that overrides the bearer header
-        # (observed on openshift-console: full-jar → 401, csrf-only → auth
-        # falls through to bearer).
-        # --compressed: some endpoints (oauth-apiserver) return gzip and
-        # the adapter chokes on the raw bytes.
-        f'curl -sk --compressed -X {method} "$BASE{path}" '
-        '  -H "Authorization: Bearer $T" '
-        '  -H "Cookie: csrf-token=$CSRF" '
-        '  -H "X-CSRFToken: $CSRF" -H "X-CSRF-Token: $CSRF" '
-        "  -w '\\nvf-http-status:%{http_code}'"
-    )
-    # Token: for /metrics paths use the prometheus-k8s SA (it has the
-    # ClusterRole that kube-rbac-proxy SARs against — kube:admin OAuth
-    # paradoxically fails SAR with ``resource=`` empty).  Otherwise
-    # prefer VF_OAUTH_TOKEN, fall back to a low-priv SA token.
-    token_block = (
-        (
-            f'T="$(oc --context {ctx} -n openshift-monitoring '
-            f'create token prometheus-k8s --duration=10m 2>/dev/null)"; '
-            f'[ -z "$T" ] && '
-            if path.rstrip("/").endswith("/metrics")
-            else ""
-        )
-        + f'T="${{T:-${{VF_OAUTH_TOKEN:-$(oc --context {ctx} -n {ns} '
-        f'create token default --duration=10m 2>/dev/null)}}}}"; '
-    )
-    # Route selection — by component-name hint only.  H5: NO first-route
-    # fallback when $HINT is non-empty (a wrong-component Route produced
-    # 3 false-confirms in storage/* — INCONCLUSIVE-FIX-PLAN §H5).
-    route_block = (
-        f"for N in {ns_list}; do "
-        f"  R=$(oc --context {ctx} -n $N get route "
-        f"       -o jsonpath='{{range .items[*]}}{{.metadata.name}} "
-        f'{{.spec.host}}{{"\\n"}}{{end}}\' 2>/dev/null); '
-        f'  [ -z "$R" ] && continue; '
-        f'  if [ -n "$HINT" ]; then '
-        f'    H=$(echo "$R" | grep -iE -- "$HINT" | head -1 '
-        f"| awk '{{print $2}}'); "
-        f'  else H=$(echo "$R" | head -1 '
-        f"| awk '{{print $2}}'); fi; "
-        f'  [ -n "$H" ] && break; '
-        f"done; "
-    )
-    # Service selection + port-forward.  H3: when the finding names a
-    # specific port, forward to THAT containerPort (kubectl resolves
-    # svc→pod targetPort by number).  H5: NO first-svc fallback when
-    # $HINT is set — emit ``vf-no-svc-in-scope:$HINT`` instead so the
-    # verdict layer can route to infra/manual instead of a junk 404.
-    # r4: emit one line per (svc, port, targetPort) so H3's port-match
-    # scans every exposed port (prometheus-k8s exposes 9091/9092 but the
-    # claim is :9090 → previously no-match → vf-no-svc-in-scope).
-    # go-template is used (jsonpath has no nested-range variable bind).
-    # When a port is named, port-forward to the POD (selector-matched)
-    # so a containerPort that isn't surfaced in the Service still works.
-    # Probe https first, retry plain http on TLS-handshake/000 — most
-    # pprof/admin/gossip listeners are plaintext-only.
-    svc_tpl = (
-        r"{{range .items}}{{$n:=.metadata.name}}"
-        r"{{range .spec.ports}}"
-        r'{{$n}} {{.port}} {{.targetPort}}{{"\n"}}'
-        r"{{end}}{{end}}"
-    )
-    svc_block = (
-        f"for N in {ns_list}; do "
-        f"  SV=$(oc --context {ctx} -n $N get svc "
-        f"      -o go-template='{svc_tpl}' 2>/dev/null); "
-        f'  [ -z "$SV" ] && continue; '
-        + (
-            f"  L=$(echo \"$SV\" | awk -v p={port} '$2==p||$3==p{{print; exit}}'); "
-            if port
-            else "  L=; "
-        )
-        + '  [ -z "$L" ] && [ -n "$HINT" ] && '
-        '    L=$(echo "$SV" | grep -iE -- "$HINT" | head -1); '
-        '  [ -z "$L" ] && [ -z "$HINT" ] && '
-        '    L=$(echo "$SV" | head -1); '
-        "  S=$(echo $L | awk '{print $1}'); "
-        "  P=$(echo $L | awk '{print $2}'); "
-        '  [ -n "$S" ] && break; '
-        "done; "
-        + (
-            (
-                f"P={port}; "
-                f"SEL=$(oc --context {ctx} -n $N get svc $S "
-                f"-o go-template="
-                f"'{{{{range $k,$v := .spec.selector}}}}"
-                f"{{{{$k}}}}={{{{$v}}}},{{{{end}}}}' 2>/dev/null "
-                f"| sed 's/,$//'); "
-                f'POD=$(oc --context {ctx} -n $N get pod -l "$SEL" '
-                f"-o name 2>/dev/null | head -1); "
-                f'TGT="${{POD:-svc/$S}}"; '
-            )
-            if port
-            else 'TGT="svc/$S"; '
-        )
-        + f'if [ -z "$S" ]; then '
-        f'  echo "vf-no-svc-in-scope:$HINT"; '
-        f"  printf '\\nvf-http-status:000'; "
-        f"else "
-        f'  oc --context {ctx} -n $N port-forward "$TGT" '
-        f'    18443:"$P" >/dev/null 2>&1 & PF=$!; sleep 2; '
-        f'  OUT=$(BASE="https://127.0.0.1:18443"; {probe}); '
-        f'  case "$OUT" in *vf-http-status:000*) '
-        f'    OUT=$(BASE="http://127.0.0.1:18443"; {probe});; esac; '
-        f'  echo "$OUT"; '
-        f"  kill $PF 2>/dev/null; "
-        f"fi"
-    )
-    if skip_route:
-        cmd = f'HINT="{hint}"; H=; S=; ' + token_block + svc_block
+    if cs:
+        nss = sorted(set(nss) | {grant.namespace for grant in cs.http_discovery.routes})
+    nss = [namespace for namespace in nss if not any(char in namespace for char in "*?[]")]
+    ns = nss[0] if nss else None
+    if __package__:
+        from .http_endpoints import HttpProbe
     else:
-        cmd = (
-            f'HINT="{hint}"; H=; S=; '
-            + route_block
-            + token_block
-            + f'if [ -n "$H" ]; then BASE="https://$H"; {probe}; '
-            f"else " + svc_block + "; fi"
+        from http_endpoints import HttpProbe
+
+    namespaces = tuple(
+        namespace for namespace in nss if not any(char in namespace for char in "*?[]")
+    )
+    node = bool(
+        port
+        and re.search(
+            r"(?i)hostNetwork|node IP|node.s primary interface|bound (?:directly )?on the node",
+            f"{f.title or ''} {f.description or ''}"
+            if re.search(r"(?i)\bkubelet\b", f.title or "")
+            else f.title or "",
         )
+    )
+    service = bool(
+        re.search(r"^/debug/|^/-/|/api/v\d+/admin", path) or "openshift-monitoring" in namespaces
+    )
+    hint = _svc_hint(f)
+    if service or hint in {"webhook", "router", "kube-rbac-proxy"}:
+        hint = _svc_hint(f, repo_only=True)
+    probe = HttpProbe(
+        mode="node" if node else "service" if service else "route",
+        method=method,
+        path=path,
+        port=port,
+        namespaces=namespaces,
+        hint=hint,
+        authenticate=False,
+        csrf=False,
+        service_account="prometheus-k8s" if path.rstrip("/").endswith("/metrics") else None,
+    )
     return Step(
         id=sid,
         technique="adapted",
@@ -1060,17 +908,21 @@ def _http_adapted_step(
         finding_ref=f.id,
         target={
             "context": ctx,
-            "namespace": ns,
+            "namespace": None if node else ns,
+            "resource": "nodes" if node else "services" if service else "routes",
             "method": method,
             "path": path,
             **({"port": port} if port else {}),
+            "http": probe.model_dump(mode="json"),
         },
-        cmd=cmd,
+        cmd=None,
+        classification="destructive"
+        if method == "DELETE"
+        else "mutating"
+        if method in {"POST", "PUT", "PATCH"}
+        else "safe",
         expected=f.attack_pattern or f.title,
-        summary=f"HTTP probe {method} {path}"
-        + (f" :{port}" if port else "")
-        + (" [pf-only]" if skip_route else "")
-        + f" (adapted from {','.join(sorted(set(f.cwes) & HTTP_CWES))})",
+        summary=f"HTTP probe {method} {path} ({probe.mode})",
     )
 
 
@@ -1092,13 +944,7 @@ def _spoof_adapted_step(sid: str, f: Finding, scope: Scope, tm) -> Step | None:
     s = _http_adapted_step(sid, f, scope, tm, force_coords=(coords[0], coords[1]))
     if not s:
         return None
-    inject = " ".join(f'-H "{h}: vf-spoof-canary"' for h in dict.fromkeys(hdrs))
-    s.cmd = s.cmd.replace(
-        '-H "Authorization: Bearer $T"', f'-H "Authorization: Bearer $T" {inject}', 1
-    )
-    s.cmd = s.cmd.replace(
-        '-H "Authorization: Bearer $T"', f'-H "Authorization: Bearer $T" {inject}', 1
-    )
+    s.target["http"]["headers"] = {header: "vf-spoof-canary" for header in dict.fromkeys(hdrs)}
     s.expected = f"upstream reflects/honours spoofed {hdrs[0]} — {f.attack_pattern or f.title}"
     s.summary = f"header-spoof probe {','.join(dict.fromkeys(hdrs))} ({','.join(f.cwes)})"
     return s
