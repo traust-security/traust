@@ -105,6 +105,43 @@ def test_doctor_with_toolchain_runs_the_profiles_scanner_check(tmp_path):
     assert "Toolchain doctor for profile: secure-code-audit" in r.stdout
 
 
+def test_doctor_with_toolchain_checks_the_config_home_the_wrapper_was_given(tmp_path):
+    """--toolchain PROFILE doctors the chosen home too: the scanner check loads
+    the same --config-home the preflight above it got, not the shell's
+    TRAUST_CONFIG_HOME (which, when it doesn't resolve, exits 2 beside a home
+    that is fine)."""
+    home = tmp_path / "cfg"
+    _run(["--yes", "--config-home", str(home), "--no-toolchain", "--no-profile-write"])
+    broken = tmp_path / "broken"
+    broken.mkdir()
+    (broken / "traust.yaml").write_text("not: [valid\n")  # unresolvable config
+    r = _run(
+        ["--doctor", "--toolchain", "secure-code-audit", "--config-home", str(home)],
+        env_extra={"TRAUST_CONFIG_HOME": str(broken), "HOME": str(tmp_path)},
+    )
+    assert "Toolchain doctor for profile: secure-code-audit" in r.stdout
+    assert "not resolvable" not in r.stdout + r.stderr
+
+
+def test_doctor_resolves_a_relative_config_home_against_the_callers_cwd(tmp_path):
+    """A relative --config-home names the caller's folder, not the repo root the
+    doctor's subshell cds into (do_install absolutizes the same way): run from
+    outside the repo, the check must audit the caller's home, not a
+    $REPO_ROOT-shaped path that doesn't exist."""
+    home = tmp_path / "caller" / "cfg"
+    _run(["--yes", "--config-home", str(home), "--no-toolchain", "--no-profile-write"])
+    caller = tmp_path / "caller"
+    r = _run(
+        ["--doctor", "--config-home", "cfg"],
+        cwd=caller,
+        env_extra={"HOME": str(tmp_path)},
+    )
+    assert r.returncode == 1, r.stdout + r.stderr
+    # the doctor read the caller's cfg (a fresh install: the example's unset
+    # keys), proving the home resolved against the caller's directory
+    assert "traust.yaml: locations.workspace unset" in r.stdout
+
+
 def test_doctor_delegates_to_traust_admin_doctor(tmp_path):
     """One code path: --doctor runs `traust admin doctor` (core's preflight), so a fresh
     install fails naming exactly the keys still to fill in."""

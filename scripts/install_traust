@@ -209,11 +209,20 @@ do_doctor() {
   # shell checks beside it. The wrapper's --config-home names the home checked;
   # --toolchain PROFILE adds the profile's scanner doctor on explicit request.
   local rc=0
+  # Resolve the home once, at the wrapper's boundary: expand ~ and anchor a
+  # relative path to the CALLER's directory — the subshells below cd into
+  # $REPO_ROOT, where a relative home would name the wrong folder (do_install
+  # absolutizes the same way, with cd && pwd).
+  local home="${CONFIG_HOME/#\~/$HOME}"
+  if [[ -n "$home" && "$home" != /* ]]; then
+    home="$PWD/$home"
+  fi
   (cd "$REPO_ROOT" && "$py" -m traust.cli admin doctor \
-      ${CONFIG_HOME:+--config-home "${CONFIG_HOME/#\~/$HOME}"}) || rc=1
+      ${home:+--config-home "$home"}) || rc=1
   if [[ "$RUN_TOOLCHAIN" == "yes" ]]; then
     (cd "$REPO_ROOT" && "$py" -m traust.cli admin toolchain doctor \
-        --profile "${TOOLCHAIN_PROFILE:-secure-code-audit}") || rc=1
+        --profile "${TOOLCHAIN_PROFILE:-secure-code-audit}" \
+        ${home:+--config-home "$home"}) || rc=1
   fi
   return $rc
 }

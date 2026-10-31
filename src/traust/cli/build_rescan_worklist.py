@@ -28,7 +28,10 @@ regression_introduced / open stay live. Snapshots predating kind remain readable
 Two-stage change detection (per-host; unknown hosts get status
 'unsupported-host' and still hit the age-ceiling rule — never silently
 dropped):
-  github.com — stage 1 `gh api repos/{org}/{repo}` (pushed_at,
+  github.com (and any GitHub Enterprise host in $GIT_HOSTS or traust.yaml
+    `forge_hosts` — same calls, `gh api --hostname <host>`, its own API and
+    limits, never github.com's data for the same org/name) — stage 1
+    `gh api repos/{org}/{repo}` (pushed_at,
     archived, default_branch); stage 2
     `gh api repos/{org}/{repo}/compare/{sha}...HEAD` (files[] capped at
     300 — a 300-file diff exceeds every threshold, so `truncated` is a
@@ -509,8 +512,26 @@ def _classify_stderr(stderr: str) -> str:
     return "error"
 
 
+def _gh_host(e: dict) -> str:
+    """The host a row's `gh api` calls target: github.com unless the repo's
+    URL named a GitHub Enterprise host (stage 1 / the no-network branch set
+    `host`; a hand-built row without one is github.com's, gh's default)."""
+    return e.get("host") or "github.com"
+
+
+def _gh_api_argv(host: str) -> list[str]:
+    """`gh api` argv head for one GitHub host: gh's default target is
+    github.com, so only a GitHub Enterprise host needs naming — without
+    `--hostname` its calls would read github.com's data for the same
+    org/name (or 404), never the enterprise API."""
+    argv = ["gh", "api"]
+    if host != "github.com":
+        argv += ["--hostname", host]
+    return argv
+
+
 def gh_rate_remaining() -> int | None:
-    """Remaining GitHub core-API quota, or None when undeterminable
+    """Remaining github.com core-API quota, or None when undeterminable
     (gh missing/unauthenticated — stage 1 will surface that per-repo)."""
     try:
         proc = subprocess.run(
@@ -529,7 +550,7 @@ def gh_rate_remaining() -> int | None:
         return None
 
 
-def gh_repo_info(project: str) -> dict:
+def gh_repo_info(project: str, host: str = "github.com") -> dict:
     """Stage 1, GitHub: one `gh api` call -> pushed_at/archived/branch."""
     org, _, name = project.partition("/")
     if not (_GH_NAME_RE.fullmatch(org) and _GH_NAME_RE.fullmatch(name)):
@@ -537,8 +558,7 @@ def gh_repo_info(project: str) -> dict:
     try:
         proc = subprocess.run(
             [
-                "gh",
-                "api",
+                *_gh_api_argv(host),
                 f"repos/{org}/{name}",
                 "--jq",
                 "{pushed_at, archived, default_branch, visibility, "
@@ -562,7 +582,7 @@ def gh_repo_info(project: str) -> dict:
         return {"ok": False, "kind": "error", "error": "unparseable"}
 
 
-def gh_compare(project: str, sha: str) -> dict:
+def gh_compare(project: str, sha: str, host: str = "github.com") -> dict:
     """Stage 2, GitHub: pinned-SHA...HEAD compare, no clone needed."""
     org, _, name = project.partition("/")
     if not (
@@ -574,8 +594,7 @@ def gh_compare(project: str, sha: str) -> dict:
     try:
         proc = subprocess.run(
             [
-                "gh",
-                "api",
+                *_gh_api_argv(host),
                 f"repos/{org}/{name}/compare/{sha}...HEAD",
                 "--jq",
                 "{ahead_by, status, files: [.files[] | {filename, changes}]}",
@@ -608,7 +627,7 @@ def gh_compare(project: str, sha: str) -> dict:
 _GH_REF_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]*$")
 
 
-def gh_tree_fp_count(project: str, ref: str) -> dict:
+def gh_tree_fp_count(project: str, ref: str, host: str = "github.com") -> dict:
     """Pre-route ratio input: count first-party files in the repo tree
     (one API call — the resolver counts the same population via
     `git ls-files` in its clone). `truncated: true` means the tree
@@ -622,8 +641,7 @@ def gh_tree_fp_count(project: str, ref: str) -> dict:
     try:
         proc = subprocess.run(
             [
-                "gh",
-                "api",
+                *_gh_api_argv(host),
                 f"repos/{org}/{name}/git/trees/{ref}?recursive=1",
                 "--jq",
                 '{truncated, paths: [.tree[] | select(.type=="blob") | .path]}',
@@ -791,7 +809,7 @@ def never_audited_rows(
 # ---------------------------------------------------------------------------
 
 
-def gh_compare_patch(project: str, sha: str) -> str | None:
+def gh_compare_patch(project: str, sha: str, host: str = "github.com") -> str | None:
     """Raw unified diff of pinned-SHA...HEAD (one core-quota call). None
     on any failure — the tripwire is opportunistic, never fatal."""
     org, _, name = project.partition("/")
@@ -807,8 +825,7 @@ def gh_compare_patch(project: str, sha: str) -> str | None:
         # text-mode pipe); decode tolerantly after capping
         proc = subprocess.run(
             [
-                "gh",
-                "api",
+                *_gh_api_argv(host),
                 "-H",
                 "Accept: application/vnd.github.v3.diff",
                 f"repos/{org}/{name}/compare/{sha}...HEAD",
@@ -882,18 +899,21 @@ def run_tripwire(
         return stats
 
     gh_rows = [r for r in eligible if by_key[r["repo_key"]].get("host_kind") == "github"]
+    # github.com's quota gates only github.com rows: a GitHub Enterprise
+    # host runs its own limits and is fetched with --hostname regardless.
+    com_rows = [r for r in gh_rows if _gh_host(by_key[r["repo_key"]]) == "github.com"]
     rem = rate_remaining()
-    gh_budget = max(0, rem - TRIPWIRE_QUOTA_RESERVE) if rem is not None else len(gh_rows)
-    if gh_budget < len(gh_rows):
-        stats["quota_skipped"] = len(gh_rows) - gh_budget
-    gh_allowed = set(id(r) for r in gh_rows[:gh_budget])
+    gh_budget = max(0, rem - TRIPWIRE_QUOTA_RESERVE) if rem is not None else len(com_rows)
+    if gh_budget < len(com_rows):
+        stats["quota_skipped"] = len(com_rows) - gh_budget
+    gh_allowed = set(id(r) for r in com_rows[:gh_budget])
 
     def work(row: dict) -> None:
         e = by_key[row["repo_key"]]
         if e.get("host_kind") == "github":
-            if id(row) not in gh_allowed:
+            if _gh_host(e) == "github.com" and id(row) not in gh_allowed:
                 return
-            patch = gh_patch(e["project"], e["pinned_sha"])
+            patch = gh_patch(e["project"], e["pinned_sha"], _gh_host(e))
         else:
             patch = e.get("_patch")
         hits = leak_scan(patch) if patch else None
@@ -987,15 +1007,20 @@ def run_preroute(
     stats["gitlab_unchecked"] = len(cands) - len(gh_rows)
     if not gh_rows:
         return stats
+    # github.com's quota gates only its own rows; a GitHub Enterprise host
+    # runs its own limits, so its tree counts are fetched regardless.
+    com_rows = [r for r in gh_rows if _gh_host(by_key[r["repo_key"]]) == "github.com"]
     rem = rate_remaining()
-    budget = max(0, rem - PREROUTE_QUOTA_RESERVE) if rem is not None else len(gh_rows)
-    if budget < len(gh_rows):
-        stats["quota_skipped"] = len(gh_rows) - budget
-    allowed = gh_rows[:budget]
+    budget = max(0, rem - PREROUTE_QUOTA_RESERVE) if rem is not None else len(com_rows)
+    if budget < len(com_rows):
+        stats["quota_skipped"] = len(com_rows) - budget
+    allowed = com_rows[:budget] + [
+        r for r in gh_rows if _gh_host(by_key[r["repo_key"]]) != "github.com"
+    ]
 
     def work(row: dict) -> None:
         e = by_key[row["repo_key"]]
-        res = tree_count(e["project"], e.get("default_branch") or "HEAD")
+        res = tree_count(e["project"], e.get("default_branch") or "HEAD", _gh_host(e))
         if not res.get("ok"):
             # leave the row (resolver decides at dispatch) but COUNT it
             # — tranche-1's silent failures hid a mid-sweep quota
@@ -1979,7 +2004,7 @@ def stage1(
                 "these); next daily run retries"
             )
             return
-        info = gh_info(project) if kind == "github" else gl_info(api, host, project)
+        info = gh_info(project, host) if kind == "github" else gl_info(api, host, project)
         if kind == "github":
             breaker.record(info.get("ok", False))
         if not info.get("ok"):
@@ -2011,10 +2036,13 @@ def stage2(candidates: list[dict], jobs: int, api: ForgeApi, gh_cmp=None, gl_cmp
     rem = gh_rate_remaining()
     deferred: set[int] = set()
     if rem is not None:
+        # github.com's quota defers only github.com rows: a GitHub Enterprise
+        # host runs its own limits, so its compares are never held back
+        # against github.com's remaining budget.
         gh_cands = [
             i
             for i, e in enumerate(candidates)
-            if e["host_kind"] == "github" and e.get("pinned_sha")
+            if e["host_kind"] == "github" and _gh_host(e) == "github.com" and e.get("pinned_sha")
         ]
         if rem < len(gh_cands):
             for i in gh_cands[max(0, rem) :]:
@@ -2034,7 +2062,7 @@ def stage2(candidates: list[dict], jobs: int, api: ForgeApi, gh_cmp=None, gl_cmp
             e["status"] = "quota-deferred"
             return
         if e["host_kind"] == "github":
-            res = gh_cmp(e["project"], e["pinned_sha"])
+            res = gh_cmp(e["project"], e["pinned_sha"], _gh_host(e))
         else:
             res = gl_cmp(
                 api, e["host"], e["project"], e["pinned_sha"], e.get("default_branch") or "HEAD"
@@ -2218,8 +2246,13 @@ def main(argv=None) -> int:
         # the next daily run) rather than preflighted. A quota-starved
         # stage 1 silently classifies thousands of repos as errors while
         # the worklist looks legitimate (observed live: well over half
-        # of one sweep's calls errored) — refuse that outright.
-        gh_needed = int(1.05 * len(gh_rows))
+        # of one sweep's calls errored) — refuse that outright. Only
+        # github.com repos count: a GitHub Enterprise host runs its own
+        # limits, unreachable from github.com's rate_limit read.
+        gh_needed = int(
+            1.05
+            * sum(1 for e in gh_rows if split_repo_url(e["repo_url"], hosts)[1] == "github.com")
+        )
         quota = gh_rate_remaining()
         if quota is not None and quota < gh_needed and not args.ignore_rate_limit:
             print(

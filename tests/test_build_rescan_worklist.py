@@ -396,6 +396,117 @@ def test_the_forge_client_knows_git_hosts_and_forge_tokens(monkeypatch: pytest.M
     assert api.kind("ghe.example.com") is None  # unknown to both config and env
 
 
+def test_a_ghe_host_routes_its_own_api_not_github_com(monkeypatch):
+    """A GitHub Enterprise host classifies as github-kind but must query its own
+    API: every `gh api` call names the host (--hostname), so it never reads
+    github.com's data for the same org/name — and github.com's calls stay
+    flagless (gh's default target)."""
+    core = SimpleNamespace(config=SimpleNamespace(forge_hosts={"ghe.example.com": "github"}))
+    hosts = rw._known_hosts(core)
+    assert rw.split_repo_url("https://ghe.example.com/o/r", hosts) == (
+        "github",
+        "ghe.example.com",
+        "o/r",
+    )
+
+    class P:
+        returncode = 0
+        stdout = b"{}"
+
+    seen: list[list[str]] = []
+    monkeypatch.setattr(rw.subprocess, "run", lambda cmd, **k: (seen.append(cmd), P())[1])
+    rw.gh_repo_info("o/r", "ghe.example.com")
+    rw.gh_compare("o/r", "a" * 40, "ghe.example.com")
+    rw.gh_tree_fp_count("o/r", "main", "ghe.example.com")
+    rw.gh_compare_patch("o/r", "a" * 40, "ghe.example.com")
+    assert len(seen) == 4
+    for cmd in seen:
+        assert cmd[:4] == ["gh", "api", "--hostname", "ghe.example.com"]
+
+    seen.clear()
+    rw.gh_repo_info("o/r")  # github.com: gh's default, no flag needed
+    assert "--hostname" not in seen[0]
+
+    # stage 1 hands the fetcher the enterprise host, like it hands the forge
+    # client the gitlab one
+    got: list[tuple[str, str]] = []
+
+    def gh_info(project, host="github.com"):
+        got.append((project, host))
+        return {"ok": True, "pushed_at": "2026-07-25T00:00:00Z", "archived": False}
+
+    entries = [{"repo_url": "https://ghe.example.com/o/r"}]
+    rw.stage1(entries, 1, None, gh_info=gh_info, hosts=hosts)
+    assert got == [("o/r", "ghe.example.com")] and entries[0]["status"] == "ok"
+
+
+def test_github_com_quota_never_gates_an_enterprise_row():
+    """github.com's remaining quota is not an Enterprise host's: a GHE row is
+    fetched (tripwire patch, preroute tree count) and compared even when
+    github.com's budget is spent."""
+    rows = [
+        {
+            "repo_key": "k/ghe",
+            "lane": "diff-scan-quarterly",
+            "rule": "rule-5",
+            "reason": "r",
+            "C": 10,
+        },
+        {
+            "repo_key": "k/com",
+            "lane": "diff-scan-quarterly",
+            "rule": "rule-5",
+            "reason": "r",
+            "C": 10,
+        },
+    ]
+    by_key = {
+        "k/ghe": {
+            "host_kind": "github",
+            "host": "ghe.example.com",
+            "project": "o/ghe",
+            "pinned_sha": "a" * 40,
+            "fp_files": 40,
+            "default_branch": "main",
+        },
+        "k/com": {
+            "host_kind": "github",
+            "host": "github.com",
+            "project": "o/com",
+            "pinned_sha": "b" * 40,
+            "fp_files": 40,
+            "default_branch": "main",
+        },
+    }
+
+    patched: list[str] = []
+    stats = rw.run_tripwire(
+        rows,
+        by_key,
+        jobs=1,
+        gh_patch=lambda proj, sha, host="github.com": (patched.append(host), "+secret=AKIA")[1],
+        leak_scan=lambda patch: 1 if patch else None,
+        rate_remaining=lambda: 0,  # github.com spent — the GHE row still fetches
+    )
+    assert stats["quota_skipped"] == 1  # the github.com row only
+    assert patched == ["ghe.example.com"]
+    assert rows[0]["lane"] == "diff-scan"  # GHE row escalated despite quota 0
+    assert rows[1]["lane"] == "diff-scan-quarterly"  # github.com row skipped
+
+    counted: list[str] = []
+    rw.run_preroute(
+        [dict(r, lane="diff-scan") for r in rows],
+        by_key,
+        jobs=1,
+        tree_count=lambda p, r, host="github.com": (
+            counted.append(host),
+            {"ok": True, "fp_files": 10, "truncated": False},
+        )[1],
+        rate_remaining=lambda: 0,
+    )
+    assert counted == ["ghe.example.com"]  # github.com's row is quota-deferred
+
+
 def test_a_host_configured_only_in_traust_yaml_classifies_and_routes():
     """Classification follows the configured merge (_known_hosts — the same mapping the
     forge client gets), not $GIT_HOSTS alone: a private GitLab host named only in
@@ -773,7 +884,7 @@ class TestMainEndToEnd:
         # gitleaks is required up front; the tripwire itself never runs here (no patches)
         monkeypatch.setattr(rw, "preflight_failures", lambda checks: [])
 
-        def fake_gh_info(project):
+        def fake_gh_info(project, host="github.com"):
             if project == "o/nosha-quiet":  # push predates the audit
                 return {
                     "ok": True,
@@ -788,7 +899,7 @@ class TestMainEndToEnd:
                 "default_branch": "main",
             }
 
-        def fake_gh_cmp(project, sha):
+        def fake_gh_cmp(project, sha, host="github.com"):
             if project == "o/hot":
                 return {
                     "ok": True,
@@ -1177,7 +1288,7 @@ class TestTripwire:
             rows,
             by_key,
             jobs=2,
-            gh_patch=lambda proj, sha: "+aws_secret=AKIA",
+            gh_patch=lambda proj, sha, host="github.com": "+aws_secret=AKIA",
             leak_scan=lambda patch: 2 if patch else None,
             rate_remaining=lambda: 100_000,
         )
@@ -1195,7 +1306,7 @@ class TestTripwire:
             rows,
             by_key,
             jobs=2,
-            gh_patch=lambda proj, sha: "+harmless()",
+            gh_patch=lambda proj, sha, host="github.com": "+harmless()",
             leak_scan=lambda patch: 0,
             rate_remaining=lambda: 100_000,
         )
@@ -1208,7 +1319,7 @@ class TestTripwire:
             rows,
             by_key,
             jobs=2,
-            gh_patch=lambda proj, sha: (_ for _ in ()).throw(
+            gh_patch=lambda proj, sha, host="github.com": (_ for _ in ()).throw(
                 AssertionError("must not fetch when quota short")
             ),
             leak_scan=lambda patch: 1 if patch else None,
@@ -1294,7 +1405,7 @@ class TestPreroute:
             rows,
             by_key,
             jobs=2,
-            tree_count=lambda p, r: {
+            tree_count=lambda p, r, host="github.com": {
                 "ok": True,
                 "fp_files": 10_000,
                 "truncated": False,
@@ -1313,7 +1424,11 @@ class TestPreroute:
             by_key,
             jobs=2,
             # amd-ci shape: 28 of 72 first-party files changed (39%)
-            tree_count=lambda p, r: {"ok": True, "fp_files": 72, "truncated": False},
+            tree_count=lambda p, r, host="github.com": {
+                "ok": True,
+                "fp_files": 72,
+                "truncated": False,
+            },
             rate_remaining=lambda: 100_000,
         )
         assert stats["rerouted_ratio"] == 1
@@ -1329,7 +1444,11 @@ class TestPreroute:
             rows,
             by_key,
             jobs=2,
-            tree_count=lambda p, r: {"ok": True, "fp_files": 1000, "truncated": False},
+            tree_count=lambda p, r, host="github.com": {
+                "ok": True,
+                "fp_files": 1000,
+                "truncated": False,
+            },
             rate_remaining=lambda: 100_000,
         )
         assert stats["rerouted_ratio"] == 0
@@ -1342,7 +1461,7 @@ class TestPreroute:
             rows,
             by_key,
             jobs=2,
-            tree_count=lambda p, r: (
+            tree_count=lambda p, r, host="github.com": (
                 fetched.append(p) or {"ok": True, "fp_files": 1000, "truncated": False}
             ),
             rate_remaining=lambda: 100_000,
@@ -1358,7 +1477,7 @@ class TestPreroute:
             rows,
             by_key,
             jobs=2,
-            tree_count=lambda p, r: {"ok": False, "error": "rate limit"},
+            tree_count=lambda p, r, host="github.com": {"ok": False, "error": "rate limit"},
             rate_remaining=lambda: 100_000,
         )
         assert stats["tree_failed"] == 1  # k/big
@@ -1372,7 +1491,11 @@ class TestPreroute:
             rows,
             by_key,
             jobs=2,
-            tree_count=lambda p, r: {"ok": True, "fp_files": 50, "truncated": False},
+            tree_count=lambda p, r, host="github.com": {
+                "ok": True,
+                "fp_files": 50,
+                "truncated": False,
+            },
             rate_remaining=lambda: 100_000,
         )
         assert stats["gitlab_unchecked"] == 1
@@ -1384,7 +1507,11 @@ class TestPreroute:
             rows,
             by_key,
             jobs=2,
-            tree_count=lambda p, r: {"ok": True, "fp_files": 0, "truncated": True},
+            tree_count=lambda p, r, host="github.com": {
+                "ok": True,
+                "fp_files": 0,
+                "truncated": True,
+            },
             rate_remaining=lambda: 100_000,
         )
         assert stats["rerouted_ratio"] == 0
@@ -1396,7 +1523,7 @@ class TestPreroute:
             rows,
             by_key,
             jobs=2,
-            tree_count=lambda p, r: (_ for _ in ()).throw(
+            tree_count=lambda p, r, host="github.com": (_ for _ in ()).throw(
                 AssertionError("must not fetch when quota short")
             ),
             rate_remaining=lambda: 0,
@@ -1437,7 +1564,7 @@ class TestDrainAndExposureEndToEnd(TestMainEndToEnd):
     def test_public_sorts_ahead_within_lane(self, tmp_path, monkeypatch):
         db, events = self._setup(tmp_path)
 
-        def fake_gh_info(project):
+        def fake_gh_info(project, host="github.com"):
             vis = "public" if project == "o/quiet" else "private"
             return {
                 "ok": True,
@@ -1449,7 +1576,7 @@ class TestDrainAndExposureEndToEnd(TestMainEndToEnd):
                 "parent": None,
             }
 
-        def fake_gh_cmp(project, sha):
+        def fake_gh_cmp(project, sha, host="github.com"):
             return {
                 "ok": True,
                 "ahead_by": 3,
@@ -1607,7 +1734,7 @@ class TestBanBreaker:
     def test_stage1_aborts_after_streak(self, monkeypatch):
         calls = {"n": 0}
 
-        def failing_gh(project):
+        def failing_gh(project, host="github.com"):
             calls["n"] += 1
             return {"ok": False, "kind": "error", "error": "403 abuse"}
 

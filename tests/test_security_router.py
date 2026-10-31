@@ -237,7 +237,7 @@ def test_refusal_preroute_matches_the_legacy_router(
     row = {"repo_key": "k", "lane": lane, "rule": rule.id, "reason": "", "truncated": truncated}
     by_key = {"k": {"host_kind": "github", "project": "o/r", "fp_files": changed}}
     count = {"ok": True, "fp_files": tree or 0, "truncated": False}
-    rw.run_preroute([row], by_key, 1, lambda p, r: count, lambda: 100_000)
+    rw.run_preroute([row], by_key, 1, lambda p, r, host="github.com": count, lambda: 100_000)
     assert _routes(state)[0] == (row["rule"], row["lane"])
 
 
@@ -282,7 +282,14 @@ def test_tripwire_matches_the_legacy_router(
         "tm_files": state.threat_model_files,
         "tm_path": "m.md",
     }
-    rw.run_tripwire([row], {"k": entry}, 1, lambda p, s: "+patch", lambda _: hits, lambda: 100_000)
+    rw.run_tripwire(
+        [row],
+        {"k": entry},
+        1,
+        lambda p, s, host="github.com": "+patch",
+        lambda _: hits,
+        lambda: 100_000,
+    )
     rw.run_preroute([row], {"k": entry}, 1, None, lambda: 0)
     rw.stamp_threat_model_pr([row], {"k": entry})
     legacy = row["rule"] + (THREAT_MODEL_PR if "threat_model_pr" in row else "")
