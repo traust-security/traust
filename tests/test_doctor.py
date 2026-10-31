@@ -82,6 +82,18 @@ def _fill(config: Path, tmp_path: Path) -> None:
     )
 
 
+@pytest.fixture
+def gitleaks_on_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A gitleaks that passes the pin on a stubbed PATH: the pack's repo_state requires it
+    (see assets.yaml), so the tests that assert the config-home rows stay independent of
+    the machine's scanners — a runner without gitleaks would otherwise add a FAIL row."""
+    stub = tmp_path / "bin"
+    stub.mkdir()
+    (stub / "gitleaks").write_text("#!/bin/sh\necho 999.0.0\n")
+    (stub / "gitleaks").chmod(0o755)
+    monkeypatch.setenv("PATH", str(stub))
+
+
 def test_a_reachable_store_and_every_providers_readiness(
     monkeypatch: pytest.MonkeyPatch, home: Path
 ) -> None:
@@ -115,7 +127,7 @@ def test_an_unreachable_store_fails_and_skips_the_catalog(
 
 
 def test_main_reports_the_core_rows_and_exits_by_failures(
-    monkeypatch: pytest.MonkeyPatch, home: Path
+    monkeypatch: pytest.MonkeyPatch, home: Path, gitleaks_on_path: None
 ) -> None:
     asked = stub(monkeypatch, lambda page: SimpleNamespace(items=[]))
     for check in ("check_python", "check_tools", "check_gates"):
@@ -140,7 +152,7 @@ def _doctor(home: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[int, list[dict
 
 
 def test_a_required_gap_is_a_fail_row_and_a_nonzero_exit(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, gitleaks_on_path: None
 ) -> None:
     home = tmp_path / "config"
     home.mkdir()
@@ -219,7 +231,7 @@ def test_doctor_and_the_engine_start_gate_agree_on_one_home(
 
 
 def test_a_fresh_home_from_traust_example_yaml_names_exactly_what_is_still_needed(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, gitleaks_on_path: None
 ) -> None:
     """Lean adoption: copy traust.example.yaml, run doctor — it fails naming exactly the keys
     still needed (no facts: traust's composition root registers the pack's defaults) and
@@ -254,6 +266,27 @@ def test_a_fresh_home_from_traust_example_yaml_names_exactly_what_is_still_neede
     rc, rows = _doctor(home, monkeypatch)
     assert rc == 0
     assert "preflight: every enabled asset's requirements are met" in [r["check"] for r in rows]
+
+
+def test_a_missing_gitleaks_fails_for_the_packs_repo_state(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """repo_state requires gitleaks (core's observation scans each change's patch for
+    secrets): a runner without it is a FAIL row naming the install pin — the gap the
+    engine's start gate refuses on, never a WARN the report carries on past."""
+    home = tmp_path / "config"
+    home.mkdir()
+    _fill(home, tmp_path)
+    empty = tmp_path / "empty-bin"
+    empty.mkdir()
+    monkeypatch.setenv("PATH", str(empty))
+    rc, rows = _doctor(home, monkeypatch)
+    assert rc == 1
+    fails = [r["check"] for r in rows if r["status"] == "FAIL"]
+    assert [
+        c for c in fails if c.startswith("gitleaks: not found on PATH")
+    ] == fails  # the pack's one tool row, and nothing else, on a complete home
+    assert "external-tools.yaml pin" in fails[0]
 
 
 def test_the_convention_paths_show_as_defaults_in_use(

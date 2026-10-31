@@ -34,6 +34,9 @@ dropped):
     300 — a 300-file diff exceeds every threshold, so `truncated` is a
     flag, not a gap). org/name are validated against a strict charset
     before path interpolation (same guard as check_repo_liveness.py).
+    gh is REQUIRED up front: with GitHub repos in the population a run
+    without the CLI refuses before any stage (exit 2, fix named) — never
+    per-repo unreachable mid-run.
   github.com / gitlab.com (plus any host in $GIT_HOSTS or traust.yaml
     `forge_hosts`) — stage 1
     GET /api/v4/projects/:urlencoded_path (last_activity_at as
@@ -148,6 +151,7 @@ import datetime as _dt
 import json
 import os
 import re
+import shutil
 import sqlite3
 import subprocess
 import sys
@@ -2195,6 +2199,19 @@ def main(argv=None) -> int:
     network = not args.no_network
     hosts = _known_hosts(core)
     if network:
+        # gh is required up front for GitHub repos (the router is a hand-run lane, not a
+        # pack asset, so there is no `requires: tools:` row to hang it on): a missing CLI
+        # would mark every GitHub repo unreachable mid-run — refuse before any stage, the
+        # same convention as the gitleaks preflight below.
+        gh_rows = [e for e in entries if split_repo_url(e["repo_url"], hosts)[0] == "github"]
+        if gh_rows and not shutil.which("gh"):
+            print(
+                f"[!] gh is required for {len(gh_rows)} GitHub repos (stage 1/2, the quota "
+                "check, the tree count, the tripwire patch fetch): install the GitHub CLI "
+                "and authenticate (gh auth login or GITHUB_TOKEN)",
+                file=sys.stderr,
+            )
+            return 2
         # Guard stage 1 only: a full fleet needs ~1 call/repo for stage 1
         # plus ~0.45/repo for stage 2 — together that brushes the 5K/hr
         # quota, so stage 2 is quota-aware (defers what does not fit to
@@ -2202,9 +2219,7 @@ def main(argv=None) -> int:
         # stage 1 silently classifies thousands of repos as errors while
         # the worklist looks legitimate (observed live: well over half
         # of one sweep's calls errored) — refuse that outright.
-        gh_needed = int(
-            1.05 * sum(1 for e in entries if split_repo_url(e["repo_url"], hosts)[0] == "github")
-        )
+        gh_needed = int(1.05 * len(gh_rows))
         quota = gh_rate_remaining()
         if quota is not None and quota < gh_needed and not args.ignore_rate_limit:
             print(

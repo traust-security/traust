@@ -5,6 +5,7 @@ import contextlib
 import io
 import json
 import sqlite3
+import tempfile
 from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
@@ -762,6 +763,12 @@ class TestMainEndToEnd:
         return db, events
 
     def _patch_network(self, monkeypatch, quota=100_000):
+        # gh is required up front; a stub executable on a private PATH satisfies it
+        # without a real CLI (the fetchers below are fakes anyway).
+        stub = Path(tempfile.mkdtemp(prefix="rw-gh-stub-"))
+        (stub / "gh").write_text("#!/bin/sh\nexit 0\n")
+        (stub / "gh").chmod(0o755)
+        monkeypatch.setenv("PATH", str(stub))
         monkeypatch.setattr(rw, "gh_rate_remaining", lambda: quota)
         # gitleaks is required up front; the tripwire itself never runs here (no patches)
         monkeypatch.setattr(rw, "preflight_failures", lambda checks: [])
@@ -940,6 +947,49 @@ class TestMainEndToEnd:
         assert not out.exists()  # refused: no worklist that looks complete
         assert "gitleaks is required for the tripwire" in err.getvalue()
         assert "external-tools.yaml pin" in err.getvalue()
+
+    def test_gh_missing_refuses_before_the_worklist_builds(self, tmp_path, monkeypatch):
+        """gh is required up front for GitHub repos (the router is a hand-run lane, not a
+        pack asset, so no `requires: tools:` row covers it): a run without the CLI refuses
+        (rc 2, fix named, no worklist) instead of marking every GitHub repo unreachable
+        mid-run."""
+        db, events = self._setup(tmp_path)
+        monkeypatch.setattr(rw, "preflight_failures", lambda checks: [])
+        monkeypatch.setattr(rw, "gh_rate_remaining", lambda: 100_000)
+        monkeypatch.setenv("PATH", str(tmp_path))  # nothing executable: no gh
+        out = tmp_path / "out" / "rescan-worklist.json"
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            rc = rw.main(["--db", str(db), "--events", str(events), "--out", str(out)])
+        assert rc == 2
+        assert not out.exists()  # refused: no worklist that looks complete
+        assert "gh is required for" in err.getvalue()
+        assert "gh auth login" in err.getvalue()
+
+    def test_no_gh_needed_when_no_github_repos(self, tmp_path, monkeypatch):
+        """Without GitHub repos in the population the run proceeds with no gh on PATH
+        (GitLab hosts go through core's forge REST; the CLI is a GitHub transport only)."""
+        db = _mk_db(
+            tmp_path,
+            [
+                {
+                    "repo_key": "t/p/gl",
+                    "repo_url": "https://gitlab.example.com/grp/sub/gl",
+                    "report_path": None,
+                    "audit_date": "2026-07-01",
+                }
+            ],
+            [],
+        )
+        events = tmp_path / "rescan-events.jsonl"
+        events.write_text("")
+        self._patch_network(monkeypatch)
+        monkeypatch.setenv("PATH", str(tmp_path))  # the _patch_network gh stub gone: no gh
+        out = tmp_path / "out" / "rescan-worklist.json"
+        with contextlib.redirect_stderr(io.StringIO()):
+            rc = rw.main(["--db", str(db), "--events", str(events), "--out", str(out)])
+        assert rc == 0
+        assert out.is_file()
 
     def test_no_tripwire_skips_the_gitleaks_requirement(self, tmp_path, monkeypatch):
         db, events = self._setup(tmp_path)
