@@ -1,12 +1,17 @@
 """Tests for traust.cli.build_rescan_worklist — the continuous-operations
-router. No network: gh/glab fetchers are monkeypatched throughout."""
+router. No network: gh fetchers and the forge REST api are monkeypatched throughout."""
 
+import contextlib
+import io
 import json
 import sqlite3
+import tempfile
 from decimal import Decimal
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
+from traust_core.v1.errors import ServiceError
 from traust_core.v1.models.operations import Budget
 
 from traust.cli import build_rescan_worklist as rw
@@ -277,7 +282,7 @@ class TestInjectionGuards:
         assert not rw.safe_project_path("group/../other")
         assert not rw.safe_project_path("group//repo")
         assert not rw.safe_project_path("")
-        res = rw.gitlab_repo_info("gitlab.example.com", "a/../b")
+        res = rw.gitlab_repo_info(None, "gitlab.example.com", "a/../b")
         assert not res["ok"] and "unsafe" in res["error"]
 
     def test_safe_paths_pass(self):
@@ -314,28 +319,222 @@ class TestCountDiffLines:
         assert rw.count_diff_lines(None) == 0
 
 
-class TestGitlabCompare:
-    def test_normalizes_payload(self, monkeypatch):
+class TestGitlabRest:
+    """The GitLab stages over core's ForgeApi: no glab CLI, the token a forge_tokens
+    header. API errors stay per-repo data, never fatal."""
+
+    def _api(self, payload: dict) -> SimpleNamespace:
+        return SimpleNamespace(get=lambda host, endpoint: payload)
+
+    def test_repo_info_normalizes_the_project_payload(self):
+        api = self._api(
+            {
+                "last_activity_at": "2026-07-25T00:00:00Z",
+                "archived": False,
+                "default_branch": "main",
+                "visibility": "private",
+                "forked_from_project": {"path_with_namespace": "up/stream"},
+            }
+        )
+        assert rw.gitlab_repo_info(api, "gitlab.example.com", "g/r") == {
+            "ok": True,
+            "pushed_at": "2026-07-25T00:00:00Z",
+            "archived": False,
+            "default_branch": "main",
+            "visibility": "private",
+            "fork": True,
+            "parent": "up/stream",
+        }
+
+    def test_compare_normalizes_payload(self):
         payload = {
             "commits": [{}, {}],
             "compare_timeout": False,
             "diffs": [{"new_path": "pkg/auth.go", "diff": DIFF}],
         }
-        monkeypatch.setattr(rw, "_glab_api", lambda host, path: {"ok": True, "payload": payload})
-        res = rw.gitlab_compare("gitlab.example.com", "g/r", "a" * 40, "main")
+        res = rw.gitlab_compare(self._api(payload), "gitlab.example.com", "g/r", "a" * 40, "main")
         assert res["ok"] and res["ahead_by"] == 2
         assert res["files"] == [{"filename": "pkg/auth.go", "changes": 3}]
         assert not res["truncated"]
 
-    def test_truncated_on_timeout_or_cap(self, monkeypatch):
+    def test_truncated_on_timeout_or_cap(self):
         payload = {"commits": [], "compare_timeout": True, "diffs": []}
-        monkeypatch.setattr(rw, "_glab_api", lambda host, path: {"ok": True, "payload": payload})
-        assert rw.gitlab_compare("gitlab.com", "g/r", "a" * 40, "main")["truncated"]
+        api = self._api(payload)
+        assert rw.gitlab_compare(api, "gitlab.com", "g/r", "a" * 40, "main")["truncated"]
 
-    def test_no_credentials_when_glab_missing(self, monkeypatch):
-        monkeypatch.setattr(rw.shutil, "which", lambda name: None)
-        res = rw._glab_api("gitlab.example.com", "projects/x")
-        assert not res["ok"] and res["kind"] == "no-credentials"
+    @pytest.mark.parametrize(
+        ("error", "kind"),
+        [
+            (ServiceError("https://h/api/v4/x: HTTP 401", status=401), "no-credentials"),
+            (ServiceError("https://h/api/v4/x: HTTP 403", status=403), "no-credentials"),
+            (
+                ServiceError("https://h/api/v4/x: gave up after 3 attempts", status=None),
+                "unreachable",
+            ),
+            (ServiceError("https://h/api/v4/x: HTTP 404", status=404), "error"),
+        ],
+    )
+    def test_rest_failures_map_to_per_repo_kinds(self, error: ServiceError, kind: str):
+        def raise_(host: str, endpoint: str) -> dict:
+            raise error
+
+        res = rw.gitlab_repo_info(SimpleNamespace(get=raise_), "gitlab.example.com", "g/r")
+        assert res == {"ok": False, "kind": kind, "error": str(error)[:120]}
+
+
+def test_the_forge_client_knows_git_hosts_and_forge_tokens(monkeypatch: pytest.MonkeyPatch):
+    core = SimpleNamespace(
+        http=None,
+        config=SimpleNamespace(
+            forge_hosts={"github.com": "github"},
+            forge_token_values=lambda: {"gitlab.example.com": "glpat-x"},
+        ),
+    )
+    api = rw._forge_api(core)
+    assert api.kind("gitlab.example.com") == "gitlab"  # widened by GIT_HOSTS
+    assert api.headers("gitlab.example.com") == {"PRIVATE-TOKEN": "glpat-x"}
+    assert api.kind("ghe.example.com") is None  # unknown to both config and env
+
+
+def test_a_ghe_host_routes_its_own_api_not_github_com(monkeypatch):
+    """A GitHub Enterprise host classifies as github-kind but must query its own
+    API: every `gh api` call names the host (--hostname), so it never reads
+    github.com's data for the same org/name — and github.com's calls stay
+    flagless (gh's default target)."""
+    core = SimpleNamespace(config=SimpleNamespace(forge_hosts={"ghe.example.com": "github"}))
+    hosts = rw._known_hosts(core)
+    assert rw.split_repo_url("https://ghe.example.com/o/r", hosts) == (
+        "github",
+        "ghe.example.com",
+        "o/r",
+    )
+
+    class P:
+        returncode = 0
+        stdout = b"{}"
+
+    seen: list[list[str]] = []
+    monkeypatch.setattr(rw.subprocess, "run", lambda cmd, **k: (seen.append(cmd), P())[1])
+    rw.gh_repo_info("o/r", "ghe.example.com")
+    rw.gh_compare("o/r", "a" * 40, "ghe.example.com")
+    rw.gh_tree_fp_count("o/r", "main", "ghe.example.com")
+    rw.gh_compare_patch("o/r", "a" * 40, "ghe.example.com")
+    assert len(seen) == 4
+    for cmd in seen:
+        assert cmd[:4] == ["gh", "api", "--hostname", "ghe.example.com"]
+
+    seen.clear()
+    rw.gh_repo_info("o/r")  # github.com: gh's default, no flag needed
+    assert "--hostname" not in seen[0]
+
+    # stage 1 hands the fetcher the enterprise host, like it hands the forge
+    # client the gitlab one
+    got: list[tuple[str, str]] = []
+
+    def gh_info(project, host="github.com"):
+        got.append((project, host))
+        return {"ok": True, "pushed_at": "2026-07-25T00:00:00Z", "archived": False}
+
+    entries = [{"repo_url": "https://ghe.example.com/o/r"}]
+    rw.stage1(entries, 1, None, gh_info=gh_info, hosts=hosts)
+    assert got == [("o/r", "ghe.example.com")] and entries[0]["status"] == "ok"
+
+
+def test_github_com_quota_never_gates_an_enterprise_row():
+    """github.com's remaining quota is not an Enterprise host's: a GHE row is
+    fetched (tripwire patch, preroute tree count) and compared even when
+    github.com's budget is spent."""
+    rows = [
+        {
+            "repo_key": "k/ghe",
+            "lane": "diff-scan-quarterly",
+            "rule": "rule-5",
+            "reason": "r",
+            "C": 10,
+        },
+        {
+            "repo_key": "k/com",
+            "lane": "diff-scan-quarterly",
+            "rule": "rule-5",
+            "reason": "r",
+            "C": 10,
+        },
+    ]
+    by_key = {
+        "k/ghe": {
+            "host_kind": "github",
+            "host": "ghe.example.com",
+            "project": "o/ghe",
+            "pinned_sha": "a" * 40,
+            "fp_files": 40,
+            "default_branch": "main",
+        },
+        "k/com": {
+            "host_kind": "github",
+            "host": "github.com",
+            "project": "o/com",
+            "pinned_sha": "b" * 40,
+            "fp_files": 40,
+            "default_branch": "main",
+        },
+    }
+
+    patched: list[str] = []
+    stats = rw.run_tripwire(
+        rows,
+        by_key,
+        jobs=1,
+        gh_patch=lambda proj, sha, host="github.com": (patched.append(host), "+secret=AKIA")[1],
+        leak_scan=lambda patch: 1 if patch else None,
+        rate_remaining=lambda: 0,  # github.com spent — the GHE row still fetches
+    )
+    assert stats["quota_skipped"] == 1  # the github.com row only
+    assert patched == ["ghe.example.com"]
+    assert rows[0]["lane"] == "diff-scan"  # GHE row escalated despite quota 0
+    assert rows[1]["lane"] == "diff-scan-quarterly"  # github.com row skipped
+
+    counted: list[str] = []
+    rw.run_preroute(
+        [dict(r, lane="diff-scan") for r in rows],
+        by_key,
+        jobs=1,
+        tree_count=lambda p, r, host="github.com": (
+            counted.append(host),
+            {"ok": True, "fp_files": 10, "truncated": False},
+        )[1],
+        rate_remaining=lambda: 0,
+    )
+    assert counted == ["ghe.example.com"]  # github.com's row is quota-deferred
+
+
+def test_a_host_configured_only_in_traust_yaml_classifies_and_routes():
+    """Classification follows the configured merge (_known_hosts — the same mapping the
+    forge client gets), not $GIT_HOSTS alone: a private GitLab host named only in
+    traust.yaml's forge_hosts routes through stage 1 instead of unsupported-host."""
+    core = SimpleNamespace(config=SimpleNamespace(forge_hosts={"gitlab.corp.example": "gitlab"}))
+    hosts = rw._known_hosts(core)
+    assert rw.split_repo_url("https://gitlab.corp.example/g/r", hosts) == (
+        "gitlab",
+        "gitlab.corp.example",
+        "g/r",
+    )
+    assert rw.split_repo_url("https://gitlab.corp.example/g/r")[0] is None  # $GIT_HOSTS alone
+
+    seen = []
+
+    def gl_info(api, host, project):
+        seen.append((host, project))
+        return {
+            "ok": True,
+            "pushed_at": "2026-07-25T00:00:00Z",
+            "archived": False,
+            "default_branch": "main",
+        }
+
+    entries = [{"repo_url": "https://gitlab.corp.example/g/r"}]
+    rw.stage1(entries, 1, None, gl_info=gl_info, hosts=hosts)
+    assert seen == [("gitlab.corp.example", "g/r")]
+    assert entries[0]["status"] == "ok"
 
 
 class TestErrorClassification:
@@ -675,9 +874,17 @@ class TestMainEndToEnd:
         return db, events
 
     def _patch_network(self, monkeypatch, quota=100_000):
+        # gh is required up front; a stub executable on a private PATH satisfies it
+        # without a real CLI (the fetchers below are fakes anyway).
+        stub = Path(tempfile.mkdtemp(prefix="rw-gh-stub-"))
+        (stub / "gh").write_text("#!/bin/sh\nexit 0\n")
+        (stub / "gh").chmod(0o755)
+        monkeypatch.setenv("PATH", str(stub))
         monkeypatch.setattr(rw, "gh_rate_remaining", lambda: quota)
+        # gitleaks is required up front; the tripwire itself never runs here (no patches)
+        monkeypatch.setattr(rw, "preflight_failures", lambda checks: [])
 
-        def fake_gh_info(project):
+        def fake_gh_info(project, host="github.com"):
             if project == "o/nosha-quiet":  # push predates the audit
                 return {
                     "ok": True,
@@ -692,7 +899,7 @@ class TestMainEndToEnd:
                 "default_branch": "main",
             }
 
-        def fake_gh_cmp(project, sha):
+        def fake_gh_cmp(project, sha, host="github.com"):
             if project == "o/hot":
                 return {
                     "ok": True,
@@ -702,7 +909,7 @@ class TestMainEndToEnd:
                 }
             return {"ok": True, "ahead_by": 0, "truncated": False, "files": []}
 
-        def fake_gl_info(host, project):
+        def fake_gl_info(api, host, project):
             return {
                 "ok": False,
                 "kind": "unreachable",
@@ -829,6 +1036,86 @@ class TestMainEndToEnd:
         out = tmp_path / "out" / "rescan-worklist.json"
         rc = rw.main(["--db", str(db), "--events", str(events), "--out", str(out)])
         assert rc == 0  # undeterminable quota: stage 1 surfaces per-repo
+
+    def test_gitleaks_missing_refuses_before_the_worklist_builds(self, tmp_path, monkeypatch):
+        """`requires: tools: [gitleaks]` semantics: the tripwire's requirement is refused up
+        front with its fix, before any stage runs — never scanner_unavailable mid-run."""
+        db, events = self._setup(tmp_path)
+        monkeypatch.setattr(rw, "gh_rate_remaining", lambda: 100_000)
+        monkeypatch.setattr(
+            rw,
+            "preflight_failures",
+            lambda checks: [
+                "gitleaks: not found on PATH (install it at the external-tools.yaml pin, "
+                "gitleaks >= 8.21.2)"
+            ],
+        )
+        out = tmp_path / "out" / "rescan-worklist.json"
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            rc = rw.main(["--db", str(db), "--events", str(events), "--out", str(out)])
+        assert rc == 2
+        assert not out.exists()  # refused: no worklist that looks complete
+        assert "gitleaks is required for the tripwire" in err.getvalue()
+        assert "external-tools.yaml pin" in err.getvalue()
+
+    def test_gh_missing_refuses_before_the_worklist_builds(self, tmp_path, monkeypatch):
+        """gh is required up front for GitHub repos (the router is a hand-run lane, not a
+        pack asset, so no `requires: tools:` row covers it): a run without the CLI refuses
+        (rc 2, fix named, no worklist) instead of marking every GitHub repo unreachable
+        mid-run."""
+        db, events = self._setup(tmp_path)
+        monkeypatch.setattr(rw, "preflight_failures", lambda checks: [])
+        monkeypatch.setattr(rw, "gh_rate_remaining", lambda: 100_000)
+        monkeypatch.setenv("PATH", str(tmp_path))  # nothing executable: no gh
+        out = tmp_path / "out" / "rescan-worklist.json"
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            rc = rw.main(["--db", str(db), "--events", str(events), "--out", str(out)])
+        assert rc == 2
+        assert not out.exists()  # refused: no worklist that looks complete
+        assert "gh is required for" in err.getvalue()
+        assert "gh auth login" in err.getvalue()
+
+    def test_no_gh_needed_when_no_github_repos(self, tmp_path, monkeypatch):
+        """Without GitHub repos in the population the run proceeds with no gh on PATH
+        (GitLab hosts go through core's forge REST; the CLI is a GitHub transport only)."""
+        db = _mk_db(
+            tmp_path,
+            [
+                {
+                    "repo_key": "t/p/gl",
+                    "repo_url": "https://gitlab.example.com/grp/sub/gl",
+                    "report_path": None,
+                    "audit_date": "2026-07-01",
+                }
+            ],
+            [],
+        )
+        events = tmp_path / "rescan-events.jsonl"
+        events.write_text("")
+        self._patch_network(monkeypatch)
+        monkeypatch.setenv("PATH", str(tmp_path))  # the _patch_network gh stub gone: no gh
+        out = tmp_path / "out" / "rescan-worklist.json"
+        with contextlib.redirect_stderr(io.StringIO()):
+            rc = rw.main(["--db", str(db), "--events", str(events), "--out", str(out)])
+        assert rc == 0
+        assert out.is_file()
+
+    def test_no_tripwire_skips_the_gitleaks_requirement(self, tmp_path, monkeypatch):
+        db, events = self._setup(tmp_path)
+        self._patch_network(monkeypatch)
+        monkeypatch.setattr(
+            rw,
+            "preflight_failures",
+            lambda checks: (_ for _ in ()).throw(
+                AssertionError("the tripwire is off: gitleaks must not be preflighted")
+            ),
+        )
+        out = tmp_path / "out" / "rescan-worklist.json"
+        rc = rw.main(["--db", str(db), "--events", str(events), "--out", str(out), "--no-tripwire"])
+        assert rc == 0
+        assert out.exists()
 
     def test_no_network_run(self, tmp_path, monkeypatch):
         db, events = self._setup(tmp_path)
@@ -996,13 +1283,12 @@ class TestTripwire:
         return rows, by_key
 
     def test_hit_escalates_below_threshold_rows_only(self, monkeypatch):
-        monkeypatch.setattr(rw.shutil, "which", lambda _: "/bin/gitleaks")
         rows, by_key = self._rows_and_keys()
         stats = rw.run_tripwire(
             rows,
             by_key,
             jobs=2,
-            gh_patch=lambda proj, sha: "+aws_secret=AKIA",
+            gh_patch=lambda proj, sha, host="github.com": "+aws_secret=AKIA",
             leak_scan=lambda patch: 2 if patch else None,
             rate_remaining=lambda: 100_000,
         )
@@ -1015,34 +1301,25 @@ class TestTripwire:
         assert rows[2]["lane"] == "full-audit"  # never touched
 
     def test_no_hits_no_escalation(self, monkeypatch):
-        monkeypatch.setattr(rw.shutil, "which", lambda _: "/bin/gitleaks")
         rows, by_key = self._rows_and_keys()
         stats = rw.run_tripwire(
             rows,
             by_key,
             jobs=2,
-            gh_patch=lambda proj, sha: "+harmless()",
+            gh_patch=lambda proj, sha, host="github.com": "+harmless()",
             leak_scan=lambda patch: 0,
             rate_remaining=lambda: 100_000,
         )
         assert stats["escalated"] == 0
         assert rows[0]["lane"] == "diff-scan-quarterly"
 
-    def test_scanner_missing_records_and_skips(self, monkeypatch):
-        monkeypatch.setattr(rw.shutil, "which", lambda _: None)
-        rows, by_key = self._rows_and_keys()
-        stats = rw.run_tripwire(rows, by_key, jobs=2)
-        assert stats["scanner_unavailable"] == 2
-        assert rows[0]["lane"] == "diff-scan-quarterly"
-
     def test_quota_short_skips_github_fetches(self, monkeypatch):
-        monkeypatch.setattr(rw.shutil, "which", lambda _: "/bin/gitleaks")
         rows, by_key = self._rows_and_keys()
         stats = rw.run_tripwire(
             rows,
             by_key,
             jobs=2,
-            gh_patch=lambda proj, sha: (_ for _ in ()).throw(
+            gh_patch=lambda proj, sha, host="github.com": (_ for _ in ()).throw(
                 AssertionError("must not fetch when quota short")
             ),
             leak_scan=lambda patch: 1 if patch else None,
@@ -1128,7 +1405,7 @@ class TestPreroute:
             rows,
             by_key,
             jobs=2,
-            tree_count=lambda p, r: {
+            tree_count=lambda p, r, host="github.com": {
                 "ok": True,
                 "fp_files": 10_000,
                 "truncated": False,
@@ -1147,7 +1424,11 @@ class TestPreroute:
             by_key,
             jobs=2,
             # amd-ci shape: 28 of 72 first-party files changed (39%)
-            tree_count=lambda p, r: {"ok": True, "fp_files": 72, "truncated": False},
+            tree_count=lambda p, r, host="github.com": {
+                "ok": True,
+                "fp_files": 72,
+                "truncated": False,
+            },
             rate_remaining=lambda: 100_000,
         )
         assert stats["rerouted_ratio"] == 1
@@ -1163,7 +1444,11 @@ class TestPreroute:
             rows,
             by_key,
             jobs=2,
-            tree_count=lambda p, r: {"ok": True, "fp_files": 1000, "truncated": False},
+            tree_count=lambda p, r, host="github.com": {
+                "ok": True,
+                "fp_files": 1000,
+                "truncated": False,
+            },
             rate_remaining=lambda: 100_000,
         )
         assert stats["rerouted_ratio"] == 0
@@ -1176,7 +1461,7 @@ class TestPreroute:
             rows,
             by_key,
             jobs=2,
-            tree_count=lambda p, r: (
+            tree_count=lambda p, r, host="github.com": (
                 fetched.append(p) or {"ok": True, "fp_files": 1000, "truncated": False}
             ),
             rate_remaining=lambda: 100_000,
@@ -1192,7 +1477,7 @@ class TestPreroute:
             rows,
             by_key,
             jobs=2,
-            tree_count=lambda p, r: {"ok": False, "error": "rate limit"},
+            tree_count=lambda p, r, host="github.com": {"ok": False, "error": "rate limit"},
             rate_remaining=lambda: 100_000,
         )
         assert stats["tree_failed"] == 1  # k/big
@@ -1206,7 +1491,11 @@ class TestPreroute:
             rows,
             by_key,
             jobs=2,
-            tree_count=lambda p, r: {"ok": True, "fp_files": 50, "truncated": False},
+            tree_count=lambda p, r, host="github.com": {
+                "ok": True,
+                "fp_files": 50,
+                "truncated": False,
+            },
             rate_remaining=lambda: 100_000,
         )
         assert stats["gitlab_unchecked"] == 1
@@ -1218,7 +1507,11 @@ class TestPreroute:
             rows,
             by_key,
             jobs=2,
-            tree_count=lambda p, r: {"ok": True, "fp_files": 0, "truncated": True},
+            tree_count=lambda p, r, host="github.com": {
+                "ok": True,
+                "fp_files": 0,
+                "truncated": True,
+            },
             rate_remaining=lambda: 100_000,
         )
         assert stats["rerouted_ratio"] == 0
@@ -1230,7 +1523,7 @@ class TestPreroute:
             rows,
             by_key,
             jobs=2,
-            tree_count=lambda p, r: (_ for _ in ()).throw(
+            tree_count=lambda p, r, host="github.com": (_ for _ in ()).throw(
                 AssertionError("must not fetch when quota short")
             ),
             rate_remaining=lambda: 0,
@@ -1271,7 +1564,7 @@ class TestDrainAndExposureEndToEnd(TestMainEndToEnd):
     def test_public_sorts_ahead_within_lane(self, tmp_path, monkeypatch):
         db, events = self._setup(tmp_path)
 
-        def fake_gh_info(project):
+        def fake_gh_info(project, host="github.com"):
             vis = "public" if project == "o/quiet" else "private"
             return {
                 "ok": True,
@@ -1283,7 +1576,7 @@ class TestDrainAndExposureEndToEnd(TestMainEndToEnd):
                 "parent": None,
             }
 
-        def fake_gh_cmp(project, sha):
+        def fake_gh_cmp(project, sha, host="github.com"):
             return {
                 "ok": True,
                 "ahead_by": 3,
@@ -1292,12 +1585,13 @@ class TestDrainAndExposureEndToEnd(TestMainEndToEnd):
             }
 
         monkeypatch.setattr(rw, "gh_rate_remaining", lambda: 100_000)
+        monkeypatch.setattr(rw, "preflight_failures", lambda checks: [])
         monkeypatch.setattr(rw, "gh_repo_info", fake_gh_info)
         monkeypatch.setattr(rw, "gh_compare", fake_gh_cmp)
         monkeypatch.setattr(
             rw,
             "gitlab_repo_info",
-            lambda h, p: {"ok": False, "kind": "unreachable", "error": "x"},
+            lambda api, h, p: {"ok": False, "kind": "unreachable", "error": "x"},
         )
         out = tmp_path / "out" / "rescan-worklist.json"
         rc = rw.main(
@@ -1440,13 +1734,13 @@ class TestBanBreaker:
     def test_stage1_aborts_after_streak(self, monkeypatch):
         calls = {"n": 0}
 
-        def failing_gh(project):
+        def failing_gh(project, host="github.com"):
             calls["n"] += 1
             return {"ok": False, "kind": "error", "error": "403 abuse"}
 
         monkeypatch.setattr(rw, "BAN_STREAK_THRESHOLD", 5)
         entries = [{"repo_url": f"https://github.com/o/r{i}"} for i in range(40)]
-        rw.stage1(entries, jobs=1, gh_info=failing_gh)
+        rw.stage1(entries, 1, None, gh_info=failing_gh)
         skipped = [e for e in entries if e["status"] == "ban-suspected"]
         assert calls["n"] <= 6  # stopped calling after the trip
         assert len(skipped) >= 30  # remainder skipped, not churned

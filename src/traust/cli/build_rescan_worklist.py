@@ -28,24 +28,32 @@ regression_introduced / open stay live. Snapshots predating kind remain readable
 Two-stage change detection (per-host; unknown hosts get status
 'unsupported-host' and still hit the age-ceiling rule — never silently
 dropped):
-  github.com — stage 1 `gh api repos/{org}/{repo}` (pushed_at,
+  github.com (and any GitHub Enterprise host in $GIT_HOSTS or traust.yaml
+    `forge_hosts` — same calls, `gh api --hostname <host>`, its own API and
+    limits, never github.com's data for the same org/name) — stage 1
+    `gh api repos/{org}/{repo}` (pushed_at,
     archived, default_branch); stage 2
     `gh api repos/{org}/{repo}/compare/{sha}...HEAD` (files[] capped at
     300 — a 300-file diff exceeds every threshold, so `truncated` is a
     flag, not a gap). org/name are validated against a strict charset
     before path interpolation (same guard as check_repo_liveness.py).
-  github.com / gitlab.com (plus any host in $GIT_HOSTS) — stage 1
+    gh is REQUIRED up front: with GitHub repos in the population a run
+    without the CLI refuses before any stage (exit 2, fix named) — never
+    per-repo unreachable mid-run.
+  github.com / gitlab.com (plus any host in $GIT_HOSTS or traust.yaml
+    `forge_hosts`) — stage 1
     GET /api/v4/projects/:urlencoded_path (last_activity_at as
     pushed_at, archived, default_branch); stage 2
     GET /api/v4/projects/:path/repository/compare?from=<sha>&to=<branch>
     — per-file line counts come from counting +/- hunk lines in each
     diffs[].diff text (headers skipped). GitLab caps the diffs[] array
     and may set compare_timeout on big compares — `truncated` is set on
-    either. Transport is the `glab` CLI (the existing harness GitLab
-    pattern: doctor.py auth probe, fleet-fix MR flow) — the token lives
-    in glab's own auth store or the GITLAB_TOKEN env var, NEVER in
-    argv. glab absent -> per-repo status 'no-credentials'; a private forge
-    is VPN-gated, so connection failures -> per-repo 'unreachable'
+    either. Transport is traust-core's forge REST (ForgeApi: no forge
+    CLI on the runner) — the host must be a known forge (traust.yaml
+    `forge_hosts`, plus $GIT_HOSTS) and its token comes from the
+    `forge_tokens` env var named for it, sent only as a header, never in
+    argv. A 401/403 answers per-repo status 'no-credentials'; a private
+    forge is VPN-gated, so connection failures -> per-repo 'unreachable'
     (counted and stated in the MD summary so a VPN-down run reads as
     incomplete, never falsely green).
 Candidate test is day-granular and fail-safe: pushed_at date >= audit
@@ -92,7 +100,10 @@ Session-4 levers (wiring plan §6c, policy v1.4 §2.1b):
       every below-threshold routed row (GitLab patches captured free in
       stage 2; GitHub costs one extra quota-aware call) — any hit
       escalates the row to an immediate diff-scan. Routes only; the
-      diff scan adjudicates. --no-tripwire disables.
+      diff scan adjudicates. gitleaks is REQUIRED (`requires: tools:`
+      semantics): the run refuses up front when it is missing, before
+      the worklist builds — never scanner_unavailable mid-run. --no-tripwire
+      disables.
   trickle-drain (lever 2)  diff-scan-quarterly rows carry drain_order
       (risk sort: exposure -> tier -> S_lines -> C); the weekly
       dispatch takes drain_order < --drain-rate (default ceil(pool/13));
@@ -152,6 +163,11 @@ import urllib.parse
 from collections.abc import Sequence
 from pathlib import Path
 
+# Core's context facades, not its providers (the consumer ratchet fences those): ForgeApi is
+# command_source's own parameter type; preflight_failures is the preflight's tool check.
+from traust_core.v1.context.observation import ForgeApi
+from traust_core.v1.context.preflight import preflight_failures
+from traust_core.v1.errors import TraustError
 from traust_core.v1.models.observation import (
     SENSITIVE_RX,
     is_deps_manifest,
@@ -208,8 +224,9 @@ def _normalize_repo_url(raw: str | None) -> str | None:
 #
 #   GIT_HOSTS="gitlab:gitlab.example.com,github:ghe.example.com"
 #
-# Classification only: this widens which URLs are RECOGNISED, never what
-# the tool is permitted to reach.
+# Not classification only: _forge_api() merges these hosts into the forge
+# client's set, so a host here is also one the run will reach (with the token
+# traust.yaml names for it).
 def _git_hosts() -> dict[str, str]:
     hosts = {"github.com": "github", "gitlab.com": "gitlab"}
     for entry in os.environ.get("GIT_HOSTS", "").split(","):
@@ -223,6 +240,19 @@ def _git_hosts() -> dict[str, str]:
 
 
 GIT_HOSTS = _git_hosts()
+
+
+def _known_hosts(core) -> dict[str, str]:
+    """Every host the run classifies and reaches: traust.yaml's forge_hosts widened by
+    $GIT_HOSTS — the same merge the forge client gets, so a host named only in config
+    classifies too instead of landing unsupported-host."""
+    return {**core.config.forge_hosts, **GIT_HOSTS}
+
+
+def _forge_api(core) -> ForgeApi:
+    """The GitLab transport: core's ForgeApi over the known hosts and traust.yaml's tokens."""
+    return ForgeApi(core.http, _known_hosts(core), core.config.forge_token_values())
+
 
 # The first-party filter, NARROW sensitive matcher (rescan-cadence plan §2.2) and deps
 # manifests are traust-core's, shared with /vuln-scan --diff's scoping.
@@ -421,16 +451,20 @@ def parse_pinned_sha(commit_field: str | None) -> str | None:
 # ---------------------------------------------------------------------------
 
 
-def split_repo_url(url: str | None) -> tuple[str | None, str | None, str | None]:
+def split_repo_url(
+    url: str | None, hosts: dict[str, str] | None = None
+) -> tuple[str | None, str | None, str | None]:
     """-> (kind, host, project_path). kind is 'github' | 'gitlab' | None
     (unsupported host). project_path is 'org/name' for GitHub, the full
-    (possibly subgrouped) namespace path for GitLab."""
+    (possibly subgrouped) namespace path for GitLab. `hosts` is the known-host
+    mapping; the default is $GIT_HOSTS alone, main passes the configured merge
+    (_known_hosts) so hosts named only in traust.yaml classify too."""
     m = re.match(r"^https://([^/]+)/(.+)$", url or "")
     if not m:
         return None, None, None
     host, path = m.group(1).lower(), m.group(2).strip("/")
     path = path.removesuffix(".git")
-    kind = GIT_HOSTS.get(host)
+    kind = (GIT_HOSTS if hosts is None else hosts).get(host)
     if kind == "github":
         parts = path.split("/")
         if len(parts) >= 2:
@@ -478,8 +512,26 @@ def _classify_stderr(stderr: str) -> str:
     return "error"
 
 
+def _gh_host(e: dict) -> str:
+    """The host a row's `gh api` calls target: github.com unless the repo's
+    URL named a GitHub Enterprise host (stage 1 / the no-network branch set
+    `host`; a hand-built row without one is github.com's, gh's default)."""
+    return e.get("host") or "github.com"
+
+
+def _gh_api_argv(host: str) -> list[str]:
+    """`gh api` argv head for one GitHub host: gh's default target is
+    github.com, so only a GitHub Enterprise host needs naming — without
+    `--hostname` its calls would read github.com's data for the same
+    org/name (or 404), never the enterprise API."""
+    argv = ["gh", "api"]
+    if host != "github.com":
+        argv += ["--hostname", host]
+    return argv
+
+
 def gh_rate_remaining() -> int | None:
-    """Remaining GitHub core-API quota, or None when undeterminable
+    """Remaining github.com core-API quota, or None when undeterminable
     (gh missing/unauthenticated — stage 1 will surface that per-repo)."""
     try:
         proc = subprocess.run(
@@ -498,7 +550,7 @@ def gh_rate_remaining() -> int | None:
         return None
 
 
-def gh_repo_info(project: str) -> dict:
+def gh_repo_info(project: str, host: str = "github.com") -> dict:
     """Stage 1, GitHub: one `gh api` call -> pushed_at/archived/branch."""
     org, _, name = project.partition("/")
     if not (_GH_NAME_RE.fullmatch(org) and _GH_NAME_RE.fullmatch(name)):
@@ -506,8 +558,7 @@ def gh_repo_info(project: str) -> dict:
     try:
         proc = subprocess.run(
             [
-                "gh",
-                "api",
+                *_gh_api_argv(host),
                 f"repos/{org}/{name}",
                 "--jq",
                 "{pushed_at, archived, default_branch, visibility, "
@@ -531,7 +582,7 @@ def gh_repo_info(project: str) -> dict:
         return {"ok": False, "kind": "error", "error": "unparseable"}
 
 
-def gh_compare(project: str, sha: str) -> dict:
+def gh_compare(project: str, sha: str, host: str = "github.com") -> dict:
     """Stage 2, GitHub: pinned-SHA...HEAD compare, no clone needed."""
     org, _, name = project.partition("/")
     if not (
@@ -543,8 +594,7 @@ def gh_compare(project: str, sha: str) -> dict:
     try:
         proc = subprocess.run(
             [
-                "gh",
-                "api",
+                *_gh_api_argv(host),
                 f"repos/{org}/{name}/compare/{sha}...HEAD",
                 "--jq",
                 "{ahead_by, status, files: [.files[] | {filename, changes}]}",
@@ -577,7 +627,7 @@ def gh_compare(project: str, sha: str) -> dict:
 _GH_REF_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]*$")
 
 
-def gh_tree_fp_count(project: str, ref: str) -> dict:
+def gh_tree_fp_count(project: str, ref: str, host: str = "github.com") -> dict:
     """Pre-route ratio input: count first-party files in the repo tree
     (one API call — the resolver counts the same population via
     `git ls-files` in its clone). `truncated: true` means the tree
@@ -591,8 +641,7 @@ def gh_tree_fp_count(project: str, ref: str) -> dict:
     try:
         proc = subprocess.run(
             [
-                "gh",
-                "api",
+                *_gh_api_argv(host),
                 f"repos/{org}/{name}/git/trees/{ref}?recursive=1",
                 "--jq",
                 '{truncated, paths: [.tree[] | select(.type=="blob") | .path]}',
@@ -613,45 +662,29 @@ def gh_tree_fp_count(project: str, ref: str) -> dict:
     return {"ok": True, "fp_files": fp, "truncated": bool(payload.get("truncated"))}
 
 
-def _glab_api(host: str, request_path: str) -> dict:
-    """One `glab api` call. Token stays in glab's auth store /
-    GITLAB_TOKEN env — never in argv (rule S5 class)."""
-    if shutil.which("glab") is None:
-        return {
-            "ok": False,
-            "kind": "no-credentials",
-            "error": "glab CLI not installed (and no GitLab transport without it)",
-        }
-    try:
-        proc = subprocess.run(
-            ["glab", "api", "--hostname", host, request_path],
-            capture_output=True,
-            text=True,
-            timeout=120,
-        )
-    except (subprocess.SubprocessError, OSError) as e:
-        return {"ok": False, "kind": "unreachable", "error": str(e)[:120]}
-    if proc.returncode != 0:
-        return {
-            "ok": False,
-            "kind": _classify_stderr(proc.stderr),
-            "error": proc.stderr.strip()[:120] or "api-error",
-        }
-    try:
-        return {"ok": True, "payload": json.loads(proc.stdout)}
-    except json.JSONDecodeError:
-        return {"ok": False, "kind": "error", "error": "unparseable"}
+def _gitlab_failure(e: Exception) -> dict:
+    """A forge REST failure as a per-repo status row: 401/403 is missing
+    credentials, a transport give-up (no status) is unreachable, and
+    anything else is an error — API errors are per-repo data, never
+    fatal."""
+    if isinstance(e, TraustError) and getattr(e, "status", None) is not None:
+        kind = "no-credentials" if e.status in (401, 403) else "error"
+    elif isinstance(e, TraustError):
+        kind = "unreachable"
+    else:
+        kind = "error"
+    return {"ok": False, "kind": kind, "error": str(e)[:120]}
 
 
-def gitlab_repo_info(host: str, project: str) -> dict:
+def gitlab_repo_info(api: ForgeApi, host: str, project: str) -> dict:
     """Stage 1, GitLab: GET /projects/:enc — last_activity_at plays the
     pushed_at role."""
     if not safe_project_path(project):
         return {"ok": False, "kind": "error", "error": f"unsafe project path: {project}"}
-    res = _glab_api(host, f"projects/{gitlab_project_enc(project)}")
-    if not res.get("ok"):
-        return res
-    p = res["payload"]
+    try:
+        p = api.get(host, f"projects/{gitlab_project_enc(project)}")
+    except TraustError as e:
+        return _gitlab_failure(e)
     fork_parent = (p.get("forked_from_project") or {}).get("path_with_namespace")
     return {
         "ok": True,
@@ -677,19 +710,20 @@ def count_diff_lines(diff_text: str) -> int:
     return n
 
 
-def gitlab_compare(host: str, project: str, sha: str, default_branch: str) -> dict:
+def gitlab_compare(api: ForgeApi, host: str, project: str, sha: str, default_branch: str) -> dict:
     """Stage 2, GitLab: /repository/compare?from=<sha>&to=<branch>.
     Normalized to the GitHub shape: {ahead_by, files:[{filename,
     changes}], truncated}."""
     if not (safe_project_path(project) and re.fullmatch(r"[0-9a-f]{7,40}", sha)):
         return {"ok": False, "kind": "error", "error": f"unsafe project path/sha: {project}"}
     to_ref = urllib.parse.quote(default_branch or "HEAD", safe="")
-    res = _glab_api(
-        host, f"projects/{gitlab_project_enc(project)}/repository/compare?from={sha}&to={to_ref}"
-    )
-    if not res.get("ok"):
-        return res
-    p = res["payload"]
+    try:
+        p = api.get(
+            host,
+            f"projects/{gitlab_project_enc(project)}/repository/compare?from={sha}&to={to_ref}",
+        )
+    except TraustError as e:
+        return _gitlab_failure(e)
     diffs = p.get("diffs") or []
     files = [
         {
@@ -775,7 +809,7 @@ def never_audited_rows(
 # ---------------------------------------------------------------------------
 
 
-def gh_compare_patch(project: str, sha: str) -> str | None:
+def gh_compare_patch(project: str, sha: str, host: str = "github.com") -> str | None:
     """Raw unified diff of pinned-SHA...HEAD (one core-quota call). None
     on any failure — the tripwire is opportunistic, never fatal."""
     org, _, name = project.partition("/")
@@ -791,8 +825,7 @@ def gh_compare_patch(project: str, sha: str) -> str | None:
         # text-mode pipe); decode tolerantly after capping
         proc = subprocess.run(
             [
-                "gh",
-                "api",
+                *_gh_api_argv(host),
                 "-H",
                 "Accept: application/vnd.github.v3.diff",
                 f"repos/{org}/{name}/compare/{sha}...HEAD",
@@ -809,8 +842,9 @@ def gh_compare_patch(project: str, sha: str) -> str | None:
 
 def gitleaks_hits(patch: str) -> int | None:
     """Leak count from `gitleaks stdin` over patch text. None = scanner
-    unavailable or errored (recorded, never escalates)."""
-    if not patch or shutil.which("gitleaks") is None:
+    errored (recorded, never escalates); the tool's presence is required
+    up front, refused before the worklist builds."""
+    if not patch:
         return None
     with tempfile.TemporaryDirectory(prefix="rescan-tripwire-") as td:
         report = Path(td) / "report.json"
@@ -860,27 +894,26 @@ def run_tripwire(
         "eligible": len(eligible),
         "escalated": 0,
         "quota_skipped": 0,
-        "scanner_unavailable": 0,
     }
     if not eligible:
         return stats
-    if shutil.which("gitleaks") is None:
-        stats["scanner_unavailable"] = len(eligible)
-        return stats
 
     gh_rows = [r for r in eligible if by_key[r["repo_key"]].get("host_kind") == "github"]
+    # github.com's quota gates only github.com rows: a GitHub Enterprise
+    # host runs its own limits and is fetched with --hostname regardless.
+    com_rows = [r for r in gh_rows if _gh_host(by_key[r["repo_key"]]) == "github.com"]
     rem = rate_remaining()
-    gh_budget = max(0, rem - TRIPWIRE_QUOTA_RESERVE) if rem is not None else len(gh_rows)
-    if gh_budget < len(gh_rows):
-        stats["quota_skipped"] = len(gh_rows) - gh_budget
-    gh_allowed = set(id(r) for r in gh_rows[:gh_budget])
+    gh_budget = max(0, rem - TRIPWIRE_QUOTA_RESERVE) if rem is not None else len(com_rows)
+    if gh_budget < len(com_rows):
+        stats["quota_skipped"] = len(com_rows) - gh_budget
+    gh_allowed = set(id(r) for r in com_rows[:gh_budget])
 
     def work(row: dict) -> None:
         e = by_key[row["repo_key"]]
         if e.get("host_kind") == "github":
-            if id(row) not in gh_allowed:
+            if _gh_host(e) == "github.com" and id(row) not in gh_allowed:
                 return
-            patch = gh_patch(e["project"], e["pinned_sha"])
+            patch = gh_patch(e["project"], e["pinned_sha"], _gh_host(e))
         else:
             patch = e.get("_patch")
         hits = leak_scan(patch) if patch else None
@@ -923,7 +956,7 @@ def run_preroute(
       leg 2  changed-file ratio: the resolver refuses when >30% of
              first-party files changed. One GitHub tree call per
              candidate row (quota-aware); GitLab rows are skipped
-             honestly — no cheap tree count over glab.
+             honestly — no cheap tree count over the forge REST API.
 
     Routes only — the resolver stays the authority at dispatch."""
     tree_count = tree_count or gh_tree_fp_count
@@ -974,15 +1007,20 @@ def run_preroute(
     stats["gitlab_unchecked"] = len(cands) - len(gh_rows)
     if not gh_rows:
         return stats
+    # github.com's quota gates only its own rows; a GitHub Enterprise host
+    # runs its own limits, so its tree counts are fetched regardless.
+    com_rows = [r for r in gh_rows if _gh_host(by_key[r["repo_key"]]) == "github.com"]
     rem = rate_remaining()
-    budget = max(0, rem - PREROUTE_QUOTA_RESERVE) if rem is not None else len(gh_rows)
-    if budget < len(gh_rows):
-        stats["quota_skipped"] = len(gh_rows) - budget
-    allowed = gh_rows[:budget]
+    budget = max(0, rem - PREROUTE_QUOTA_RESERVE) if rem is not None else len(com_rows)
+    if budget < len(com_rows):
+        stats["quota_skipped"] = len(com_rows) - budget
+    allowed = com_rows[:budget] + [
+        r for r in gh_rows if _gh_host(by_key[r["repo_key"]]) != "github.com"
+    ]
 
     def work(row: dict) -> None:
         e = by_key[row["repo_key"]]
-        res = tree_count(e["project"], e.get("default_branch") or "HEAD")
+        res = tree_count(e["project"], e.get("default_branch") or "HEAD", _gh_host(e))
         if not res.get("ok"):
             # leave the row (resolver decides at dispatch) but COUNT it
             # — tranche-1's silent failures hid a mid-sweep quota
@@ -1753,13 +1791,6 @@ def render_md(doc: dict) -> str:
     tw = smry.get("tripwire") or {}
     if tw.get("disabled"):
         lines += ["", "Tripwire: disabled this run."]
-    elif tw.get("scanner_unavailable"):
-        lines += [
-            "",
-            f"**Tripwire skipped: gitleaks not installed** "
-            f"({tw['scanner_unavailable']} eligible rows "
-            f"unswept).",
-        ]
     elif tw.get("eligible"):
         lines += [
             "",
@@ -1939,7 +1970,14 @@ class _BanBreaker:
                 self.tripped = True
 
 
-def stage1(entries: list[dict], jobs: int, gh_info=None, gl_info=None) -> None:
+def stage1(
+    entries: list[dict],
+    jobs: int,
+    api: ForgeApi,
+    gh_info=None,
+    gl_info=None,
+    hosts: dict[str, str] | None = None,
+) -> None:
     """Fleet refresh: annotate each entry with pushed_at/archived/
     default_branch or a status kind. Mutates entries in place.
     Fetchers resolve at call time (module globals) so tests can
@@ -1950,7 +1988,7 @@ def stage1(entries: list[dict], jobs: int, gh_info=None, gl_info=None) -> None:
     breaker = _BanBreaker()
 
     def work(e: dict) -> None:
-        kind, host, project = split_repo_url(e["repo_url"])
+        kind, host, project = split_repo_url(e["repo_url"], hosts)
         e["host_kind"], e["host"], e["project"] = kind, host, project
         if e["repo_url"] is None:
             e["status"] = "no-repo-url"
@@ -1966,7 +2004,7 @@ def stage1(entries: list[dict], jobs: int, gh_info=None, gl_info=None) -> None:
                 "these); next daily run retries"
             )
             return
-        info = gh_info(project) if kind == "github" else gl_info(host, project)
+        info = gh_info(project, host) if kind == "github" else gl_info(api, host, project)
         if kind == "github":
             breaker.record(info.get("ok", False))
         if not info.get("ok"):
@@ -1985,7 +2023,7 @@ def stage1(entries: list[dict], jobs: int, gh_info=None, gl_info=None) -> None:
         list(ex.map(work, entries))
 
 
-def stage2(candidates: list[dict], jobs: int, gh_cmp=None, gl_cmp=None) -> None:
+def stage2(candidates: list[dict], jobs: int, api: ForgeApi, gh_cmp=None, gl_cmp=None) -> None:
     """Per-candidate compare -> change metrics. Mutates in place.
 
     Quota-aware: GitHub candidates beyond the remaining core quota are
@@ -1998,10 +2036,13 @@ def stage2(candidates: list[dict], jobs: int, gh_cmp=None, gl_cmp=None) -> None:
     rem = gh_rate_remaining()
     deferred: set[int] = set()
     if rem is not None:
+        # github.com's quota defers only github.com rows: a GitHub Enterprise
+        # host runs its own limits, so its compares are never held back
+        # against github.com's remaining budget.
         gh_cands = [
             i
             for i, e in enumerate(candidates)
-            if e["host_kind"] == "github" and e.get("pinned_sha")
+            if e["host_kind"] == "github" and _gh_host(e) == "github.com" and e.get("pinned_sha")
         ]
         if rem < len(gh_cands):
             for i in gh_cands[max(0, rem) :]:
@@ -2021,10 +2062,10 @@ def stage2(candidates: list[dict], jobs: int, gh_cmp=None, gl_cmp=None) -> None:
             e["status"] = "quota-deferred"
             return
         if e["host_kind"] == "github":
-            res = gh_cmp(e["project"], e["pinned_sha"])
+            res = gh_cmp(e["project"], e["pinned_sha"], _gh_host(e))
         else:
             res = gl_cmp(
-                e["host"], e["project"], e["pinned_sha"], e.get("default_branch") or "HEAD"
+                api, e["host"], e["project"], e["pinned_sha"], e.get("default_branch") or "HEAD"
             )
         if not res.get("ok"):
             e["status"] = res.get("kind", "error")
@@ -2053,7 +2094,7 @@ def main(argv=None) -> int:
     ap.add_argument(
         "--no-network",
         action="store_true",
-        help="skip both gh/glab stages — decisions fall to the age-ceiling rule only",
+        help="skip both forge stages — decisions fall to the age-ceiling rule only",
     )
     ap.add_argument(
         "--designations",
@@ -2159,6 +2200,16 @@ def main(argv=None) -> int:
         )
         return 2
 
+    network = not args.no_network
+    if network and not args.no_tripwire:
+        # `requires: tools: [gitleaks]` semantics: the tripwire's one requirement is
+        # refused up front (core's tool preflight, the same check Context.preflight runs),
+        # never scanner_unavailable mid-run.
+        gaps = preflight_failures(core.toolchain.preflight(["gitleaks"]))
+        if gaps:
+            print("[!] gitleaks is required for the tripwire: " + "; ".join(gaps), file=sys.stderr)
+            return 2
+
     entries = load_population(args.db)
     total_rows = sum(1 + len(e["sibling_repo_keys"]) for e in entries)
     if args.limit:
@@ -2174,16 +2225,33 @@ def main(argv=None) -> int:
         e["audit_age_days"] = (today - d).days if d else None
 
     network = not args.no_network
+    hosts = _known_hosts(core)
     if network:
+        # gh is required up front for GitHub repos (the router is a hand-run lane, not a
+        # pack asset, so there is no `requires: tools:` row to hang it on): a missing CLI
+        # would mark every GitHub repo unreachable mid-run — refuse before any stage, the
+        # same convention as the gitleaks preflight below.
+        gh_rows = [e for e in entries if split_repo_url(e["repo_url"], hosts)[0] == "github"]
+        if gh_rows and not shutil.which("gh"):
+            print(
+                f"[!] gh is required for {len(gh_rows)} GitHub repos (stage 1/2, the quota "
+                "check, the tree count, the tripwire patch fetch): install the GitHub CLI "
+                "and authenticate (gh auth login or GITHUB_TOKEN)",
+                file=sys.stderr,
+            )
+            return 2
         # Guard stage 1 only: a full fleet needs ~1 call/repo for stage 1
         # plus ~0.45/repo for stage 2 — together that brushes the 5K/hr
         # quota, so stage 2 is quota-aware (defers what does not fit to
         # the next daily run) rather than preflighted. A quota-starved
         # stage 1 silently classifies thousands of repos as errors while
         # the worklist looks legitimate (observed live: well over half
-        # of one sweep's calls errored) — refuse that outright.
+        # of one sweep's calls errored) — refuse that outright. Only
+        # github.com repos count: a GitHub Enterprise host runs its own
+        # limits, unreachable from github.com's rate_limit read.
         gh_needed = int(
-            1.05 * sum(1 for e in entries if split_repo_url(e["repo_url"])[0] == "github")
+            1.05
+            * sum(1 for e in gh_rows if split_repo_url(e["repo_url"], hosts)[1] == "github.com")
         )
         quota = gh_rate_remaining()
         if quota is not None and quota < gh_needed and not args.ignore_rate_limit:
@@ -2199,10 +2267,10 @@ def main(argv=None) -> int:
             f"[+] stage 1: fleet refresh over {len(entries)} repos ({args.jobs} workers) …",
             file=sys.stderr,
         )
-        stage1(entries, args.jobs)
+        stage1(entries, args.jobs, _forge_api(core), hosts=hosts)
     else:
         for e in entries:
-            kind, host, project = split_repo_url(e["repo_url"])
+            kind, host, project = split_repo_url(e["repo_url"], hosts)
             e["host_kind"], e["host"], e["project"] = kind, host, project
             if e["repo_url"] is None:
                 e["status"] = "no-repo-url"
@@ -2223,7 +2291,7 @@ def main(argv=None) -> int:
             candidates.append(e)
     if network and candidates:
         print(f"[+] stage 2: compare over {len(candidates)} candidates …", file=sys.stderr)
-        stage2(candidates, args.jobs)
+        stage2(candidates, args.jobs, _forge_api(core))
 
     # --- decisions -------------------------------------------------------
     events = load_events(args.events)
@@ -2460,7 +2528,6 @@ def main(argv=None) -> int:
             "eligible": 0,
             "escalated": 0,
             "quota_skipped": 0,
-            "scanner_unavailable": 0,
             "disabled": True,
         }
 

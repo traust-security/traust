@@ -2,11 +2,15 @@
 """Environment preflight for the harness (VVAH comparative plan P8).
 
 One command that answers "why doesn't my session work" before an hour
-is lost to it — checks the top onboarding failure modes: traust-core's
-effective traust.yaml (each value's source), its store and provider readiness
-(in-process, SQLite by default), venv +
-locked deps, the tree-sitter grammars, pinned external tools, forge auth, VPN reachability, and
-the harness's own gates.
+is lost to it. The required half is core's preflight — the same
+`Context.preflight` the engine's start gate runs on the pack's enabled
+assets, so doctor and the runtime refuse on the same findings (a
+required gap is FAIL, never WARN) — plus the environment around it:
+traust-core's store and provider readiness (in-process, SQLite by
+default), the effective traust.yaml with each value's source, the
+convention paths the fail-loud plan keeps soft (shown as defaults in
+use), venv + locked deps, the tree-sitter grammars, VPN reachability,
+and the harness's own gates.
 
 Usage:
   traust admin doctor            # full report
@@ -25,30 +29,35 @@ import shutil
 import socket
 import subprocess
 import sys
+from pathlib import Path
 from urllib.parse import urlsplit
 
 import pydantic
 import pydantic_core
 import yaml
-from traust_core.v1.context import Config, resolve_config_home
+from traust_core.v1.context import Config, Context, resolve_config_home, validate_config
 from traust_core.v1.context.config import CONFIG_FILE
-from traust_core.v1.errors import TraustError
+from traust_core.v1.context.home import TRAUST_CONFIG_HOME_ENV
+from traust_core.v1.context.preflight import preflight_findings
+from traust_core.v1.context.tools import bicep_candidates
+from traust_core.v1.errors import DeploymentConfigMissing, TraustError
 from traust_core.v1.models.common import PageRequest
+from traust_core.v1.models.operations import Requirement
 
-from traust.context import add_config_home_arg, load
-from traust.paths import HARNESS_ROOT, skill_dir
+from traust.context import add_config_home_arg, feeds_cache_dir, load
+from traust.paths import HARNESS_ROOT, SECURITY_PACK_DIR, skill_dir
 
 HARNESS = HARNESS_ROOT
 
 OK, WARN, FAIL = "ok", "warn", "FAIL"
+
+PACK_ASSETS = SECURITY_PACK_DIR / "assets.yaml"
 
 # (name, required) — pinned external tools per docs/external-dependencies.md
 TOOLS = [
     ("git", True),
     ("jq", True),
     ("python3", True),
-    ("gh", False),
-    ("glab", False),
     ("opengrep", False),
     ("gitleaks", False),
     ("osv-scanner", False),
@@ -88,28 +97,100 @@ def _run(argv, timeout=30):
         return None
 
 
-def check_core(results, config_home, network=True):
+def check_core(results, config_home, network=True) -> Context | None:
     """traust-core in-process: the store answers a read, each registered provider's readiness
     (ProviderCatalog.readiness; without `network`, the feed sources' probes are skipped) and the
-    route matrices' grammars (CodeFactsService.grammar_readiness)."""
+    route matrices' grammars (CodeFactsService.grammar_readiness). Returns the loaded Context
+    for the checks that need it, or None when the store is not reachable."""
     try:
-        services = load(config_home).services()
-        services.portfolio.list_products(PageRequest(limit=1))
+        core = load(config_home)
+        core.services().portfolio.list_products(PageRequest(limit=1))
     except (SystemExit, TraustError, OSError) as e:
         results.append((FAIL, f"traust-core store not reachable — {e or 'traust.yaml invalid'}"))
-        return
+        return None
     results.append((OK, "traust-core store reachable"))
-    for binding in services.catalog.readiness(None, network=network):
+    for binding in core.services().catalog.readiness(None, network=network):
         name = f"{binding.capability.kind.value} {binding.capability.name}"
         if binding.readiness.ready:
             results.append((OK, f"provider {name} ready"))
         else:
             results.append((WARN, f"provider {name} not ready — {binding.readiness.detail}"))
-    for language, ready in services.code_facts.grammar_readiness().items():
+    for language, ready in core.services().code_facts.grammar_readiness().items():
         if ready.ready:
             results.append((OK, f"{language} grammar loads"))
         else:
             results.append((WARN, f"{ready.detail}; its routes are a coverage gap"))
+    return core
+
+
+def pack_requirements(path: Path | None = None) -> list[Requirement]:
+    """The `requires:` blocks of the pack's enabled assets — what the engine's start gate
+    preflights and doctor reports; `enabled: false` is the only way to keep an asset in the
+    pack without its requirements."""
+    raw = yaml.safe_load((path or PACK_ASSETS).read_text())
+    validate_config("pack", raw)
+    return [
+        Requirement(**asset["requires"])
+        for asset in raw["assets"].values()
+        if asset.get("enabled") is not False and asset.get("requires")
+    ]
+
+
+def check_preflight(results, core) -> None:
+    """`Context.preflight` on the pack's enabled assets: the same findings the engine's start
+    gate refuses on. Every gap names its fix and is FAIL, never WARN."""
+    core.register_feeds()
+    findings = preflight_findings(core, pack_requirements())
+    for finding in findings:
+        results.append((FAIL, finding))
+    if not findings:
+        results.append((OK, "preflight: every enabled asset's requirements are met"))
+
+
+def check_defaults(results, core) -> None:
+    """The convention paths the fail-loud plan keeps soft: where each resolves from, so a
+    default in use is visible (a documented convention, never inferred from absence)."""
+    try:
+        cache = feeds_cache_dir(core)
+    except DeploymentConfigMissing as e:
+        results.append((WARN, f"feeds cache: unresolved — {e}"))
+    else:
+        source = (
+            "env FEEDS_CACHE_DIR"
+            if os.environ.get("FEEDS_CACHE_DIR")
+            else "traust.yaml locations.feeds_cache"
+            if core.config.locations.feeds_cache
+            else "default <progress_tracker>/feeds"
+        )
+        results.append((OK, f"feeds cache: {cache} ({source})"))
+    extra = [h.strip() for h in os.environ.get("GIT_HOSTS", "").split(",") if h.strip()]
+    results.append(
+        (
+            OK,
+            "extra forges (GIT_HOSTS): "
+            + (", ".join(extra) if extra else "none — github.com/gitlab.com only"),
+        )
+    )
+    env = os.environ.get("CCA_BICEP")
+    on_path = shutil.which("bicep")
+    found = next((p for p in bicep_candidates() if p.is_file()), None)
+    if found is None:
+        results.append(
+            (
+                WARN,
+                "bicep: none of $CCA_BICEP, PATH or the pinned ~/.cache/cca-tools dir "
+                "resolves — cloud-config-audit needs one",
+            )
+        )
+    else:
+        source = (
+            "$CCA_BICEP"
+            if env and found == Path(env)
+            else "PATH"
+            if on_path and found == Path(on_path)
+            else "pinned dir"
+        )
+        results.append((OK, f"bicep: {found} ({source})"))
 
 
 # Environment overrides traust.context honours over the file (its sanctioned list).
@@ -221,23 +302,6 @@ def check_tools(results):
         )
 
 
-def check_auth(results):
-    if shutil.which("gh"):
-        r = _run(["gh", "auth", "status"])
-        results.append(
-            (OK, "gh authenticated")
-            if r and r.returncode == 0
-            else (WARN, "gh not authenticated (gh auth login)")
-        )
-    if shutil.which("glab"):
-        r = _run(["glab", "auth", "status"])
-        results.append(
-            (OK, "glab authenticated")
-            if r and r.returncode == 0
-            else (WARN, "glab not authenticated")
-        )
-
-
 def check_network(results):
     if not VPN_PROBES:
         results.append(
@@ -282,36 +346,50 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     add_config_home_arg(ap)
     ap.add_argument(
-        "--quick", action="store_true", help="skip network/auth checks (feed-source probes too)"
+        "--quick", action="store_true", help="skip network checks (the feed sources' probes too)"
     )
     ap.add_argument("--json", action="store_true")
     args = ap.parse_args(argv)
 
-    results: list[tuple[str, str]] = []
-    check_core(results, args.config_home, network=not args.quick)
-    check_config(results, args.config_home)
-    check_python(results)
-    check_tools(results)
-    if not args.quick:
-        check_auth(results)
-        check_network(results)
-    check_gates(results)
+    # Core's preflight audits the home the environment resolves; the CLI flag has to win there
+    # too, or doctor could report a different home than the one it loaded.
+    saved = os.environ.get(TRAUST_CONFIG_HOME_ENV)
+    if args.config_home is not None:
+        os.environ[TRAUST_CONFIG_HOME_ENV] = str(args.config_home)
+    try:
+        results: list[tuple[str, str]] = []
+        core = check_core(results, args.config_home, network=not args.quick)
+        if core is not None:
+            check_preflight(results, core)
+            check_defaults(results, core)
+        check_config(results, args.config_home)
+        check_python(results)
+        check_tools(results)
+        if not args.quick:
+            check_network(results)
+        check_gates(results)
 
-    fails = [m for s, m in results if s == FAIL]
-    if args.json:
-        print(json.dumps([{"status": s, "check": m} for s, m in results], indent=1))
-    else:
-        print(f"harness doctor — {HARNESS}")
-        for s, m in results:
-            icon = {"ok": "✓", "warn": "~", "FAIL": "✗"}[s]
-            print(f"  {icon} {m}")
-        summary = (
-            "✗ " + str(len(fails)) + " required check(s) failing"
-            if fails
-            else "✓ environment ready"
-        )
-        print(f"\n{summary}")
-    return 1 if fails else 0
+        fails = [m for s, m in results if s == FAIL]
+        if args.json:
+            print(json.dumps([{"status": s, "check": m} for s, m in results], indent=1))
+        else:
+            print(f"harness doctor — {HARNESS}")
+            for s, m in results:
+                icon = {"ok": "✓", "warn": "~", "FAIL": "✗"}[s]
+                print(f"  {icon} {m}")
+            summary = (
+                "✗ " + str(len(fails)) + " required check(s) failing"
+                if fails
+                else "✓ environment ready"
+            )
+            print(f"\n{summary}")
+        return 1 if fails else 0
+    finally:
+        if args.config_home is not None:
+            if saved is None:
+                os.environ.pop(TRAUST_CONFIG_HOME_ENV, None)
+            else:
+                os.environ[TRAUST_CONFIG_HOME_ENV] = saved
 
 
 if __name__ == "__main__":

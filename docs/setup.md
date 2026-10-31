@@ -11,7 +11,7 @@
 ```bash
 scripts/install_traust            # choose TRAUST_CONFIG_HOME, copy traust.yaml,
                                   # persist the variable, optionally install the toolchain
-scripts/install_traust --doctor   # verify variable, files, parsing, config load, toolchain
+scripts/install_traust --doctor   # run traust admin doctor against this shell's home
 traust admin doctor               # every effective traust.yaml value and its source
 ```
 
@@ -30,12 +30,13 @@ An old multi-file config home (`core.yaml`, `locations.yaml`, …) folds into on
 file with `traust config migrate <old home>`: it writes `traust.yaml`, reports a
 verdict for every file and prints the command to record each adopter fact.
 
-`--doctor` is the troubleshooting entry point: it reports an unparseable
-`traust.yaml`, retired files still in the home, whether traust loads the config,
-unset locations, and which scanner binaries are absent. Flags for CI:
-`--yes --config-home DIR --toolchain PROFILE` (`--no-toolchain`,
-`--no-profile-write`, `--force` also available). The full contract:
-[config/README.md](../config/README.md).
+`--doctor` is the troubleshooting entry point, and it is one code path: it runs
+`traust admin doctor`, which reports core's preflight — the same check the
+engine's start gate refuses on — so a gap (an unset location, a missing model
+registry, an unmet pack requirement) is a FAIL that names its fix, never a
+warning the run carries on past. Flags for CI: `--yes --config-home DIR
+--toolchain PROFILE` (`--no-toolchain`, `--no-profile-write`, `--force` also
+available). The full contract: [config/README.md](../config/README.md).
 
 ## 2. Prerequisites
 

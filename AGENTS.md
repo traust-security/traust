@@ -87,7 +87,8 @@ internal vocabulary live in the directory named by
 **`TRAUST_CONFIG_HOME`** (default `~/.traust/config`; a deployment usually points it
 at its own private configuration repository, set by the orchestrator). `scripts/install_traust`
 creates that directory from the templates and is the documented starting point;
-`install_traust --doctor` and `traust admin doctor` check it; `traust config migrate`
+`traust admin doctor` checks it (`install_traust --doctor` runs the same check);
+`traust config migrate`
 folds an old multi-file home into `traust.yaml`. Resolve every other file through
 `config_path("<name>")` from `traust.paths` (or
 `traust_contracts`) — never `HARNESS_ROOT / "config" / …`. It raises

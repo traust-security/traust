@@ -170,18 +170,12 @@ recording tokens alone.
 
 ### Keeping track of your divergence
 
-`install_traust --doctor` reports when your config-home copy differs from the
-shipped one:
-
-```
-model-registry.yaml differs from the shipped copy — intentional override, or stale?
-```
-
-That is the intended state for an adopter who has repointed roles — the
-warning exists because the check cannot tell a deliberate override from a
-copy that has fallen behind an upstream change. `install_traust --force`
-refreshes it from the shipped default, discarding local edits, so re-apply
-your overrides after a force refresh.
+Your config-home `model-registry.yaml` is yours to maintain: `install_traust
+--force` refreshes it from the shipped default (discarding local edits, so
+re-apply your overrides after a force refresh). Divergence is intended for an
+adopter who has repointed roles; the drift to watch is the reverse one —
+`traust admin doctor` names a missing registry (it is required), and a stale
+copy simply resolves roles to the models it names.
 
 ---
 

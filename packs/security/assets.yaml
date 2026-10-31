@@ -25,6 +25,10 @@ assets:
     trigger: {every: 24h}
     priority: 20
     freshness: {fail: 72h}
+    # core's observation scans each change's patch for secrets (the tripwire's scanner):
+    # a deployment without gitleaks fails every observation of a changed repo, so the tool
+    # is required — the engine's start gate and doctor refuse on it before any work.
+    requires: {tools: [gitleaks]}
     # One observation is about 5 forge calls (repo, branch, rate limit, compare, and the
     # compare's patch for the router's tripwire when lines changed; the patch fetch stops while
     # 100 calls stay in reserve): shared by every asset that calls the same host.
