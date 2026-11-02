@@ -117,12 +117,12 @@ SKIP_SUFFIXES = (".lock", ".svg", ".png", ".jpg", ".gz", ".db", ".ipynb")
 
 def tracked_files(root: Path) -> list[Path]:
     out = subprocess.run(
-        ["git", "-C", str(root), "ls-files"],
+        ["git", "-C", str(root), "ls-files", "-z"],
         capture_output=True,
         text=True,
         check=True,
-    ).stdout.splitlines()
-    return [root / p for p in out if not p.endswith(SKIP_SUFFIXES)]
+    ).stdout.split("\0")
+    return [root / p for p in out if p and not p.endswith(SKIP_SUFFIXES)]
 
 
 def is_public(root: Path) -> bool | None:
@@ -161,12 +161,21 @@ def is_public(root: Path) -> bool | None:
 
 def staged_files(root: Path) -> list[Path]:
     out = subprocess.run(
-        ["git", "-C", str(root), "diff", "--cached", "--name-only", "--diff-filter=ACM"],
+        ["git", "-C", str(root), "diff", "--cached", "--name-only", "-z", "--diff-filter=ACM"],
         capture_output=True,
         text=True,
         check=True,
-    ).stdout.splitlines()
-    return [root / p for p in out if not p.endswith(SKIP_SUFFIXES)]
+    ).stdout.split("\0")
+    entries = subprocess.run(
+        ["git", "-C", str(root), "ls-files", "--stage", "-z"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.split("\0")
+    blobs = {
+        entry.partition("\t")[2] for entry in entries if entry and not entry.startswith("160000 ")
+    }
+    return [root / p for p in out if p in blobs and not p.endswith(SKIP_SUFFIXES)]
 
 
 def scan(root: Path, *, staged: bool = False) -> list[dict]:
@@ -181,13 +190,22 @@ def scan(root: Path, *, staged: bool = False) -> list[dict]:
     findings: list[dict] = []
     migrations = root / "src" / "traust" / "migrations"
     for path in staged_files(root) if staged else tracked_files(root):
-        if not path.is_file():
+        if not staged and not path.is_file():
             continue
         rel = path.relative_to(root).as_posix()
         if rel in ALLOWED_DIRS:
             continue
         try:
-            text = path.read_text(encoding="utf-8")
+            text = (
+                subprocess.run(
+                    ["git", "-C", str(root), "show", f":0:{rel}"],
+                    capture_output=True,
+                    encoding="utf-8",
+                    check=True,
+                ).stdout
+                if staged
+                else path.read_text(encoding="utf-8")
+            )
         except (OSError, UnicodeDecodeError):
             continue
         for number, line in enumerate(text.splitlines(), 1):
@@ -206,18 +224,15 @@ def scan(root: Path, *, staged: bool = False) -> list[dict]:
                         "text": line.strip()[:120],
                     }
                 )
-    # Rule 1 is structural, not textual: a migration that no adopter can
-    # run has no business in a published package, whatever it says.
-    if migrations.is_dir():
-        for path in sorted(migrations.glob("*.py")):
-            if path.name == "__init__.py":
-                continue
-            text = path.read_text(encoding="utf-8", errors="replace")
-            if "adopter-portable" in text:
-                continue
+        if (
+            path.parent == migrations
+            and path.suffix == ".py"
+            and path.name != "__init__.py"
+            and "adopter-portable" not in text
+        ):
             findings.append(
                 {
-                    "file": path.relative_to(root).as_posix(),
+                    "file": rel,
                     "line": 1,
                     "rule": "unportable-migration",
                     "match": path.name,

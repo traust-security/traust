@@ -381,3 +381,31 @@ def test_stale_exemption_is_detected():
     finally:
         S.EXEMPTIONS.pop(key, None)
         S.security_failures(S.REPO)
+
+
+@pytest.mark.requires_git
+@pytest.mark.parametrize("location", ["skill", "script"])
+@pytest.mark.parametrize(
+    "command",
+    [
+        "python3 -m traust.cli util safe-exec run --profile go-scan -- go build ./...",
+        "traust util safe-exec run --profile go-scan -- go build ./...",
+    ],
+)
+def test_s10_accepts_grouped_safe_exec_build_invocation(
+    tmp_path: Path, location: str, command: str
+) -> None:
+    skill = CLEAN_SKILL + f"\n```sh\n{command}\n```\n" if location == "skill" else CLEAN_SKILL
+    repo = _mk_repo(tmp_path, skill_md=skill, script=command if location == "script" else None)
+    failures, _ = css.security_failures(repo)
+    assert not [failure for failure in failures if failure.startswith("S10")]
+
+
+@pytest.mark.requires_git
+@pytest.mark.parametrize(
+    "command", ["go build ./...", "traust util safe-exec-not-wrapper go build ./..."]
+)
+def test_s10_still_rejects_builds_without_the_sandbox(tmp_path: Path, command: str) -> None:
+    repo = _mk_repo(tmp_path, skill_md=CLEAN_SKILL, script=command)
+    failures, _ = css.security_failures(repo)
+    assert any(failure.startswith("S10") for failure in failures)

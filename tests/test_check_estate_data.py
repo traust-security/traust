@@ -23,6 +23,7 @@ which is how the first draft of this file was written.
 from __future__ import annotations
 
 import subprocess
+from pathlib import Path
 
 import pytest
 
@@ -100,3 +101,35 @@ class TestWaiver:
 
     def test_an_uncited_marker_does_not_count(self):
         assert not ced.WAIVER_RE.search("# estate-data-ok:")
+
+
+@pytest.mark.parametrize("filename", ["report.py", 'report "quoted".py'])
+def test_staged_scan_reads_index_bytes_not_worktree(tmp_path: Path, filename: str) -> None:
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    source = tmp_path / filename
+    source.write_text("deployment reports: 1,234\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(tmp_path), "add", filename], check=True)
+    source.write_text("no deployment measurements\n", encoding="utf-8")
+
+    assert [(f["rule"], f["match"]) for f in ced.scan(tmp_path, staged=True)] == [
+        ("estate-count", "1,234")
+    ]
+    assert ced.main([str(tmp_path), "--staged", "--assume-public", "--quiet"]) == 1
+    source.unlink()
+    assert [f["match"] for f in ced.scan(tmp_path, staged=True)] == ["1,234"]
+
+    source.write_text("no deployment measurements\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(tmp_path), "add", filename], check=True)
+    source.write_text("unstaged reports: 2,468\n", encoding="utf-8")
+    assert ced.scan(tmp_path, staged=True) == []
+
+
+def test_staged_migration_admission_uses_index_content(tmp_path: Path) -> None:
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    source = tmp_path / "src" / "traust" / "migrations" / "upgrade.py"
+    source.parent.mkdir(parents=True)
+    source.write_text('"""A deployment-specific repair."""\n', encoding="utf-8")
+    subprocess.run(["git", "-C", str(tmp_path), "add", "."], check=True)
+    source.write_text('"""adopter-portable: schema upgrade."""\n', encoding="utf-8")
+
+    assert [f["rule"] for f in ced.scan(tmp_path, staged=True)] == ["unportable-migration"]

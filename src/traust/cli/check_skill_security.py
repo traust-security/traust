@@ -327,10 +327,12 @@ S10_BUILD_RX = re.compile(
     r"|\bgovulncheck\b[^\n\"']*(?:\./|\.\.\.|-mode\b|-C )",
     re.M,
 )
-# must reference the script itself (or, for Python callers, the module
-# import + .run call) — a bare "safe_exec" substring false-passed on
-# run_checks.sh's "safe_executer_test" comment
-S10_SAFE_EXEC_RX = re.compile(r"safe_exec\.py|import safe_exec\b|safe_exec\.run\(")
+# Reference the script, grouped CLI, or Python module import/run — a bare "safe_exec"
+# substring false-passed on run_checks.sh's "safe_executer_test" comment.
+S10_SAFE_EXEC_RX = re.compile(
+    r"safe_exec\.py|import safe_exec\b|safe_exec\.run\("
+    r"|\btraust(?:\.cli)?[ \t]+util[ \t]+safe-exec(?=[ \t]|$)"
+)
 FENCED_BLOCK_RX = re.compile(r"```[a-z]*\n(.*?)```", re.S)
 
 SCRIPT_EXTS = {".py", ".sh", ".bash", ".mk"}
