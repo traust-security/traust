@@ -1058,7 +1058,7 @@ def model_class_failures(repo: Path = REPO) -> list[str]:
     for rel in _MODEL_CLASS_SOURCES:
         source.update(_class_rows(repo, rel))
     index = _class_index(repo)
-    real = {d.name for d in skill_dirs()}
+    real = {d.name for d in skill_dirs(repo)}
     where = " / ".join(_MODEL_CLASS_SOURCES)
     out = []
     for name, cls in sorted(index.items()):

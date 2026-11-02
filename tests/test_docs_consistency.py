@@ -384,3 +384,27 @@ class TestSingleRulePack(unittest.TestCase):
                 "moved harnessing/3-audit/secure-code-audit/opengrep-rules\n", encoding="utf-8"
             )
             self.assertEqual(C.rule_pack_copy_failures(repo), [])
+
+
+class TestModelClassRoot(unittest.TestCase):
+    def test_model_class_failures_uses_selected_repo_skill_tree(self):
+        with tempfile.TemporaryDirectory() as td:
+            repo = Path(td)
+            skill = repo / "harnessing" / "3-audit" / "campaign-fixture-skill"
+            skill.mkdir(parents=True)
+            (skill / "SKILL.md").write_text(
+                "---\nname: campaign-fixture-skill\ndescription: Fixture skill.\n---\n",
+                encoding="utf-8",
+            )
+            docs = repo / "docs"
+            docs.mkdir()
+            usage = docs / "campaign-workflow.md"
+            index = docs / "model-classes.md"
+            usage.write_text("| `campaign-fixture-skill` | sonnet-class |\n", encoding="utf-8")
+            index.write_text("### `sonnet-class`\n\n`campaign-fixture-skill`\n", encoding="utf-8")
+
+            self.assertEqual(C.model_class_failures(repo), [])
+
+            usage.write_text("| `triage` | sonnet-class |\n", encoding="utf-8")
+            index.write_text("### `sonnet-class`\n\n`triage`\n", encoding="utf-8")
+            self.assertTrue(any("triage" in failure for failure in C.model_class_failures(repo)))

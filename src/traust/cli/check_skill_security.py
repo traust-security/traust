@@ -75,6 +75,7 @@ from __future__ import annotations
 
 import argparse
 import re
+import shlex
 import sys
 from pathlib import Path
 
@@ -318,7 +319,7 @@ S10_BUILD_RX = re.compile(
     r"\bmake\s+(?:clone\b|build\b|install\b|fuzz)"
     r"|\bmvn\s+(?:-\S+\s+)*(?:package|install|verify|deploy)\b"
     r"|(?:^|[\s\"'`(])\.?/gradlew\b|\bgradle\s+(?:build|test|assemble)\b"
-    r"|\bgo\s+(?:build|test)\s"
+    r"|\bgo\s+(?:build|test)(?=[\s;&|)`]|$)"
     r"|\bnpm\s+(?:ci|run\s+build)\b"
     r"|\bcargo\s+(?:build|test|fuzz)\b"
     # govulncheck loads+builds the target module (hostile build-tags /
@@ -327,10 +328,6 @@ S10_BUILD_RX = re.compile(
     r"|\bgovulncheck\b[^\n\"']*(?:\./|\.\.\.|-mode\b|-C )",
     re.M,
 )
-# must reference the script itself (or, for Python callers, the module
-# import + .run call) — a bare "safe_exec" substring false-passed on
-# run_checks.sh's "safe_executer_test" comment
-S10_SAFE_EXEC_RX = re.compile(r"safe_exec\.py|import safe_exec\b|safe_exec\.run\(")
 FENCED_BLOCK_RX = re.compile(r"```[a-z]*\n(.*?)```", re.S)
 
 SCRIPT_EXTS = {".py", ".sh", ".bash", ".mk"}
@@ -342,6 +339,77 @@ SCRIPT_NAMES = {"Makefile", "GNUmakefile", "justfile"}
 # tests tree (rule-regex test data) is excluded now.
 FIXTURE_MARKERS = ("opengrep-rules/", "rule-drafts/", "src/traust/cli/check_skill_security.py")
 FIXTURE_PREFIXES = ("tests/",)
+
+
+def _s10_unrouted_shell_build(text: str) -> bool:
+    """Check each shell command, not a marker elsewhere in the file."""
+    for line in re.sub(r"\\\r?\n", " ", text).splitlines():
+        if not S10_BUILD_RX.search(line):
+            continue
+        lexer = shlex.shlex(line, posix=True, punctuation_chars=";&|")
+        lexer.whitespace_split = True
+        try:
+            tokens = list(lexer)
+        except ValueError:
+            # Unparseable build instructions cannot establish sandbox routing.
+            if S10_BUILD_RX.search(line):
+                return True
+            continue
+        command: list[str] = []
+        for token in [*tokens, ";"]:
+            if not token or any(char not in ";&|" for char in token):
+                command.append(token)
+                continue
+            if S10_BUILD_RX.search(" ".join(command)):
+                # Expansions run in the caller before safe-exec sees its argv.
+                if any("$(" in word or "`" in word for word in command):
+                    return True
+                argv = command
+                if argv and Path(argv[0]).name in {"python", "python3"}:
+                    argv = ["traust", *argv[3:]] if argv[1:3] == ["-m", "traust.cli"] else argv[1:]
+                grouped = (
+                    len(argv) >= 4
+                    and Path(argv[0]).name == "traust"
+                    and argv[1:4] == ["util", "safe-exec", "run"]
+                )
+                script = (
+                    len(argv) >= 2 and Path(argv[0]).name == "safe_exec.py" and argv[1] == "run"
+                )
+                if not (grouped or script):
+                    return True
+            command = []
+    return False
+
+
+def _s10_unrouted_build(text: str) -> bool:
+    """Recognize literal Python safe_exec.run arguments and shell invocations."""
+    import ast
+
+    try:
+        tree = ast.parse(text)
+    except SyntaxError:
+        return _s10_unrouted_shell_build(text)
+    routed: set[int] = set()
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id == "safe_exec"
+            and node.func.attr == "run"
+        ):
+            for arg in [*node.args, *(kw.value for kw in node.keywords)]:
+                if isinstance(arg, ast.Constant):
+                    routed.add(id(arg))
+                elif isinstance(arg, ast.JoinedStr):
+                    routed.update(id(part) for part in arg.values if isinstance(part, ast.Constant))
+    return any(
+        isinstance(node, ast.Constant)
+        and isinstance(node.value, str)
+        and id(node) not in routed
+        and _s10_unrouted_shell_build(node.value)
+        for node in ast.walk(tree)
+    )
 
 
 def _s3_failures(text: str) -> list[str]:
@@ -550,7 +618,8 @@ def security_failures(repo: Path = REPO) -> tuple[list[str], list[str]]:
                 )
             break
 
-        fenced = "\n".join(FENCED_BLOCK_RX.findall(text))
+        blocks = FENCED_BLOCK_RX.findall(text)
+        fenced = "\n".join(blocks)
         # S3 over SKILL execution blocks too — prose clone commands with
         # <url>/<branch> placeholders are agent-executed instructions
         # (assessment 2026-07-31 adjudication-H7)
@@ -559,11 +628,7 @@ def security_failures(repo: Path = REPO) -> tuple[list[str], list[str]]:
                 fails.append(f"S3 {rel} (execution block): {s3fail}")
             break
 
-        if (
-            S10_BUILD_RX.search(fenced)
-            and not S10_SAFE_EXEC_RX.search(text)
-            and not _exempt("S10", rel, used)
-        ):
+        if any(_s10_unrouted_build(block) for block in blocks) and not _exempt("S10", rel, used):
             fails.append(
                 f"S10 {rel}: target-build invocation in an execution "
                 "block without safe_exec routing — build systems of "
@@ -610,11 +675,7 @@ def security_failures(repo: Path = REPO) -> tuple[list[str], list[str]]:
                     )
                 break
 
-        if (
-            S10_BUILD_RX.search(text)
-            and not S10_SAFE_EXEC_RX.search(text)
-            and not _exempt("S10", rel, used)
-        ):
+        if _s10_unrouted_build(text) and not _exempt("S10", rel, used):
             fails.append(
                 f"S10 {rel}: target-build invocation without "
                 "safe_exec routing — build systems of audited "

@@ -117,12 +117,12 @@ SKIP_SUFFIXES = (".lock", ".svg", ".png", ".jpg", ".gz", ".db", ".ipynb")
 
 def tracked_files(root: Path) -> list[Path]:
     out = subprocess.run(
-        ["git", "-C", str(root), "ls-files"],
+        ["git", "-C", str(root), "ls-files", "-z"],
         capture_output=True,
         text=True,
         check=True,
-    ).stdout.splitlines()
-    return [root / p for p in out if not p.endswith(SKIP_SUFFIXES)]
+    ).stdout.split("\0")
+    return [root / p for p in out if p and not p.endswith(SKIP_SUFFIXES)]
 
 
 def is_public(root: Path) -> bool | None:
@@ -161,12 +161,44 @@ def is_public(root: Path) -> bool | None:
 
 def staged_files(root: Path) -> list[Path]:
     out = subprocess.run(
-        ["git", "-C", str(root), "diff", "--cached", "--name-only", "--diff-filter=ACM"],
+        [
+            "git",
+            "-C",
+            str(root),
+            "diff",
+            "--cached",
+            "--no-renames",
+            "--name-only",
+            "-z",
+            "--diff-filter=ACM",
+        ],
         capture_output=True,
         text=True,
         check=True,
-    ).stdout.splitlines()
-    return [root / p for p in out if not p.endswith(SKIP_SUFFIXES)]
+    ).stdout.split("\0")
+    entries = subprocess.run(
+        ["git", "-C", str(root), "ls-files", "--stage", "-z"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.split("\0")
+    blobs = {
+        entry.partition("\t")[2] for entry in entries if entry and not entry.startswith("160000 ")
+    }
+    return [root / p for p in out if p in blobs and not p.endswith(SKIP_SUFFIXES)]
+
+
+def _read_content(root: Path, path: Path, *, staged: bool, errors: str = "strict") -> str:
+    if staged:
+        rel = path.relative_to(root).as_posix()
+        return subprocess.run(
+            ["git", "-C", str(root), "show", f":0:{rel}"],
+            capture_output=True,
+            encoding="utf-8",
+            errors=errors,
+            check=True,
+        ).stdout
+    return path.read_text(encoding="utf-8", errors=errors)
 
 
 def scan(root: Path, *, staged: bool = False) -> list[dict]:
@@ -180,14 +212,15 @@ def scan(root: Path, *, staged: bool = False) -> list[dict]:
     """
     findings: list[dict] = []
     migrations = root / "src" / "traust" / "migrations"
-    for path in staged_files(root) if staged else tracked_files(root):
-        if not path.is_file():
+    paths = staged_files(root) if staged else tracked_files(root)
+    for path in paths:
+        if not staged and not path.is_file():
             continue
         rel = path.relative_to(root).as_posix()
         if rel in ALLOWED_DIRS:
             continue
         try:
-            text = path.read_text(encoding="utf-8")
+            text = _read_content(root, path, staged=staged)
         except (OSError, UnicodeDecodeError):
             continue
         for number, line in enumerate(text.splitlines(), 1):
@@ -206,18 +239,26 @@ def scan(root: Path, *, staged: bool = False) -> list[dict]:
                         "text": line.strip()[:120],
                     }
                 )
-    # Rule 1 is structural, not textual: a migration that no adopter can
-    # run has no business in a published package, whatever it says.
-    if migrations.is_dir():
-        for path in sorted(migrations.glob("*.py")):
-            if path.name == "__init__.py":
-                continue
-            text = path.read_text(encoding="utf-8", errors="replace")
-            if "adopter-portable" in text:
-                continue
+
+    # Portability is a placement rule, including untracked on-disk migrations.
+    # Invalid UTF-8 must not hide its ASCII marker check.
+    migration_paths = (
+        (path for path in paths if path.parent == migrations and path.suffix == ".py")
+        if staged
+        else migrations.glob("*.py")
+    )
+    for path in migration_paths:
+        if path.name == "__init__.py":
+            continue
+        try:
+            text = _read_content(root, path, staged=staged, errors="replace")
+        except OSError:
+            continue
+        if "adopter-portable" not in text:
+            rel = path.relative_to(root).as_posix()
             findings.append(
                 {
-                    "file": path.relative_to(root).as_posix(),
+                    "file": rel,
                     "line": 1,
                     "rule": "unportable-migration",
                     "match": path.name,

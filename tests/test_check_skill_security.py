@@ -381,3 +381,113 @@ def test_stale_exemption_is_detected():
     finally:
         S.EXEMPTIONS.pop(key, None)
         S.security_failures(S.REPO)
+
+
+@pytest.mark.requires_git
+@pytest.mark.parametrize("location", ["skill", "script"])
+@pytest.mark.parametrize(
+    "command",
+    [
+        "python3 -m traust.cli util safe-exec run --profile go-scan -- go build ./...",
+        "traust util safe-exec run --profile go-scan -- go build ./...",
+        "traust util safe-exec run -- go build",
+        "python3 -m traust.cli util safe-exec run -- go test",
+    ],
+)
+def test_s10_accepts_grouped_safe_exec_build_invocation(
+    tmp_path: Path, location: str, command: str
+) -> None:
+    skill = CLEAN_SKILL + f"\n```sh\n{command}\n```\n" if location == "skill" else CLEAN_SKILL
+    repo = _mk_repo(tmp_path, skill_md=skill, script=command if location == "script" else None)
+    failures, _ = css.security_failures(repo)
+    assert not [failure for failure in failures if failure.startswith("S10")]
+
+
+@pytest.mark.requires_git
+@pytest.mark.parametrize(
+    "command", ["go build ./...", "traust util safe-exec-not-wrapper go build ./..."]
+)
+def test_s10_still_rejects_builds_without_the_sandbox(tmp_path: Path, command: str) -> None:
+    repo = _mk_repo(tmp_path, skill_md=CLEAN_SKILL, script=command)
+    failures, _ = css.security_failures(repo)
+    assert any(failure.startswith("S10") for failure in failures)
+
+
+@pytest.mark.requires_git
+def test_s10_prose_does_not_route_a_skill_build(tmp_path: Path) -> None:
+    repo = _mk_repo(
+        tmp_path,
+        skill_md=CLEAN_SKILL
+        + "\nUse `traust util safe-exec run` for sandboxing.\n"
+        + "\n```sh\ngo build ./...\n```\n",
+    )
+    failures, _ = css.security_failures(repo)
+    assert any(failure.startswith("S10") for failure in failures)
+
+
+@pytest.mark.requires_git
+@pytest.mark.parametrize("location", ["skill", "script"])
+@pytest.mark.parametrize(
+    "commands",
+    [
+        "go build\n",
+        "go test\n",
+        "go build;",
+        "go test&&true",
+        "traust util safe-exec run -- go build ./...; go test\n",
+        "# traust util safe-exec run -- go build ./...\ngo build ./...\n",
+        "go build ./... # traust util safe-exec run\n",
+        "traust util safe-exec run -- go build ./...\ngo test ./...\n",
+        "traust util safe-exec run -- go build ./...; go test ./...\n",
+        "echo 'traust util safe-exec run'; go build ./...\n",
+        "traust util safe-exec check -- go build ./...\n",
+        'traust util safe-exec run -- echo "$(go build ./...)"\n',
+    ],
+)
+def test_s10_requires_routing_for_each_build(tmp_path: Path, location: str, commands: str) -> None:
+    skill = CLEAN_SKILL + f"\n```sh\n{commands}```\n" if location == "skill" else CLEAN_SKILL
+    repo = _mk_repo(tmp_path, skill_md=skill, script=commands if location == "script" else None)
+    failures, _ = css.security_failures(repo)
+    assert any(failure.startswith("S10") for failure in failures)
+
+
+@pytest.mark.requires_git
+@pytest.mark.parametrize(
+    "commands",
+    [
+        "traust util safe-exec run -- go build ./...; traust util safe-exec run -- go test ./...\n",
+        "python3 -m traust.cli util safe-exec run \\\n    --profile go-scan -- go build ./...\n",
+    ],
+)
+def test_s10_accepts_separately_routed_and_continued_builds(tmp_path: Path, commands: str) -> None:
+    repo = _mk_repo(tmp_path, skill_md=CLEAN_SKILL, script=commands)
+    failures, _ = css.security_failures(repo)
+    assert not any(failure.startswith("S10") for failure in failures)
+
+
+@pytest.mark.requires_git
+@pytest.mark.parametrize(
+    ("script", "blocked"),
+    [
+        ('import safe_exec\nsubprocess.run("go build ./...")\n', True),
+        ('import safe_exec\nsafe_exec.run(\n    "go build ./..."\n)\n', False),
+        ('safe_exec.run(subprocess.run("go build ./..."))\n', True),
+    ],
+)
+def test_s10_python_import_does_not_route_unrelated_calls(
+    tmp_path: Path, script: str, blocked: bool
+) -> None:
+    repo = _mk_repo(tmp_path, skill_md=CLEAN_SKILL, script=script, script_name="run.py")
+    failures, _ = css.security_failures(repo)
+    assert any(failure.startswith("S10") for failure in failures) is blocked
+
+
+@pytest.mark.requires_git
+def test_s10_structured_tool_result_is_not_a_build(tmp_path: Path) -> None:
+    repo = _mk_repo(
+        tmp_path,
+        skill_md=CLEAN_SKILL
+        + '\n```json\n{"evidence": {"govulncheck": "not_observed", ...}}\n```\n',
+    )
+    failures, _ = css.security_failures(repo)
+    assert not any(failure.startswith("S10") for failure in failures)

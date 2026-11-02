@@ -51,6 +51,23 @@ python3 -m traust.cli check skill-alignment      # equivalent
 | `util` | Utility commands | `elf`, `redact`, `safe-exec` |
 | `validation` | Core-backed machine validation evidence | `prepare`, `plan`, `record` |
 
+### Check scope and inputs
+
+`traust check estate-data --staged` reads the Git index, including migration portability
+markers, rather than unstaged working-tree revisions. A removed working copy does not hide
+its staged contents.
+Renames are checked at their destination paths, including files moved into migrations.
+Whole-tree scans also check untracked migrations. Invalid UTF-8 cannot suppress migration
+portability checks in either mode.
+
+`traust check skill-security` checks each build command's sandbox routing through
+`traust util safe-exec run` or `python3 -m traust.cli util safe-exec run`. Prose, comments,
+an unrelated wrapped command, and `safe-exec check` do not route a direct build.
+Go build/test commands are checked even without package arguments or trailing whitespace.
+
+`traust check docs-consistency --root <path>` compares the model-class index against the
+skills in that selected checkout, not the checkout where the checker is installed.
+
 ### Artifact-only below-range sessions
 
 The registered `dependency-watch` / `below-range` mode stages the newest recorded packets,
