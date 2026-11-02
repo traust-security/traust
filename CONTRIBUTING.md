@@ -79,6 +79,22 @@ uv run pytest -q       # full suite (integration tests need the scanner toolchai
 
 pytest is the only runner; `unittest discover` silently skips part of the suite.
 
+### PostgreSQL-backed consumer coverage
+
+CI's `session-postgres` job runs artifact-session, cloud-config, and product doors against
+its PostgreSQL service. The ordinary unit job does not provide a database URL, so its
+passing result alone does not cover the PostgreSQL variants.
+
+To run the same selection locally, set `TRAUST_TEST_DATABASE_URL` to an isolated PostgreSQL
+test server, then run:
+
+```bash
+uv run pytest tests/test_artifact_sessions.py tests/test_cloud_config_doors.py tests/test_products_doors.py -q -rs
+```
+
+The database user needs permission to create databases: the door fixtures create and drop
+their own databases. A run without the URL skips those variants; `-rs` makes the reason visible.
+
 ### Isolated home in tests
 
 `tests/conftest.py` points `HOME` at a temporary directory at import time, so

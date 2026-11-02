@@ -45,6 +45,9 @@ All notable changes to Traust are documented here.
 
 ## [Unreleased]
 
+- Run cloud-config and product door tests in the existing PostgreSQL-equipped CI job,
+  alongside artifact-session tests, so their PostgreSQL variants no longer skip in CI.
+
 - **Review checks for FastAPI, aiohttp and Express** (Vercel comparison gap
   plan, step 5). `framework-checks.md` gains FA.1–FA.15 (FastAPI and
   aiohttp) and EX.1–EX.18 (Express, with Backstage's `httpRouter` default and
