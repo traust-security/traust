@@ -133,3 +133,47 @@ def test_staged_migration_admission_uses_index_content(tmp_path: Path) -> None:
     source.write_text('"""adopter-portable: schema upgrade."""\n', encoding="utf-8")
 
     assert [f["rule"] for f in ced.scan(tmp_path, staged=True)] == ["unportable-migration"]
+
+
+def test_staged_rename_into_migrations_is_checked(tmp_path: Path) -> None:
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    subprocess.run(["git", "-C", str(tmp_path), "config", "diff.renames", "true"], check=True)
+    source = tmp_path / "helper.py"
+    source.write_text('"""A deployment-specific repair."""\n', encoding="utf-8")
+    subprocess.run(["git", "-C", str(tmp_path), "add", "helper.py"], check=True)
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(tmp_path),
+            "-c",
+            "user.name=Fixture",
+            "-c",
+            "user.email=fixture@example.com",
+            "-c",
+            "commit.gpgsign=false",
+            "commit",
+            "-qm",
+            "baseline",
+        ],
+        check=True,
+    )
+    destination = tmp_path / "src" / "traust" / "migrations" / "upgrade.py"
+    destination.parent.mkdir(parents=True)
+    subprocess.run(["git", "-C", str(tmp_path), "mv", str(source), str(destination)], check=True)
+    status = subprocess.run(
+        ["git", "-C", str(tmp_path), "diff", "--cached", "--name-status"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    assert status.startswith("R")
+
+    assert [(f["file"], f["rule"]) for f in ced.scan(tmp_path, staged=True)] == [
+        ("src/traust/migrations/upgrade.py", "unportable-migration")
+    ]
+    assert ced.main([str(tmp_path), "--staged", "--assume-public", "--quiet"]) == 1
+    destination.write_text('"""adopter-portable: schema upgrade."""\n', encoding="utf-8")
+    assert [f["rule"] for f in ced.scan(tmp_path, staged=True)] == ["unportable-migration"]
+    subprocess.run(["git", "-C", str(tmp_path), "add", "."], check=True)
+    assert ced.scan(tmp_path, staged=True) == []

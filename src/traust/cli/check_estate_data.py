@@ -161,7 +161,17 @@ def is_public(root: Path) -> bool | None:
 
 def staged_files(root: Path) -> list[Path]:
     out = subprocess.run(
-        ["git", "-C", str(root), "diff", "--cached", "--name-only", "-z", "--diff-filter=ACM"],
+        [
+            "git",
+            "-C",
+            str(root),
+            "diff",
+            "--cached",
+            "--no-renames",
+            "--name-only",
+            "-z",
+            "--diff-filter=ACM",
+        ],
         capture_output=True,
         text=True,
         check=True,

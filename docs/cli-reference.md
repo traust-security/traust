@@ -56,6 +56,7 @@ python3 -m traust.cli check skill-alignment      # equivalent
 `traust check estate-data --staged` reads the Git index, including migration portability
 markers, rather than unstaged working-tree revisions. A removed working copy does not hide
 its staged contents.
+Renames are checked at their destination paths, including files moved into migrations.
 
 `traust check skill-security` recognizes sandbox routing through both
 `traust util safe-exec run` and `python3 -m traust.cli util safe-exec run`; a similarly named
