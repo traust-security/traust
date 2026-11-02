@@ -249,6 +249,7 @@ assets:
 
   class_sweep:  # targeted class-sweep sessions: a purpose-built prompt per weakness class, no skill
     # to start (NEED(skill: class-sweep)); unrunnable until one exists
+    enabled: false
     trigger: {every: 90d}
     priority: 70
     freshness: {fail: 180d}
