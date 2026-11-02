@@ -213,7 +213,8 @@ do_doctor() {
   # relative path to the CALLER's directory — the subshells below cd into
   # $REPO_ROOT, where a relative home would name the wrong folder (do_install
   # absolutizes the same way, with cd && pwd).
-  local home="${CONFIG_HOME/#\~/$HOME}"
+  local home="${CONFIG_HOME:-${TRAUST_CONFIG_HOME:-}}"
+  home="${home/#\~/$HOME}"
   if [[ -n "$home" && "$home" != /* ]]; then
     home="$PWD/$home"
   fi

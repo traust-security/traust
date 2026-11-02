@@ -608,7 +608,11 @@ def gh_compare(project: str, sha: str, host: str = "github.com") -> dict:
     if proc.returncode != 0:
         return {
             "ok": False,
-            "kind": _classify_stderr(proc.stderr),
+            "kind": (
+                "quota-deferred"
+                if "rate limit" in proc.stderr.lower()
+                else _classify_stderr(proc.stderr)
+            ),
             "error": proc.stderr.strip()[:120] or "api-error",
         }
     try:

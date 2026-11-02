@@ -56,6 +56,7 @@ PACK_ASSETS = SECURITY_PACK_DIR / "assets.yaml"
 # (name, required) — pinned external tools per docs/external-dependencies.md
 TOOLS = [
     ("git", True),
+    ("gh", False),
     ("jq", True),
     ("python3", True),
     ("opengrep", False),
@@ -163,11 +164,17 @@ def check_defaults(results, core) -> None:
             else "default <progress_tracker>/feeds"
         )
         results.append((OK, f"feeds cache: {cache} ({source})"))
-    extra = [h.strip() for h in os.environ.get("GIT_HOSTS", "").split(",") if h.strip()]
+    file_hosts = [
+        f"{kind}:{host}"
+        for host, kind in core.config.forge_hosts.items()
+        if host not in {"github.com", "gitlab.com"}
+    ]
+    env_hosts = [h.strip() for h in os.environ.get("GIT_HOSTS", "").split(",") if h.strip()]
+    extra = sorted(set(file_hosts + env_hosts))
     results.append(
         (
             OK,
-            "extra forges (GIT_HOSTS): "
+            "extra forges (traust.yaml + GIT_HOSTS): "
             + (", ".join(extra) if extra else "none — github.com/gitlab.com only"),
         )
     )
@@ -219,6 +226,16 @@ def check_config(results, config_home):
     except (OSError, yaml.YAMLError, TraustError) as e:
         results.append((FAIL, f"{CONFIG_FILE} not loadable — {e}"))
         return
+    if found and not (home / "model-registry.yaml").is_file():
+        results.append(
+            (FAIL, f"model-registry.yaml missing from {home} — run scripts/install_traust")
+        )
+    if (
+        home is not None
+        and not found
+        and any((home / name).is_file() for name in ("core.yaml", "locations.yaml"))
+    ):
+        results.append((FAIL, f"legacy config in {home} — run traust config migrate {home}"))
     results.append((OK, f"config file: {path if found else 'none (zero-config defaults)'}"))
     for name, value in config:
         fields = value if isinstance(value, pydantic.BaseModel) else [(None, value)]
@@ -273,7 +290,13 @@ def check_tools(results):
                 (
                     FAIL if required else WARN,
                     f"tool {name} not found"
-                    + ("" if required else " (skills that need it will skip/fail)"),
+                    + (
+                        ""
+                        if required
+                        else " (GitHub rescan router requires it)"
+                        if name == "gh"
+                        else " (skills that need it will skip/fail)"
+                    ),
                 )
             )
     binsha = skill_dir("pqc-readiness") / "bin"

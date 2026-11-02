@@ -294,6 +294,31 @@ class TestInjectionGuards:
         assert rw.gitlab_project_enc("g/r.name") == "g%2Fr.name"
 
 
+def test_enterprise_compare_quota_failure_is_deferred(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[list[str]] = []
+    stderr = "API rate limit exceeded (HTTP 403)"
+
+    def failed_compare(argv: list[str], **_: object) -> SimpleNamespace:
+        calls.append(argv)
+        return SimpleNamespace(returncode=1, stderr=stderr, stdout="")
+
+    monkeypatch.setattr(rw.subprocess, "run", failed_compare)
+    monkeypatch.setattr(rw, "gh_rate_remaining", lambda: 0)
+    candidate = {
+        "host_kind": "github",
+        "host": "ghe.example.com",
+        "project": "org/repo",
+        "pinned_sha": "a" * 40,
+    }
+    rw.stage2([candidate], jobs=1, api=None)
+    assert candidate["status"] == "quota-deferred"
+    assert "rate limit" in candidate["error"].lower()
+    assert calls[0][:4] == ["gh", "api", "--hostname", "ghe.example.com"]
+
+    stderr = "Resource not accessible by integration (HTTP 403)"
+    assert rw.gh_compare("org/repo", "a" * 40, "ghe.example.com")["kind"] == "error"
+
+
 # ---------------------------------------------------------------------------
 # GitLab diff-hunk line counter + compare normalization
 # ---------------------------------------------------------------------------

@@ -298,8 +298,8 @@ def test_the_convention_paths_show_as_defaults_in_use(
     doctor.check_defaults(results, load(home))
     rows = {m.split(": ", 1)[0]: m for _, m in results}
     assert rows["feeds cache"].endswith("(default <progress_tracker>/feeds)")
-    assert rows["extra forges (GIT_HOSTS)"] == (
-        "extra forges (GIT_HOSTS): none — github.com/gitlab.com only"
+    assert rows["extra forges (traust.yaml + GIT_HOSTS)"] == (
+        "extra forges (traust.yaml + GIT_HOSTS): none — github.com/gitlab.com only"
     )
     assert rows["bicep"].startswith("bicep: ")
 
@@ -309,9 +309,32 @@ def test_the_convention_paths_show_as_defaults_in_use(
     doctor.check_defaults(results, load(home))
     rows = {m.split(": ", 1)[0]: m for _, m in results}
     assert rows["feeds cache"] == "feeds cache: /shared/feeds (env FEEDS_CACHE_DIR)"
-    assert rows["extra forges (GIT_HOSTS)"] == (
-        "extra forges (GIT_HOSTS): gitlab:gitlab.example.com"
+    assert rows["extra forges (traust.yaml + GIT_HOSTS)"] == (
+        "extra forges (traust.yaml + GIT_HOSTS): gitlab:gitlab.example.com"
     )
+
+
+def test_missing_gh_names_the_github_router_requirement(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        doctor.shutil, "which", lambda name: None if name == "gh" else f"/bin/{name}"
+    )
+    results: list[tuple[str, str]] = []
+    doctor.check_tools(results)
+    assert (doctor.WARN, "tool gh not found (GitHub rescan router requires it)") in results
+
+
+def test_the_forge_row_includes_hosts_from_traust_yaml(
+    home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("GIT_HOSTS", raising=False)
+    path = home / "traust.yaml"
+    config = yaml.safe_load(path.read_text())
+    config["forge_hosts"] = {"ghe.example.com": "github"}
+    path.write_text(yaml.safe_dump(config))
+
+    results: list[tuple[str, str]] = []
+    doctor.check_defaults(results, load(home))
+    assert (doctor.OK, "extra forges (traust.yaml + GIT_HOSTS): github:ghe.example.com") in results
 
 
 def _config_rows(home: Path | None) -> dict[str, str]:
@@ -358,6 +381,26 @@ def test_no_traust_yaml_is_the_zero_config_defaults(tmp_path: Path) -> None:
     rows = _config_rows(tmp_path)
     assert "config file: none (zero-config defaults)" in rows
     assert rows["config database.url"].endswith("null (default)")
+
+
+def test_missing_model_registry_fails_the_config_row(home: Path) -> None:
+    (home / "model-registry.yaml").unlink()
+    results: list[tuple[str, str]] = []
+    doctor.check_config(results, home)
+    assert any(
+        status == doctor.FAIL and "model-registry.yaml missing" in message
+        for status, message in results
+    )
+
+
+def test_legacy_home_names_the_migration(tmp_path: Path) -> None:
+    (tmp_path / "core.yaml").write_text("database: {}\n")
+    results: list[tuple[str, str]] = []
+    doctor.check_config(results, tmp_path)
+    assert any(
+        status == doctor.FAIL and f"traust config migrate {tmp_path}" in message
+        for status, message in results
+    )
 
 
 def test_an_invalid_traust_yaml_fails_the_config_row(tmp_path: Path) -> None:

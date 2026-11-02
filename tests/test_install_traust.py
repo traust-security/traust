@@ -142,6 +142,18 @@ def test_doctor_resolves_a_relative_config_home_against_the_callers_cwd(tmp_path
     assert "traust.yaml: locations.workspace unset" in r.stdout
 
 
+def test_doctor_resolves_relative_env_home_against_the_callers_cwd(tmp_path: Path) -> None:
+    home = tmp_path / "caller" / "cfg"
+    _run(["--yes", "--config-home", str(home), "--no-toolchain", "--no-profile-write"])
+    r = _run(
+        ["--doctor"],
+        cwd=home.parent,
+        env_extra={"HOME": str(tmp_path), "TRAUST_CONFIG_HOME": "cfg"},
+    )
+    assert r.returncode == 1, r.stdout + r.stderr
+    assert "traust.yaml: locations.workspace unset" in r.stdout
+
+
 def test_doctor_delegates_to_traust_admin_doctor(tmp_path):
     """One code path: --doctor runs `traust admin doctor` (core's preflight), so a fresh
     install fails naming exactly the keys still to fill in."""
