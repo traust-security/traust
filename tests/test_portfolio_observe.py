@@ -14,12 +14,15 @@ import pytest
 import yaml
 from traust_core.v1.context import observation
 from traust_core.v1.errors import NotFoundError
+from traust_core.v1.models.artifacts import AdapterResultArtifact
 from traust_core.v1.models.assessment import Assessment, AssessmentKind
 from traust_core.v1.models.inventory import RepositoryRef
 from traust_core.v1.models.observation import ComparisonStatus
 from traust_core.v1.models.operations import AssetRequest, JobResult, OrderReason
 from traust_core.v1.models.values import HttpsRepoUrl
+from traust_core.v1.providers.base import Acquisition, ProviderRegistry, Readiness, Result
 from traust_core.v1.repositories.contract import SqlTraustUnitOfWork
+from traust_core.v1.services.observation import GITLEAKS
 
 from traust.cli import portfolio_observe
 from traust.context import load
@@ -53,17 +56,60 @@ def home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     (config / "traust.yaml").write_text(yaml.safe_dump({"home": str(tmp_path / "store")}))
 
     forge_api(monkeypatch, lambda host, endpoint, headers=None: FORGE[endpoint])
+    # A changed repository's observation scans its patch for secrets (gitleaks required,
+    # core's fail-loud rule); the runner image's scanner is not this test's subject.
+    clean_scanner(monkeypatch)
     return config
 
 
 def forge_api(monkeypatch: pytest.MonkeyPatch, get: Any) -> None:
-    """Core's forge reads GitHub over its ForgeApi; answer them from `get`."""
+    """Core's forge reads GitHub over its ForgeApi; answer them from `get` (and the compare
+    patch from `stream`)."""
     wire = observation.command_source
-    api = SimpleNamespace(get=get)
+    api = SimpleNamespace(
+        get=get,
+        stream=lambda host, endpoint, consume, headers=None: consume(
+            io.BytesIO(b"+++ b/x.py\n+x = 1\n")
+        ),
+    )
     monkeypatch.setattr(
         "traust_core.v1.context.context.command_source",
         lambda hosts, **kw: wire(hosts, **{**kw, "api": api}),
     )
+
+
+class CleanGitleaks:
+    """The scanner the observation requires over a changed repo's patch, finding nothing."""
+
+    name = GITLEAKS
+
+    def check(self) -> Readiness:
+        return Readiness(ready=True)
+
+    def acquire(self, request: object) -> Result[AdapterResultArtifact]:
+        return Result(
+            AdapterResultArtifact.from_document(
+                {
+                    "target": "change",
+                    "scanned_at": "2026-10-23T00:00:00Z",
+                    "metadata": {"tool": GITLEAKS, "scanner_version": "8.30.0"},
+                    "findings": [],
+                }
+            ),
+            Acquisition(provider=self.name, acquired_at=datetime(2026, 10, 23, tzinfo=UTC)),
+        )
+
+
+def clean_scanner(monkeypatch: pytest.MonkeyPatch) -> None:
+    real_load = portfolio_observe.load
+
+    def load_with_scanner(config_home: Path | None) -> Any:
+        core = real_load(config_home)
+        core.tools = ProviderRegistry("tool")
+        core.tools.register(CleanGitleaks.name, CleanGitleaks)
+        return core
+
+    monkeypatch.setattr(portfolio_observe, "load", load_with_scanner)
 
 
 def observe(home: Path, repo: str) -> tuple[int, dict[str, Any]]:

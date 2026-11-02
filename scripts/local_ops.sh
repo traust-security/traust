@@ -148,6 +148,26 @@ process:
   allowed_binaries: [syft]
 EOF
     fi
+    # A rig created before this PR has a traust.yaml without the syft grant:
+    # merge it in so an upgraded rig can run manifest_sbom (core's ProcessRunner
+    # refuses unlisted binaries). Idempotent: no-op when syft is already allowed.
+    OPS_CONFIG="$CONFIG_HOME/traust.yaml" uv run --no-sync python - <<'PYEOF'
+import os
+import yaml
+
+path = os.environ["OPS_CONFIG"]
+with open(path) as f:
+    cfg = yaml.safe_load(f) or {}
+process = cfg.get("process") or {}
+binaries = process.get("allowed_binaries") or []
+if "syft" not in binaries:
+    binaries.append("syft")
+    process["allowed_binaries"] = binaries
+    cfg["process"] = process
+    with open(path, "w") as f:
+        yaml.safe_dump(cfg, f, sort_keys=False)
+    print("traust.yaml: granted process.allowed_binaries syft (manifest_sbom upgrade)")
+PYEOF
     mkdir -p "$RUN_DIR/home" "$RUN_DIR/workspace" "$RUN_DIR/analysis-results" "$RUN_DIR/progress-tracker" "$OPS_DIR/pack"
     pack_overlay > "$OPS_DIR/pack/assets.yaml"
 
