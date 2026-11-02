@@ -57,10 +57,12 @@ python3 -m traust.cli check skill-alignment      # equivalent
 markers, rather than unstaged working-tree revisions. A removed working copy does not hide
 its staged contents.
 Renames are checked at their destination paths, including files moved into migrations.
+Whole-tree scans also check untracked migrations. Invalid UTF-8 cannot suppress migration
+portability checks in either mode.
 
-`traust check skill-security` recognizes sandbox routing through both
-`traust util safe-exec run` and `python3 -m traust.cli util safe-exec run`; a similarly named
-command is not the sandbox.
+`traust check skill-security` checks each build command's sandbox routing through
+`traust util safe-exec run` or `python3 -m traust.cli util safe-exec run`. Prose, comments,
+an unrelated wrapped command, and `safe-exec check` do not route a direct build.
 
 `traust check docs-consistency --root <path>` compares the model-class index against the
 skills in that selected checkout, not the checkout where the checker is installed.

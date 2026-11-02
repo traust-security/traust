@@ -2,6 +2,14 @@
 
 All notable changes to Traust are documented here.
 
+## [0.39.4]
+
+- Check sandbox routing per target-build command; prose, comments, imports, and unrelated
+  safe-exec calls cannot hide a direct build.
+- Restore whole-tree portability checks for untracked migrations while keeping staged
+  checks tied to Git index contents, including rename destinations.
+- Preserve migration portability checks for invalid UTF-8 in both tree and staged scans.
+
 ## [0.39.3]
 
 - Gate final serialized triage output with the shared canonical-write contract,

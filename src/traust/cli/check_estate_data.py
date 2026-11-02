@@ -188,6 +188,19 @@ def staged_files(root: Path) -> list[Path]:
     return [root / p for p in out if p in blobs and not p.endswith(SKIP_SUFFIXES)]
 
 
+def _read_content(root: Path, path: Path, *, staged: bool, errors: str = "strict") -> str:
+    if staged:
+        rel = path.relative_to(root).as_posix()
+        return subprocess.run(
+            ["git", "-C", str(root), "show", f":0:{rel}"],
+            capture_output=True,
+            encoding="utf-8",
+            errors=errors,
+            check=True,
+        ).stdout
+    return path.read_text(encoding="utf-8", errors=errors)
+
+
 def scan(root: Path, *, staged: bool = False) -> list[dict]:
     """Findings in the tree, or only in what is being committed.
 
@@ -199,23 +212,15 @@ def scan(root: Path, *, staged: bool = False) -> list[dict]:
     """
     findings: list[dict] = []
     migrations = root / "src" / "traust" / "migrations"
-    for path in staged_files(root) if staged else tracked_files(root):
+    paths = staged_files(root) if staged else tracked_files(root)
+    for path in paths:
         if not staged and not path.is_file():
             continue
         rel = path.relative_to(root).as_posix()
         if rel in ALLOWED_DIRS:
             continue
         try:
-            text = (
-                subprocess.run(
-                    ["git", "-C", str(root), "show", f":0:{rel}"],
-                    capture_output=True,
-                    encoding="utf-8",
-                    check=True,
-                ).stdout
-                if staged
-                else path.read_text(encoding="utf-8")
-            )
+            text = _read_content(root, path, staged=staged)
         except (OSError, UnicodeDecodeError):
             continue
         for number, line in enumerate(text.splitlines(), 1):
@@ -234,12 +239,23 @@ def scan(root: Path, *, staged: bool = False) -> list[dict]:
                         "text": line.strip()[:120],
                     }
                 )
-        if (
-            path.parent == migrations
-            and path.suffix == ".py"
-            and path.name != "__init__.py"
-            and "adopter-portable" not in text
-        ):
+
+    # Portability is a placement rule, including untracked on-disk migrations.
+    # Invalid UTF-8 must not hide its ASCII marker check.
+    migration_paths = (
+        (path for path in paths if path.parent == migrations and path.suffix == ".py")
+        if staged
+        else migrations.glob("*.py")
+    )
+    for path in migration_paths:
+        if path.name == "__init__.py":
+            continue
+        try:
+            text = _read_content(root, path, staged=staged, errors="replace")
+        except OSError:
+            continue
+        if "adopter-portable" not in text:
+            rel = path.relative_to(root).as_posix()
             findings.append(
                 {
                     "file": rel,
