@@ -16,6 +16,18 @@ key, budgets, forge hosts, locations, and four small adopter fields (`feeds.osv_
 (`config/v1/traust.schema.json`); unknown keys are refused. A deployment such as SCI sets
 the same file as Helm values and its secrets from a secrets manager.
 
+Local artifact bytes default to `<home>/artifacts`; set `artifacts.path` for a different
+local directory. For shared artifact storage, install `traust[s3]` and set `artifacts.s3.bucket` in
+`traust.yaml` (see `traust.example.yaml`); `prefix`, `region` and `endpoint_url` are
+optional deployment settings. Omit `access_key_env`/`secret_key_env` to use the SDK
+credential chain (including workload identity), or set **both** to names of environment
+variables from a secrets manager. S3-compatible endpoints include MinIO and Ceph.
+The role needs Get/Put on its keys and prefix-scoped ListBucket; access errors are not
+cache misses. `artifacts.path` and `artifacts.s3` are mutually exclusive. Switching an
+existing deployment from local files requires copying its artifact bytes to the same
+keys before changing the config; the configuration switch does not migrate them.
+`locations.analysis_results` is a legacy results location, not this artifact store.
+
 ## What ships here
 
 | File | What it is |

@@ -12,8 +12,14 @@
 #   url: postgresql+psycopg://traust@db.example.internal/traust
 #   password_env: TRAUST_DB_PASSWORD
 
-# artifacts:
-#   path: artifacts             # relative: under ~/.traust
+# artifacts:                     # absent: local files under ~/.traust/artifacts
+#   s3:                         # install traust[s3] (AWS, MinIO or Ceph)
+#     bucket: example-artifacts
+#     prefix: traust             # optional: isolate a deployment inside a shared bucket
+#     region: us-east-1          # optional with a custom endpoint
+#     # endpoint_url: https://minio.example.com    # optional: S3-compatible endpoint
+#     # access_key_env: TRAUST_S3_ACCESS_KEY       # optional pair; default: SDK credentials
+#     # secret_key_env: TRAUST_S3_SECRET_KEY       # optional pair; default: workload identity
 
 # identity:                     # absent: no caller can be verified
 #   trust_local: true           # a solo laptop trusts its own `traust auth local` tokens; a
@@ -43,7 +49,7 @@
 
 # locations:                    # relative paths resolve beside this file; URIs stay as written
 #   workspace: /srv/traust/workspace                 # source checkouts are read from here
-#   analysis_results: /srv/traust/analysis-results   # or s3://example-bucket/analysis-results
+#   analysis_results: /srv/traust/analysis-results   # legacy results location; not the artifact store
 #   progress_tracker: /srv/traust/progress-tracker
 #   inputs: /srv/traust/workspace/inputs             # default: <workspace>/inputs
 #   feeds_cache: /srv/traust/feeds-cache             # default: <progress_tracker>/feeds
