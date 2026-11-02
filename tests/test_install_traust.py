@@ -48,7 +48,7 @@ def test_install_never_overwrites_without_force(tmp_path):
     assert "kept existing traust.yaml" in r.stdout
 
 
-def test_doctor_fails_closed_when_unset_and_default_absent(tmp_path):
+def test_doctor_fails_closed_when_unset_and_default_absent(tmp_path: Path) -> None:
     env = {"HOME": str(tmp_path)}
     r = subprocess.run(
         ["bash", str(SCRIPT), "--doctor"],
@@ -57,7 +57,10 @@ def test_doctor_fails_closed_when_unset_and_default_absent(tmp_path):
         env={k: v for k, v in {**os.environ, **env}.items() if k != "TRAUST_CONFIG_HOME"},
         cwd=REPO,
     )
-    assert r.returncode == 1 and "run scripts/install_traust" in r.stdout
+    assert r.returncode == 1, r.stdout + r.stderr
+    assert "harness doctor —" in r.stdout
+    assert "no config home: set $TRAUST_CONFIG_HOME" in r.stdout
+    assert "required check(s) failing" in r.stdout
 
 
 def test_doctor_checks_the_config_home_the_wrapper_was_given(tmp_path):
