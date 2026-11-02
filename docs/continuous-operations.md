@@ -556,6 +556,7 @@ make ops-up          # Postgres on 127.0.0.1:5433 + config home + overlay pack
 make ops-doctor      # what is missing, if anything
 make ops-run         # pane 1: the tick loop (OPS_EVERY=1m by default)
 make ops-claim       # pane 2: claim-once loop, every 5s
+make ops-approve     # operator door: approve awaiting orders (all, or one by id prefix)
 make ops-sh          # a shell with the rig's env, for the commands below
 make ops-scan REPO=https://github.com/<you>/<small-repo>   # the workflow by hand
 make ops-smoke       # one bounded cycle with asserts (the CI entry)

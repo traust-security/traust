@@ -263,6 +263,40 @@ cmd_claim() {
     done
 }
 
+cmd_approve() {
+    # The operator door: core can hold an order for a verified person
+    # (OperationsService.approve), but no CLI or REST surface calls it. This is
+    # the rig's: approve one order by id, or every awaiting order.
+    source_env
+    TRAUST_CONFIG_HOME="$CONFIG_HOME" uv run --no-sync python - "$1" <<'PYEOF'
+import sys
+from traust.context import load, load_caller
+from traust_core.v1.errors import TraustError
+from traust_core.v1.models.common import every_item
+from traust_core.v1.models.operations import OrderFilter, OrderState
+
+core = load(None)
+caller = load_caller(core)
+services = core.services()
+awaiting = list(every_item(lambda p: services.ops.list(OrderFilter(states=(OrderState.AWAITING_APPROVAL,)), p)))
+only = sys.argv[1] if len(sys.argv) > 1 else None
+if only:
+    awaiting = [o for o in awaiting if str(o.id).startswith(only)]
+if not awaiting:
+    print("no orders awaiting approval" if not only else f"no awaiting order {only}")
+    sys.exit(0)
+for order in awaiting:
+    repo = services.portfolio.get_repository(order.repository_id) if order.repository_id else None
+    label = repo.url if repo else order.asset
+    try:
+        approved = services.ops.approve(order.id, caller)
+        print(f"approved {order.asset}: {label} ({approved.state})")
+    except TraustError as e:
+        print(f"skipped {order.asset}: {label} ({e})", file=sys.stderr)
+        sys.exit(1)
+PYEOF
+}
+
 cmd_sh() {
     source_env
     export TRAUST_CONFIG_HOME="$CONFIG_HOME"
@@ -361,6 +395,7 @@ case "${1:-}" in
     up) shift; cmd_up "$@" ;;
     down) shift; cmd_down "$@" ;;
     reset) shift; cmd_reset "$@" ;;
+    approve) shift; cmd_approve "$@" ;;
     run) shift; cmd_run "$@" ;;
     claim) shift; cmd_claim "$@" ;;
     sh) shift; cmd_sh "$@" ;;
