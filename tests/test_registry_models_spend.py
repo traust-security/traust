@@ -145,23 +145,19 @@ def test_an_unknown_or_unpriced_model_exits_1_and_records_nothing(
     assert err.startswith("spend: ") and message in err
 
 
-@pytest.mark.parametrize(("strict", "rc"), [(None, 0), ("1", 1)])
-def test_without_a_model_registry_the_declaration_is_skipped(
+def test_without_a_model_registry_the_declaration_is_refused(
     home: Path,
     recorded: list[SpendEvent],
     monkeypatch: pytest.MonkeyPatch,
-    strict: str | None,
-    rc: int,
 ) -> None:
+    """The registry is required (the fail-loud plan): no skip path, no env switch — the
+    declaration refuses, naming the fix, and records nothing."""
     (home / "model-registry.yaml").unlink()
-    if strict is None:
-        monkeypatch.delenv("HARNESS_REQUIRE_SPEND_LEDGER", raising=False)
-    else:
-        monkeypatch.setenv("HARNESS_REQUIRE_SPEND_LEDGER", strict)
+    monkeypatch.delenv("HARNESS_REQUIRE_SPEND_LEDGER", raising=False)
     code, out, err = spend(home, "--skill", "triage", "--model", "claude-haiku-5-5")
-    assert (code, out, recorded) == (rc, "", [])
-    assert err.startswith(
-        "spend: no model-registry.yaml in the config home — declaration skipped; "
-        "the embedding platform records usage itself"
+    assert (code, out, recorded) == (1, "", [])
+    assert err == (
+        "spend: no model-registry.yaml in the config home — copy config/model-registry.yaml "
+        "there (spend pricing and the spend view need it)\n"
     )
-    assert ("HARNESS_REQUIRE_SPEND_LEDGER=1: failing" in err) is (rc == 1)
+    assert by_model(home) == []

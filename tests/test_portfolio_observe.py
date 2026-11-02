@@ -152,12 +152,20 @@ def test_an_audited_fork_is_observed_kept_and_its_upstream_inventoried(home: Pat
         assert uow.repositories.find_by_url(REPO).upstream_id == upstream.id
 
 
-def test_a_never_audited_repository_succeeds_without_the_forge(
+def test_a_never_audited_repository_observes_its_forge_head(
     home: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     register(home, audited=False)
-    forge_api(monkeypatch, lambda *a, **k: pytest.fail("forge contacted"))
+    requests: list[tuple[str, str]] = []
+
+    def get(host: str, endpoint: str, headers: dict[str, str] | None = None) -> dict[str, Any]:
+        requests.append((host, endpoint))
+        return FORGE[endpoint]
+
+    forge_api(monkeypatch, get)
     assert observe(home, REPO)[0] == 0
+    assert ("github.com", "repos/org/app") in requests
+    assert ("github.com", "repos/org/app/branches/main") in requests
 
 
 def test_a_repository_outside_the_inventory_is_refused(home: Path) -> None:
