@@ -266,9 +266,10 @@ cmd_claim() {
 cmd_approve() {
     # The operator door: core can hold an order for a verified person
     # (OperationsService.approve), but no CLI or REST surface calls it. This is
-    # the rig's: approve one order by id, or every awaiting order.
+    # the rig's: approve every awaiting order, or exactly one by id — a prefix
+    # that names more than one order lists them and approves nothing.
     source_env
-    TRAUST_CONFIG_HOME="$CONFIG_HOME" uv run --no-sync python - "$1" <<'PYEOF'
+    TRAUST_CONFIG_HOME="$CONFIG_HOME" uv run --no-sync python - "${1:-}" <<'PYEOF'
 import sys
 from traust.context import load, load_caller
 from traust_core.v1.errors import TraustError
@@ -279,9 +280,17 @@ core = load(None)
 caller = load_caller(core)
 services = core.services()
 awaiting = list(every_item(lambda p: services.ops.list(OrderFilter(states=(OrderState.AWAITING_APPROVAL,)), p)))
-only = sys.argv[1] if len(sys.argv) > 1 else None
+only = sys.argv[1] if len(sys.argv) > 1 and sys.argv[1] else None
 if only:
-    awaiting = [o for o in awaiting if str(o.id).startswith(only)]
+    matching = [o for o in awaiting if str(o.id).startswith(only)]
+    if len(matching) > 1:
+        print(f"prefix {only} names {len(matching)} awaiting orders; approve by a longer prefix:", file=sys.stderr)
+        for o in matching:
+            repo = services.portfolio.get_repository(o.repository_id) if o.repository_id else None
+            label = repo.url if repo else o.asset
+            print(f"  {o.id} {o.asset}: {label}", file=sys.stderr)
+        sys.exit(2)
+    awaiting = matching
 if not awaiting:
     print("no orders awaiting approval" if not only else f"no awaiting order {only}")
     sys.exit(0)
