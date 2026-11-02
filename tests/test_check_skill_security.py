@@ -390,6 +390,8 @@ def test_stale_exemption_is_detected():
     [
         "python3 -m traust.cli util safe-exec run --profile go-scan -- go build ./...",
         "traust util safe-exec run --profile go-scan -- go build ./...",
+        "traust util safe-exec run -- go build",
+        "python3 -m traust.cli util safe-exec run -- go test",
     ],
 )
 def test_s10_accepts_grouped_safe_exec_build_invocation(
@@ -428,6 +430,11 @@ def test_s10_prose_does_not_route_a_skill_build(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     "commands",
     [
+        "go build\n",
+        "go test\n",
+        "go build;",
+        "go test&&true",
+        "traust util safe-exec run -- go build ./...; go test\n",
         "# traust util safe-exec run -- go build ./...\ngo build ./...\n",
         "go build ./... # traust util safe-exec run\n",
         "traust util safe-exec run -- go build ./...\ngo test ./...\n",

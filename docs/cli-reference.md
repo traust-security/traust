@@ -63,6 +63,7 @@ portability checks in either mode.
 `traust check skill-security` checks each build command's sandbox routing through
 `traust util safe-exec run` or `python3 -m traust.cli util safe-exec run`. Prose, comments,
 an unrelated wrapped command, and `safe-exec check` do not route a direct build.
+Go build/test commands are checked even without package arguments or trailing whitespace.
 
 `traust check docs-consistency --root <path>` compares the model-class index against the
 skills in that selected checkout, not the checkout where the checker is installed.

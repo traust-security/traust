@@ -319,7 +319,7 @@ S10_BUILD_RX = re.compile(
     r"\bmake\s+(?:clone\b|build\b|install\b|fuzz)"
     r"|\bmvn\s+(?:-\S+\s+)*(?:package|install|verify|deploy)\b"
     r"|(?:^|[\s\"'`(])\.?/gradlew\b|\bgradle\s+(?:build|test|assemble)\b"
-    r"|\bgo\s+(?:build|test)\s"
+    r"|\bgo\s+(?:build|test)(?=[\s;&|)`]|$)"
     r"|\bnpm\s+(?:ci|run\s+build)\b"
     r"|\bcargo\s+(?:build|test|fuzz)\b"
     # govulncheck loads+builds the target module (hostile build-tags /
