@@ -4,6 +4,8 @@ All notable changes to Traust are documented here.
 
 ## [0.40.0]
 
+- Provision Core-pinned Cosign in CI for real historical-signature tests and retire
+  obsolete consumer ratchet exemptions without skipping tests or widening the fence.
 - Reject forged validation-evidence redaction markers in text and Kubernetes Secret maps.
   Only emitted tags, canonical ASCII lengths and 12-character lowercase digest markers
   (or length-only Secret-map markers) retain idempotence; marker-like wrappers cannot

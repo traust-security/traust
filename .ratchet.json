@@ -4,7 +4,7 @@
   },
   "src/traust/cli/build_rescan_worklist.py": {
     "database": 2,
-    "state-file": 2
+    "state-file": 1
   },
   "src/traust/cli/build_symbol_index.py": {
     "database": 1
@@ -16,7 +16,7 @@
     "state-file": 1
   },
   "src/traust/cli/findings.py": {
-    "core-internal": 2
+    "core-internal": 1
   },
   "src/traust/cli/groups/reporting.py": {
     "state-file": 1

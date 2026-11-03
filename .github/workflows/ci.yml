@@ -37,6 +37,10 @@ jobs:
           enable-cache: true
           python-version: ${{ matrix.python-version }}
       - run: uv sync --frozen
+      - name: Install Cosign for historical signature tests
+        run: |
+          bash scripts/install-toolchain.sh ledger-signing
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - run: uv run pytest tests/ -n auto
 
   session-postgres:
