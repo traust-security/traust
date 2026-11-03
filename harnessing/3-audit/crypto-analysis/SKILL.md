@@ -305,12 +305,25 @@ build governance chains and determine remediation ownership.
 
 ### From compliance-check
 
-`crypto-audit/v1` output is a compliance collector snapshot
-(`--collector crypto_audit=…`): the mapping registry asserts controls
-over `facts[*].probe_id` (SC-13, TSC CC6.7 — e.g. the
-`CRYPTO_GODEBUG_TLS_KILLSWITCH` check). When a crypto control fires,
-compliance-check delegates here for the governance chain that resolves
-remediation ownership.
+`crypto-audit/v1` output is a compliance collector snapshot passed as
+`traust compliance evaluate <boundary> --crypto <snapshot>`: the mapping
+registry asserts controls over `facts[*].probe_id` (SC-13, TSC CC6.7 —
+e.g. the `CRYPTO_GODEBUG_TLS_KILLSWITCH` check).
+
+When a crypto control fires, `/compliance-check` hands off
+`compliance-assessment.json`, `compliance-assessment.md`, the exact crypto
+snapshot used in that assessment, the failing framework/control IDs and
+evidence citations, and the target checkout/ref. Read the Markdown companion
+for the reported reason and context; trace the corresponding JSON result's
+evidence to the supplied snapshot before following the governance chain.
+The gated JSON and cited facts, not Markdown table wording, determine the
+control outcome. Do not reinterpret `not_assessed` or a missing collector as
+a demonstrated crypto failure.
+
+Return enriched facts with the original fact IDs, an evidence-backed
+governance chain and remediation owner to `/compliance-check` for its
+cross-filed finding and `control_refs`. Never change a check-computed
+compliance verdict or present static governance tracing as runtime confirmation.
 
 ### From secure-rpm-audit
 

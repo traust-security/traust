@@ -162,6 +162,24 @@ consumable without archaeology:
 | Rule-expressible shapes surfaced in benchmark runs | the benchmark rule-candidate extractor (post-scoring) | `benchmark-rule-candidates.{json,md}` under the rule-mining metrics — identity-only pattern exemplars for rule authors |
 | Missed benchmark/CVE anchors | `fn_cve_replay_missed.jsonl` + the benchmark near-miss tier | Ground-truth queue for match-ladder and technique work |
 
+Semantic cards support both symbol definitions and textual references. Reference rows mark
+definition sites with `is_def`; a call-looking mention is still a candidate, not a resolved
+call graph or a finding. To replay pre-generated facts without checkout tools, use:
+
+```bash
+python3 -m traust.cli sweep cards cards.yaml \
+  --artifact route-guards=routes.json \
+  --artifact symbol-index:pc-caller=references.json
+```
+
+`--artifact` is repeatable and accepts `enumerator[:card-id]=json-file`. Card-specific input
+overrides the generic input for that enumerator, even when its array is empty. Arrays are
+typed at the boundary: route `routes`, config `triples`, sanitizer discovery `candidates`,
+sanitizer execution `probes`, and symbol `defs` or `refs`. Missing inputs are explicitly
+not run; supplying artifacts never falls back to checkout tools, even with `--checkout`.
+Sanitizer target execution remains tools-package-owned under the dated 2026-10-25 handoff;
+live execution-shaped cards stay not run, but supplied probe evidence can be filtered offline.
+
 Two boundary rules keep the loop honest:
 
 - **Benchmark isolation is preserved.** Benchmark-run reports never

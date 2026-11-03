@@ -314,6 +314,55 @@ def test_the_convention_paths_show_as_defaults_in_use(
     )
 
 
+@pytest.mark.parametrize(
+    ("configured", "source"),
+    [
+        (None, "default <progress_tracker>/feeds"),
+        ("", "default <progress_tracker>/feeds"),
+        ("s3://example/feeds", "default <progress_tracker>/feeds"),
+        ("./feed-cache", "traust.yaml locations.feeds_cache"),
+        ("file:///shared/feeds", "traust.yaml locations.feeds_cache"),
+        ("<progress_tracker>/feeds", "traust.yaml locations.feeds_cache"),
+    ],
+)
+@pytest.mark.parametrize("override", [None, "   ", " /shared/feeds "])
+def test_feeds_cache_provenance_uses_the_loaded_config_home(
+    home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    configured: str | None,
+    source: str,
+    override: str | None,
+) -> None:
+    path = home / "traust.yaml"
+    raw = yaml.safe_load(path.read_text())
+    tracker = Path(raw["locations"]["progress_tracker"])
+    if configured == "<progress_tracker>/feeds":
+        configured = str(tracker / "feeds")
+    if configured is not None:
+        raw["locations"]["feeds_cache"] = configured
+    path.write_text(yaml.safe_dump(raw))
+    if override is None:
+        monkeypatch.delenv("FEEDS_CACHE_DIR", raising=False)
+    else:
+        monkeypatch.setenv("FEEDS_CACHE_DIR", override)
+    core = load(home)
+    # Attribution belongs to this context, not an unrelated ambient config home.
+    monkeypatch.setenv("TRAUST_CONFIG_HOME", str(tmp_path / "other-config"))
+    results: list[tuple[str, str]] = []
+    doctor.check_defaults(results, core)
+    row = next(message for _, message in results if message.startswith("feeds cache: "))
+    if override and override.strip():
+        expected, source = Path("/shared/feeds"), "env FEEDS_CACHE_DIR"
+    elif configured and "://" not in configured:
+        expected = (home / configured).resolve()
+    elif configured and configured.startswith("file://"):
+        expected = Path(configured.removeprefix("file://"))
+    else:
+        expected = tracker / "feeds"
+    assert row == f"feeds cache: {expected} ({source})"
+
+
 def test_missing_gh_names_the_github_router_requirement(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         doctor.shutil, "which", lambda name: None if name == "gh" else f"/bin/{name}"

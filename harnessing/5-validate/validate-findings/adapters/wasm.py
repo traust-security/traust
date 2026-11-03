@@ -10,6 +10,7 @@ import time
 from pathlib import Path
 
 from .base import AdapterBase, Fingerprint, StepResult
+from .credentials import redact_credentials
 
 
 def _wrt() -> str:
@@ -100,7 +101,7 @@ class WasmAdapter(AdapterBase):
             expected=expected,
             # module metadata can embed secrets from build env — same
             # redaction as the k8s adapter (assessment 2026-07-31 F16)
-            observed=self._redact_credentials(observed[:4000]),
+            observed=redact_credentials(observed)[:4000],
             evidence=evidence,
             finding_ref=(
                 step.get("finding_ref")

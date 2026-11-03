@@ -16,6 +16,9 @@ IMPACT: dict[str, object] = {
     "analyze": passthrough_op(
         "impact", "Assess and record the commits an advisory reaches.", "analyze"
     ),
+    "export": passthrough_op(
+        "impact", "Export an advisory's recorded commit/package verdicts and evidence.", "export"
+    ),
     "document": passthrough_op(
         "impact", "Print a feed source's document for one identifier.", "document"
     ),

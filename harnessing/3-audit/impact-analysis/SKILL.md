@@ -24,6 +24,7 @@ allowed-tools:
   - Bash(python3 *-m traust.cli impact sbom:*)
   - Bash(python3 *-m traust.cli impact symbols:*)
   - Bash(python3 *-m traust.cli impact analyze:*)
+  - Bash(python3 *-m traust.cli impact export:*)
   # (Bash(git:*) dropped 2026-07-31 P1-W4: no git invocation in this skill's flow)
   - Bash(jq:*)
   - Bash(python3 *-m traust.cli impact document:*)
@@ -187,6 +188,10 @@ Parse from `$ARGUMENTS`:
   commit the advisory reaches.
 - `--scan` — clone undecided commits and run the deep scan; without it,
   SBOM evidence only, no cloning or scanning.
+- `--advisory-file <path>` — repeatable exported raw OSV JSON input for
+  `find`, `symbols`, and `analyze` (also `sweep` for offline feed sweeps).
+  When supplied, advisory lookup uses only these documents, never the live
+  OSV provider. An absent requested advisory is an error, not a network fallback.
 
 ## Procedure
 
@@ -204,6 +209,8 @@ injection — audit D7):
 ```bash
 # OSV (the record analyze uses)
 python3 -m traust.cli impact find <ADVISORY-ID>
+# Offline alternative: pass the same exported OSV records to find, symbols and analyze
+python3 -m traust.cli impact find <ADVISORY-ID> --advisory-file <osv-export.json>
 
 # NVD
 python3 -m traust.cli impact document nvd <CVE-ID>
@@ -218,11 +225,12 @@ the affected API surface (`python3 -m traust.cli impact symbols
 `no_symbols_in_diff`, `no_fix_commit` or `degraded`) and pass what you find
 with `--symbols`.
 
-**The vulnerable range and fixed version come from a fetched advisory,
-never from memory.** If every fetch above fails (non-zero exit), stop and
-report the CVE as not assessed. Never supply a range or fixed version from
-recall (`analyze` takes them only from the fetched record and records the
-sources it used in `advisory_sources`).
+**The vulnerable range and fixed version come from a fetched advisory or
+an explicitly supplied raw OSV export, never from memory.** If neither
+source supplies the advisory, stop and report it as not assessed. Pass
+the same repeatable `--advisory-file` inputs to `symbols` and `analyze`
+when operating offline. `advisory_sources` retains the sources used;
+`--scan` may still require repository checkout access.
 
 ### Step 2: Run the analysis
 
@@ -235,7 +243,8 @@ python3 -m traust.cli impact analyze <CVE-ID> \
 
 The script handles everything: blast radius, cloning, language-specific
 analysis, classification, artifact recording, and filing a dependency
-finding for each `affected` commit.
+finding for each `affected` commit/package. Every affected ecosystem,
+module and held version gets its own document with its own range and fix.
 
 Leave out `--scan` for a fast SBOM-only pass (no cloning). A commit
 with no recorded SBOM is not in the blast radius; record one with
@@ -251,6 +260,28 @@ make sense given what the CVE is about?
 Repos classified `inconclusive` with `needs_manual_trace: true` have
 unsafe pointer or reflection usage that may hide reachability — these
 need human review.
+
+### Step 4: Export the fleet view for consumers
+
+```bash
+python3 -m traust.cli impact export <ADVISORY-ID> \
+    --out <output-dir>/<advisory-id>-impact-analysis.json
+```
+
+Use the configured `locations.analysis_results` output root when choosing
+`<output-dir>`. Export reads the already recorded artifacts, including
+non-affected and undecided classifications; it does not fetch or re-analyze.
+Its `commits` count is distinct commits; `analyses` counts the exported
+commit/ecosystem/module/version rows. Each row carries the exact complete
+native document under `document`, plus classification, evidence, repository
+URL, SHA and recorded assessment/artifact/finding identifiers. Export selects
+the latest complete preparation scope. Preserve each native document's
+`metadata.preparation_scope`: its digest and full member set identify the
+package/version snapshot prepared together. An incomplete newer scope cannot
+clear a previous complete result; a complete corrected SBOM snapshot replaces
+obsolete modules and versions. Distinct members within that snapshot remain
+separate. Summary and timeline count its worst verdict once per commit/advisory,
+not whichever safe package packet happened to finish last.
 
 ## Classification rubric
 
@@ -285,7 +316,8 @@ only the analysis path varies.
 
 ## Output schema
 
-See `contracts/schemas/impact-analysis.schema.json`. Key structure:
+Each native per-commit/package document follows the installed
+`impact-analysis` contract schema. Key structure:
 
 ```json
 {
@@ -297,9 +329,9 @@ See `contracts/schemas/impact-analysis.schema.json`. Key structure:
     ...
   },
   "summary": {
-    "repos_in_blast_radius": 1412,
-    "affected": 4,
-    "not_observed": 876,
+    "repos_in_blast_radius": 1,
+    "affected": 0,
+    "not_observed": 1,
     ...
   },
   "repos": [
@@ -314,11 +346,13 @@ See `contracts/schemas/impact-analysis.schema.json`. Key structure:
 
 ## Downstream consumption
 
-Every run records each commit's artifact in traust-core (an `impact`
-assessment), so consumers find it by commit without being told. Consumers
-below that still read `analysis-results/impact/<cve>-impact-analysis.json`
-files move to traust-core reads in their own ports; until then no file is
-written.
+Every run records native commit/package artifacts in traust-core (an
+`impact` assessment each). `traust impact export` produces the portable
+advisory-wide `ImpactExport` view described in Step 4, not a second
+persisted report or a native artifact to re-import. Consumers of its
+`.repos` use `repository_url` and `sha`; native metadata and all original
+fields remain under each row's `document`. The view includes every
+classification, not only the findings that `analyze` filed.
 
 - **`/dependency-watch` → python3 -m traust.cli impact analyze** — the
   filing leg (harness ≥ 0.197.0): every `affected` repo's dependency
@@ -331,8 +365,11 @@ written.
   registry, per [Validity authoring](../../../docs/report-structure.md#validity-authoring).
 - **`/triage` Phase 2f** — triage reads the impact-analysis artifact to
   give verifiers portfolio-wide context.
-- **`/verify-remediation` full-sweep** — accepts `--impact-filter` to
-  scope verification to `affected`/`likely_affected` repos only.
+- **`/verify-remediation` full-sweep** — pass the exported JSON as
+  `traust remediation verify-sweep --impact-filter <path>` to scope
+  verification to `affected`/`likely_affected` repositories. The adapter
+  intersects any explicit repository/product scope and deduplicates URLs;
+  no matching rows mean an empty worklist, never the full fleet.
 - **SBOMs** — the commits' recorded SBOMs are this skill's backbone;
   keep them current (`traust impact sbom`) or the blast radius lies.
 - **`/secure-container-audit`** — sbom-grype CVE hits check the impact
@@ -347,8 +384,8 @@ written.
   auto-closure.
 - **Tracker evidence** — per-repo classification + evidence block is
   machine evidence for closing OCPBUGS trackers.
-- **`/findings-db`** — artifacts are projected into the `impact` table
-  on every DB rebuild, so per-CVE affectedness is queryable via SQL.
+- **`/findings-db`** — query kept impact analyses through Core exposure
+  services or consume the exported view; never rebuild a parallel impact table.
 - **`/secure-rpm-audit`** — vendored-dependency CVE hits cite the source
   repo's classification (same convention as secure-code-audit K07).
 - **`/validate-findings`** — `affected` + `attacker_influence: plausible`

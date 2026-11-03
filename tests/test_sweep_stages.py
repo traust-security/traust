@@ -14,6 +14,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from traust_core.v1.context import Locations
 from traust_core.v1.errors import ConfigError, NotFoundError
 from traust_core.v1.models.detection_quality import RuleMining, RulePack
 from traust_core.v1.models.rule_mining import (
@@ -59,12 +60,16 @@ class Door:
 
 @pytest.fixture
 def quality(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> SimpleNamespace:
-    stub = SimpleNamespace(loaded=[])
-    locations = SimpleNamespace(
-        analysis_results_dir=lambda: tmp_path / "ar",
-        progress_tracker_dir=lambda: tmp_path / "pt",
-        rule_drafts_dir=lambda: tmp_path / "drafts",
+    stub = SimpleNamespace(
+        loaded=[],
+        locations=Locations(
+            analysis_results=str(tmp_path / "ar"),
+            progress_tracker=str(tmp_path / "pt"),
+            rule_drafts=str(tmp_path / "drafts"),
+            workspace=str(tmp_path / "workspace"),
+        ),
     )
+    monkeypatch.delenv("BENCHMARK_REPO_ROOT", raising=False)
 
     def load(home: Path | None, **kw: Any) -> SimpleNamespace:
         stub.loaded.append(kw)
@@ -72,7 +77,7 @@ def quality(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> SimpleNamespace:
             services=lambda: SimpleNamespace(detection_quality=stub),
             rule_drafts=SimpleNamespace(root=kw.get("rule_drafts") or tmp_path / "drafts"),
             config=SimpleNamespace(
-                locations=locations,
+                locations=stub.locations,
                 overrides=SimpleNamespace(rule_pack_allowlist=getattr(stub, "allowlist", None)),
             ),
         )
@@ -218,16 +223,19 @@ def test_emit_writes_the_triage_input_under_the_sweeps_root(
     assert (target / "sweep-summary.md").read_text() == "# s\n"
 
 
-def test_emit_resumes_without_writing(quality: SimpleNamespace, tmp_path: Path) -> None:
-    quality.emit_sweep = Door(SweepEmit(rule_id=RID, skipped=True, out="k/c.json"))
-    rc, out, _ = call(
-        sweep.call_emit, rule=RID, force=False, sweeps_root=tmp_path / "s", analysis_results=None
+def test_cached_emit_materializes_at_a_fresh_export_root(
+    quality: SimpleNamespace, tmp_path: Path
+) -> None:
+    quality.emit_sweep = Door(
+        SweepEmit(rule_id=RID, skipped=True, out="k/c.json", candidates=CANDIDATES, summary="# s\n")
     )
-    assert (rc, out.strip()) == (
-        0,
-        "emit: candidates exist, skipping (k/c.json) — use --force to re-emit",
-    )
-    assert not (tmp_path / "s").exists()
+    root = tmp_path / "fresh"
+    rc, _, _ = call(sweep.call_emit, rule=RID, force=False, sweeps_root=root, analysis_results=None)
+    assert rc == 0
+    exported = json.loads((root / RID / "sweep-candidates.json").read_text())
+    assert exported["candidates"][0]["location"] == "m.go:3"
+    assert (root / RID / "sweep-summary.md").read_text() == "# s\n"
+    assert quality.emit_sweep.calls == [(RID, False)]
 
 
 def lane(attention: bool = False, failed: bool = False, delta: bool = True) -> RuleLane:
@@ -395,7 +403,9 @@ def test_check_trigger_exits_10_when_the_benchmark_is_required(
 
 
 def test_check_trigger_needs_a_checkout(quality: SimpleNamespace) -> None:
-    with pytest.raises(SystemExit, match="--repo-root required"):
+    quality.locations = Locations()
+    quality.benchmark_trigger = Door(BenchmarkTrigger.of("v1", []))
+    with pytest.raises(SystemExit) as refused:
         call(
             sweep.call_benchmark,
             benchmark_cmd="check-trigger",
@@ -403,6 +413,23 @@ def test_check_trigger_needs_a_checkout(quality: SimpleNamespace) -> None:
             since="v1",
             repo_root=None,
         )
+    assert refused.value.code == 2
+    assert "locations.workspace" in str(refused.value.__cause__)
+    assert quality.benchmark_trigger.calls == []
+
+
+def test_check_trigger_reports_a_checkout_refusal(quality: SimpleNamespace, tmp_path: Path) -> None:
+    quality.benchmark_trigger = Door(ConfigError("git diff failed: not a git repository"))
+    rc, _, err = call(
+        sweep.call_benchmark,
+        benchmark_cmd="check-trigger",
+        benchmark_dir=None,
+        since="v1",
+        repo_root=None,
+    )
+    assert rc == 2 and "not a git repository" in err
+    (request, since) = quality.benchmark_trigger.calls[0]
+    assert (request.checkout(), since) == (tmp_path / "workspace" / "traust", "v1")
 
 
 def test_the_scorecard_lists_the_latest_runs(quality: SimpleNamespace) -> None:
@@ -413,3 +440,28 @@ def test_the_scorecard_lists_the_latest_runs(quality: SimpleNamespace) -> None:
     quality.benchmark_scorecard = Door(BenchmarkScorecard(runs=(run,)))
     _, out, _ = call(sweep.call_benchmark, benchmark_cmd="scorecard", benchmark_dir=None)
     assert out.strip() == "2026-10-27T00:00:00Z  safe  refute_precision=1.0  severity=None  n=4"
+
+
+@pytest.mark.parametrize("source", ["explicit", "environment", "workspace"])
+def test_benchmark_trigger_resolves_repository_precedence(
+    quality: SimpleNamespace, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, source: str
+) -> None:
+    quality.benchmark_trigger = Door(BenchmarkTrigger.of("HEAD", []))
+    explicit = tmp_path / "explicit"
+    environment = tmp_path / "environment"
+    monkeypatch.delenv("BENCHMARK_REPO_ROOT", raising=False)
+    if source != "workspace":
+        monkeypatch.setenv("BENCHMARK_REPO_ROOT", str(environment))
+    root = explicit if source == "explicit" else None
+    rc, _, _ = call(
+        sweep.call_benchmark, benchmark_cmd="check-trigger", repo_root=root, since="HEAD"
+    )
+    expected = {
+        "explicit": explicit,
+        "environment": environment,
+        "workspace": tmp_path / "workspace" / "traust",
+    }[source]
+    request, since = quality.benchmark_trigger.calls[0]
+    assert rc == 0
+    assert request.workspace == expected
+    assert since == "HEAD"

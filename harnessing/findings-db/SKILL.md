@@ -46,6 +46,7 @@ re-query rather than reconciling by hand.
 ```bash
 traust findings summary  --repo-url <url> --group-by <severity|cwe|category|label|origin|validity|resolution|repository> [--open|--closed] [--validity <v>] [--as-of <ISO>]
 traust findings timeline --repo-url <url> [--bucket day|week|month] [--as-of <ISO>]
+traust findings verified-fix-mtta --repo-url <url> [--as-of <ISO>]
 ```
 
 Each read is one repository; a portfolio question runs it per repository
@@ -63,9 +64,13 @@ traust findings summary --repo-url <url> --group-by cwe --open
 # live-validation outcomes for confirmed findings
 traust findings summary --repo-url <url> --group-by validity
 
-# MTTA (VVAH plan P7): mean days from first report (detection) to fix, per
-# bucket — the "discovery -> validated fix" clock leadership will be
-# asked to compare against other harnesses (`mttr_days`; overall, not per severity)
+# Verified-fix MTTA (VVAH plan P7), grouped by effective severity:
+# first recorded report/decision activity to the first standing RESOLVED
+# decision backed by a validation or verification assessment, in elapsed days.
+# Human-only / triage closures do not qualify; retracted decisions are excluded.
+traust findings verified-fix-mtta --repo-url <url>
+
+# Overall bucketed MTTR remains a separate metric (all resolving sources).
 traust findings timeline --repo-url <url> --bucket month
 
 # which products ship the repos with open criticals

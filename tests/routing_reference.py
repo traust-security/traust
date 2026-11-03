@@ -3,16 +3,17 @@
 Adapted from generate.py and generate_primary.py at the SDK revision recorded in
 fixtures/routing/baseline.json. Execute the checked-out CLI's original AST nodes;
 do not duplicate its rules or import its deployment/I/O dependencies. Inputs and
-outputs retain the SDK fixture shape. Only temporary event/graph files are used.
+outputs retain the SDK fixture shape. Only temporary event files are used.
 """
 
 import ast
 import datetime
 import hashlib
 import json
-import sqlite3
 from pathlib import Path
 from types import SimpleNamespace
+
+from traust_core.v1.models.input_segments import InputSegment, InputSegmentInventory
 
 URL = "https://github.com/example/repository"
 REFERENCE_NAMES = {
@@ -59,7 +60,12 @@ def _assigned(node: ast.stmt, name: str) -> bool:
 def load_reference(source: Path):
     """Load current legacy definitions and its event/table block, without main I/O."""
     tree = ast.parse(source.read_bytes(), filename=str(source))
-    selected, found = [], set()
+    future = [
+        node
+        for node in tree.body
+        if isinstance(node, ast.ImportFrom) and node.module == "__future__"
+    ]
+    selected, found = future.copy(), set()
     for node in tree.body:
         names = {node.name} if isinstance(node, ast.FunctionDef) else set()
         if isinstance(node, ast.Assign):
@@ -73,13 +79,20 @@ def load_reference(source: Path):
         raise ValueError(f"missing legacy definitions: {sorted(REFERENCE_NAMES - found)}")
     namespace = {
         "Path": Path,
-        "sqlite3": sqlite3,
         "json": json,
         "_dt": datetime,
         # This corpus supplies canonical URLs; identity normalization is not tested.
         "_normalize_repo_url": lambda value: value,
     }
-    exec(compile(ast.Module(body=selected, type_ignores=[]), str(source), "exec"), namespace)
+    exec(
+        compile(
+            ast.Module(body=selected, type_ignores=[]),
+            str(source),
+            "exec",
+            dont_inherit=True,
+        ),
+        namespace,
+    )
     main = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "main")
     starts = [i for i, n in enumerate(main.body) if _assigned(n, "event_rows")]
     stops = [i for i, n in enumerate(main.body) if _assigned(n, "cc_urls")]
@@ -88,7 +101,10 @@ def load_reference(source: Path):
     # Same anchors as the original generator: include event precedence/status
     # handling, stop before additive IaC companions. No policy is rewritten here.
     loops = compile(
-        ast.Module(body=main.body[starts[0] : stops[0]], type_ignores=[]), str(source), "exec"
+        ast.Module(body=[*future, *main.body[starts[0] : stops[0]]], type_ignores=[]),
+        str(source),
+        "exec",
+        dont_inherit=True,
     )
     return namespace, loops
 
@@ -154,22 +170,22 @@ def run_primary(reference_ns, loops, supplied: dict, directory: Path) -> dict:
         today=datetime.date(2026, 9, 28),  # Original generator's fixed clock.
     )
     exec(loops, ns)
-    graph = directory / "graph.db"
-    con = sqlite3.connect(graph)
     inventory = supplied.get("Inventory")
-    try:
-        con.execute("CREATE TABLE nodes (id TEXT)")
-        if inventory is not None:
-            con.execute("INSERT INTO nodes VALUES (?)", ("repo:" + URL.removeprefix("https://"),))
-        con.commit()
-    finally:
-        con.close()
+    current_inventory = InputSegmentInventory(
+        segments=(
+            (InputSegment(name="routing-corpus", repository_urls=(URL,)),)
+            if inventory is not None
+            else ()
+        )
+    )
     designation = inventory.get("Designation", "") if inventory is not None else ""
     bootstrap = (
         []
         if supplied.get("DisableBootstrap", False)
         else ns["never_audited_rows"](
-            graph, {e["repo_url"] for e in entries}, [(URL, designation)] if designation else []
+            current_inventory,
+            {e["repo_url"] for e in entries},
+            [(URL, designation)] if designation else [],
         )
     )
     kept_indexes = [

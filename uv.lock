@@ -1486,7 +1486,7 @@ wheels = [
 
 [[package]]
 name = "traust"
-version = "0.39.5"
+version = "0.40.0"
 source = { editable = "." }
 dependencies = [
     { name = "jsonschema" },
@@ -1520,8 +1520,8 @@ requires-dist = [
     { name = "pyyaml" },
     { name = "referencing" },
     { name = "sigstore", marker = "extra == 'signing'", specifier = ">=4.0,<5.0" },
-    { name = "traust-core", git = "https://github.com/traust-security/traust-core.git?rev=e01d420262641615427ecb537a14380c90442219" },
-    { name = "traust-core", extras = ["postgres"], marker = "extra == 'postgres'", git = "https://github.com/traust-security/traust-core.git?rev=e01d420262641615427ecb537a14380c90442219" },
+    { name = "traust-core", git = "https://github.com/traust-security/traust-core.git?rev=c332eb7681ddc3aeab8334c725ab88b1aed96e65" },
+    { name = "traust-core", extras = ["postgres"], marker = "extra == 'postgres'", git = "https://github.com/traust-security/traust-core.git?rev=c332eb7681ddc3aeab8334c725ab88b1aed96e65" },
 ]
 provides-extras = ["postgres", "signing"]
 
@@ -1535,7 +1535,7 @@ dev = [
 [[package]]
 name = "traust-contracts"
 version = "0.0.0"
-source = { git = "https://github.com/traust-security/traust-contracts.git?rev=726d2736009a18184cea4eddeabaab185a117918#726d2736009a18184cea4eddeabaab185a117918" }
+source = { git = "https://github.com/traust-security/traust-contracts.git?rev=44a28255952fe967946ac58a1cee376171da98cb#44a28255952fe967946ac58a1cee376171da98cb" }
 dependencies = [
     { name = "jsonschema", extra = ["format-nongpl"] },
     { name = "pydantic" },
@@ -1545,7 +1545,7 @@ dependencies = [
 [[package]]
 name = "traust-core"
 version = "0.1.0"
-source = { git = "https://github.com/traust-security/traust-core.git?rev=e01d420262641615427ecb537a14380c90442219#e01d420262641615427ecb537a14380c90442219" }
+source = { git = "https://github.com/traust-security/traust-core.git?rev=c332eb7681ddc3aeab8334c725ab88b1aed96e65#c332eb7681ddc3aeab8334c725ab88b1aed96e65" }
 dependencies = [
     { name = "jsonschema", extra = ["format-nongpl"] },
     { name = "pydantic" },
@@ -1571,7 +1571,7 @@ postgres = [
 [[package]]
 name = "traust-ledger"
 version = "0.0.0"
-source = { git = "https://github.com/traust-security/traust-ledger.git?rev=deb46664c0f95ec32f46b42056da42f83ef2da69#deb46664c0f95ec32f46b42056da42f83ef2da69" }
+source = { git = "https://github.com/traust-security/traust-ledger.git?rev=6a5a3eef950d7657e0107dfa95bffd5829cc4fe4#6a5a3eef950d7657e0107dfa95bffd5829cc4fe4" }
 
 [[package]]
 name = "tree-sitter"

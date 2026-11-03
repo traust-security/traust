@@ -1,15 +1,14 @@
 ---
 name: portfolio-graph
 description: >-
-  Use when the user asks code-level portfolio questions or to
-  build/refresh/query the portfolio source-code graph — "which products
-  depend on module X" / CVE blast radius, "top shared libraries",
-  "internal library coupling", "rebuild the portfolio graph", "query
-  the code graph". Distinct from the retired /repo-graph (the organizational
-  coverage graph): this one holds the code-level layers — module
-  dependencies (L1), Kubernetes interfaces (L2), artifacts/SBOM (L3),
-  and symbols (L4), all implemented — read through traust-core by
-  python3 -m traust.cli.
+  Use when the user asks code-level portfolio questions, fleet API-group coupling,
+  package import/export evidence, or to build an organizational repository
+  relationship map. Native SBOM and code-facts services answer dependencies (L1),
+  Kubernetes interfaces (L2), image modules (L3) and exports/imports (L4);
+  `portfolio graph` derives offline interactive HTML, JSON/DOT/GEXF and
+  hub/coverage statistics without restoring SQLite graph storage. Read-only
+  crown-jewel draft, IaC census and organization index views complement these
+  sources; unsigned crown-jewel proposals never authorize dispatch.
 metadata:
   harness.tier: "secondary"
 allowed-tools:
@@ -80,20 +79,17 @@ as the authoritative coverage denominator —
 consumers prefer it over the
 language-cache count, which overcounts repos that declare a language but
 carry no manifest.
-**Implemented: L0 spine (*retired*: traust-core's inventory) + L1 dependencies + L2 Kubernetes interfaces**
-(CRD ownership/requirement from manifests and CSVs, webhook interception,
-RBAC grants aggregated per API group, code-side consumption evidence from
-API-group literals — extracted by `scan_k8s_hardening`'s interface signals:
-`python3 -m traust.cli adapters checkov <checkout>` → `tenancy_signals`; the
-fleet clone sweep is *retired*) **+ L3
-artifacts** (each image's SBOM recorded in traust-core with its declared
-source commit — run `python3 -m traust.cli adapters image-sbom
-<name>@<digest> --sbom <cdx.json> [--repo-url <url> --sha <commit>]`
-after new container audits; `adapters image-packages` reads it) **+ L4
-symbols** (*retired* with the graph: exported symbols per commit are
-traust-core code facts; the per-package import aggregation and the
-`exports-of` / `imports-package` queries went with it). All planned
-layers are now implemented.
+**Implemented through native owners:** inventory and release/ref/owner relationships
+(L0), manifest and image SBOMs (L1/L3), persisted Kubernetes interface facts (L2),
+and package imports/exports with source locations (L4). `portfolio facts-collect`
+collects pinned default heads through the shared checkout cache and records
+code-facts assessments. Its module declarations populate package-producing
+repository provenance; conflicting producers are refused, not guessed.
+
+`portfolio graph` derives the relationship export and interactive view from
+these native inventory/assessment owners. It never reads or rebuilds the
+retired SQLite graph. Unsigned `portfolio crown-jewel-draft` is review input
+only and never changes approved crown-jewel facts or authorizes dispatch.
 
 ## Prerequisites
 
@@ -113,9 +109,11 @@ layers are now implemented.
 # One commit's dependencies into traust-core (syft over the checkout):
 python3 -m traust.cli impact sbom --repo-url <url> --sha <commit>
 
-# Layer 2 — one checkout's interface signals (`tenancy_signals`); the
-# fleet clone sweep (`portfolio interfaces`) is retired
-python3 -m traust.cli adapters checkov <checkout> -o <repo>-k8s-hardening.json
+# Fleet package imports/exports and API-group ownership/consumption:
+python3 -m traust.cli portfolio facts-collect
+# Or select pinned commits/materialized checkouts explicitly:
+python3 -m traust.cli portfolio facts-collect --repository-ref-id <uuid> \
+  --checkout <uuid>=<checkout>
 
 # Per-release dependencies (was `build --enrich-refs`): ingest the
 # supported release branch's commit like any other
@@ -123,11 +121,19 @@ python3 -m traust.cli impact sbom --repo-url <url> --sha <release-commit>
 
 # Coverage and shared packages (was `portfolio stats`)
 python3 -m traust.cli dashboard view dependency-reach --out analysis-results/graph
+
+# Relationship JSON/DOT/GEXF, interactive HTML and top-20 hub report:
+python3 -m traust.cli portfolio graph --out analysis-results/graph
+
+# Read-only analytical outputs; the crown-jewel result remains unsigned:
+python3 -m traust.cli portfolio crown-jewel-draft --out <dir> --tier1-size 20
+python3 -m traust.cli portfolio iac-census --out <dir>
+python3 -m traust.cli portfolio org-index --out <dir>
 ```
 
-The `.db` and its stats pair are *retired*: nothing is built or committed.
-Report the unmeasured repositories from `dependency-reach` — they are
-uncovered graph surface, not absence of dependencies.
+The SQLite graph database remains retired. Export files are disposable
+presentations; recorded source facts remain authoritative. Report unmeasured
+repositories and provider gaps, never infer absent dependencies from a missing scan.
 
 ## Query
 
@@ -146,14 +152,16 @@ python3 -m traust.cli portfolio dependents --name left-pad --ecosystem npm
 # repositories whose default-branch manifest holds them)
 python3 -m traust.cli dashboard view dependency-reach --out <dir>
 
-# Portfolio-owned libraries most depended on by portfolio repos:
-# *retired* (`internal-coupling`): traust-core records no package's
-# producing repository yet
+# Portfolio-owned libraries ranked by distinct dependent repositories:
+python3 -m traust.cli portfolio internal-coupling
 
-# Everything coupled to one API group: CRD owners, requirers, code
-# consumers, RBAC granters, webhook interceptors — per repository, from
-# its checkout's `tenancy_signals` (the fleet-wide `crd-consumers` is retired)
-python3 -m traust.cli adapters checkov <checkout> -o <repo>-k8s-hardening.json
+# API-group owners, consumers, RBAC grants and webhook interceptors:
+python3 -m traust.cli portfolio crd-consumers route.openshift.io
+
+# Persisted import/export evidence and image SBOM module presence:
+python3 -m traust.cli portfolio imports-package example.org/internal/api
+python3 -m traust.cli portfolio exports-of --repository-ref-id <uuid>
+python3 -m traust.cli portfolio ships-module example.org/internal/api --ecosystem go
 
 # traust-core: one commit's packages, then the commits a package reaches
 # (directly, through a base image or an internal library)
@@ -161,8 +169,9 @@ python3 -m traust.cli portfolio dependencies --repo-url <url> --sha <commit>
 python3 -m traust.cli portfolio dependents --package-id <package_id>  # or --ecosystem + --name
 ```
 
-Anything beyond the canned set: *retired* with the SQLite graph (no
-`nodes` / `edges` schema to query). Keep interpretation with the skill run: version
+The derived `repo-graph.json` exposes typed nodes, relationships and statistics
+for read-only relationship questions; it is not a writable graph database.
+Keep interpretation with the skill run: version
 ranges matter (a dependent pinned below the vulnerable range is not in the
 blast radius — check `version` before declaring impact), `indirect: true`
 edges need reachability judgment (`run_govulncheck.py` output when
@@ -220,11 +229,9 @@ portfolio, so that row guards the guard.
 
 ## Integrations
 
-**Consumes:** traust-core's inventory, each commit's checkout (syft,
-`adapters checkov`) and image SBOMs. Was: `repo-graph.json` as its L0 spine — a stale repo-graph yields a
-portfolio-graph with the wrong repo set, so `/repo-graph` was a prerequisite
-rather than an alternative (it is retired: the existing spine is the last one). Then the repos' own manifests and source for
-L1–L4.
+**Consumes:** traust-core's inventory, shared pinned checkouts, recorded code-facts,
+manifest SBOMs and image SBOMs. Optional source-inventory hierarchy is read by
+the shared `InputSegments` provider, not imported as another portfolio authority.
 
 **Emits:** each commit's manifest SBOM and each image's SBOM, recorded in
 traust-core (*retired*: `analysis-results/graph/portfolio-graph.db`, SQLite
@@ -236,8 +243,9 @@ advisory blast radius; `/pqc-readiness` for product rollups, the vendor
 tracker and crypto-dependency scans; `/isolation-review` to resolve a
 service's repo set; `/fleet-fix` to select every repo affected by one
 systemic pattern; `/dependency-watch` for the fleet advisory sweep;
-`/refresh-dashboards` for dependency exposure; plus the rescan worklist and
-crown-jewel tiering in `src/traust/`.
+`/refresh-dashboards` for dependency exposure; plus the rescan worklist and the
+unsigned `portfolio crown-jewel-draft` proposal. Organization navigation and
+IaC census/worklists are available through `portfolio org-index` and `iac-census`.
 
 **Staleness:** *retired* with the graph: `/drift-watch`'s `portfolio-graph` row
 (was: `stale` when the graph predates the inputs inventory's HEAD). A stale graph *understates* blast radius — an advisory sweep

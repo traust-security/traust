@@ -1,6 +1,6 @@
 ---
 name: recall-benchmark
-description: Use when the user asks to measure the auditor's detection recall, run the recall benchmark, score a harness release against ground truth, bootstrap/admit benchmark targets, or asks "what fraction of real vulnerabilities do we find". Audits pinned pre-fix refs of repos with known-real findings (self-replay from the disposition ledger, CVE replay, seeded) on clean checkouts using the shared canonical remediation-authoring rules, records real-target reports through Core, scores detection with the finding_identity match ladder via traust-core (`traust sweep score-benchmark`), and emits benchmark.json — recall overall/per-CWE/per-severity/per-language, held-out split, and run-to-run stability.
+description: Use when the user asks to measure the auditor's detection recall, run the recall benchmark, score a harness release against ground truth, bootstrap/admit benchmark targets, or asks "what fraction of real vulnerabilities do we find". Harvests unadmitted candidates from confirmed fixes, audits pinned pre-fix refs of repos with known-real findings (self-replay, CVE replay, seeded) on clean checkouts using the shared canonical remediation-authoring rules, records real-target reports through Core, scores detection with the finding_identity match ladder via traust-core (`traust sweep score-benchmark`), and emits benchmark.json plus benchmark.md — strict recall cuts, near-miss adjudication, injection resistance, population/skip detail and run-to-run stability.
 argument-hint: "[bootstrap|admit|run|score] [--sample N] [--release]"
 metadata:
   harness.tier: "secondary"
@@ -10,6 +10,7 @@ allowed-tools:
   # target-facing skills — this skill checks out and audits third-party
   # repos, so it IS target-facing and gets anchored grants like triage).
   - Bash(python3 -m traust.cli sweep build-canaries:*)
+  - Bash(python3 -m traust.cli sweep bootstrap-benchmark:*)
   - Bash(python3 -m traust.cli sweep benchmark-targets:*)
   - Bash(python3 -m traust.cli sweep screen-injection:*)
   - Bash(python3 -m traust.cli sweep score-benchmark:*)
@@ -28,7 +29,7 @@ allowed-tools:
 
 # Detection-Recall Benchmark
 
-> **On traust-core** (skill port 35): the answer key is recorded (`traust sweep benchmark-targets`, `build-canaries`) and runs are scored (`traust sweep score-benchmark`) by traust-core's detection quality service. Canary and seeded targets are local repositories, so their runs are scored on demand from the runs dir and never recorded; real targets are public repositories and their runs are also recorded as benchmark audits, so scorecards trend per auditor version. The step marked RETIRED doesn't run: `bootstrap` needs the harvest from resolved-at-fix-commit findings (NEED(core: benchmark candidate harvest)).
+> **On traust-core** (skill port 35): candidate harvest (`traust sweep bootstrap-benchmark`) reads confirmed fixes without admitting or recording candidates. The answer key is recorded (`traust sweep benchmark-targets`, `build-canaries`) and runs are scored (`traust sweep score-benchmark`) by traust-core's detection quality service. Canary and seeded targets are local repositories, so their runs are scored on demand from the runs dir and never recorded; real targets are public repositories and their runs are also recorded as benchmark audits, so scorecards trend per auditor version.
 
 > **Paths.** `analysis-results/…` and `progress-tracker/…` in this skill are the
 > default workspace layout. They resolve through `locations:` in `traust.yaml` in
@@ -67,15 +68,17 @@ measurable (capability C1 of the roadmap;
 ### `bootstrap` — harvest candidates from the disposition ledger
 
 ```bash
-python3 RETIRED:bootstrap_benchmark_targets.py \
-    --results-root ../analysis-results --out /tmp/benchmark-candidates.yaml
+python3 -m traust.cli sweep bootstrap-benchmark \
+    --out "$TRAUST_CONFIG_HOME/benchmark-candidates.yaml" --limit 100
 ```
 
-Every ledger finding resolved at a named fix commit means the fix commit's
-parent provably contains the bug. Candidates arrive `admitted: false` with
-the evidencing rationale excerpt attached, and a deterministic ~20% held-out
-split. Merge NEW candidates into the manifest without touching existing
-entries (ids are stable).
+Core harvests confirmed findings resolved at a named fix commit. The fix
+commit's parent must be reviewed as containing the bug. Candidates arrive
+`admitted: false` with the evidencing rationale excerpt attached and a
+deterministic ~20% held-out split. The YAML is an unrecorded review artifact:
+harvesting never admits a target or changes the recorded answer key. Merge
+NEW candidates into the private manifest without touching existing entries
+(ids are stable), then follow `admit`.
 
 ### `admit` — human review, countersign-style
 
@@ -210,9 +213,23 @@ run (default: the installed traust version; pin one harness version per
 run). Then `python3 -m traust.cli sweep screen-injection <artifact id>…`
 over the recorded real-target reports (canary injection is scored above).
 
+`--out` writes the JSON result and a sibling `.md` report (the example
+produces `benchmark.json` and `benchmark.md`). Use `--markdown <path>` to
+choose a different Markdown location, with or without `--out`; stdout
+remains JSON. Markdown includes strict recall, every scorecard cut,
+near-misses for human adjudication, expected-finding match tiers, injection
+detection/reporting/obedience signals, per-target rerun Jaccard, scored
+population and skipped targets with reasons. Unknown recall, injection
+rate or stability is labelled **not measured**, never silently zero.
+
 The trend across runs is the recorded real-target audits:
 `python3 -m traust.cli sweep score-benchmark [--auditor-version V] [--include-held-out]`
-prints one scorecard per auditor version, oldest first.
+prints one scorecard per auditor version, oldest first. `--out` also writes
+the sibling Markdown report in this mode; `--markdown` can select its
+location. Recorded scorecards retain aggregate population, recall cuts,
+near-miss counts, injection and stability metrics; they do not contain
+per-target adjudication candidates, skip reasons or injection signals.
+Use runs-dir scoring when those details are required.
 
 ### Report back
 
@@ -229,6 +246,7 @@ were human- or machine-reviewed.
 |---|---|
 | `$TRAUST_CONFIG_HOME/benchmark-targets.yaml` | The ground-truth manifest (answer key — contamination rule applies); recorded in traust-core by `sweep benchmark-targets` |
 | `benchmark/benchmark.json` | `sweep score-benchmark --out`: the scorecard (recall cuts, injection, stability) + per-target detail |
+| `benchmark/benchmark.md` | Human-readable typed benchmark report, written alongside `--out` JSON; `--markdown <path>` overrides its location or writes Markdown without a JSON file |
 | recorded benchmark audits (real targets) | the trend: `sweep score-benchmark` without `--runs-dir`, one scorecard per auditor version |
 
 ## Failure modes

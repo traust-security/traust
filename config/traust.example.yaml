@@ -67,6 +67,13 @@ execution:
 #   fork_org: example-mirrors   # private mirror org fixes are pushed to; no shipped default
 #   private_forge_hosts: [gitlab.example.com]   # forges whose repos are their own downstream fork
 
+# compliance:                   # official docs for products registered in the record store
+#   docs_targets:
+#     "4ea36226-c5c2-44cf-9071-11adae2de180":  # replace with your registered product's UUID
+#       product_slug: red_hat_enterprise_linux  # docs.redhat.com URL segment, not product identity
+#       version: "9"            # quote version strings
+#       guides: [security_hardening]  # omitted or []: discover every guide on the landing page
+#
 # campaign:                     # only if reports cite a tracking reference
 #   tracking_reference: SEC-2026-Q4
 

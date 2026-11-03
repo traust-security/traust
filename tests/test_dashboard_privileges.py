@@ -105,4 +105,4 @@ def test_a_time_without_a_zone_is_exit_2_and_writes_nothing(
 def test_the_retired_privileges_op_is_gone() -> None:
     from traust.cli.groups.dashboard import DASHBOARD
 
-    assert sorted(DASHBOARD) == ["refresh", "sla-policy", "team-report", "view"]
+    assert "privileges" not in DASHBOARD

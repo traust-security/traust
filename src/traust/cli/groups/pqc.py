@@ -15,4 +15,9 @@ PQC: dict[str, object] = {
     "vendor-claims": passthrough_op(
         "pqc", "Record the next version of the curated vendor claims.", "vendor_claims"
     ),
+    "worklist": passthrough_op("pqc", "Rank the scoped repository sweep.", "worklist"),
+    "sweep": passthrough_op("pqc", "Prescan a bounded, resumable repository batch.", "sweep"),
+    "repair": passthrough_op(
+        "pqc", "Derive missing remediations and repair report companions.", "repair"
+    ),
 }

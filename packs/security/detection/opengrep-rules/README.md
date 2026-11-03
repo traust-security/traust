@@ -49,6 +49,50 @@ is available:
 pytest tests/test_default_rule_packs.py -q
 ```
 
+### Fixture sanity and confirmed-TP calibration
+
+The calibration door can run scans as well as score recorded ones:
+
+```bash
+# No TP corpus needed: scan this pack's colocated fixtures.
+traust impact calibrate-rule-pack traust --fixtures --out /tmp/pack-sanity
+
+# An external pack's own tests/ tree; remote sources must name a full commit SHA.
+traust impact calibrate-rule-pack candidate --fixtures \
+  --rules /path/to/candidate-pack --out /tmp/candidate-sanity
+
+# Check out the recorded commits of confirmed TPs and rescan with the candidate rules.
+traust impact calibrate-rule-pack candidate --rules /path/to/candidate-pack \
+  --limit 20 --timeout 900 --out /tmp/candidate-calibration
+
+# Existing recorded-scan scoring remains available (no checkouts or new scans).
+traust impact calibrate-rule-pack traust --scan <assessment-uuid> --scan <assessment-uuid>
+```
+
+Without `--scan` or `--fixtures`, Core acquires each distinct confirmed-TP
+commit through its checkout service, scans it with its opengrep provider, and
+releases every workspace. It never substitutes a repository's current HEAD for
+the recorded commit. Missing commit bindings and an explicit `--limit` are
+reported as skips; checkout/scanner failures retain their reasons. Findings
+are not ingested and no vulnerability verdict is authored.
+
+`--fixtures` scans the source's `tests/` directory, or the pack's colocated
+annotated fixtures when it has no `tests/`. This is a scanner/pack sanity gate,
+not the `ruleid:`/`ok:` assertion gate: continue to run `opengrep test` above.
+An absent/empty fixture tree or unavailable scanner is refused, never reported
+as a successful zero-hit run. A run with no files scanned, engine errors,
+skipped rules, or a nonzero scanner exit is incomplete.
+
+`--out` writes `calibration.json`, `summary.md`, and `review-samples.jsonl`.
+Live results include per-commit scan counts/failures, path-level rediscovery,
+novel hits for human review, and aggregate volume; fixture results include
+their actual scan counts and a bounded sample of matches. Novel hits are
+review candidates, not false positives or measured precision.
+Completed runs exit 0; incomplete/failed runs emit their evidence and exit 1;
+invalid inputs or unavailable prerequisites exit 2. `--opengrep-bin` can name
+the scanner's executable path, subject to the configured Core process policy.
+
+
 ## Rule conventions
 
 - **ids:** `traust-<lang>-<category>-<slug>` where `<category>` is a kebab-case

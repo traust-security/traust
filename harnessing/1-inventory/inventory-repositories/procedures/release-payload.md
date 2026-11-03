@@ -166,7 +166,7 @@ Structure:
 
 ## Step 7 — Register the repositories and their owners
 
-`traust portfolio onboard --product <segment> --label <label> --repo <URL>…`
+`traust portfolio onboard --product <segment> --label <label> --payload-version <version> --repo <URL>…`
 (every repository in the CSV), then follow the ownership resolution procedure
 in the [parent skill](../SKILL.md#ownership-resolution).
 
@@ -182,13 +182,14 @@ Re-running it for the same payload changes nothing; a different commit set
 for a version already recorded is refused (a release doesn't change), and so
 is a commit whose repository isn't registered (nothing is written).
 
-*Retired*: `<inputs>/<segment>/owners.csv` (see the parent skill's owners.csv
-schema).
+`traust portfolio inventory-export --format csv` provides the durable joined owner/contact/
+tracker handoff; it includes the declared payload version and any recorded release versions.
 
 ## Step 8 — Tracker columns
 
-*Retired with `owners.csv`*: traust-core has no `Jira Project` /
-`Jira Component` column.
+If the deployment supplies tracker routes, import its declared reference with
+`traust portfolio import-reference --source <declared.yaml>` before exporting.
+Otherwise leave Jira and escalation fields empty; do not infer destinations.
 
 ---
 

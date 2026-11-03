@@ -19,6 +19,7 @@ from traust_core.v1.context import Context
 from traust_core.v1.errors import ConfigError
 from traust_core.v1.models.common import Cursor, Page
 from traust_core.v1.models.inventory import Liveness, RepositoryFilter
+from traust_core.v1.models.vocabulary import LivenessStatus
 
 from traust.cli import portfolio_liveness
 
@@ -26,6 +27,7 @@ WHEN = datetime(2026, 10, 1, tzinfo=UTC)
 ACTIVE = Liveness(
     repository_id=uuid.uuid4(),
     url="https://github.com/example-org/active",
+    status=LivenessStatus.ACTIVE,
     observed_at=WHEN,
     archived=False,
     pushed_at="2026-09-30T12:00:00Z",
@@ -34,6 +36,7 @@ ACTIVE = Liveness(
 ARCHIVED = Liveness(
     repository_id=uuid.uuid4(),
     url="https://github.com/example-org/archived",
+    status=LivenessStatus.ARCHIVED,
     observed_at=WHEN,
     archived=True,
     pushed_at="2024-01-02T00:00:00Z",
@@ -119,3 +122,45 @@ def test_liveness_refusal_exits_2_with_the_reason(doors, home):
 
     assert rc == 2
     assert "liveness reads observations through AssessmentService" in err
+
+
+def test_liveness_serializes_moved_missing_disabled_and_unknown_without_rederiving_status(
+    monkeypatch: pytest.MonkeyPatch, home: Path
+) -> None:
+    statuses = (
+        LivenessStatus.MOVED,
+        LivenessStatus.MISSING,
+        LivenessStatus.DISABLED,
+        LivenessStatus.UNKNOWN,
+    )
+    rows = tuple(
+        Liveness(
+            repository_id=uuid.uuid4(),
+            url=f"https://github.com/example-org/{status}",
+            status=status,
+            observed_at=WHEN,
+            status_since=WHEN,
+            canonical_url="https://github.com/example-org/new-name"
+            if status == LivenessStatus.MOVED
+            else None,
+            archived=False if status == LivenessStatus.MOVED else None,
+            unobserved="no-credentials" if status == LivenessStatus.UNKNOWN else None,
+        )
+        for status in statuses
+    )
+    service = SimpleNamespace(liveness=lambda filter, page: Page(items=rows))
+    monkeypatch.setattr(Context, "services", lambda self: SimpleNamespace(portfolio=service))
+    rc, out = run(home)
+    assert rc == 0
+    assert out["counts"] == {"disabled": 1, "missing": 1, "moved": 1, "unknown": 1}
+    assert len(out["repos"]) == 4
+    for row in rows:
+        exported = out["repos"][row.url]
+        assert exported["status"] == row.status.value
+        assert exported["status_since"] == WHEN.isoformat().replace("+00:00", "Z")
+        assert exported["observed_at"] == WHEN.isoformat().replace("+00:00", "Z")
+        assert "repository_id" not in exported
+    moved = out["repos"][rows[0].url]
+    assert moved["canonical_url"] == "https://github.com/example-org/new-name"
+    assert moved["archived"] is False
+    assert out["repos"][rows[-1].url]["unobserved"] == "no-credentials"

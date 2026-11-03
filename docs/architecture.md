@@ -236,11 +236,12 @@ given config concern: [components.md](components.md).
 Deterministic tooling is split by how many skills use it (the placement
 rule in AGENTS.md): a single skill's helpers sit in that skill's
 `scripts/`; CLIs shared across skills are package modules under
-`src/traust/cli/` (ops runners and one-shot migrations under
-`ops/` and `migrations/`); scanner adapters, the corpus resolver,
-reporting, safe-exec and the model registry live in the sibling
-`traust_engine` package; ledger integrity, identity and signing live in
-`traust_ledger`. Skills invoke all of them as `python3 -m <module>` from
+`src/traust/cli/`. Ops runners remain in the app; adopter-portable migrations
+stay with their owning package and deployment-specific one-shots stay private.
+Core owns scanner providers, canonical intake/reporting, safe execution and the
+model catalogue behind its public Context/services API. The engine runs orders
+through that API; the ledger library supplies pure integrity/signing primitives
+to Core's ledger service. Skills invoke their app CLIs from
 the harness venv. Per-language deterministic coverage (reachability
 engines, fuzzers, rule packs) is mapped in
 [language-support.md](language-support.md).
@@ -249,3 +250,38 @@ There is no hand-maintained catalogue of scripts. The list of skills is
 generated ([skills.md](skills.md)); each CLI documents itself in its
 module docstring and `--help`; which repository owns a module, and which
 one to change for a given fix, is [components.md](components.md).
+
+## Core cutover compatibility decisions
+
+The current adapters expose domain use cases through Core; a removed private
+script is not a permission to remove its supported use case. These decisions
+describe this implementation and are proposed for review with the cutover PR,
+not attributed retroactively to an earlier owner approval.
+
+| Capability | Owner and compatibility decision |
+|---|---|
+| Configuration and identity | Core owns the typed deployment configuration and authenticated caller. Adapters resolve explicit configuration before choices or execution; they do not invent login state or read a second configuration store. |
+| Static code facts | Core enumerators own static expansion and explicit coverage gaps. CLI metadata, configurable matrix limits, offline facts and serialized field names remain supported; static candidates never become findings merely by enumeration. |
+| Finding intake and correction | Core owns canonical intake, report bindings and disposition precedence. A ticketed human correction changes the existing claim without manufacturing a new assessment or validity decision. |
+| Validation | Source labels are not database UUIDs. Machine recording uses explicit bindings; scope, attestation, controls and differential evidence retain their distinct failure states. Probe observations, not helper names or prose, determine soundness. |
+| Compliance | Typed checks retain preconditions, uncertainty and evidence provenance. Per-control Markdown, OSCAL stability comparison and field precision are different outputs and remain separate from aggregate posture. Official documentation requires declared source coordinates. |
+| Dependency exposure | Advisory providers own source ranges and fixes, including exported offline records. Same-vulnerability aliases retain every contributing package, version, source and fix. Ordinary unfixed advisories remain visible; fix availability is metadata, not a silent retention gate. |
+| Exposure history | One complete preparation scope may produce several package packets. Partial replacement evidence cannot clear the last complete snapshot; a completed corrected snapshot can remove obsolete package versions. Historical queries select the complete evidence available at their cutoff. |
+| Remediation and verification | Core owns work items, fork policy, progress and verification evidence. Explicit rollup targets and branch scope remain supported; impact filters intersect requested scope and never widen an empty selection. Replays do not imply another verification run. |
+| Detection quality | Recorded misses and pre-intake campaign candidates are separate populations. Bootstrap emits unadmitted candidates, not answer-key truth. Replay presence, detection, review and missed outcomes remain distinct; sanitizer execution still requires its approved boundary. |
+| Inventory references | Service labels, ownership provenance, contact and tracker routing are declared outside-authoritative facts. Missing values remain unknown. Corpus caveats use the existing registry note instead of a new database field. |
+| Repository topology | Native inventory, relationships and recorded package/interface facts feed graph queries and exports. Unregistered declared URLs stay visible. An unsigned crown-jewel proposal does not change an approved designation. |
+| Repository availability | The portfolio liveness owner distinguishes unqueried, unknown, moved and missing. Failed observations do not invent a commit or erase the last genuine successful ref. |
+| PQC | Package discovery does not require the readiness assessment it is meant to trigger. Historical repair preserves supplied evidence; ranked/bulk workflows use explicit selectors and checkpoints, not fabricated readiness or guessed external fixes. |
+| Report composition | Executive, scoreboard, validation/fuzz, trend and pattern views preserve their supported domain cuts and detail. A link to an unrelated view is not a substitute for an embedded use case. Unmeasured values are not zero. |
+| Temporal metrics | Captured as-reported bytes are separate from recomputation at `as_of`. Optional current-rate repricing never rewrites settled dollars. First-party estimates require an explicit calibration input; no automatic global divisor is asserted. |
+| Review overrides | Suppressed scanner results remain excluded by default; an explicit review override can include them. Optional signature verification reports integrity failures without conferring finding validity or authorization. |
+| Operational freshness | Provider readiness, upstream release age, registry age, schema compatibility and measured-language coverage answer different questions. The surviving worklist retains its age backstop. |
+| Interim rescan population | Native input inventory replaces the graph bootstrap. The registered rescan builder still consumes its explicit legacy findings projection for population, report paths and IaC-baseline selection; this is not a claim that the whole router has migrated or that its projection is Core's authoritative finding store. |
+| Retired layer export | Legacy layer-store replay/export remains retired. Native layer/event reads are distinct from importing external source statements; `findings import` is not described as a snapshot-export replacement. |
+
+Rendering and transport do not create authority: structured untrusted text is
+escaped by its format's existing renderer, unknown metadata is not guessed, and
+reference declarations do not establish execution evidence. Existing approved
+retirements remain retired; the compatibility work restores their actual retained
+consumers rather than adding deprecated aliases or parallel stores.

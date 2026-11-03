@@ -87,6 +87,13 @@ The current track-findings human review workflow is documented in the
 queue, request, direct judgement and apply use core services, never retired
 layer-writing paths.
 
+For triage specifically, use `traust triage record <assessment-id> <triage.json>
+--repo <checkout>`: `FindingDecisions.record` binds every verdict to that assessment,
+records its decision/review atomically and seals through core's ledger owner.
+`traust findings refuted --repo-url <url>` reads the false-positive register.
+The 2026-10-23 triage hub retirement replaced `emit_triage_ledger_events.py`;
+its historical row above is not an executable route or a skill permission.
+
 ---
 
 ## 3. The two findings-carrying routers

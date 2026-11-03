@@ -2,15 +2,122 @@
 
 All notable changes to Traust are documented here.
 
+## [0.40.0]
+
+- Preserve complete dotted report stems when materializing native view artifacts, so container
+  findings never overwrite a neighboring code-audit report.
+- Route inventory CSV and PQC worklist Markdown through Core's safe public rendering doors
+  rather than importing the retired engine package.
+- Exercise native critical-candidate export and verified-fix accounting with supported local
+  stores and attributed human decisions; retain supplied impact evidence and branch-aware
+  sweep identities without depending on incidental renderer wording or optional-field shape.
+- Keep the independent routing oracle's future annotations and typed input inventory, allow
+  remote-only contexts without attempting local release discovery, and report doctor path
+  provenance without mistaking resolved convention defaults for explicit deployment settings.
+- Align compliance and LoC command wrappers with their native producer/consumer handoffs and
+  regenerate the skills reference from the final skill sources.
+- Restore config-matrix triple limits and generation/parser/statistics diagnostics
+  without weakening credential redaction or hiding cap-related coverage gaps.
+- Restore `traust check script-placement` over static Python callers, registration
+  entries and nested skill references.
+- Correct the retired ledger-pull documentation: layer snapshot export is not
+  external finding-statement intake.
+- Restore detection-quality operator workflows on Core: unadmitted confirmed-fix benchmark
+  harvesting, human-readable benchmark scorecards, semantic reference/offline-fact compilation,
+  fixture sanity and integrated pinned-corpus rule-pack rescans.
+- Add pre-intake critical-miss reporting and external advisory replay/oracle routes without
+  manufacturing findings; preserve presence uncertainty, near-match review and routing state.
+- Expose compliance field precision with a configurable review gate and JSON/Markdown exports.
+- Export cached sweep candidates at newly requested destinations, restore benchmark checkout
+  defaults, and migrate checked-in rule-draft verification instructions to the supported CLI.
+- Retain declared service labels, ad-hoc intake kind, owner hints/provenance and external
+  manager/BU/contact/tracker routes through inventory onboarding and joined JSON/CSV export.
+- Round-trip corpus boundary caveats with `products add/update --note` using the existing
+  registry note, preserving other subjects and document-level text.
+- Populate SLA escalation digests with trusted product-definitions contact joins and source/
+  embargo metadata; unavailable registries do not invent contacts or routes.
+- Restore native portfolio relationship exports, offline interactive graph navigation,
+  coverage statistics and top-20 hubs without reviving SQLite graph storage.
+- Record fleet Kubernetes interface and package import/export facts; expose reverse API-group,
+  internal-library coupling and image-module queries with declared producer provenance.
+- Add unsigned weighted crown-jewel proposals, fleet IaC census/baseline worklists and
+  organization-to-assessment artifact navigation. Draft proposals never authorize dispatch.
+- Discover inventory image and watched dist-git changes through native feed snapshots, then
+  plan pinned container/RPM passthrough audit batches and applicable source threat reviews.
+- Preserve moved, unavailable and disabled forge observations with stable repository identity
+  and transition timestamps; migrate corpus-intake to the supported native census command.
+- Restore executive ATT&CK, PQC, isolation-review and declared-IaC composition, measured
+  RBAC-surplus rankings and canonical-advisory filed/resolved accountability.
+- Restore input-segment matrices with declared first-match priority, overlap, unmapped
+  and excluded-only accounting, without conflating segments with product/team scope.
+- Compose census, systemic patterns, validation/fuzz and versioned benchmark recall into
+  the leadership scoreboard; report harness checkout maturity with a separate measurement
+  time and explicit unknowns. Threat registers include corpus ownership cuts.
+- Restore observed and attempted ATT&CK validation-chain coverage from bound,
+  integrity-checked reports; invalid target evidence never establishes exploitation.
+- Restore validation claimed-severity versus verified-outcome matrices, target check
+  coverage, confirmed-Critical check provenance and per-chain step/narrative detail.
+- Restore evidence-based findings-trend OWASP distributions and High/Critical
+  percentages using recorded CVSS vectors and historical EPSS/KEV snapshots.
+  Include corpus ownership cuts, HEAD/branch/unknown coverage cohorts, assurance
+  deltas, FP-override identities and located hardening/vulnerability co-location
+  in JSON, Markdown and HTML; unknown measurements are not fabricated.
+- Restore insecure-patterns source-code filtering, reviewed CWE/ASVS/fix metadata,
+  top-50 summaries with complete per-pattern detail, and a script-free interactive
+  HTML explorer. Include reconciliable population/exclusion counts and timestamped
+  historical trends without restoring the retired metrics ledger.
+- Restore aggregate product-registry age, upstream tool-release age/lag and a bounded
+  stored-PQC-schema compatibility warning without conflating age with readiness.
+- Warn on unsupported dominant portfolio languages independently of reported audit
+  gaps, and retain the dated reachability-review clock.
+- Cut rescan bootstrap over to the current typed inputs inventory, including unregistered
+  URLs, removing obsolete SQLite graph authority and its override. Keep the surviving
+  worklist-age backstop and effective configured cache/worklist locations.
+
 ## [0.39.5]
 
 - Treat answering HTTP 4xx targets as reachable in browser preflight attestation,
   while transport, TLS and HTTP 5xx failures still invalidate the target.
 - Fail the config/docs estate gate on malformed configured vocabulary and retain
   universal rules; an absent vocabulary remains the unconfigured checkout case.
-
 ## [0.39.4]
 
+- Preserve spend calibration repo/size/batch/note and complete request/cache evidence;
+  expose it through `registry models calibration`. Add optional current-rate comparisons
+  without changing settled dollars, plus workstation BU reporting from original
+  transcript paths and existing corpus ownership, with unknowns kept unattributed.
+- Restore immutable as-reported scoreboard, executive-summary and threat-register bundles
+  with methodology notes, digest-linked history, original-byte export and previous-report,
+  same-time recomputation or current-state comparisons.
+- Restore historical measured LoC comparisons, explicitly calibrated opt-in first-party
+  estimates and a trusted offline JSON explorer with repository/language/size filters,
+  sorting and language-mix strips; keep portable report HTML script-free.
+- Restore bulk `feeds reconcile-cve-provenance` on Core's recorded audits and feeds:
+  score thresholds, dry-run JSON reports, branch-specific lead days and distinct-CVE
+  counts, with explicit idempotent `--apply` finding links and preserved primary conflicts.
+- Preserve every known advisory alias's ecosystem/package/version ranges and fixes
+  through fleet sweep and analyze, including fixed-only non-selected aliases.
+  Keep severity-qualified nonmalicious advisories without fixes visible.
+- Cut Core impact preparation over to complete per-package/version tuples and
+  migrate every caller; authenticated impact-inputs HTTP/OpenAPI returns the full array.
+- Retain complete impact preparation scopes: partial newer packets cannot clear
+  prior exposure, complete corrected SBOM snapshots replace obsolete package versions,
+  and summary/timeline count the worst package verdict once per commit/advisory.
+- Restore repeatable exported OSV `--advisory-file` inputs across impact lookup,
+  symbols, package, analyze and sweep without live fallback; generated argv retains them.
+- Cut dependency-watch's active command over to Core analysis/intake and current
+  classification/finding-ID reporting, with explicit plan-only dry-run behavior.
+- Restore advisory-wide `impact export` over native recorded documents, preserving
+  every classification, package/version and evidence payload without new storage.
+  Wire `remediation verify-sweep --impact-filter` to affected/likely repository
+  scope, intersecting explicit targets and preserving an empty result.
+- Restore PQC bootstrap crypto-package discovery across registered manifest SBOMs,
+  including repositories without readiness assessments.
+- Add ranked PQC worklists and bounded, resumable corpus prescans with stale-pack
+  refresh, evidence-based SBOM-only/access-request routing and the pinned scanner provider.
+- Add validated, non-destructive historical PQC report/companion repair, and
+  compose sweep progress plus general-audit PQC findings and verification regressions
+  into both PQC dashboards without manufacturing readiness.
 - Check sandbox routing per target-build command; prose, comments, imports, and unrelated
   safe-exec calls cannot hide a direct build. Go build/test invocations are recognized
   without package arguments, including at command endings and shell separators.
@@ -52,7 +159,40 @@ All notable changes to Traust are documented here.
 
 ## [Unreleased]
 
-
+- Restore compliance calibration's full OSCAL structure and UUID comparison, with explicit
+  non-spine coverage reporting and only run-local timestamps excluded.
+- Write per-control Markdown beside every evaluated compliance draft, including coverage,
+  skipped frameworks, verdict reasons and evidence citations.
+- Add `compliance docs` using validated adopter-configured product documentation targets or
+  explicit official slug/version/guide selectors; missing metadata never yields invented docs.
+- Restore compliance posture population, team control-reference cuts, product/team scope and
+  trends over real recorded assessments against current boundary declarations.
+- Restore explicit PROGRESS.md regex fleet targeting through registered inventory
+  and enumerate known fork mappings, retaining unresolved rows with their reasons.
+- Add branch-aware verification sweeps and JSON/Markdown worklist companions with
+  ref/source/SHA detail. Consume real recorded verification outcomes without
+  cross-branch suppression; document the existing idempotent verification recorder
+  and current result readers instead of obsolete unfinished-ingestion markers.
+- Restore opt-in suppressed SARIF review through `triage intake --include-suppressed`,
+  retaining default exclusion and canonical intake validation.
+- Add `findings verified-fix-mtta`, grouped by effective severity and restricted to
+  validation/verification-backed fixes, separate from overall timeline MTTR.
+- Remove retired triage-emitter skill permissions and document the canonical triage
+  recording/refuted-register doors.
+- Restore `reporting validate --signing-pubkey` for historical report-layer Merkle
+  and signature checks through Core, with typed failures and unsigned defaults unchanged.
+- Restore ticketed, verified-human claim correction with immutable proposal-bound
+  review, stable finding identity/history and canonical intake; metadata corrections
+  do not create independent assessments or silently change verdicts.
+- Restore full-stem cumulative container JSON/Markdown/HTML views over stored reports
+  and canonical decisions, excluding code audits and absence-based resolution.
+- Add category-scoped severity/CVSS downgrade-quality diagnostics with explicit
+  score provenance and documented/undocumented rationale, including scored informational.
+- Restore fuzz bug analysis, CVSS vectors, reproducer references, campaign
+  history and explicit batch/pattern evidence in the validation-fuzz view.
+  Import supplied historical campaign sidecars and analyst rollups with
+  `reporting import-fuzz-campaign`; aggregate facts remain separate from
+  measured target observations and never mint runs or findings.
 - **Review checks for FastAPI, aiohttp and Express** (Vercel comparison gap
   plan, step 5). `framework-checks.md` gains FA.1–FA.15 (FastAPI and
   aiohttp) and EX.1–EX.18 (Express, with Backstage's `httpRouter` default and
