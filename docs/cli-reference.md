@@ -70,6 +70,11 @@ Same-file function/lambda returns follow the effective callable, including suppo
 local replacement/forwarding decorators and known instance, static and class methods.
 Aliases, argument binding, live closure cells and class attribute lookup retain their
 definition/invocation context; unrelated or overwritten returns are not swept into sinks.
+Known-length starred arguments retain their exact positions. An unresolved `*args`
+is an unknown-length positional span, not one argument: every parameter it can fill
+retains possible element provenance instead of silently selecting a harmless default.
+Fixed prefixes, keyword-only bindings and keyword/arity constraints remain distinct;
+variadic forwarding and awaited calls retain that uncertainty.
 Calling an async function produces a coroutine, not its body value or side effects;
 those become available only when awaited. Generator objects likewise do not expose
 their explicit return value as a command.

@@ -88,6 +88,7 @@ class _Value:
     mapping: tuple[tuple[str, _Value], ...] | None = None
     execution_origins: frozenset[str] = frozenset()
     callable_top: bool = False
+    starred: bool = False
 
 
 def _depth(value: _Value) -> int:
@@ -1350,6 +1351,13 @@ class _Analyzer:
             if string
             else _UNKNOWN
         )
+        if any(value.starred for value in args):
+            return _Value(
+                unknown=True,
+                capped=source.capped or any(value.capped for value in args),
+                sources=source.sources
+                | frozenset().union(*(value.sources for value in [*args, *kwargs.values()])),
+            )
         options = args[1:] if shell else args
         names = ("comments", "posix") if shell else ("sep", "maxsplit")
         defaults = (False, True) if shell else (None, -1)
@@ -1422,6 +1430,70 @@ class _Analyzer:
             return replace(value, origins=frozenset(), sources=frozenset())
         return replace(value, sources=frozenset())
 
+    def spread(self, node: ast.Starred, value: _Value, scope: _Scope) -> _Value:
+        items = list(value.elements or ())
+        pending = list(value.sources)
+        visited = set()
+        capped = value.capped
+        while pending:
+            key = pending.pop()
+            if key in visited:
+                continue
+            visited.add(key)
+            if len(visited) > _MAX_VARIANTS * _MAX_DEPTH or len(items) > _MAX_ITEMS:
+                capped = True
+                break
+            source = self.sources.get(key, _UNKNOWN)
+            if source.elements is not None:
+                items.extend(source.elements)
+            elif source.argvs:
+                items.append(
+                    _Value(
+                        strings=frozenset(
+                            word for argv in source.argvs for word in argv if word is not None
+                        ),
+                        unknown=any(word is None for argv in source.argvs for word in argv),
+                    )
+                )
+            elif source.mapping is not None:
+                items.append(_Value(strings=frozenset(name for name, _ in source.mapping)))
+                items.extend(item for _, item in source.mapping)
+            elif source.unknown:
+                pending.extend(self.source_dependencies.get(key, ()))
+            else:
+                items.append(source)
+        item = _join((*items, _Value(unknown=True, capped=capped, sources=value.sources)))
+        return replace(self.source(node, item, scope), starred=True)
+
+    def argument(
+        self,
+        args: list[_Value],
+        index: int,
+        default: _Value = _UNKNOWN,
+        *,
+        limit: int | None = None,
+    ) -> _Value:
+        if not any(value.starred for value in args):
+            return args[index] if index < len(args) else default
+        fixed = sum(not value.starred for value in args)
+        before = 0
+        spread_before = False
+        values = []
+        for value in args:
+            after = fixed - before - (not value.starred)
+            reachable = index >= before and (limit is None or index < limit - after)
+            if value.starred:
+                if reachable:
+                    values.append(replace(value, starred=False))
+                spread_before = True
+            else:
+                if reachable and (spread_before or index == before):
+                    values.append(value)
+                before += 1
+        if fixed <= index:
+            values.append(default)
+        return _join(values) if values else _UNKNOWN
+
     def invoke(
         self,
         function: _Callable,
@@ -1475,13 +1547,20 @@ class _Analyzer:
         positional = [*parameters.posonlyargs, *parameters.args]
         named = dict(kwargs)
         unpacked = named.pop(None, None)
+        first_star = next((index for index, value in enumerate(supplied) if value.starred), None)
+        limit = None if parameters.vararg else len(positional)
+        if first_star is not None:
+            keyword_positions = [
+                index
+                for index, parameter in enumerate(positional)
+                if index >= len(parameters.posonlyargs) and parameter.arg in named
+            ]
+            if keyword_positions:
+                limit = min(*keyword_positions, len(positional))
         bindings = {}
         for index, parameter in enumerate(positional):
-            value = (
-                supplied[index]
-                if index < len(supplied)
-                else named.pop(parameter.arg, definition.defaults.get(parameter.arg, _UNKNOWN))
-            )
+            default = named.pop(parameter.arg, definition.defaults.get(parameter.arg, _UNKNOWN))
+            value = self.argument(supplied, index, default, limit=limit)
             if unpacked is not None:
                 value = _join((value, _Value(unknown=True, sources=unpacked.sources)))
             bindings[parameter.arg] = value
@@ -1491,7 +1570,17 @@ class _Analyzer:
                 value = _join((value, _Value(unknown=True, sources=unpacked.sources)))
             bindings[parameter.arg] = value
         if parameters.vararg:
-            bindings[parameters.vararg.arg] = self.sequence(supplied[len(positional) :])
+            if first_star is None:
+                bindings[parameters.vararg.arg] = self.sequence(supplied[len(positional) :])
+            elif limit is not None and limit <= len(positional):
+                bindings[parameters.vararg.arg] = self.sequence(())
+            else:
+                tail = supplied[min(len(positional), first_star) :]
+                bindings[parameters.vararg.arg] = _Value(
+                    unknown=True,
+                    capped=any(value.capped for value in tail),
+                    sources=frozenset().union(*(value.sources for value in tail)),
+                )
         if parameters.kwarg:
             bindings[parameters.kwarg.arg] = _Value(
                 mapping=tuple(named.items()),
@@ -1541,8 +1630,11 @@ class _Analyzer:
             value = self.expr(
                 argument.value if isinstance(argument, ast.Starred) else argument, state, scope
             )
-            if isinstance(argument, ast.Starred) and value.elements is not None:
-                args.extend(value.elements)
+            if isinstance(argument, ast.Starred):
+                if value.elements is not None and not value.unknown and not value.capped:
+                    args.extend(value.elements)
+                else:
+                    args.append(self.spread(argument, value, scope))
             else:
                 args.append(value)
         kwargs = {}
@@ -1577,9 +1669,12 @@ class _Analyzer:
             and args
         ):
             descriptor = next(iter(function.origins))
+            supplied = self.argument(args, 0)
             return replace(
-                args[0],
-                callables=frozenset(replace(fn, descriptor=descriptor) for fn in args[0].callables),
+                supplied,
+                callables=frozenset(
+                    replace(fn, descriptor=descriptor) for fn in supplied.callables
+                ),
             )
         for local in function.callables:
             branch = state.copy()
@@ -1611,7 +1706,7 @@ class _Analyzer:
         if function.capped and not function.execution_origins:
             if function.callable_top:
                 self.execute(
-                    args[0] if args else kwargs.get("args", kwargs.get("cmd", _UNKNOWN)), scope
+                    self.argument(args, 0, kwargs.get("args", kwargs.get("cmd", _UNKNOWN))), scope
                 )
             return _Value(
                 capped=True,
@@ -1639,24 +1734,30 @@ class _Analyzer:
             command = None
             shell: bool | None = False
             if module == "subprocess" and operation in _SUBPROCESS:
-                command = args[0] if args else kwargs.get("args", kwargs.get("cmd"))
+                command = (
+                    self.argument(args, 0, kwargs.get("args", kwargs.get("cmd", _UNKNOWN)))
+                    if args
+                    else kwargs.get("args", kwargs.get("cmd"))
+                )
                 if "shell" in kwargs:
                     missing = object()
                     mode = self.literal(kwargs["shell"], missing)
                     shell = None if mode is missing else bool(mode)
             elif module == "os" and operation in {"system", "popen"}:
-                command = args[0] if args else kwargs.get("command", kwargs.get("cmd"))
+                command = (
+                    self.argument(args, 0, kwargs.get("command", kwargs.get("cmd", _UNKNOWN)))
+                    if args
+                    else kwargs.get("command", kwargs.get("cmd"))
+                )
                 shell = True
             elif module == "os" and operation in _OS:
                 offset = 2 if operation.startswith("spawn") else 1
-                path = (
-                    args[offset - 1]
-                    if len(args) >= offset
-                    else kwargs.get("path", kwargs.get("file", _UNKNOWN))
+                path = self.argument(
+                    args, offset - 1, kwargs.get("path", kwargs.get("file", _UNKNOWN))
                 )
                 vector = "v" in operation.removeprefix("spawn").removeprefix("exec")
                 if vector:
-                    supplied = args[offset] if len(args) > offset else kwargs.get("args", _UNKNOWN)
+                    supplied = self.argument(args, offset, kwargs.get("args", _UNKNOWN))
                     tails = {argv[1:] for argv in supplied.argvs}
                     command = _Value(
                         argvs=frozenset(

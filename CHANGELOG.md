@@ -4,6 +4,9 @@ All notable changes to Traust are documented here.
 
 ## [Unreleased]
 
+- Preserve unknown-length starred-call spans and their element provenance in S10.
+  Later positional/default and variadic bindings can no longer hide a returned build;
+  retain precise known-length, fixed-prefix, keyword-only and routed controls.
 - Follow effective local decorator replacements and known instance/static/class-method
   returns in S10, preserving callable aliases, argument binding, live closure cells,
   inherited attribute updates and per-invocation command provenance.
