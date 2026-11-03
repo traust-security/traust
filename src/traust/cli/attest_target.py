@@ -39,6 +39,7 @@ import json
 import re
 import subprocess
 import sys
+import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -217,6 +218,12 @@ def main(argv=None) -> int:
             with urllib.request.urlopen(req, timeout=15) as resp:
                 checks.append(_check("url-reachable", resp.status < 500, f"HTTP {resp.status}"))
             fp["url"] = args.url
+        except urllib.error.HTTPError as e:
+            # HTTP rejection still proves that the target answered. Server
+            # failures remain unattested, just like a normal >=500 response.
+            checks.append(_check("url-reachable", e.code < 500, f"HTTP {e.code}"))
+            fp["url"] = args.url
+            e.close()
         except Exception as e:
             checks.append(_check("url-reachable", False, str(e)[:200]))
 

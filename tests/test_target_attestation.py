@@ -4,6 +4,7 @@ import json
 import unittest
 from pathlib import Path
 
+import pytest
 from soundness import controls_flag, flag_validated_finding
 
 from traust.cli.attest_target import parse_semverish, version_in_range
@@ -408,3 +409,54 @@ class TestStateDiff(unittest.TestCase):
 
         s = self._snap([{"metadata": {"name": "x"}}])
         self.assertEqual(diff(s, s, set()), [])
+
+
+@pytest.mark.parametrize("status", [200, 401, 403, 404, 499, 500, 503])
+def test_http_response_attestation(tmp_path, status):
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+    from threading import Thread
+
+    from traust.cli.__main__ import main
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(status)
+            self.end_headers()
+
+        def log_message(self, *args):
+            pass
+
+    server = HTTPServer(("127.0.0.1", 0), Handler)
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    url = f"http://127.0.0.1:{server.server_port}/target"
+    out = tmp_path / "attestation.json"
+    try:
+        assert main(["admin", "attest-target", "--url", url, "--out", str(out)]) == 0
+    finally:
+        server.shutdown()
+        thread.join()
+        server.server_close()
+    doc = json.loads(out.read_text())
+    assert doc["attested"] is (status < 500)
+    assert doc["fingerprint"]["url"] == url
+    assert doc["checks"] == [
+        {"name": "url-reachable", "ok": status < 500, "required": True, "detail": f"HTTP {status}"}
+    ]
+
+
+def test_transport_failure_is_not_attested(tmp_path):
+    import socket
+
+    from traust.cli.__main__ import main
+
+    out = tmp_path / "attestation.json"
+    # Reserve a loopback port without listening, so no external service can answer.
+    with socket.socket() as reserved:
+        reserved.bind(("127.0.0.1", 0))
+        url = f"http://127.0.0.1:{reserved.getsockname()[1]}/target"
+        assert main(["admin", "attest-target", "--url", url, "--out", str(out)]) == 0
+    doc = json.loads(out.read_text())
+    assert doc["attested"] is False
+    assert doc["checks"][0]["ok"] is False
+    assert "url" not in doc["fingerprint"]

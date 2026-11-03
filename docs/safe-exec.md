@@ -5,9 +5,20 @@ every harness step uses when it executes something derived from an **audited
 checkout** — build systems, test suites, scanners that load target code, and
 string-form PoC steps in live validation. Gate rule **S10**
 (python3 -m traust.cli check skill-security) makes routing
-through it mandatory at commit time: a skill or script that invokes target
-build machinery without referencing safe_exec fails the pre-commit and CI
-gates.
+through it mandatory at commit time: each detected target-build invocation must run
+through safe_exec. A prose or comment mention, an import alone, or an unrelated
+sandboxed build does not exempt direct builds elsewhere. `safe-exec check` validates
+argv but does not execute a build, so it is not routing evidence.
+
+For Python, S10 tracks execution-function aliases and static command values in
+statement order, merges possible control-flow bindings conservatively, and
+distinguishes actual argv executables from output data. It recognizes command
+variables and split operations without trusting a later import, wildcard name,
+unrelated safe-exec call or printed example as routing evidence.
+
+S10 is a static admission guard, not a replacement for the execution-time
+validator. Target-derived commands must still run under the selected safe-exec
+profile; static uncertainty never grants additional runtime privileges.
 
 The design keeps the containment that matters for an auditing harness — argv
 allowlisting, env scrubbing, and shell-free execution — and deliberately does

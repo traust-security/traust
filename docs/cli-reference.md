@@ -38,6 +38,63 @@ python3 -m traust.cli check skill-alignment      # equivalent
 | `sweep` | Class-generalization sweep | `benchmark`, `collect`, `draft`, `emit`, `mine`, `rule-lane`, `sweep` |
 | `util` | Utility commands | `elf`, `redact`, `safe-exec` |
 
+## Check scope and configuration
+
+`traust check estate-data --staged` reads Git index contents, including migration
+portability markers. Unstaged edits or a removed working copy cannot hide staged
+measurements. Rename destinations are checked, including files moved into
+migrations. Whole-tree scans also check untracked migrations; invalid UTF-8 cannot
+hide a missing portability marker.
+
+`traust check skill-security` checks sandbox routing for each detected build.
+Both `traust util safe-exec run` and `python3 -m traust.cli util safe-exec run`
+are accepted. Prose, comments, imports, an unrelated wrapped build, or
+`safe-exec check` do not route a direct build.
+Python analysis follows execution-call bindings and command values in statement
+order: imports (including relevant wildcard exports), callable/string/argv
+assignments, and `split()` / `shlex.split()` values. Conditional and loop joins
+retain possible unsafe origins; a later import or a mutually exclusive branch
+cannot retroactively route an earlier call.
+
+Local imports respect module, function, class and closure boundaries. Explicit
+global/nonlocal writes, callable defaults and deferred generators retain their
+evaluation scope. Docstrings, printed examples, argument-parser help and proven
+argument data are not commands or file-wide routing exemptions.
+
+Literal argv is checked by the actual executable, including explicit OS
+exec/spawn paths; build words passed to `echo` are data. Actual shell/Python
+wrapper payloads are checked as code with their quoting and option semantics.
+An unresolved execution command uses non-inert source provenance conservatively.
+Shell-file checks retain their conservative per-command routing policy.
+
+`traust check docs-consistency --root <path>` uses the selected checkout's skills
+for the model-class index. Its config/docs estate checks skip deployment vocabulary
+when no vocabulary file is configured. An existing but invalid
+`internal-vocabulary.yaml` fails the gate, and universal credential/network rules
+remain active even when the deployment rules cannot load.
+Vocabulary validation also runs when the selected checkout has no `config/` or
+`docs/` directory; absent content cannot make broken configuration look clean.
+
+`traust check drift --config-home <path>` resolves inventory and results from that
+configuration, including roots outside the workspace. Graph, impact, language
+coverage/cache, benchmark and product-map checks use those selected roots, not a
+conventional sibling copy. An explicit `--workspace` selecting a different
+workspace uses that workspace's conventional `inputs/`, `analysis-results/` and
+`progress-tracker/` roots instead.
+
+`traust feeds fetch --config-home <path> --feed <name>` validates names and resolves
+feed configuration from the explicit home before fetching, regardless of
+`TRAUST_CONFIG_HOME`. Without the flag, the environment/default home still applies.
+Feed drift enumerates and classifies sources from its own selected engine/home,
+including optionality and ownership-reference rows. A fetch from another home
+earlier in the same process cannot change those rows or their cache freshness.
+An absent cache reports pending rows for the actual configured sources.
+
+`traust admin attest-target --url <url>` treats an HTTP response below 500,
+including a 4xx rejection, as reachability evidence and records the URL. This does
+not attest authorization or application correctness. HTTP 5xx and transport
+failures leave the target unattested.
+
 ## Deprecated forms
 
 Two older spellings still work and must not be used in docs, skills, or

@@ -4,6 +4,38 @@ All notable changes to Traust are documented here.
 
 ## [Unreleased]
 
+- Complete S10 review handling with execution-ordered imports and assignments,
+  conservative branch/loop joins, execution-function aliases, wildcard exports,
+  command variables and split operations. Later bindings cannot approve earlier
+  calls, and argument data is not mistaken for an executed build.
+- Preserve control-transfer, closure/default, class global/nonlocal and generator
+  behavior; inspect actual shell/interpreter payloads and OS execution paths.
+  Keep inert examples and proven argv data out of dynamic-command fallback.
+- Bound static value growth and preserve stable deferred-scope inputs, retaining
+  production report-builder termination without exemptions or file skips.
+- Resolve S10 import aliases per lexical scope, so a nested safe-exec alias cannot
+  exempt an enclosing or sibling subprocess build. Preserve legitimate local
+  routes, class-versus-closure lookup, and default/decorator evaluation scopes.
+- Keep feed drift's registry, optionality and source/reference classification bound
+  to its selected engine, independent of earlier fetches from another config home.
+- Inspect Python build commands only at execution calls, retaining per-command
+  safe-exec routing without flagging docstrings or printed/help examples. Remove
+  four reporting/template exemptions made obsolete by this narrower analysis.
+- Validate configured vocabulary before absent config/docs directory returns, and
+  keep CLI syntax scanning usable on those sparse checkouts.
+- Treat HTTP 4xx responses as reachable targets during attestation while retaining
+  fail-closed behavior for server and transport failures.
+- Fail the config/docs estate gate on a malformed configured vocabulary, keeping
+  universal credential/network rules active instead of reporting a clean scan.
+- Honor split `locations.inputs` and `locations.analysis_results` roots in drift
+  checks for product maps, graphs, impact artifacts, portfolio language coverage
+  and cache freshness, and validation benchmarks.
+- Resolve feed names and optional ownership-feed configuration from the selected
+  `--config-home` before validating `--feed`; repeated runs reload the registry.
+- Backport the #351 guards without the Core migration: staged estate scans read
+  index blobs (including rename destinations and removed working copies), S10
+  accepts grouped safe-exec commands but checks routing per build, and model-class
+  documentation checks use the selected checkout's skill tree.
 - Pin traust-engine `13bdce3` (engine#117, rule pack v1.11): TypeScript/JavaScript
   XSS, path traversal and open redirect rules, and more SSRF sinks, now run in
   default opengrep scans on `main`.

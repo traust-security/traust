@@ -65,6 +65,7 @@ def _engine_for_ws(tmp_path, ws, monkeypatch):
                 "workspace": str(ws),
                 "analysis_results": str(ws / "analysis-results"),
                 "progress_tracker": str(ws / "progress-tracker"),
+                "product_definitions": "https://feeds.test/product-definitions.json",
             }
         ),
         encoding="utf-8",
@@ -75,25 +76,6 @@ def _engine_for_ws(tmp_path, ws, monkeypatch):
             shutil.copy2(name, home / name.name)
     monkeypatch.setenv("TRAUST_CONFIG_HOME", str(home))
     return load_engine()
-
-
-@pytest.fixture(autouse=True)
-def _product_definitions_configured(monkeypatch):
-    """product-definitions is the canonical optional/internal feed these tests
-    exercise; it is config-gated (locations.product_definitions) since it targets
-    a deployment-specific registry. Configure it + reset the lazy feeds cache."""
-    from traust_contracts import Locations
-
-    from traust.cli import fetch_feeds as _ff
-
-    monkeypatch.setattr(
-        _ff.locations,
-        "configured_locations",
-        lambda: Locations(product_definitions="https://feeds.test/product-definitions.json"),
-    )
-    monkeypatch.setattr(_ff, "_FEEDS_CACHE", None)
-    yield
-    _ff._FEEDS_CACHE = None
 
 
 def test_feeds_fresh_and_stale(tmp_path, monkeypatch):
@@ -185,13 +167,92 @@ def test_optional_feed_uses_its_own_threshold(tmp_path, monkeypatch):
     assert "--feed product-definitions" in items["registry:product-definitions"]["refresh"]
 
 
-def test_watched_feeds_is_driven_from_fetch_feeds(tmp_path):
-    """Guards the bug this replaced: a literal feed tuple here meant a
-    newly added feed was never monitored at all."""
-    watched = dict(cd.watched_feeds())
-    assert "product-definitions" in watched
-    assert watched["product-definitions"] is True
-    assert watched["epss"] is False
+@pytest.mark.parametrize("has_cache", [True, False])
+def test_feeds_use_the_engine_home_after_fetching_another_home(tmp_path, monkeypatch, has_cache):
+    from traust.cli import fetch_feeds as ff
+
+    monkeypatch.setattr(ff, "_FEEDS_CACHE", None)
+    monkeypatch.delenv("FEEDS_CACHE_DIR", raising=False)
+    template = yaml.safe_load((_home() / "feeds.yaml").read_text())
+    base = template["sources"]["kev"]
+    registries = {
+        "a": {
+            "a-fresh": False,
+            "a-stale": False,
+            "shared-optional": True,
+            "shared-required": False,
+        },
+        "b": {"b-only": False, "shared-optional": False, "shared-required": True},
+        "ambient": {"ambient-only": False},
+    }
+    homes, caches = {}, {}
+    now = cd._now()
+    old = now - datetime.timedelta(hours=200)
+    for name, sources in registries.items():
+        home = tmp_path / f"{name}-home"
+        shutil.copytree(_home(), home)
+        registry = {
+            sid: {**base, "file": f"{sid}.json", "internal": internal}
+            for sid, internal in sources.items()
+        }
+        (home / "feeds.yaml").write_text(
+            yaml.safe_dump({**template, "sources": registry}), encoding="utf-8"
+        )
+        ws = tmp_path / name
+        cache = ws / "feeds"
+        cache.mkdir(parents=True)
+        loc = {
+            "workspace": str(ws),
+            "analysis_results": str(ws / "analysis-results"),
+            "progress_tracker": str(ws / "progress-tracker"),
+            "feeds_cache": str(cache),
+        }
+        if name == "a":
+            loc["product_definitions"] = "https://a.test/products.json"
+        (home / "locations.yaml").write_text(yaml.safe_dump(loc), encoding="utf-8")
+        for sid in sources:
+            (cache / f"{sid}.json").write_text("{}\n", encoding="utf-8")
+        # Other homes deliberately disagree about A's freshness.
+        (cache / "feeds-meta.json").write_text(
+            json.dumps(
+                {
+                    "a-fresh": {"retrieved_at": _iso(now if name == "a" else old)},
+                    "a-stale": {"retrieved_at": _iso(old if name == "a" else now)},
+                    "b-only": {"retrieved_at": _iso(now)},
+                    "product-definitions": {
+                        "retrieved_at": _iso(now - datetime.timedelta(hours=72))
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        homes[name], caches[name] = home, cache
+    engine_a = load_engine(homes["a"])
+    assert ff.main(["--config-home", str(homes["b"]), "--offline"]) == 0
+    monkeypatch.setenv("TRAUST_CONFIG_HOME", str(homes["ambient"]))
+    if not has_cache:
+        (caches["a"] / "feeds-meta.json").unlink()
+
+    rows = {row["item"]: row for row in cd.check_feeds(engine_a)}
+    assert set(rows) == {
+        "feeds:a-fresh",
+        "feeds:a-stale",
+        "feeds:shared-optional",
+        "feeds:shared-required",
+        "registry:product-definitions",
+    }
+    if has_cache:
+        assert rows["feeds:a-fresh"]["status"] == "fresh"
+        assert rows["feeds:a-stale"]["status"] == "stale"
+        assert rows["feeds:shared-optional"]["status"] == "pending"
+        assert rows["feeds:shared-required"]["status"] == "unavailable"
+        assert "refresh" not in rows["feeds:shared-required"]
+        assert rows["registry:product-definitions"]["status"] == "fresh"
+    else:
+        assert all(row["status"] == "pending" for row in rows.values())
+        assert rows["feeds:shared-required"]["refresh"] == "python3 -m traust.cli.fetch_feeds"
+        assert "--feed product-definitions" in rows["registry:product-definitions"]["refresh"]
+    assert "--feed shared-optional" in rows["feeds:shared-optional"]["refresh"]
 
 
 def test_findings_db_stale_when_ledger_newer(tmp_path):
@@ -1708,12 +1769,20 @@ def test_unloadable_registry_is_one_loud_row(tmp_path, monkeypatch):
     assert len(rows) == 1 and rows[0]["status"] == "unavailable"
 
 
-def test_every_watched_feed_comes_from_the_registry():
-    """A hardcoded feed list is how a newly added feed goes unmonitored."""
-    from traust.registry import feeds_config as fc
-
-    watched = {n for n, _ in cd.watched_feeds()}
-    assert set(fc.cached_sources()) <= watched
+def test_every_cached_source_has_a_distinct_feed_row(tmp_path, monkeypatch):
+    """Configured security sources and the ownership reference stay separate."""
+    ws = _mk_ws(tmp_path)
+    monkeypatch.setenv("FEEDS_CACHE_DIR", str(ws / "progress-tracker/feeds"))
+    (ws / "progress-tracker/feeds/feeds-meta.json").write_text("{}\n", encoding="utf-8")
+    engine = _engine_for_ws(tmp_path, ws, monkeypatch)
+    sources = yaml.safe_load((Path(engine.ctx.config_home) / "feeds.yaml").read_text())["sources"]
+    rows = {row["item"]: row for row in cd.check_feeds(engine)}
+    assert set(rows) == {
+        *(f"feeds:{name}" for name, spec in sources.items() if spec["tier"] == "cached"),
+        "registry:product-definitions",
+    }
+    assert rows["registry:product-definitions"]["status"] == "pending"
+    assert rows["feeds:rh-cve"]["status"] == "unavailable"
 
 
 def test_feed_stale_threshold_matches_the_daily_job():
@@ -1722,26 +1791,22 @@ def test_feed_stale_threshold_matches_the_daily_job():
     assert cd.FEED_STALE_HOURS == 48
 
 
-def test_feed_row_prefix_follows_the_category_not_the_mechanism():
-    """`product-definitions` is fetched by fetch_feeds but is a product/
-    ownership registry, not a security feed. Naming its row `feeds:` kept
-    re-merging two categories config/feeds.yaml exists to separate."""
-    from traust.registry import feeds_config as fc
+@pytest.mark.parametrize("has_cache", [True, False])
+@pytest.mark.parametrize("registry", ["sources: [not-a-mapping]\n", "sources:\n  bad: {}\n"])
+def test_invalid_engine_registry_does_not_fall_back_to_ambient_feeds(
+    tmp_path, monkeypatch, has_cache, registry
+):
+    from traust.registry.feeds_config import FeedsConfigError
 
-    for name in fc.cached_sources():
-        assert cd._feed_row_prefix(name) == "feeds", name
-    assert cd._feed_row_prefix("product-definitions") == "registry"
-
-
-def test_unclassifiable_source_reports_as_a_feed(monkeypatch):
-    """Under-reporting a security source is the worse error, so an
-    unreadable registry falls back to `feeds:`, never `registry:`."""
-    from traust.registry import feeds_config as fc
-
-    monkeypatch.setattr(
-        fc, "cached_sources", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom"))
-    )
-    assert cd._feed_row_prefix("anything") == "feeds"
+    ws = _mk_ws(tmp_path)
+    monkeypatch.setenv("FEEDS_CACHE_DIR", str(ws / "progress-tracker/feeds"))
+    engine = _engine_for_ws(tmp_path, ws, monkeypatch)
+    (Path(engine.ctx.config_home) / "feeds.yaml").write_text(registry, encoding="utf-8")
+    monkeypatch.setenv("TRAUST_CONFIG_HOME", str(tmp_path / "other-home"))
+    if has_cache:
+        (ws / "progress-tracker/feeds/feeds-meta.json").write_text("{}\n", encoding="utf-8")
+    with pytest.raises(FeedsConfigError):
+        cd.check_feeds(engine)
 
 
 # --- floor-only tool rows ---------------------------------------------------
@@ -1968,3 +2033,130 @@ def test_shipped_compliance_data_is_what_drift_watch_reads():
     items = {i["item"]: i for i in cd.check_policy_provenance(Path("/nonexistent-ws"))}
     for name in ("compliance-spine", "catalog-pci-dss", "catalog-soc2-tsc", "catalog-gdpr"):
         assert items[f"provenance:{name}"]["status"] != "pending", items[f"provenance:{name}"]
+
+
+def test_external_inputs_belong_to_configured_workspace(tmp_path, monkeypatch):
+    ws = _mk_ws(tmp_path)
+    _engine_for_ws(tmp_path, ws, monkeypatch)
+    inventory = tmp_path / "external-inventory"
+    (inventory / "adhoc").mkdir(parents=True)
+    (inventory / "adhoc" / "docs-product-map.yaml").write_text(
+        'fetched_at: "2000-01-01"\nproducts: {}\n', encoding="utf-8"
+    )
+    loc_path = _home() / "locations.yaml"
+    loc = yaml.safe_load(loc_path.read_text())
+    loc["inputs"] = str(inventory)
+    loc_path.write_text(yaml.safe_dump(loc), encoding="utf-8")
+    assert cd._inputs_root(ws) == inventory
+    assert [(r["item"], r["status"]) for r in cd.check_docs_product_map(ws)] == [
+        ("docs-product-map", "stale")
+    ]
+    # An explicitly different workspace remains isolated from deployment data.
+    other = tmp_path / "other-workspace"
+    assert cd._inputs_root(other) == other / "inputs"
+    assert cd.check_docs_product_map(other)[0]["status"] == "pending"
+
+
+@pytest.mark.requires_git
+@pytest.mark.parametrize("external", [False, True])
+def test_drift_cli_uses_selected_results_and_inventory_roots(tmp_path, monkeypatch, external):
+    ws = _mk_ws(tmp_path)
+    _engine_for_ws(tmp_path, ws, monkeypatch)
+    results = tmp_path / "external-results" if external else ws / "analysis-results"
+    inventory = tmp_path / "external-inventory"
+    inventory.mkdir()
+    subprocess.run(["git", "init", "-q", str(inventory)], check=True)
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(inventory),
+            "-c",
+            "user.name=Fixture",
+            "-c",
+            "user.email=fixture@example.com",
+            "-c",
+            "commit.gpgsign=false",
+            "-c",
+            "core.hooksPath=/dev/null",
+            "commit",
+            "--allow-empty",
+            "-qm",
+            "inventory",
+        ],
+        check=True,
+    )
+    loc_path = _home() / "locations.yaml"
+    loc = yaml.safe_load(loc_path.read_text())
+    loc.update(inputs=str(inventory), analysis_results=str(results))
+    loc_path.write_text(yaml.safe_dump(loc), encoding="utf-8")
+    graph = results / "graph"
+    graph.mkdir(parents=True, exist_ok=True)
+    (graph / "repo-graph.json").write_text('{"generated": "2020-01-01"}\n')
+    db = graph / "portfolio-graph.db"
+    db.touch()
+    old = datetime.datetime(2020, 1, 1, tzinfo=datetime.UTC).timestamp()
+    os.utime(db, (old, old))
+    impact = results / "impact" / "CVE-2099-0001-impact-analysis.json"
+    impact.parent.mkdir(parents=True)
+    impact.write_text("{}\n")
+    os.utime(impact, (old - 86400, old - 86400))
+    scorecard = results / "scan-testing" / "validation-benchmark" / "scorecard.json"
+    scorecard.parent.mkdir(parents=True)
+    scorecard.write_text("{}\n")
+    os.utime(scorecard, (old, old))
+    cache = results / Path(cd.LANG_CACHE_REL).relative_to("analysis-results")
+    cache.parent.mkdir(parents=True)
+    count = max(cd.LANGUAGE_COVERAGE_THRESHOLD, cd.REACHABILITY_COVERAGE_THRESHOLD)
+    cache.write_text(
+        "".join(
+            json.dumps({"repo": f"org/r{i}", "languages": {"FixtureLang": 10}}) + "\n"
+            for i in range(count)
+        )
+    )
+    # Isolate this CLI run to the real affected checks, without external feed probes.
+    monkeypatch.setattr(cd, "check_feeds", lambda engine: [])
+    monkeypatch.setattr(cd, "ENGINE_CHECKS", [])
+    monkeypatch.setattr(
+        cd,
+        "CHECKS",
+        [
+            cd.check_graphs,
+            cd.check_impact_artifacts,
+            cd.check_validation_benchmark,
+            cd.check_language_cache_freshness,
+            cd.check_language_coverage,
+            cd.check_reachability_coverage,
+        ],
+    )
+    out = tmp_path / "report"
+    assert (
+        cd.main(["--config-home", str(_home()), "--out-dir", str(out), "--fail-on", "stale"]) == 1
+    )
+    report = json.loads((out / "drift-report.json").read_text())
+    rows = {r["item"]: r["status"] for r in report["items"]}
+    assert {
+        key: rows[key]
+        for key in [
+            "repo-graph",
+            "portfolio-graph",
+            "impact:CVE-2099-0001",
+            "validation-benchmark",
+            "language-cache-freshness",
+            "language-coverage:FixtureLang",
+            "reachability-coverage:FixtureLang",
+        ]
+    } == {
+        "repo-graph": "stale",
+        "portfolio-graph": "stale",
+        "impact:CVE-2099-0001": "stale",
+        "validation-benchmark": "stale",
+        "language-cache-freshness": "fresh",
+        "language-coverage:FixtureLang": "drift",
+        "reachability-coverage:FixtureLang": "drift",
+    }
+    assert cd._run_ar is cd._run_pt is cd._run_inputs is None
+    db.unlink()
+    # The same selected impact tree must report the missing graph, not a sibling graph.
+    monkeypatch.setattr(cd, "_run_ar", results)
+    assert cd.check_impact_artifacts(ws)[0]["status"] == "unavailable"

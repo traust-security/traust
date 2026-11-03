@@ -108,16 +108,17 @@ def _feeds() -> dict:
     """
     global _FEEDS_CACHE
     if _FEEDS_CACHE is None:
-        _FEEDS_CACHE = _build_feeds()
+        _FEEDS_CACHE = feed_registry()
     return _FEEDS_CACHE
 
 
-def _build_feeds() -> dict:
-    feeds = dict(cached_sources())
-    # Config-owned (no env): the endpoint comes from locations.product_definitions.
-    # Only register the source when it is configured; otherwise it stays absent
-    # and its consumers degrade to null contacts rather than erroring.
-    url = locations.product_definitions_url(locations.configured_locations())
+def feed_registry(engine=None) -> dict:
+    """Build the fetch registry from one engine's home, without changing the cache."""
+    home = engine.ctx.config_home if engine is not None else None
+    feeds = dict(cached_sources(Path(home) / "feeds.yaml" if home is not None else None))
+    # Resolve optional ownership data from the same home as the feed registry.
+    loc = engine.ctx.locations if engine is not None else locations.configured_locations()
+    url = locations.product_definitions_url(loc)
     if url:
         feeds["product-definitions"] = {**_PRODUCT_DEFINITIONS_SPEC, "url": url}
     return feeds
@@ -152,7 +153,7 @@ def __getattr__(name: str):
 # schema so other adopters can point it at their own ownership/notification
 # source, not just the Red Hat-shaped products.json.
 _PRODUCT_DEFINITIONS_SPEC = {
-    # url is injected from locations.product_definitions at build time (_build_feeds).
+    # url is injected from locations.product_definitions by feed_registry().
     "url": None,
     "file": "product_definitions.json",
     "mode": "file",
@@ -575,7 +576,6 @@ def main(argv=None) -> int:
     )
     ap.add_argument(
         "--feed",
-        choices=(*_feeds(), "all"),
         default="all",
         help="'all' covers public feeds only; internal feeds "
         "must be named or enabled with --include-internal",
@@ -591,6 +591,10 @@ def main(argv=None) -> int:
     args = ap.parse_args(argv)
 
     engine = load_engine(args.config_home)
+    global _FEEDS_CACHE
+    _FEEDS_CACHE = feed_registry(engine)
+    if args.feed != "all" and args.feed not in _FEEDS_CACHE:
+        ap.error(f"unknown feed {args.feed!r}; choose from " + ", ".join([*_FEEDS_CACHE, "all"]))
     cache_dir = args.cache_dir or feeds_cache_dir(engine=engine)
 
     if args.feed == "all":
