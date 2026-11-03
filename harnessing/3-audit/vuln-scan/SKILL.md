@@ -164,7 +164,7 @@ inherited unchanged.
 
 **Fleet dispatch is an operator decision, informed by the deployment's
 measured cost per run.** There is no fixed cost gate. Diffs the resolver
-would refuse are pre-routed away at the router (`build_rescan_worklist.py`
+would refuse are pre-routed away at the router (`traust.ops.router`
 refusal pre-route). Individual runs need no approval; batch/drain dispatch
 is scheduled by the operator (docs/continuous-operations.md, trickle-drain).
 

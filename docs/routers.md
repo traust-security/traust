@@ -6,8 +6,8 @@ one row can name more than one module). They do different and sometimes opposite
 jobs, and confusing them has caused real defects. This page is the single index:
 what each one is, what it may and may not write, and where the detail lives.
 
-If you are auditing coverage, the 15 are: `build_rescan_worklist.py` (work
-routing + the budget guard inside it), `traust.ops.router`,
+If you are auditing coverage, the 15 are: the retired `build_rescan_worklist.py` (work
+routing + the budget guard inside it, now `traust.ops.router` and engine admission), `traust.ops.router`,
 `traust_engine.registry.models`, `route_regressions.py`,
 `route_impact_findings.py`, `/assign-findings-owners` (internal extension),
 `/reassign-findings-owners` (internal extension), `/file-security-defect`,
@@ -16,8 +16,8 @@ routing + the budget guard inside it), `traust.ops.router`,
 
 | Kind | Routes | Implementation | Detail |
 |---|---|---|---|
-| **Work routing** — *the rescan router* | repos → one of 12 scan lanes | `build_rescan_worklist.py`; per repository in continuous ops, `traust.ops.router` (the security pack's router) | [continuous-operations.md](continuous-operations.md) |
-| **Cost routing** — *the budget guard* | **drops queued work to fit a USD ceiling** | budget guard inside `build_rescan_worklist.py`; in continuous ops, traust-engine's admission (lane budgets, `admission.estimate_usd`) | [continuous-operations.md](continuous-operations.md) |
+| **Work routing** — *the rescan router* | repos → one of 12 scan lanes | `traust.ops.router` (the security pack's router), per repository in continuous ops; the daily `build_rescan_worklist.py` is retired | [continuous-operations.md](continuous-operations.md) |
+| **Cost routing** — *the budget guard* | **drops queued work to fit a USD ceiling** | traust-engine's admission (lane budgets, `admission.estimate_usd`) | [continuous-operations.md](continuous-operations.md) |
 | **Model routing** | a task → a model tier, and what it costs | `traust_engine.registry.models`, `config/model-registry.yaml` | [model-routing.md](model-routing.md) |
 | **Findings routing** | a producer's findings → ledger events | `route_regressions.py`, `route_impact_findings.py` | [findings-routing.md](findings-routing.md) |
 | **Owner routing** | findings packages → teams and named maintainers | `/assign-findings-owners` (internal extension), `/reassign-findings-owners` | those skills' `SKILL.md` |
@@ -39,13 +39,13 @@ work, and none of them authors a finding:
 
 ## 1. Work routing — the rescan router
 
-**Decides what work to do.** Reads fleet change signals and emits
-`rescan-worklist.json`: one row per repo, each assigned a lane —
+**Decides what work to do.** Reads a repository's change signals (its observed
+`repo_state`) and routes it to a lane, which traust-engine queues as an order —
 `full-audit+validate`, `full-audit`, `impact-lane`, `iac-lane`, `iac-baseline`,
 `release-passthrough`, `threat-model-review`, `deps-lane`, `diff-scan`,
 `diff-scan-quarterly`, `threat-model-quarterly`, `none`.
 
-**Writes:** the worklist, nothing else. Read-only over its inputs, it **never
+**Writes:** routes (engine orders), nothing else. Read-only over its inputs, it **never
 authors a finding, verdict, or audit**, and never self-tunes.
 
 **Why it matters beyond scheduling:** it holds the authority over **when a new

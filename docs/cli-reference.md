@@ -25,7 +25,7 @@ python3 -m traust.cli check skill-alignment      # equivalent
 | `assessments` | The audit skills' doors on traust-core | `coverage`, `prepare`, `threats` |
 | `attack` | The pack's pinned MITRE ATT&CK release | `validate` |
 | `auth` | Who you act as, over traust-core's identity provider | `local`, `login`, `logout`, `refresh`, `service-account`, `status`, `token` |
-| `build` | Deterministic builders | `rescan-worklist`, `skills-reference`, `symbol-index` |
+| `build` | Deterministic builders | `skills-reference`, `symbol-index` |
 | `check` | Deterministic gates | `citations`, `content-licenses`, `coverage`, `docs-consistency`, `estate-data`, `drift`, `fix-propagation`, `location-paths`, `reference-integrity`, `skill-alignment`, `skill-security` |
 | `cloud-config` | The cloud-config-audit skill's doors on traust-core | `check`, `record`, `run` |
 | `compliance` | compliance-check doors on traust-core (posture: `dashboard view compliance`) | `adrs`, `calibrate`, `check`, `declare`, `docs`, `evaluate`, `evidence`, `latest`, `policy`, `record`, `resolve`, `scopes` |
@@ -223,21 +223,14 @@ names both methodologies and shows field-level old/new values and numeric deltas
 Missing values remain distinct from JSON null. No comparison rewrites an archive.
 Portable history, comparison and original exports remain script-free.
 
-`traust check drift [--config-home <dir>] [--worklist <file>]`
-prints pack configuration checks and the surviving rescan worklist's age backstop.
-The worklist override matches `build rescan-worklist --out`; otherwise it uses
-configured analysis-results. Bootstrap reads Core's current typed inputs inventory,
-including unregistered repositories; there is no graph-database routing override.
-The command remains informational (no `--fail-on` gate); native feed/registry age,
+`traust check drift [--config-home <dir>]`
+prints pack configuration checks. The command remains informational (no `--fail-on` gate); native feed/registry age,
 upstream releases, stored-PQC-schema compatibility and measured-language coverage are
 in `traust dashboard view freshness --out <dir>`.
 
-The surviving `build rescan-worklist` router still reads its existing interim
-`findings.db` projection for HEAD code-audit population, live vulnerability risk,
-report paths and cloud-config baseline presence. `--db <file>` selects that input;
-the default remains `graph/findings.db` under configured analysis-results. This is
-not the retired portfolio graph, and the native inventory bootstrap replacement
-does not claim that the whole router or its population backend has migrated.
+`traust build rescan-worklist`, the former daily router, is retired: it read a
+`findings.db` projection nothing builds. Routing runs per repository in the engine
+through `traust.ops.router` ([continuous-operations.md](continuous-operations.md)).
 
 ### Artifact-only below-range sessions
 

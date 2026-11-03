@@ -6,11 +6,6 @@ from traust.cli.groups._registry import passthrough_op
 
 _ENTRIES: tuple[tuple[str, str, str], ...] = (
     (
-        "rescan-worklist",
-        "build_rescan_worklist",
-        "Build the continuous-operations rescan worklist — the daily router.",
-    ),
-    (
         "skills-reference",
         "build_skills_reference",
         "Generate docs/skills.md from the skill tree — never hand-edit that file.",

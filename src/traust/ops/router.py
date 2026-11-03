@@ -1,7 +1,7 @@
 """The security pack's router: a repository's routing state (traust-core `RepoState`) to its
-work lanes, `build rescan-worklist`'s stage 2 per repository: the decision table, the tripwire,
-the refusal pre-route, the threat-model `pr` stamp, then the additive IaC and threat-model
-rows, and a threat-model review for each recorded release that re-models."""
+work lanes, the retired daily rescan worklist's stage 2 per repository: the decision table,
+the tripwire, the refusal pre-route, the threat-model `pr` stamp, then the additive IaC and
+threat-model rows, and a threat-model review for each recorded release that re-models."""
 
 from __future__ import annotations
 
