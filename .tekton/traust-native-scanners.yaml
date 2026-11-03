@@ -1,0 +1,135 @@
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  name: traust-native-scanner-tests
+  namespace: source-code-intelligence-tenant
+  annotations:
+    build.appstudio.openshift.io/repo: https://github.com/traust-security/traust?rev={{revision}}
+    build.appstudio.redhat.com/commit_sha: '{{revision}}'
+    build.appstudio.redhat.com/target_branch: '{{target_branch}}'
+    pipelinesascode.tekton.dev/cancel-in-progress: "true"
+    pipelinesascode.tekton.dev/max-keep-runs: "3"
+    pipelinesascode.tekton.dev/on-cel-expression: >-
+      event in ["pull_request", "push"] && target_branch == "development"
+  labels:
+    appstudio.openshift.io/application: traust
+    appstudio.openshift.io/component: traust
+    pipelines.appstudio.openshift.io/type: test
+spec:
+  params:
+    - name: git-url
+      value: '{{source_url}}'
+    - name: revision
+      value: '{{revision}}'
+  timeouts:
+    pipeline: 30m
+  taskRunTemplate:
+    serviceAccountName: default
+    podTemplate:
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+  pipelineSpec:
+    params:
+      - name: git-url
+        type: string
+      - name: revision
+        type: string
+    results:
+      - name: scanner-test-summary
+        value: $(tasks.native-scanner-tests.results.summary)
+      - name: scanner-versions
+        value: $(tasks.native-scanner-tests.results.tool-versions)
+    tasks:
+      - name: native-scanner-tests
+        params:
+          - name: git-url
+            value: $(params.git-url)
+          - name: revision
+            value: $(params.revision)
+        taskSpec:
+          params:
+            - name: git-url
+              type: string
+            - name: revision
+              type: string
+          results:
+            - name: summary
+              description: Passed cases and explicitly allowed inverse missing-binary skips
+            - name: tool-versions
+              description: Preflight-verified versions matching the shipped tool pins
+          stepTemplate:
+            workingDir: /workspace
+            env:
+              - name: HOME
+                value: /workspace/home
+              - name: UV_CACHE_DIR
+                value: /workspace/cache
+              - name: UV_PROJECT_ENVIRONMENT
+                value: /workspace/venv
+              - name: UV_PYTHON
+                value: "3.12"
+              - name: UV_PYTHON_DOWNLOADS
+                value: never
+              - name: HARNESS_BIN_DIR
+                value: /workspace/bin
+              - name: GIT_TERMINAL_PROMPT
+                value: "0"
+              - name: GIT_CONFIG_GLOBAL
+                value: /dev/null
+              - name: GIT_CONFIG_NOSYSTEM
+                value: "1"
+            volumeMounts:
+              - name: source
+                mountPath: /workspace
+            securityContext:
+              runAsNonRoot: true
+              allowPrivilegeEscalation: false
+              capabilities:
+                drop: [ALL]
+          steps:
+            - name: checkout
+              image: ghcr.io/astral-sh/uv:0.13.6-python3.12-trixie@sha256:101820b96a31d3438aab226230bc5516d62c6b5b506f0e2d72cb4b6975e27dea
+              env:
+                - name: GIT_ALLOW_PROTOCOL
+                  value: https
+                - name: GIT_URL
+                  value: $(params.git-url)
+                - name: REVISION
+                  value: $(params.revision)
+              script: |
+                #!/usr/bin/env bash
+                set -euo pipefail
+                case "$GIT_URL" in
+                  https://github.com/traust-security/traust|https://github.com/traust-security/traust.git) ;;
+                  *) echo "Only the public Traust source checkout is permitted" >&2; exit 1 ;;
+                esac
+                mkdir -p "$HOME" /workspace/source
+                cd /workspace/source
+                git init --quiet
+                git remote add origin "$GIT_URL"
+                git -c credential.helper= fetch --quiet --depth=1 -- origin "$REVISION"
+                git checkout --quiet --detach FETCH_HEAD
+            - name: test-native-scanners
+              image: ghcr.io/astral-sh/uv:0.13.6-python3.12-trixie@sha256:101820b96a31d3438aab226230bc5516d62c6b5b506f0e2d72cb4b6975e27dea
+              env:
+                # uv also clones its own local Git cache; no credentials are mounted.
+                - name: GIT_ALLOW_PROTOCOL
+                  value: https:file
+                - name: SUMMARY_RESULT
+                  value: $(results.summary.path)
+                - name: VERSIONS_RESULT
+                  value: $(results.tool-versions.path)
+              script: |
+                #!/usr/bin/env bash
+                set -euo pipefail
+                cd /workspace/source
+                mkdir -p "$HOME" "$HARNESS_BIN_DIR"
+                export PATH="$HARNESS_BIN_DIR:$PATH"
+                uv sync --frozen
+                uv run bash scripts/install-toolchain.sh native-scanner-tests
+                uv run python scripts/test-native-scanners.py --artifacts /workspace/results
+                cp /workspace/results/summary.json "$SUMMARY_RESULT"
+                cp /workspace/results/tool-versions.json "$VERSIONS_RESULT"
+          volumes:
+            - name: source
+              emptyDir: {}

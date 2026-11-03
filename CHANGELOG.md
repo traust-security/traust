@@ -45,6 +45,14 @@ All notable changes to Traust are documented here.
 
 ## [Unreleased]
 
+- Add a separate native Konflux scanner-test proposal for development PRs/pushes.
+  It provisions only pinned opengrep, gitleaks and optional Universal Ctags
+  (with checksum-verified static Jansson), without root or publishing credentials.
+  An exact-version/recursive-JSON preflight and pytest skip gate require actual
+  default-rule, regression-draft and symbol-index scanner coverage; only the
+  existing inverse missing-ctags skip is allowed. The optional CI profile is not
+  installed by production `--all`, and built-in symbol extraction is unchanged.
+
 - **Review checks for FastAPI, aiohttp and Express** (Vercel comparison gap
   plan, step 5). `framework-checks.md` gains FA.1–FA.15 (FastAPI and
   aiohttp) and EX.1–EX.18 (Express, with Backstage's `httpRouter` default and

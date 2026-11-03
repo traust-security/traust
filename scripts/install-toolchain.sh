@@ -6,6 +6,7 @@
 #   ./scripts/install-toolchain.sh secure-container-audit
 #   ./scripts/install-toolchain.sh --all
 #
+#   ./scripts/install-toolchain.sh native-scanner-tests
 # This script installs the actual binaries. It is the "one command" the
 # opinionated toolchain stance promises. After running, `toolchain doctor`
 # should pass.
@@ -16,9 +17,11 @@
 # package manager or package index sits in between. Where upstream publishes
 # a checksum file, the download is verified against it before install.
 #
-# Requires: bash, curl, tar. Uses brew (macOS) or dnf/apt (Linux) only for
-# the tools upstream does not ship as a standalone binary (skopeo, yara,
-# joern) and pipx/pip for pip-audit.
+# Requires: bash, curl, tar. The native-scanner-tests profile additionally
+# needs cc, make and pkg-config (provided by the full, non-slim CI runner);
+# its Universal Ctags and static Jansson dependency build without root.
+# Uses brew (macOS) or dnf/apt (Linux) only for skopeo/yara/joern, and
+# pipx/pip for pip-audit; none is needed by native-scanner-tests.
 
 set -euo pipefail
 
@@ -54,6 +57,7 @@ dependency-watch:gitleaks
 impact-analysis:joern
 triage:govulncheck
 ledger-signing:cosign
+native-scanner-tests:opengrep gitleaks universal-ctags
 '
 
 # All profile names, space-separated.
@@ -218,6 +222,89 @@ install_gitleaks() {
   ok "gitleaks installed to $BIN_DIR"
 }
 
+# A source pin belongs to the same reviewed registry as the version, never
+# to a second CI-only manifest. Fail closed if that registry is too old.
+source_pin() {
+  "$PY" - "$TOOLS_YAML" "$1" "${2:-}" <<'PY'
+import re
+import sys
+from urllib.parse import urlsplit
+
+import yaml
+
+manifest, name, dependency = sys.argv[1:]
+with open(manifest, encoding="utf-8") as stream:
+    tool = next(row for row in yaml.safe_load(stream)["tools"] if row["name"] == name)
+if dependency:
+    tool = next(row for row in tool["build_dependencies"] if row["name"] == dependency)
+source = tool["source"]
+url, checksum = source["url"], source["sha256"]
+if urlsplit(url).scheme != "https" or any(c.isspace() for c in url):
+    raise SystemExit("source pin must be an exact HTTPS asset URL")
+if not re.fullmatch(r"[a-f0-9]{64}", checksum):
+    raise SystemExit("source pin must have an exact SHA256")
+print(url, checksum)
+PY
+}
+
+fetch_source() {
+  local pin url expected actual
+  pin="$(source_pin universal-ctags "${2:-}")"
+  read -r url expected <<< "$pin"
+  fetch "$url" "$1"
+  actual="$(sha256_of "$1")"
+  if [[ "$actual" != "$expected" ]]; then
+    echo "FATAL: source checksum mismatch for $url" >&2
+    return 1
+  fi
+}
+
+install_universal_ctags() (
+  local v tmpd prefix prerequisite
+  v="$(pin_for universal-ctags)"
+  info "Building Universal Ctags v$v with pinned static Jansson..."
+  # Resolve both pins before creating a partial install or doing any download.
+  source_pin universal-ctags >/dev/null
+  source_pin universal-ctags jansson >/dev/null
+  if [[ "$DRY_RUN" == "true" ]]; then
+    warn "dry-run: would build Universal Ctags v$v into $BIN_DIR"
+    return
+  fi
+  if [[ -x "$REPO_ROOT/.venv/bin/traust" ]]; then
+    export PATH="$REPO_ROOT/.venv/bin:$PATH"
+  fi
+  export SAFE_EXEC_MODE=enforce
+  unset SAFE_EXEC_DISABLED
+  for prerequisite in cc make pkg-config traust; do
+    if ! command -v "$prerequisite" >/dev/null; then
+      echo "FATAL: Universal Ctags source build needs $prerequisite" >&2
+      return 1
+    fi
+  done
+  tmpd="$(mktemp -d)"
+  trap 'rm -rf "$tmpd"' EXIT
+  prefix="$tmpd/prefix"
+  mkdir "$tmpd/jansson" "$tmpd/ctags"
+  fetch_source "$tmpd/jansson.tar.gz" jansson
+  fetch_source "$tmpd/ctags.tar.gz"
+  tar -xzf "$tmpd/jansson.tar.gz" --strip-components=1 -C "$tmpd/jansson"
+  tar -xzf "$tmpd/ctags.tar.gz" --strip-components=1 -C "$tmpd/ctags"
+  (
+    cd "$tmpd/jansson"
+    ./configure --prefix="$prefix" --libdir="$prefix/lib" --disable-shared --enable-static
+    traust util safe-exec run --profile generic-build --timeout 600 -- make -j2
+    traust util safe-exec run --profile generic-build --timeout 600 -- make install
+  )
+  (
+    cd "$tmpd/ctags"
+    PKG_CONFIG_PATH="$prefix/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}" \
+      ./configure --prefix="$prefix" --enable-json --disable-readcmd
+    traust util safe-exec run --profile generic-build --timeout 600 -- make -j2 ctags
+  )
+  install_bin "$tmpd/ctags/ctags" ctags
+  ok "Universal Ctags installed to $BIN_DIR"
+)
+
 # Anchore tools share one release layout.
 install_anchore() {
   local tool="$1" v asset base tmpd
@@ -333,6 +420,7 @@ install_tool() {
   case "$1" in
     opengrep)    install_opengrep ;;
     gitleaks)    install_gitleaks ;;
+    universal-ctags) install_universal_ctags ;;
     syft|grype)  install_anchore "$1" ;;
     cosign)      install_cosign ;;
     govulncheck) install_govulncheck ;;
@@ -397,9 +485,11 @@ echo -e "Bin dir:  $BIN_DIR"
 echo ""
 
 if [[ "$PROFILE" == "__all__" ]]; then
-  # Deduplicate across all profiles
+  # Deduplicate production profiles. Optional native test dependencies are
+  # installed only when that CI profile is explicitly requested.
   all_tools=""
   for p in $(profile_names); do
+    [[ "$p" == "native-scanner-tests" ]] && continue
     all_tools="$all_tools $(profile_tools "$p")"
   done
   tools=$(echo "$all_tools" | tr ' ' '\n' | sort -u | tr '\n' ' ')
