@@ -134,21 +134,26 @@ cmd_up() {
     uv sync --quiet
     install_engine
 
-    # The smoke's manifest_sbom order runs syft through core's ProcessRunner
-    # (the binary the traust.yaml grant below allows). A fresh host has none:
-    # provision it through the same pinned, checksum-verified download CI uses
-    # (install-toolchain.sh's local-ops profile) instead of letting the order
-    # fail at claim time with an unexplained gap.
-    if ! command -v syft >/dev/null 2>&1; then
+    # The deterministic lanes' scanners, both named in the allowlist below:
+    # manifest_sbom's syft and the observation tripwire's gitleaks (the pack
+    # makes gitleaks a required tool for repo_state, so a fresh host without
+    # it cannot even observe). A fresh host has neither: provision them
+    # through the same pinned, checksum-verified download CI uses
+    # (install-toolchain.sh's local-ops profile) instead of letting the
+    # orders fail at claim time with an unexplained gap.
+    if ! command -v syft >/dev/null 2>&1 || ! command -v gitleaks >/dev/null 2>&1; then
         # A failed download still falls through to the actionable message below.
         bash scripts/install-toolchain.sh local-ops || true
     fi
-    command -v syft >/dev/null 2>&1 || {
-        echo "syft is missing and could not be installed: manifest_sbom orders need it." >&2
-        echo "run: bash scripts/install-toolchain.sh local-ops" >&2
-        echo "then make ops-up again (or add ${OPS_BIN_DIR:-the install-toolchain.sh bin dir} to PATH)" >&2
-        return 1
-    }
+    local binary
+    for binary in syft gitleaks; do
+        command -v "$binary" >/dev/null 2>&1 || {
+            echo "$binary is missing and could not be installed: the rig's orders need it." >&2
+            echo "run: bash scripts/install-toolchain.sh local-ops" >&2
+            echo "then make ops-up again (or add ${OPS_BIN_DIR:-the install-toolchain.sh bin dir} to PATH)" >&2
+            return 1
+        }
+    done
 
     # The rig's traust.yaml: its database and locations. `home` keeps core's credential
     # store and local-issuer key inside the rig: without it they land in ~/.traust, over a

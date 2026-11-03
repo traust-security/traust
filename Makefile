@@ -8,6 +8,11 @@ PYTHON     ?= python3
 RELEASE    := ./release.py
 BUMP_PARTS := patch minor major
 SKILLSAW_VERSION := 0.20.0
+# ops-approve's selector travels through the environment (never interpolated
+# into the recipe text): a value carrying quotes or semicolons reaches the
+# script as one literal argument for cmd_approve to validate, not as shell
+# syntax the recipe would execute.
+export ORDER
 
 help: ## Show targets
 	@grep -E '^[a-z][-a-z]+:.*## ' $(MAKEFILE_LIST) | \
@@ -56,7 +61,7 @@ ops-run: ## Engine tick loop, pane 1 (make ops-run OPS_EVERY=5m)
 ops-claim: ## Claim loop, pane 2
 	bash scripts/local_ops.sh claim
 ops-approve: ## Operator door: approve awaiting orders (all, or one by an unambiguous id prefix)
-	bash scripts/local_ops.sh approve '$(ORDER)'
+	bash scripts/local_ops.sh approve "$$ORDER"
 ops-sh: ## Shell with the rig's environment (TRAUST_CONFIG_HOME, .local-ops/env)
 	bash scripts/local_ops.sh sh
 ops-scan: ## Walk the workflow by hand: onboard + observe + one scan (REPO=https://...)
