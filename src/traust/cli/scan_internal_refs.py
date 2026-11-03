@@ -212,34 +212,42 @@ def load_vocabulary(explicit: str | None = None) -> tuple[tuple[str, str, str, s
     except ImportError as e:  # pragma: no cover
         raise VocabularyError("PyYAML is required to read the vocabulary") from e
     try:
-        doc = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        doc = yaml.safe_load(path.read_text(encoding="utf-8"))
     except yaml.YAMLError as e:
         raise VocabularyError(f"{path}: unparseable ({type(e).__name__})") from e
+    except (OSError, UnicodeError) as e:
+        raise VocabularyError(f"{path}: cannot read vocabulary ({type(e).__name__})") from e
+    if not isinstance(doc, dict):
+        raise VocabularyError(f"{path}: vocabulary must be a mapping")
     rules = doc.get("rules")
     if not isinstance(rules, list) or not rules:
         raise VocabularyError(f"{path}: no 'rules' list")
     out, seen = [], set()
-    for r in rules:
+    for index, r in enumerate(rules, 1):
+        rule = f"{path}: rule {index}"
         if not isinstance(r, dict):
-            raise VocabularyError(f"{path}: rule entry is not a mapping: {r!r}")
+            raise VocabularyError(f"{rule} is not a mapping")
         rid, tier, pat = r.get("id"), r.get("tier"), r.get("pattern")
-        why = r.get("why") or rid
-        if not (rid and tier and pat):
-            raise VocabularyError(f"{path}: rule {rid or r!r} needs id, tier and pattern")
+        why = r.get("why", "")
+        if not all(isinstance(value, str) and value for value in (rid, tier, pat)):
+            raise VocabularyError(f"{rule} needs nonempty string id, tier and pattern")
+        if not isinstance(why, str):
+            raise VocabularyError(f"{rule} needs a string explanation")
+        why = why or rid
         if tier not in _VALID_TIERS:
             raise VocabularyError(
-                f"{path}: rule {rid} has tier {tier!r}, expected one of {', '.join(_VALID_TIERS)}"
+                f"{rule} has an invalid tier, expected one of {', '.join(_VALID_TIERS)}"
             )
         if rid in seen:
-            raise VocabularyError(f"{path}: duplicate rule id {rid!r}")
-        # Compile now: a bad pattern must fail at load, naming the rule, not
-        # halfway through a scan with a bare re.error.
+            raise VocabularyError(f"{rule} has a duplicate id")
+        # Compile now, but never echo private rule fields or regex error text
+        # into a load diagnostic that may reach a public CI log.
         try:
             re.compile(pat)
         except re.error as e:
-            raise VocabularyError(f"{path}: rule {rid} has an invalid pattern ({e})") from e
+            raise VocabularyError(f"{rule} has an invalid pattern") from e
         if rid in {u[0] for u in RULES}:
-            raise VocabularyError(f"{path}: rule {rid!r} collides with a built-in universal rule")
+            raise VocabularyError(f"{rule} collides with a built-in universal rule")
         seen.add(rid)
         out.append((rid, tier, pat, why))
     return tuple(out)

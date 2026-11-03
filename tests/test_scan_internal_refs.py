@@ -82,12 +82,12 @@ def test_missing_vocabulary_fails_loudly(tmp_path):
     assert "not found" in str(e.value)
 
 
-def test_malformed_vocabulary_names_the_rule(tmp_path):
+def test_malformed_vocabulary_names_rule_position_without_private_fields(tmp_path):
     bad = tmp_path / "v.yaml"
     bad.write_text("rules:\n  - {id: x, tier: nope, pattern: 'a'}\n", encoding="utf-8")
     with pytest.raises(S.VocabularyError) as e:
         S.load_vocabulary(str(bad))
-    assert "tier" in str(e.value) and "x" in str(e.value)
+    assert "tier" in str(e.value) and "rule 1" in str(e.value)
 
 
 def test_invalid_regex_fails_at_load_not_mid_scan(tmp_path):
@@ -104,6 +104,77 @@ def test_a_config_rule_may_not_shadow_a_universal_one(tmp_path):
     with pytest.raises(S.VocabularyError) as e:
         S.load_vocabulary(str(bad))
     assert "collides" in str(e.value)
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        b"[]",
+        b"false",
+        b"\xff",
+        b"rules:\n  - {id: [], tier: block, pattern: fixture}\n",
+        b"rules:\n  - {id: fixture, tier: block, pattern: 42}\n",
+        b"rules:\n  - {id: fixture, tier: block, pattern: fixture, why: [invalid]}\n",
+    ],
+)
+def test_malformed_vocabulary_raises_contextual_load_error(tmp_path, content):
+    vocabulary = tmp_path / "vocabulary.yaml"
+    vocabulary.write_bytes(content)
+    with pytest.raises(S.VocabularyError) as error:
+        S.load_vocabulary(str(vocabulary))
+    assert str(vocabulary) in str(error.value)
+
+
+@pytest.mark.parametrize("why", [False, 0, [], {}, None, True, 1, ["invalid"]])
+def test_explicit_nonstring_explanation_is_rejected_before_fallback(tmp_path, why):
+    import yaml
+
+    vocabulary = tmp_path / "vocabulary.yaml"
+    vocabulary.write_text(
+        yaml.safe_dump({"rules": [{"id": "fixture", "tier": "block", "pattern": "x", "why": why}]}),
+        encoding="utf-8",
+    )
+    with pytest.raises(S.VocabularyError, match="rule 1 needs a string explanation"):
+        S.load_vocabulary(str(vocabulary))
+
+
+@pytest.mark.parametrize("explanation", [{}, {"why": ""}, {"why": "because"}])
+def test_only_missing_or_empty_string_explanation_falls_back(tmp_path, explanation):
+    import yaml
+
+    vocabulary = tmp_path / "vocabulary.yaml"
+    vocabulary.write_text(
+        yaml.safe_dump(
+            {"rules": [{"id": "fixture", "tier": "block", "pattern": "x", **explanation}]}
+        ),
+        encoding="utf-8",
+    )
+    assert S.load_vocabulary(str(vocabulary))[0][3] == (explanation.get("why") or "fixture")
+
+
+@pytest.mark.parametrize(
+    "rule",
+    [
+        "PRIVATE_VOCABULARY_SENTINEL",
+        {"id": False, "tier": "block", "pattern": "PRIVATE_VOCABULARY_SENTINEL"},
+        {"id": "PRIVATE_VOCABULARY_SENTINEL", "tier": "nope", "pattern": "x"},
+        {"id": "fixture", "tier": "block", "pattern": "[PRIVATE_VOCABULARY_SENTINEL"},
+        {"id": "fixture", "tier": "block", "pattern": "x", "why": ["PRIVATE_VOCABULARY_SENTINEL"]},
+    ],
+)
+def test_grouped_scanner_load_failure_does_not_echo_private_rule(tmp_path, capsys, rule):
+    import yaml
+
+    from traust.cli.__main__ import main as cli_main
+
+    vocabulary = tmp_path / "vocabulary.yaml"
+    vocabulary.write_text(yaml.safe_dump({"rules": [rule]}), encoding="utf-8")
+    assert cli_main(["admin", "scan-internal-refs", "--vocabulary", str(vocabulary)]) == 2
+    captured = capsys.readouterr()
+    assert str(vocabulary) in captured.err
+    assert "rule 1" in captured.err
+    assert "PRIVATE_VOCABULARY_SENTINEL" not in captured.out + captured.err
+    assert "Traceback" not in captured.err
 
 
 def test_all_rules_is_universal_plus_vocabulary():

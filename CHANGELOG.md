@@ -2,6 +2,18 @@
 
 All notable changes to Traust are documented here.
 
+## [0.39.5]
+
+- Keep main/development browser preflight semantics aligned: answering HTTP 4xx,
+  including 401/403/429, satisfies URL reachability only, not authorization or
+  browser usability; transport, TLS and HTTP 5xx still invalidate the target.
+  Pin the app-owned cutoff and body-free, no-application-retry preflight contract.
+- Fail the config/docs estate gate on every configured missing, malformed or
+  unreadable vocabulary, even for sparse selected roots, while retaining universal
+  rules. Only an unset/blank vocabulary is optional. Keep private rule payloads and
+  raw loader exceptions out of diagnostics; reject non-string explanations before
+  applying the missing/empty-string rule-ID fallback.
+
 ## [0.39.4]
 
 - Check sandbox routing per target-build command; prose, comments, imports, and unrelated
@@ -44,6 +56,7 @@ All notable changes to Traust are documented here.
   judgments on replay.
 
 ## [Unreleased]
+
 
 - **Review checks for FastAPI, aiohttp and Express** (Vercel comparison gap
   plan, step 5). `framework-checks.md` gains FA.1–FA.15 (FastAPI and

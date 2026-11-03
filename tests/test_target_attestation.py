@@ -1,9 +1,16 @@
 """P2 target attestation: script logic + emitter fail-closed gate."""
 
+import io
+import json
+import socket
+import threading
 import unittest
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+import pytest
 from soundness import controls_flag, flag_validated_finding
 
+from traust.cli.__main__ import main as cli_main
 from traust.cli.attest_target import parse_semverish, version_in_range
 from traust.paths import skill_dir
 
@@ -21,6 +28,121 @@ class TestVersionRange(unittest.TestCase):
     def test_unparseable_is_none(self):
         self.assertIsNone(version_in_range("main", "<v2", None))
         self.assertIsNone(parse_semverish("not-a-version"))
+
+
+@pytest.fixture
+def attestation_endpoint(monkeypatch):
+    monkeypatch.setenv("no_proxy", "127.0.0.1")
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(int(self.path.rsplit("/", 1)[-1]))
+            self.end_headers()
+
+        def log_message(self, format, *args):
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{server.server_port}"
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join()
+
+
+def _attest_url(out, url, *extra):
+    assert cli_main(["admin", "attest-target", "--url", url, "--out", str(out), *extra]) == 0
+    return json.loads(out.read_text(encoding="utf-8"))
+
+
+@pytest.mark.parametrize("status", [200, 204, 302, 400, 401, 403, 404, 429, 499, 500, 503, 599])
+def test_url_http_status_records_reachability_artifact(tmp_path, attestation_endpoint, status):
+    url = f"{attestation_endpoint}/{status}"
+    doc = _attest_url(tmp_path / "target-attestation.json", url)
+    reachable = status < 500
+    assert doc["artifact"] == "target-attestation"
+    assert doc["attested"] is reachable
+    assert doc["fingerprint"]["url"] == url
+    assert [(c["name"], c["ok"], c["required"]) for c in doc["checks"]] == [
+        ("url-reachable", reachable, True)
+    ]
+    assert doc["checks"][0]["detail"] == f"HTTP {status}"
+
+
+@pytest.mark.parametrize("status", [200, 401, 403, 429, 500])
+def test_url_preflight_reads_no_body_and_never_retries(tmp_path, monkeypatch, status):
+    import urllib.error
+
+    from traust.cli import attest_target as A
+
+    class Response(io.BytesIO):
+        def read(self, *args, **kwargs):
+            raise AssertionError("preflight must not consume a response body")
+
+    body = Response(b"private response payload")
+    body.status = status
+    requests = []
+
+    def urlopen(request, *, timeout):
+        requests.append((request.get_method(), timeout))
+        if status >= 400:
+            raise urllib.error.HTTPError(
+                request.full_url, status, "refused", {"Retry-After": "86400"}, body
+            )
+        return body
+
+    monkeypatch.setattr(A.urllib.request, "urlopen", urlopen)
+    doc = _attest_url(tmp_path / "target-attestation.json", "https://fixture.invalid/")
+    assert requests == [("GET", 15)]
+    assert body.closed
+    assert doc["checks"][0]["detail"] == f"HTTP {status}"
+    assert doc["attested"] is (status < 500)
+
+
+def test_answering_url_does_not_override_other_failed_checks(tmp_path, attestation_endpoint):
+    doc = _attest_url(
+        tmp_path / "target-attestation.json",
+        f"{attestation_endpoint}/401",
+        "--version",
+        "2.0.0",
+        "--fixed-version",
+        "2.0.0",
+    )
+    assert doc["attested"] is False
+    assert {c["name"]: c["ok"] for c in doc["checks"]} == {
+        "version-in-affected-range": False,
+        "url-reachable": True,
+    }
+
+
+def test_transport_failure_remains_invalid(tmp_path, monkeypatch):
+    monkeypatch.setenv("no_proxy", "127.0.0.1")
+    with socket.socket() as offline:
+        offline.bind(("127.0.0.1", 0))
+        doc = _attest_url(
+            tmp_path / "target-attestation.json",
+            f"http://127.0.0.1:{offline.getsockname()[1]}/",
+        )
+    assert doc["attested"] is False
+    assert [(c["name"], c["ok"], c["required"]) for c in doc["checks"]] == [
+        ("url-reachable", False, True)
+    ]
+    assert "url" not in doc["fingerprint"]
+
+
+def test_tls_failure_remains_invalid(tmp_path, attestation_endpoint):
+    doc = _attest_url(
+        tmp_path / "target-attestation.json",
+        attestation_endpoint.replace("http://", "https://") + "/200",
+    )
+    assert doc["attested"] is False
+    assert [(c["name"], c["ok"], c["required"]) for c in doc["checks"]] == [
+        ("url-reachable", False, True)
+    ]
+    assert "url" not in doc["fingerprint"]
 
 
 if __name__ == "__main__":
