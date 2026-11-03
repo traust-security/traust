@@ -4,6 +4,7 @@ the same rule and lane through traust-core's `RepoState` and `PortfolioPolicy`."
 
 from __future__ import annotations
 
+import hashlib
 import json
 from datetime import UTC, datetime
 from pathlib import Path
@@ -35,11 +36,22 @@ from traust.ops.router import (
 )
 
 FIXTURES = Path(__file__).parent / "fixtures" / "routing"
+BASELINE = json.loads((FIXTURES / "baseline.json").read_text(encoding="utf-8"))
 DECISIONS = json.loads((FIXTURES / "python_decisions.json").read_text(encoding="utf-8"))
 PRIMARY = json.loads((FIXTURES / "python_primary.json").read_text(encoding="utf-8"))
 POLICY = PortfolioPolicy()
 OBSERVED = datetime(2026, 9, 28, tzinfo=UTC)
 REPO = HttpsRepoUrl.parse("https://github.com/example/app", ["github.com"])
+
+
+@pytest.mark.parametrize("name", sorted(BASELINE["fixtures"]))
+def test_the_corpus_is_the_recorded_history(name: str) -> None:
+    """The expected answers change only with the manifest, so a routing change can't quietly
+    rewrite them alongside the router."""
+    raw = (FIXTURES / name).read_bytes()
+    recorded = BASELINE["fixtures"][name]
+    assert hashlib.sha256(raw).hexdigest() == recorded["sha256"], "review the fixture diff"
+    assert {k: len(json.loads(raw)[k]) for k in recorded["counts"]} == recorded["counts"]
 
 
 def _state(**fields: Any) -> RepoState:

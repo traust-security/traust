@@ -11,3 +11,7 @@ their `source` blocks name the revision and whole-file SHA-256 they came from. T
 router was retired on 2026-11-03 (it read a `findings.db` projection nothing builds),
 so the corpus is now fixed history: change it only for an intentional routing-policy
 change, reviewed case by case, never to make a failure disappear.
+
+`baseline.json` records each file's SHA-256 and case counts, and
+`test_the_corpus_is_the_recorded_history` checks them: an edit to an expected answer fails
+until the manifest is updated with it, in the same reviewed change.
