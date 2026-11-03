@@ -76,6 +76,10 @@ commit's manifest SBOM (`impact sbom`) and each image's SBOM
 (`adapters image-sbom`). Package import/export and interface scans are recorded
 as typed code-facts assessments by `portfolio facts-collect`.
 
+`drift-watch` names `portfolio-graph.db` only in its retired `pqc-backfeed`
+history. It does not reopen that database: native PQC reads use recorded facts,
+so there is no graph-enrichment copy for a rebuild to clobber.
+
 | Layer | Native question |
 |---|---|
 | L0 | `portfolio graph`: inventory/release/ref/owner/coverage relationships |

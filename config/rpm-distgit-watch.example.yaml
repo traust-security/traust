@@ -1,7 +1,0 @@
-# Copy to the deployment config home as rpm-distgit-watch.yaml.
-# HTTPS dist-git repositories; the first successful HEAD observation is a baseline.
-active: []
-# Optional inventory-family -> existing product slug bindings. Families replace every
-# version in the inventory-relative path with {V}; image tags are never product versions.
-# Example: "payload/application-{V}-payload-repos.csv": application
-products: {}
