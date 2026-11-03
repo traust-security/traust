@@ -520,3 +520,129 @@ safe_exec.run("go test ./...")
     )
     failures, _ = css.security_failures(repo)
     assert any(f.startswith("S10") for f in failures) is blocked
+
+
+@pytest.mark.requires_git
+def test_s10_function_local_safe_alias_cannot_route_module_subprocess(tmp_path):
+    script = """import subprocess
+def example():
+    from traust_engine._util import safe_exec as subprocess
+subprocess.run("go build ./...")
+"""
+    repo = _mk_repo(tmp_path, skill_md=CLEAN_SKILL, script=script, script_name="run.py")
+    failures, _ = css.security_failures(repo)
+    assert any(f.startswith("S10") for f in failures)
+
+
+@pytest.mark.requires_git
+@pytest.mark.parametrize("scope", ["def example():", "async def example():", "class Example:"])
+@pytest.mark.parametrize(
+    ("outer", "inner", "blocked"),
+    [
+        ("subprocess", "traust_engine._util.safe_exec", True),
+        ("traust_engine._util.safe_exec", "subprocess", False),
+    ],
+)
+def test_s10_nested_imports_cannot_change_module_routing(tmp_path, scope, outer, inner, blocked):
+    script = (
+        f'import {outer} as proc\n{scope}\n    import {inner} as proc\nproc.run("go build ./...")\n'
+    )
+    repo = _mk_repo(tmp_path, skill_md=CLEAN_SKILL, script=script, script_name="run.py")
+    failures, _ = css.security_failures(repo)
+    assert any(f.startswith("S10") for f in failures) is blocked
+
+
+@pytest.mark.requires_git
+@pytest.mark.parametrize(
+    ("script", "blocked"),
+    [
+        (
+            "from traust_engine._util import safe_exec as proc\n"
+            "def worker():\n"
+            "    import subprocess as proc\n"
+            '    proc.run("go build ./...")\n',
+            True,
+        ),
+        (
+            "import subprocess as proc\n"
+            "def worker():\n"
+            "    from traust_engine._util import safe_exec as proc\n"
+            '    proc.run("go build ./...")\n',
+            False,
+        ),
+        (
+            "def outer():\n"
+            "    import subprocess as proc\n"
+            "    def example():\n"
+            "        from traust_engine._util import safe_exec as proc\n"
+            "    def worker():\n"
+            '        proc.run("go build ./...")\n',
+            True,
+        ),
+        (
+            "def outer():\n"
+            "    from traust_engine._util import safe_exec as proc\n"
+            "    def example():\n"
+            "        import subprocess as proc\n"
+            "    def worker():\n"
+            '        proc.run("go build ./...")\n',
+            False,
+        ),
+        (
+            "import subprocess as proc\n"
+            "class Example:\n"
+            "    from traust_engine._util import safe_exec as proc\n"
+            "    def worker(self):\n"
+            '        proc.run("go build ./...")\n',
+            True,
+        ),
+        (
+            "from traust_engine._util import safe_exec as proc\n"
+            "class Example:\n"
+            "    import subprocess as proc\n"
+            "    def worker(self):\n"
+            '        proc.run("go build ./...")\n',
+            False,
+        ),
+        (
+            "import subprocess as proc\n"
+            'def example(value=proc.run("go build ./...")):\n'
+            "    from traust_engine._util import safe_exec as proc\n",
+            True,
+        ),
+        (
+            "from traust_engine._util import safe_exec as proc\n"
+            'def example(value=proc.run("go build ./...")):\n'
+            "    import subprocess as proc\n",
+            False,
+        ),
+    ],
+)
+def test_s10_function_calls_use_local_or_enclosing_imports(tmp_path, script, blocked):
+    repo = _mk_repo(tmp_path, skill_md=CLEAN_SKILL, script=script, script_name="run.py")
+    failures, _ = css.security_failures(repo)
+    assert any(f.startswith("S10") for f in failures) is blocked
+
+
+@pytest.mark.requires_git
+@pytest.mark.parametrize(
+    "expression",
+    [
+        'lambda: proc.run("go build ./...")',
+        '[proc.run("go build ./...") for item in items]',
+        '{proc.run("go build ./...") for item in items}',
+        '{item: proc.run("go build ./...") for item in items}',
+        '(proc.run("go build ./...") for item in items)',
+    ],
+)
+def test_s10_class_expression_closures_do_not_capture_class_imports(tmp_path, expression):
+    script = (
+        "import subprocess as proc\n"
+        "items = [1]\n"
+        "class Example:\n"
+        "    from traust_engine._util import safe_exec as proc\n"
+        f"    example = {expression}\n"
+    )
+    repo = _mk_repo(tmp_path, skill_md=CLEAN_SKILL, script=script, script_name="run.py")
+    failures, _ = css.security_failures(repo)
+    assert any(f.startswith("S10") for f in failures)

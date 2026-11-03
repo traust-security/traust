@@ -4,6 +4,9 @@ All notable changes to Traust are documented here.
 
 ## [Unreleased]
 
+- Resolve S10 import aliases per lexical scope, so a nested safe-exec alias cannot
+  exempt an enclosing or sibling subprocess build. Preserve legitimate local
+  routes, class-versus-closure lookup, and default/decorator evaluation scopes.
 - Keep feed drift's registry, optionality and source/reference classification bound
   to its selected engine, independent of earlier fetches from another config home.
 - Inspect Python build commands only at execution calls, retaining per-command

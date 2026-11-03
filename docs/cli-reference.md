@@ -54,6 +54,10 @@ Python command inspection is limited to execution-call arguments; module/functio
 docstrings, printed examples and argument-parser descriptions/help are not
 execution. Import aliases are recognized, but importing safe-exec never exempts
 an unrelated subprocess build.
+Import aliases are resolved within each call's lexical scope: imports inside a
+function, async function or class do not alter enclosing or sibling calls.
+Methods and expression closures do not capture class-body imports; function
+defaults and decorators are checked in their defining namespace.
 
 `traust check docs-consistency --root <path>` uses the selected checkout's skills
 for the model-class index. Its config/docs estate checks skip deployment vocabulary

@@ -406,21 +406,28 @@ def _s10_unrouted_build(text: str) -> bool:
     except SyntaxError:
         return _s10_unrouted_shell_build(text)
 
-    imports: dict[str, str] = {}
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            for alias in node.names:
-                name = alias.asname or alias.name.split(".")[0]
-                imports[name] = alias.name if alias.asname else name
-        elif isinstance(node, ast.ImportFrom) and node.module:
-            for alias in node.names:
-                imports[alias.asname or alias.name] = f"{node.module}.{alias.name}"
+    def scope_imports(body: list[ast.stmt]) -> dict[str, str]:
+        bindings: dict[str, str] = {}
+        pending: list[ast.AST] = list(reversed(body))
+        boundaries = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)
+        while pending:
+            node = pending.pop()
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    name = alias.asname or alias.name.split(".")[0]
+                    bindings[name] = alias.name if alias.asname else name
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                for alias in node.names:
+                    bindings[alias.asname or alias.name] = f"{node.module}.{alias.name}"
+            elif not isinstance(node, boundaries):
+                pending.extend(reversed(list(ast.iter_child_nodes(node))))
+        return bindings
 
-    def call_name(node: ast.expr) -> str:
+    def call_name(node: ast.expr, imports: dict[str, str]) -> str:
         if isinstance(node, ast.Name):
             return imports.get(node.id, node.id)
         if isinstance(node, ast.Attribute):
-            return f"{call_name(node.value)}.{node.attr}"
+            return f"{call_name(node.value, imports)}.{node.attr}"
         return ""
 
     def command_text(node: ast.expr) -> str:
@@ -448,12 +455,11 @@ def _s10_unrouted_build(text: str) -> bool:
         "getoutput",
         "getstatusoutput",
     }
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Call):
-            continue
-        name = call_name(node.func)
+
+    def unrouted_call(node: ast.Call, imports: dict[str, str]) -> bool:
+        name = call_name(node.func, imports)
         if name in {"safe_exec.run", "traust_engine._util.safe_exec.run"}:
-            continue
+            return False
         module, _, operation = name.rpartition(".")
         command = None
         if module == "subprocess" and operation in subprocess_calls:
@@ -484,9 +490,77 @@ def _s10_unrouted_build(text: str) -> bool:
                     command = node.args[offset]
                 else:
                     command = ast.List(elts=node.args[offset:])
-        if command is not None and _s10_unrouted_shell_build(command_text(command)):
-            return True
-    return False
+        return command is not None and _s10_unrouted_shell_build(command_text(command))
+
+    class BuildCalls(ast.NodeVisitor):
+        def __init__(self) -> None:
+            self.imports: dict[str, str] = {}
+            self.enclosing: dict[str, str] = {}
+            self.blocked = False
+
+        def body(self, body: list[ast.stmt], *, class_scope: bool = False) -> None:
+            previous = self.imports, self.enclosing
+            # Class namespaces serve their body, but are not method closures.
+            self.imports = {**self.enclosing, **scope_imports(body)}
+            if not class_scope:
+                self.enclosing = self.imports
+            for statement in body:
+                self.visit(statement)
+            self.imports, self.enclosing = previous
+
+        def visit_FunctionDef(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
+            for decorator in node.decorator_list:
+                self.visit(decorator)
+            self.visit(node.args)
+            if node.returns is not None:
+                self.visit(node.returns)
+            self.body(node.body)
+
+        visit_AsyncFunctionDef = visit_FunctionDef
+
+        def visit_ClassDef(self, node: ast.ClassDef) -> None:
+            for expression in [*node.decorator_list, *node.bases, *node.keywords]:
+                self.visit(expression)
+            self.body(node.body, class_scope=True)
+
+        def visit_Lambda(self, node: ast.Lambda) -> None:
+            self.visit(node.args)
+            previous = self.imports
+            self.imports = self.enclosing
+            self.visit(node.body)
+            self.imports = previous
+
+        def visit_ListComp(
+            self, node: ast.ListComp | ast.SetComp | ast.DictComp | ast.GeneratorExp
+        ) -> None:
+            # Only the first iterable is evaluated in the enclosing namespace.
+            self.visit(node.generators[0].iter)
+            previous = self.imports
+            self.imports = self.enclosing
+            for index, generator in enumerate(node.generators):
+                if index:
+                    self.visit(generator.iter)
+                for condition in generator.ifs:
+                    self.visit(condition)
+            if isinstance(node, ast.DictComp):
+                self.visit(node.key)
+                self.visit(node.value)
+            else:
+                self.visit(node.elt)
+            self.imports = previous
+
+        visit_SetComp = visit_ListComp
+        visit_DictComp = visit_ListComp
+        visit_GeneratorExp = visit_ListComp
+
+        def visit_Call(self, node: ast.Call) -> None:
+            if unrouted_call(node, self.imports):
+                self.blocked = True
+            self.generic_visit(node)
+
+    visitor = BuildCalls()
+    visitor.body(tree.body)
+    return visitor.blocked
 
 
 def _s3_failures(text: str) -> list[str]:
