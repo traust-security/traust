@@ -197,6 +197,14 @@ PYEOF
     mkdir -p "$RUN_DIR/home" "$RUN_DIR/workspace" "$RUN_DIR/analysis-results" "$RUN_DIR/progress-tracker" "$OPS_DIR/pack"
     pack_overlay > "$OPS_DIR/pack/assets.yaml"
 
+    # Safe-exec: core's ProcessRunner allowlist defaults to empty, so the
+    # deterministic lanes' binaries are refused ("binary not allowed: syft")
+    # until the deployment names them. The rig allows the manifest SBOM
+    # sweep's syft and the observation tripwire's gitleaks.
+    if ! grep -q "^process:" "$CONFIG_HOME/traust.yaml"; then
+        printf '\nprocess:\n  allowed_binaries: [syft, gitleaks]\n' >> "$CONFIG_HOME/traust.yaml"
+    fi
+
     # Core applies its schema itself only for its local SQLite; a Postgres
     # deployment applies the contract DDL, so the rig does too (idempotent).
     OPS_DSN="$OPS_DSN" uv run --no-sync python - <<'PYEOF'
