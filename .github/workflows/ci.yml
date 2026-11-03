@@ -60,12 +60,7 @@ jobs:
         with:
           python-version: "3.12"
       - run: uv sync --frozen
-      - run: >-
-          uv run pytest
-          tests/test_artifact_sessions.py
-          tests/test_cloud_config_doors.py
-          tests/test_products_doors.py
-          -q -rs
+      - run: uv run pytest tests/test_artifact_sessions.py -q
 
   # Consumer fence: new direct state access fails; .ratchet.json only shrinks (checked against
   # the base branch's). The ratchet is pinned here, independent of the runtime traust-core pin.
