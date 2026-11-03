@@ -49,6 +49,11 @@ RUN_DIR="$REPO_ROOT/$OPS_DIR/run"
 
 if command -v podman >/dev/null 2>&1; then CT=podman; else CT=docker; fi
 
+# The toolchain installer (install-toolchain.sh) downloads pinned scanners into
+# HARNESS_BIN_DIR (default ~/.local/bin). Keep it on PATH for every rig command
+# so engine claims can run them even when the operator's shell profile doesn't.
+export PATH="${HARNESS_BIN_DIR:-$HOME/.local/bin}:$PATH"
+
 # The cadence compression: pack value → rig value (sed pairs).
 pack_overlay() {
     sed -e 's/every: 24h/every: 2m/' \
@@ -123,6 +128,22 @@ cmd_up() {
 
     uv sync --quiet
     install_engine
+
+    # The smoke's manifest_sbom order runs syft through core's ProcessRunner
+    # (the binary the traust.yaml grant below allows). A fresh host has none:
+    # provision it through the same pinned, checksum-verified download CI uses
+    # (install-toolchain.sh's local-ops profile) instead of letting the order
+    # fail at claim time with an unexplained gap.
+    if ! command -v syft >/dev/null 2>&1; then
+        # A failed download still falls through to the actionable message below.
+        bash scripts/install-toolchain.sh local-ops || true
+    fi
+    command -v syft >/dev/null 2>&1 || {
+        echo "syft is missing and could not be installed: manifest_sbom orders need it." >&2
+        echo "run: bash scripts/install-toolchain.sh local-ops" >&2
+        echo "then make ops-up again (or add ${HARNESS_BIN_DIR:-$HOME/.local/bin} to PATH)" >&2
+        return 1
+    }
 
     # The rig's traust.yaml: its database and locations. `home` keeps core's credential
     # store and local-issuer key inside the rig: without it they land in ~/.traust, over a
