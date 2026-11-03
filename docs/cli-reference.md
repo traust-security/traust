@@ -326,7 +326,7 @@ here so an old runbook cannot be mistaken for an executable fallback:
 | `check report-digests` | Verify report/artifact digest bindings | Core artifact publishing/index services; gate skill port unfinished |
 | Ledger triage / validation / verification emitters | Convert report verdicts into legacy layer events | `traust triage record`, `traust validation record`, and `traust remediation verify-record` persist through Core; use `remediation verifications` and `findings baseline` for recorded/current results |
 | `ledger pull` | Export a read-only snapshot of one legacy ledger layer | Legacy layer stores remain retired. Core `ledger.layer(layer_id)` and paged `ledger.events(layer_id, page)` read native layers; `findings import` is a distinct external-statement intake operation, not a snapshot-export replacement |
-| `corpus` group | Report discovery, identity, projections, summaries and precedents | Core assessment and finding services; corpus skill ports unfinished |
+| `corpus` group | Report discovery, identity, projections, summaries and precedents | Core assessment and finding services: `reporting record` computes finding identity, `triage prepare` carries precedents, `findings` reads the rest |
 | `route` group | Admit impact findings and remediation regressions without changing baselines | Core finding intake; routing skill ports unfinished |
 
 There is no executable fallback for these retired workflows. Do not hand-write a

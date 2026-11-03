@@ -838,7 +838,7 @@ restate BOTH verbatim in the verification report's metadata — the
 verification carries the **original audit's** ref, never the patched
 checkout's (that is `patched_ref`). When the original report predates the
 fields and declares neither, omit them; do not derive one from the report
-slug here — slug parsing stays centralized in python3 -m traust.cli corpus.
+slug here.
 
 #### 6a. Report file naming
 

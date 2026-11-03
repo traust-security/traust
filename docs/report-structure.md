@@ -56,7 +56,7 @@ No report or layer bytes are rewritten.
 | Field | Required | Description |
 |---|---|---|
 | `id` | Yes | Globally-unique **scan-scoped** ID `{REPO_SLUG}-{SHORTSHA}-{NNN}`. Provenance to an exact commit; unique across the corpus. Never reuse across scans. |
-| `fingerprint` | No (script-set) | **Cross-scan identity**: `sha256(canonical repo URL \| sorted lineless location paths \| primary CWE)`. Computed by python3 -m traust.cli corpus finding-identity (`fingerprint`/`backfill`) — never authored by the model, and the only implementation: consumers read this stamp and fail closed when it is absent. Correlates the same vulnerability across re-scans; the `rebaseline` command maps a superseded report's IDs to their successors via layer `metadata.finding_aliases`. A change to the recipe is a change to `ALGO_VERSION` paired with a re-stamp migration, never a silent regeneration. |
+| `fingerprint` | No (script-set) | **Cross-scan identity**: `sha256(canonical repo URL \| sorted lineless location paths \| primary CWE)`. Computed by traust-core's intake when the report is recorded (`traust reporting record`) — never authored by the model, and the only implementation. Correlates the same vulnerability across re-scans; the `rebaseline` command maps a superseded report's IDs to their successors via layer `metadata.finding_aliases`. A change to the recipe is a change to `ALGO_VERSION` paired with a re-stamp migration, never a silent regeneration. |
 | `title` | Yes | Short description (≥5 chars). |
 | `kind` | No | Explicit finding classification from the installed [finding-kind vocabulary](https://github.com/traust-security/traust-contracts/blob/development/enums/v1/finding-kind.json). Use it to distinguish a vulnerability from a defense-in-depth weakness; omission remains unknown. Kind is not a validity answer or evidence grade. Core intake preserves it for a new finding without reclassifying an existing one. |
 | `severity` | Yes | `critical` \| `high` \| `medium` \| `low` \| `informational`. |
@@ -274,9 +274,7 @@ apply unrelated classifier policies, or recreate retired report writers.
 
 1. Validate: python3 -m traust.cli reporting validate <report.json> — 0
    errors required.
-2. Fingerprint: python3 -m traust.cli corpus finding-identity fingerprint <report.json> --write
-   (deterministic; safe — fingerprints are outside the claim-hash fields).
-3. Record the report through `python3 -m traust.cli reporting record
+2. Record the report through `python3 -m traust.cli reporting record
    <report.json> --kind <kind> --repo-url <https source repository URL>
    --sha <audited source commit> [--branch <audited branch>]`.
    Use `secure_code`, `rpm`, or `container` for the corresponding audit
@@ -285,7 +283,7 @@ apply unrelated classifier policies, or recreate retired report writers.
    instructions (container source labels identify its source commit).
    A new report is not published until Core accepts the record. An
    admission error is not a reason to guess a size or priority.
-4. Preserve historical reports and raw notes. A re-audit is a new report
+3. Preserve historical reports and raw notes. A re-audit is a new report
    and assessment, not a rewrite of the old report. Use the current Core
    finding doors for later decisions; the former layer emitters and
    cumulative-report rebuild are retired and must not be recreated.

@@ -410,14 +410,13 @@ Base-image packages and shared vendored binaries (kube-rbac-proxy and
 the like) are the measured re-refutation treadmill — the same FP
 re-litigated per image that ships the component. Before filing a
 critical/high dependency/CVE candidate on a package that ships across
-many images (base-image layer, shared sidecar binary), consult the
-portfolio precedent cache exactly as `/secure-code-audit` does:
+many images (base-image layer, shared sidecar binary), look for
+prior adjudication exactly as `/secure-code-audit` does.
 
-```bash
-python3 -m traust.cli corpus precedent match \
-    --cache ../analysis-results/graph/fp-precedent-cache.json \
-    --findings <candidates.json>
-```
+There is no precedent cache any more: traust-core matches precedents
+(same enclosing symbol, vendor-normalized path, shared CWE) and hands
+them to /triage with each recorded finding (`traust triage prepare`,
+Phase 2g).
 
 A match at `max_strength: human_countersigned` is citeable prior
 adjudication: record it in `precision_gates.fired` (gate
@@ -428,8 +427,7 @@ never silently disappears, and **this image's own reachability is still
 checked** (a precedent from another image or repo does not prove this
 one's context matches). `machine_refuted_sound` matches are context
 only — never gate evidence at audit time; they surface again at
-/triage Phase 2g. A missing/empty cache skips this gate silently
-(clean no-op by contract); audit judgment stays independent — the
+/triage Phase 2g. With no recorded precedent nothing fires; audit judgment stays independent — the
 precedent is evidence to cite, never a verdict to copy.
 
 ### Crit/high reporting bar

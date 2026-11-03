@@ -60,10 +60,6 @@ allowed-tools:
   - Bash(python3 *-m traust.cli assessments prepare:*)
   # Records the validated report in traust-core (Step 5); reads only the report file.
   - Bash(python3 *-m traust.cli reporting record:*)
-  # Precision Gate FP-precedent check (Step 3c): `match` mode only —
-  # reads the prebuilt cache JSON + a candidates file, no network, no
-  # cache writes. Never run `build` from this skill.
-  - Bash(python3 *-m traust.cli corpus precedent:*)
 ---
 
 # /vuln-scan
@@ -738,23 +734,19 @@ Apply to every candidate still rated critical or high after Step 3:
    evidence, documented in the finding.
 5. **FP-precedent check (vendored/shared components, optional-degrade)**
    — for a crit/high candidate whose file sits under a vendor root
-   (`vendor/`, `third_party/`, `node_modules/`, …), consult the
-   portfolio precedent cache when the workspace carries one:
-
-   ```bash
-   python3 -m traust.cli corpus precedent match \
-       --cache <workspace>/analysis-results/graph/fp-precedent-cache.json \
-       --findings <candidates.json>
-   ```
+   (`vendor/`, `third_party/`, `node_modules/`, …), look for prior
+   adjudication. There is no precedent cache any more: traust-core
+   matches precedents (same enclosing symbol, vendor-normalized path,
+   shared CWE) and hands them to `/triage` with each recorded finding
+   (`traust triage prepare`, Phase 2g).
 
    A match at `max_strength: human_countersigned` is citeable prior
    adjudication: downgrade with the precedent (source repo + date)
    cited — this repo's own wiring is still checked (a precedent from
    another repo does not prove this repo's context matches).
    `machine_refuted_sound` matches are context only — never gate
-   evidence at scan time; they surface again at `/triage` Phase 2g. A
-   missing/empty cache skips this check silently (clean no-op). Match
-   mode only — never `build`.
+   evidence at scan time; they surface again at `/triage` Phase 2g.
+   With no recorded precedent nothing fires.
 
 **Record the pass** in `metadata.additional.precision_gates` — the same
 contract as `/secure-code-audit`'s:
@@ -1035,10 +1027,9 @@ Consumed artifacts (producer named per artifact):
 - `<repo>-llm-app.json` from python3 -m traust.cli adapters llm-app — a
   fact that gates the LLM application focus area and its checklist
   (`/secure-code-audit`'s `llm-application-review.md`); never a finding.
-- `fp-precedent-cache.json` — produced by
-  python3 -m traust.cli corpus precedent build (Phase-4 fleet
-  mechanism); Step 3c consults it read-only (`match` mode) as citeable
-  gate evidence at human-countersigned strength, downgrade-not-drop.
+- Precedents — retired as a cache file; traust-core matches them on the
+  recorded findings and `/triage` applies them (Phase 2g) as citeable
+  evidence at human-countersigned strength, downgrade-not-drop.
 
 Emitted artifacts:
 

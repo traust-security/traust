@@ -57,10 +57,8 @@ allowed-tools:
   - Bash(python3 *harnessing/3-audit/secure-code-audit/scripts/probe_sanitizers.py:*)
   - Bash(python *harnessing/3-audit/secure-code-audit/scripts/probe_sanitizers.py:*)
   - Bash(python3 *-m traust.cli.check_citations:*)
-  - Bash(python3 *-m traust.cli corpus finding-identity:*)
   - Bash(python3 *-m traust.cli impact enrich:*)
   - Bash(python3 *-m traust.cli sweep mine:*)
-  - Bash(python3 *-m traust.cli corpus:*)
 ---
 
 # Secure Code Audit
@@ -363,13 +361,10 @@ Shared-component hits (vendored kube-rbac-proxy and the like) are the
 measured re-refutation treadmill: the same FP re-litigated per repo
 that ships the component. Before filing a critical/high candidate whose
 locations sit under a vendor root (`vendor/`, `third_party/`,
-`node_modules/`, ...), consult the portfolio precedent cache:
-
-```bash
-python3 -m traust.cli corpus precedent match \
-    --cache <harness>/../analysis-results/graph/fp-precedent-cache.json \
-    --findings <candidates.json>
-```
+`node_modules/`, ...), look for prior adjudication. There is no
+precedent cache any more: traust-core matches precedents (same enclosing
+symbol, vendor-normalized path, shared CWE) and hands them to /triage
+with each recorded finding (`traust triage prepare`, Phase 2g).
 
 A match at `max_strength: human_countersigned` is citeable prior
 adjudication: record it in `precision_gates.fired` (gate
@@ -380,8 +375,7 @@ precedent cited, never silently disappears, and this repo's own wiring
 is still checked (a precedent from another repo does not prove this
 repo's context matches). `machine_refuted_sound` matches are context
 only — never gate evidence at audit time; they surface again at
-/triage Phase 2g. A missing/empty cache skips this gate silently
-(clean no-op by contract); audit judgment stays independent — the
+/triage Phase 2g. With no recorded precedent nothing fires; audit judgment stays independent — the
 precedent is evidence to cite, never a verdict to copy.
 
 ### Dependency and advisory gate
@@ -1540,7 +1534,7 @@ Key profile obligations for this skill:
 - Always emit `review_surface_coverage`: one entry per review surface ([`review-surfaces.md` → Recording coverage](review-surfaces.md#recording-coverage)). Required from traust 0.20.0; the validator checks every `finding_ids`, `negative` and `not_assessed` entry against the rest of the report.
 - Include `metadata.loc_breakdown` on all new reports.
 - Stamp `metadata.additional.repo_status` from `progress-tracker/metrics/repo-liveness.json` when present (`active | archived | moved | missing`, with `status_since`); absent from the artifact → `"unknown: not in liveness artifact"`. **Record only** — status never changes findings, severity, or scan depth: archived code that ships is exactly as exploitable as live code. Consumers read the artifact; do not re-query GitHub.
-- After validation, run python3 -m traust.cli corpus finding-identity fingerprint <report.json> --write.
+- The cross-scan `fingerprint` is computed by traust-core when the report is recorded; never stamp it.
 
 ### Field Conventions
 
@@ -1637,23 +1631,18 @@ If errors appear, read each error message, fix the JSON, and re-run the validato
 - **Schema violations** — missing required fields, wrong types, values too short, pattern mismatches (e.g. CWE format)
 - **Cross-validation errors** — `findings_summary` counts don't match actual findings, `finding_ids` reference nonexistent IDs, `remediation_roadmap` addresses unknown findings, duplicate finding IDs, missing mandatory severity criteria levels
 
-**Step 2b — Stamp the cross-scan finding identity (required):**
+**Step 2b — The cross-scan finding identity (traust-core computes it):**
 
-```bash
-python3 -m traust.cli corpus finding-identity fingerprint <path-to-report.json> --write
-```
-
-Deterministic and script-computed — **never model-authored**. It writes
-`finding.fingerprint` = `sha256(canonical repo URL | sorted lineless location
-paths | primary CWE)` for every finding.
+Deterministic and computed in traust-core's intake when the report is
+recorded (`traust reporting record`) — **never model-authored**, and not
+stamped into the report: it hashes the canonical repo URL, the sorted lineless
+location paths and the primary CWE of every finding.
 
 This is not cosmetic. Cross-scan continuation, disposition carry-forward
-between scans, and the downstream platform's finding identity all key on this
-field; an unstamped report validates clean but is invisible to every one of
-them. It is schema-declared and pattern-constrained (`^[0-9a-f]{64}$`) but
-*optional*, so nothing else catches its absence — `validate_report.py` warns,
-and `--strict` makes it an error. Re-run this step after any edit that changes
-a finding's `locations` or `cwes`, since both feed the hash.
+between scans, and the downstream platform's finding identity all key on it,
+so any edit that changes a finding's `locations` or `cwes` changes its
+identity. `traust findings find <report> --label <id>` shows which recorded
+finding a report entry is.
 
 **Step 3 — Run strict mode (recommended):**
 
@@ -1772,8 +1761,7 @@ Rules for batch prompts:
 
 **Consumes:** inventory/payload CSVs from `/inventory-repositories` and
 `/add-inputs` (§Input); `<repo>-threat-model.md` from `/threat-model`
-(coverage diff, findings-tree copy); the FP-precedent cache from
-python3 -m traust.cli corpus precedent; deterministic pre-scan outputs
+(coverage diff, findings-tree copy); deterministic pre-scan outputs
 (opengrep, gitleaks, osv, llm-app, syft/grype, k8s-hardening) recorded
 under `deterministic_steps`; `llm-application-review.md` (this skill's
 LLM, agent and MCP checklist, shared with `/vuln-scan`).
@@ -1782,6 +1770,6 @@ LLM, agent and MCP checklist, shared with `/vuln-scan`).
 report artifact — consumed by `/triage`, `/track-findings`,
 `/verify-remediation`, `/patch`, `/vuln-scan` (baseline dedup),
 `/threat-model` bootstrap, `/create-fuzzing` target selection,
-`/file-security-defect`, and every dashboard via python3 -m traust.cli corpus.
+`/file-security-defect`, and every dashboard via python3 -m traust.cli dashboard view.
 The Markdown companion is rendered by python3 -m traust.cli reporting render,
 never hand-written.

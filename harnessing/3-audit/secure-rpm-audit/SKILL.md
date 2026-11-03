@@ -346,14 +346,12 @@ below the floor.
 Vendored dependency bundles are this profile's shared-component
 re-refutation shape. Before filing a critical/high candidate located in
 a vendored bundle (`SourceN` vendor tarballs, bundled libraries),
-consult the portfolio precedent cache exactly as `/secure-code-audit`
-does:
+look for prior adjudication exactly as `/secure-code-audit` does.
 
-```bash
-python3 -m traust.cli corpus precedent match \
-    --cache ../analysis-results/graph/fp-precedent-cache.json \
-    --findings <candidates.json>
-```
+There is no precedent cache any more: traust-core matches precedents
+(same enclosing symbol, vendor-normalized path, shared CWE) and hands
+them to /triage with each recorded finding (`traust triage prepare`,
+Phase 2g).
 
 A match at `max_strength: human_countersigned` is citeable prior
 adjudication: record it in `precision_gates.fired` (gate
@@ -362,9 +360,9 @@ and apply the standard downgrade-not-drop posture — **this package's
 own build wiring is still checked** (a precedent from another repo does
 not prove this spec compiles the component the same way).
 `machine_refuted_sound` matches are context only — never gate evidence
-at audit time; they surface again at /triage Phase 2g. A missing/empty
-cache skips this gate silently (clean no-op by contract); the precedent
-is evidence to cite, never a verdict to copy.
+at audit time; they surface again at /triage Phase 2g. With no recorded
+precedent nothing fires; the precedent is evidence to cite, never a
+verdict to copy.
 
 ### Do-not-report classes
 

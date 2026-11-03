@@ -298,7 +298,7 @@ Include:
 > **Canonical patterns:** python3 -m traust.cli util redact is now the single
 > source for these patterns (plus Luhn-gated payment cards, SSNs, and
 > URL credentials it added — VVAH plan P2). Prefer
-> `python3 -c "from lib.redact import redact_text; ..."` over
+> python3 -m traust.cli util redact over
 > re-implementing the table below; the table remains as the
 > human-readable contract.
 
