@@ -4,10 +4,15 @@ All notable changes to Traust are documented here.
 
 ## [0.39.5]
 
-- Treat answering HTTP 4xx targets as reachable in browser preflight attestation,
-  while transport, TLS and HTTP 5xx failures still invalidate the target.
-- Fail the config/docs estate gate on malformed configured vocabulary and retain
-  universal rules; an absent vocabulary remains the unconfigured checkout case.
+- Keep main/development browser preflight semantics aligned: answering HTTP 4xx,
+  including 401/403/429, satisfies URL reachability only, not authorization or
+  browser usability; transport, TLS and HTTP 5xx still invalidate the target.
+  Pin the app-owned cutoff and body-free, no-application-retry preflight contract.
+- Fail the config/docs estate gate on every configured missing, malformed or
+  unreadable vocabulary, even for sparse selected roots, while retaining universal
+  rules. Only an unset/blank vocabulary is optional. Keep private rule payloads and
+  raw loader exceptions out of diagnostics; reject non-string explanations before
+  applying the missing/empty-string rule-ID fallback.
 
 ## [0.39.4]
 

@@ -2,8 +2,8 @@
 """Pre-flight target attestation — validation-improvement-plan P2.
 
 Fail-closed environment gate for the validation lanes: BEFORE any probe
-runs, prove the target is actually testable and record the proof as
-machine-checkable `target-attestation.json` beside the validation run.
+runs, record the required target checks as machine-checkable
+`target-attestation.json` beside the validation run.
 Core's ValidationService.record consumes the full artifact and owns the
 run-level gate: explicit failed attestation voids every verdict at any age,
 and current-policy recording requires attestation independent of version.
@@ -18,7 +18,8 @@ checks):
                         affected range — outside it, verdicts are
                         meaningless for the claim
   feature-gate          --require-featuregate NAME (repeatable)
-  url-reachable         --url U (browser lane): endpoint answers
+  url-reachable         --url U (browser lane): non-5xx HTTP answer only,
+                        not authentication, authorization or browser usability
 
 Usage:
   attest_target.py --out <dir>/target-attestation.json \
@@ -69,6 +70,11 @@ def _oc(args: list[str], kubeconfig: str | None, context: str | None):
 
 def _check(name: str, ok: bool, detail: str, required: bool = True) -> dict:
     return {"name": name, "ok": bool(ok), "required": required, "detail": detail[:400]}
+
+
+def _url_answer_check(status: int) -> dict:
+    """App-owned preflight claim, not Core's retried provider-fetch success policy."""
+    return _check("url-reachable", status < 500, f"HTTP {status}")
 
 
 def parse_semverish(v: str):
@@ -212,14 +218,17 @@ def main(argv=None) -> int:
         )
 
     if args.url:
+        # Deliberate status-only preflight: no response body and no application
+        # retries/Retry-After waits. Context.http owns retried provider fetches;
+        # it does not expose this status-only policy (see validation-process.md).
         try:
             req = urllib.request.Request(args.url, method="GET")
             with urllib.request.urlopen(req, timeout=15) as resp:
-                checks.append(_check("url-reachable", resp.status < 500, f"HTTP {resp.status}"))
+                checks.append(_url_answer_check(resp.status))
             fp["url"] = args.url
         except urllib.error.HTTPError as e:
             with e:
-                checks.append(_check("url-reachable", e.code < 500, f"HTTP {e.code}"))
+                checks.append(_url_answer_check(e.code))
             fp["url"] = args.url
         except Exception as e:
             checks.append(_check("url-reachable", False, str(e)[:200]))

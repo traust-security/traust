@@ -7,11 +7,34 @@ describes the existing guarded runner; the [record protocol](cli-reference.md#ma
 is callable without contacting any live target.
 
 `traust admin attest-target --url <authorized-target> --out <run>/target-attestation.json`
-records browser-lane reachability separately from authentication and finding validity.
-An answering non-5xx endpoint, including a protected endpoint returning HTTP 401 or 403,
-is reachable. Transport errors, TLS failures and HTTP 5xx responses fail that required
-check. The command writes its artifact and exits zero for either attestation result;
+records only browser-lane HTTP answer presence, separately from authentication,
+authorization, browser usability and finding validity. An answering non-5xx endpoint,
+including HTTP 401, 403 or 429, satisfies `url-reachable`; it does not prove that the
+validator can log in or exercise the intended action. Transport errors, TLS failures
+and HTTP 5xx responses fail that required check. `attested` remains the AND of every
+required check: an answering URL cannot override a failed version or cluster check.
+The command writes its artifact and exits zero for either attestation result;
 consumers must inspect `attested` and the individual checks, not infer success from exit status.
+
+The pack owns this narrow preflight policy in `attest_target._url_answer_check`, with
+the cutoff pinned by the HTTP-status matrix in `tests/test_target_attestation.py`.
+Both normal responses and HTTP errors pass through that same policy. Preflight uses
+one urllib GET operation with a 15-second `urlopen` timeout and normal redirect handling;
+it closes responses without reading bodies and does not apply application retries or
+wait on `Retry-After`.
+
+This is deliberately not Core's provider-fetch success policy. Core is a required,
+installed dependency, selected by `pyproject.toml`; its public `Context.http` door
+owns retried body fetching. Its public `get`/`fetch` results do not retain successful
+HTTP status, and `stream` promises body consumption, not a status-probe result.
+Provider refusals and exhausted retries therefore are not an interchangeable
+attestation taxonomy. Sharing this transport would first need a public status-only,
+one-attempt probe preserving HTTP answers, rather than importing Core provider internals,
+copying retry policy or silently changing the preflight claim.
+
+The [main-branch remediation (PR #353)](https://github.com/traust-security/traust/pull/353)
+uses the same non-5xx-answer policy. This development follow-up preserves that URL
+semantics; authorization and soundness remain separate validation gates.
 
 ## Recording owner and gates
 

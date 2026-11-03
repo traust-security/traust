@@ -14,12 +14,22 @@ traust admin scan-internal-refs --vocabulary ~/my-export/internal-vocabulary.yam
 
 `HARNESS_INTERNAL_VOCABULARY=<file>` does the same as `--vocabulary`, and also turns on the
 estate-marker checks for shipped `config/` and `docs/` in `traust check docs-consistency`.
-For that docs gate, an unset variable or an absent file is the unconfigured checkout case:
+For that docs gate, only an unset or blank variable is the unconfigured checkout case:
 estate-marker checks are skipped, but the shipped config-file allowlist is still enforced.
-An existing malformed or unreadable vocabulary fails the gate, and universal block/review
-rules still run over config and docs. The standalone export scanner requires a valid
-vocabulary even when the file is absent. Keep your copy out of this tree: a vocabulary
-names what must not ship, so publishing it publishes the list.
+A configured path that is missing, not a file, malformed or unreadable fails the gate,
+even if the selected root has no `config/` or `docs/` directory. Universal block/review
+rules still run over any config and docs present after a configured load failure.
+Diagnostics identify the vocabulary path, never its private rule payload or the raw
+loader exception; inspect the private file locally. The standalone export scanner
+always requires a valid vocabulary, even when none is configured. Its validation errors
+identify rule positions and invalid fields without echoing rule content.
+
+Each rule requires nonempty string `id`, `tier` and `pattern` fields; `tier` must be one
+of the scanner's supported tiers and `pattern` must compile as a regular expression.
+`why` must be a string when supplied: omission or an empty string falls back to the
+rule ID, while explicit `false`, `0`, `null`, lists and mappings are invalid.
+Keep your copy out of this tree: a vocabulary names what must not ship, so publishing
+it publishes the list.
 
 The export itself (which repositories, which paths are stripped, how pins and links are
 rewritten) is a deployment one-shot and lives with the deployment's own tooling, with its

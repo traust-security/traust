@@ -787,7 +787,7 @@ CONFIG_SHIPPED = {
 
 
 def _estate_patterns() -> tuple[list[tuple[str, re.Pattern]], list[str]]:
-    """Skip an absent vocabulary; report malformed configured data and retain universal rules."""
+    """Skip only unconfigured vocabulary; configured failures retain universal rules."""
     from traust.cli.scan_internal_refs import RULES, VocabularyError, all_rules, vocabulary_path
 
     path = vocabulary_path()
@@ -795,11 +795,12 @@ def _estate_patterns() -> tuple[list[tuple[str, re.Pattern]], list[str]]:
         return [], []
     failures = []
     try:
-        if not path.exists():
-            return [], []
         rules = all_rules()
-    except (VocabularyError, OSError) as e:
-        failures.append(f"configured estate vocabulary {path}: {e}")
+    except (VocabularyError, OSError):
+        failures.append(
+            f"configured estate vocabulary {path}: cannot load vocabulary — "
+            "check the private file locally"
+        )
         rules = RULES
     patterns = [
         (rid, re.compile(pat, re.IGNORECASE))
@@ -810,12 +811,10 @@ def _estate_patterns() -> tuple[list[tuple[str, re.Pattern]], list[str]]:
 
 
 def config_hygiene_failures(repo: Path = REPO) -> list[str]:
-    failures: list[str] = []
+    patterns, failures = _estate_patterns()
     cfg = repo / "config"
     if not cfg.is_dir():
         return failures
-    patterns, vocabulary_failures = _estate_patterns()
-    failures.extend(vocabulary_failures)
     for f in sorted(cfg.iterdir()):
         if f.name.startswith("."):
             failures.append(
@@ -896,7 +895,9 @@ _CLI_SYNTAX_EXEMPT = {"docs/cli-reference.md"}
 def _cli_scanned_docs(repo: Path) -> list[Path]:
     """Files whose CLI invocations are held to the grouped syntax."""
     docs = list(_count_docs(repo))
-    docs += sorted(p for p in (repo / "config").iterdir() if p.is_file())
+    config = repo / "config"
+    if config.is_dir():
+        docs += sorted(p for p in config.iterdir() if p.is_file())
     docs += sorted((repo / "harnessing").glob("*/SKILL.md"))
     docs += sorted((repo / "harnessing").glob("*/*/SKILL.md"))
     docs += sorted((repo / ".claude" / "commands").glob("*.md"))
@@ -1148,10 +1149,10 @@ def graph_consumer_failures(repo: Path = REPO) -> list[str]:
 # FIGURES (graph sizes, corpus counts) cannot be pattern-matched and remain a
 # review concern — state them as "deployment-specific" instead.
 def docs_estate_marker_failures(repo: Path = REPO) -> list[str]:
+    patterns, failures = _estate_patterns()
     docs = repo / "docs"
     if not docs.is_dir():
-        return []
-    patterns, failures = _estate_patterns()
+        return failures
     for f in sorted(docs.rglob("*.md")):
         try:
             text = f.read_text(encoding="utf-8", errors="ignore")

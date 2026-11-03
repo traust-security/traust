@@ -1,5 +1,6 @@
 """P2 target attestation: script logic + emitter fail-closed gate."""
 
+import io
 import json
 import socket
 import threading
@@ -68,6 +69,37 @@ def test_url_http_status_records_reachability_artifact(tmp_path, attestation_end
     assert [(c["name"], c["ok"], c["required"]) for c in doc["checks"]] == [
         ("url-reachable", reachable, True)
     ]
+    assert doc["checks"][0]["detail"] == f"HTTP {status}"
+
+
+@pytest.mark.parametrize("status", [200, 401, 403, 429, 500])
+def test_url_preflight_reads_no_body_and_never_retries(tmp_path, monkeypatch, status):
+    import urllib.error
+
+    from traust.cli import attest_target as A
+
+    class Response(io.BytesIO):
+        def read(self, *args, **kwargs):
+            raise AssertionError("preflight must not consume a response body")
+
+    body = Response(b"private response payload")
+    body.status = status
+    requests = []
+
+    def urlopen(request, *, timeout):
+        requests.append((request.get_method(), timeout))
+        if status >= 400:
+            raise urllib.error.HTTPError(
+                request.full_url, status, "refused", {"Retry-After": "86400"}, body
+            )
+        return body
+
+    monkeypatch.setattr(A.urllib.request, "urlopen", urlopen)
+    doc = _attest_url(tmp_path / "target-attestation.json", "https://fixture.invalid/")
+    assert requests == [("GET", 15)]
+    assert body.closed
+    assert doc["checks"][0]["detail"] == f"HTTP {status}"
+    assert doc["attested"] is (status < 500)
 
 
 def test_answering_url_does_not_override_other_failed_checks(tmp_path, attestation_endpoint):
