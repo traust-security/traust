@@ -51,6 +51,17 @@ python3 -m traust.cli check skill-alignment      # equivalent
 | `util` | Utility commands | `elf`, `redact`, `safe-exec` |
 | `validation` | Core-backed machine validation evidence | `prepare`, `plan`, `record` |
 
+### Shareable-output redaction
+
+Run `python3 -m traust.cli util redact <output-directory>` in place, then
+`python3 -m traust.cli util redact --scan-only <output-directory>` on the final
+package. Share only after the final scan exits 0. Scan-only exits 1 when secrets
+remain and does not modify deliverables; either mode exits 2 if any file cannot
+be inspected or redacted. Read/decode/write errors, inaccessible directories,
+symlinks and unsupported files are incomplete inspection, never a clean result.
+Readable text still uses Core's established redaction policy. Remove, replace or
+convert uninspectable deliverables and rerun the gate; there is no binary fallback.
+
 ### Detection-quality operations
 
 - `traust sweep bootstrap-benchmark --out candidates.yaml [--limit 100]` harvests
@@ -326,7 +337,7 @@ here so an old runbook cannot be mistaken for an executable fallback:
 | `check report-digests` | Verify report/artifact digest bindings | Core artifact publishing/index services; gate skill port unfinished |
 | Ledger triage / validation / verification emitters | Convert report verdicts into legacy layer events | `traust triage record`, `traust validation record`, and `traust remediation verify-record` persist through Core; use `remediation verifications` and `findings baseline` for recorded/current results |
 | `ledger pull` | Export a read-only snapshot of one legacy ledger layer | Legacy layer stores remain retired. Core `ledger.layer(layer_id)` and paged `ledger.events(layer_id, page)` read native layers; `findings import` is a distinct external-statement intake operation, not a snapshot-export replacement |
-| `corpus` group | Report discovery, identity, projections, summaries and precedents | Core assessment and finding services: `reporting record` computes finding identity, `triage prepare` carries precedents, `findings` reads the rest |
+| `corpus` group | Report discovery, identity, projections, summaries and precedents | Core assessment and finding services: `reporting record` computes finding identity, then `triage prepare` supplies recorded-item precedents for triage adjudication; audit reports do not pre-fire a precedent gate or backfill recorded audit metadata. `findings` reads the rest |
 | `route` group | Admit impact findings and remediation regressions without changing baselines | Core finding intake; routing skill ports unfinished |
 
 There is no executable fallback for these retired workflows. Do not hand-write a

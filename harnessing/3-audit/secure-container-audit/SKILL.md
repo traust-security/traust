@@ -404,31 +404,25 @@ first-party shipped code, not a dependency — the Phase 5 drift check is
 where it surfaces); live functional credentials (path pre-filter
 below); and the severity floors below.
 
-### FP-precedent gate (shared components, optional-degrade)
+### Shared-component precedent handoff (post-record, not an audit-time gate)
 
-Base-image packages and shared vendored binaries (kube-rbac-proxy and
-the like) are the measured re-refutation treadmill — the same FP
-re-litigated per image that ships the component. Before filing a
-critical/high dependency/CVE candidate on a package that ships across
-many images (base-image layer, shared sidecar binary), look for
-prior adjudication exactly as `/secure-code-audit` does.
+For candidates in base-image packages or shared vendored binaries,
+independently check **this image's own reachability, entrypoints and
+configuration**. Apply the audit-time gates and file using only evidence
+available before recording; another image's or repo's context does not
+establish this one's applicability.
 
-There is no precedent cache any more: traust-core matches precedents
-(same enclosing symbol, vendor-normalized path, shared CWE) and hands
-them to /triage with each recorded finding (`traust triage prepare`,
-Phase 2g).
-
-A match at `max_strength: human_countersigned` is citeable prior
-adjudication: record it in `precision_gates.fired` (gate
-`"fp-precedent"`, plus the precedent's source repo + date in the entry)
-and apply the standard downgrade-not-drop posture — the observation
-moves to `dependency_audit`/lower severity with the precedent cited,
-never silently disappears, and **this image's own reachability is still
-checked** (a precedent from another image or repo does not prove this
-one's context matches). `machine_refuted_sound` matches are context
-only — never gate evidence at audit time; they surface again at
-/triage Phase 2g. With no recorded precedent nothing fires; audit judgment stays independent — the
-precedent is evidence to cite, never a verdict to copy.
+Precedent matching is supplied only after recording, through the native
+input from `traust triage prepare`. `/triage` Phase 2g owns the supplied
+`precedents`, their provenance, verification routing and subsequent
+adjudication. Do not require a pre-filing match, downgrade on an
+unavailable match, or add an `"fp-precedent"` entry to
+`precision_gates.fired`. Human-countersigned matches reduce triage votes,
+never skip verification; machine matches are context only with full votes.
+Any supported downgrade-not-drop decision belongs in the new triage
+determination after independent verification, not in a retroactive edit
+to this audit's findings, `dependency_audit` or gate metadata. A match
+never supplies an automatic false-positive verdict.
 
 ### Crit/high reporting bar
 

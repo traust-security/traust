@@ -732,21 +732,23 @@ Apply to every candidate still rated critical or high after Step 3:
    URLs, logs, or redirect targets) stay `high` at minimum regardless
    of chain completeness — the floor lifts only on affirmative gate
    evidence, documented in the finding.
-5. **FP-precedent check (vendored/shared components, optional-degrade)**
-   — for a crit/high candidate whose file sits under a vendor root
-   (`vendor/`, `third_party/`, `node_modules/`, …), look for prior
-   adjudication. There is no precedent cache any more: traust-core
-   matches precedents (same enclosing symbol, vendor-normalized path,
-   shared CWE) and hands them to `/triage` with each recorded finding
-   (`traust triage prepare`, Phase 2g).
 
-   A match at `max_strength: human_countersigned` is citeable prior
-   adjudication: downgrade with the precedent (source repo + date)
-   cited — this repo's own wiring is still checked (a precedent from
-   another repo does not prove this repo's context matches).
-   `machine_refuted_sound` matches are context only — never gate
-   evidence at scan time; they surface again at `/triage` Phase 2g.
-   With no recorded precedent nothing fires.
+**Shared-component precedent handoff (post-record, not a scan-time gate).**
+For candidates in vendored/shared code (`vendor/`, `third_party/`,
+`node_modules/`, …), independently check **this repo's own wiring,
+configuration and trust boundaries** and record only the local evidence
+available before recording. Do not require a pre-filing precedent match
+or downgrade on one: matching is supplied only after recording, through
+the native input from `traust triage prepare`.
+
+`/triage` Phase 2g owns the supplied `precedents`, their provenance,
+verification routing and subsequent adjudication. Human-countersigned
+matches reduce votes but never skip verification; machine matches are
+context only with full votes. A match never supplies an automatic
+false-positive verdict. Any supported downgrade-not-drop decision is
+recorded in the new triage determination after independent verification,
+not by retroactively changing this scan's findings or gate metadata.
+Do not add an `"fp-precedent"` entry to `precision_gates.fired`.
 
 **Record the pass** in `metadata.additional.precision_gates` — the same
 contract as `/secure-code-audit`'s:

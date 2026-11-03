@@ -738,7 +738,14 @@ every repo that ships it. For input (A)/(B)/(D), each native prepared item
 already carries its `precedents`: prior verdicts on **the same function in the
 same file** (vendor roots stripped, so `vendor/x/p.go` matches
 `third_party/x/p.go`), in any repository, with a shared CWE, strongest
-first. Each has a `reason.strength`:
+first.
+
+This is the post-record owner of precedent handling for all four audit
+skills (`/secure-code-audit`, `/vuln-scan`, `/secure-container-audit`,
+`/secure-rpm-audit`). Matching uses the native recorded input from
+`traust triage prepare`, never an audit-time lookup or a second matcher.
+Preserve each supplied precedent and its provenance in working state;
+read its native `reason.strength` for routing:
 
 - **`human_countersigned`** — a person's false positive / hardening verdict
   that still stands. **Reduced vote tier:** the finding gets **1 verifier
@@ -749,14 +756,23 @@ first. Each has a `reason.strength`:
   refutation nobody has contested. **Annotation only, full votes:** a
   machine precedent never reduces verification spend.
 
-Either way the precedent is passed to the verifier as the FP-PRECEDENT
-block in Phase 3b (the decision's rationale, its date and its strength).
-It NEVER auto-refutes: the verifier still re-derives the claim from this
-repo's code, and the normal countersign discipline governs any resulting
-false positive (6e). Input (C) has no precedents; skip this step.
+Either way the supplied precedent evidence is passed to the verifier as
+the FP-PRECEDENT block in Phase 3b, preserving its provenance, rationale,
+date and strength where supplied. It NEVER auto-refutes or establishes
+local applicability: the verifier re-derives the claim against this
+repo's wiring, reachability, configuration and trust boundaries. The
+normal countersign discipline governs any resulting false positive (6e).
+Input (C) has no precedents; skip this step.
 
-Record `{precedents_matched: <N>, matched_human_tier: <N>}` in the Phase 2
-checkpoint delta.
+When fresh verification supports reduced impact, preserve the
+observation and evidence in the new triage classification/rationale:
+**downgrade-not-drop**, never a silent omission or a copied verdict.
+Matching alone does not change severity or finding kind. Use the existing
+Phase 2 checkpoint delta
+`{precedents_matched: <N>, matched_human_tier: <N>}` and the Phase 3
+annotation/rationale for this work. Never backfill an audit's
+`precision_gates.fired` or retroactively edit recorded audit artifacts;
+triage records its own determination through Phase 6e.
 
 ---
 
@@ -967,7 +983,8 @@ default 3) with `subagent_type: "general-purpose"` and `description:
 "verify {id} vote {k}/{N}"`. Apply the Phase 2c gate routing: findings
 tagged `anchor_absent` get 1 vote regardless of `--votes`; `file_missing`
 findings are not spawned at all. Apply the Phase 2g precedent routing:
-findings matched at `max_strength: human_countersigned` get 1 vote;
+findings with a supplied `precedents[].reason.strength` of
+`human_countersigned` get 1 vote; findings with only
 `machine_refuted_sound` matches keep their normal N votes — both carry
 the FP-PRECEDENT annotation block appended (below).
 
@@ -1089,31 +1106,28 @@ FINDING: {id} {file}:{line} {category} (claimed {severity})
 Vote {k}/{N}. Independent; do not seek other votes.
 ```
 
-If Phase 2g matched an FP/hardening precedent to this finding, also
-append (fill the first line from the match's `max_strength`):
+If Phase 2g supplied precedents for this finding, also append the block
+below. Derive its tier from the supplied `reason.strength` values (human
+tier when present; otherwise machine tier). Include the native evidence
+unchanged rather than requiring a separate component/provenance DTO or
+inventing absent source fields:
 
 ```
-  FP-PRECEDENT ({human-countersigned | machine-refuted-sound} in
-  another repo; annotation only — the verdict is still yours):
-    precedent:  {verdict} on {source_repo} at {date} by
-                {countersigner (LDAP-verified) | adjudicator}
-    strength:   {strength}
-    component:  {component.paths, comma-separated} · {component.cwe} ·
-                {component.category}
-    rationale excerpt: {rationale_excerpt}
+  FP-PRECEDENT ({human_countersigned | machine_refuted_sound};
+  annotation only — the verdict is still yours):
+    native precedent evidence: {supplied precedents, including provenance}
 
-  How to use this: this exact shared-component claim was already
-  adjudicated elsewhere in the portfolio — by an LDAP-verified human
-  countersign (strong), or by a sound machine adjudication (weaker:
-  triage protocol, or a live refutation that passed the Phase-1
-  soundness gate). That is citeable prior adjudication, NOT a verdict —
-  this repo may wire the component differently (different entry points,
-  config, or trust boundary). Re-derive from the code as usual; if you
-  agree, cite the precedent (source repo, date) in your RATIONALE. If
-  you conclude TRUE_POSITIVE or HARDENING against a human-countersigned
-  precedent, say so plainly: disagreeing with a countersign is expected
-  to be escalated to a human, never silently suppressed or silently
-  followed.
+  How to use this: Core matched prior adjudication of this shared
+  component. That is context, NOT a verdict — this repo may wire the
+  component differently (entrypoints, reachability, build/configuration
+  or trust boundary). Independently re-derive the claim from this repo's
+  code. If you agree, cite the supplied provenance in your RATIONALE
+  (source repo and date where supplied; do not invent missing details).
+  If your fresh conclusion disagrees with a human-countersigned
+  precedent, say so plainly for the disagreement handling below. A
+  historical hardening verdict agrees with a verified weakness, not an
+  exploitable vulnerability. Never skip verification, auto-refute or
+  silently follow a precedent.
 ```
 
 Findings with a `file` but no `line` get **one** verifier vote regardless

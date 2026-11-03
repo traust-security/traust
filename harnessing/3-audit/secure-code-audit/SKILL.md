@@ -17,6 +17,7 @@ allowed-tools:
   - Bash(file:*)
   - Bash(jq:*)
   - Bash(traust repo checkout:*)
+  - Bash(traust findings find:*)
   - Bash(git fetch:*)
   - Bash(git checkout:*)
   - Bash(git rev-parse:*)
@@ -356,27 +357,24 @@ disposition. An empty `fired` list is a legitimate value; a report that
 files crit/high findings with no `precision_gates` block is an
 incomplete audit — the same contract as `deterministic_steps`.
 
-**FP-precedent gate (shared components, optional-degrade).**
-Shared-component hits (vendored kube-rbac-proxy and the like) are the
-measured re-refutation treadmill: the same FP re-litigated per repo
-that ships the component. Before filing a critical/high candidate whose
-locations sit under a vendor root (`vendor/`, `third_party/`,
-`node_modules/`, ...), look for prior adjudication. There is no
-precedent cache any more: traust-core matches precedents (same enclosing
-symbol, vendor-normalized path, shared CWE) and hands them to /triage
-with each recorded finding (`traust triage prepare`, Phase 2g).
+**Shared-component precedent handoff (post-record, not an audit-time gate).**
+For candidates in vendored/shared code (`vendor/`, `third_party/`,
+`node_modules/`, ...), independently check **this repo's own wiring,
+configuration and trust boundaries**. File and apply the audit-time gates
+using only evidence available before recording; another repo's context
+does not establish this one's applicability.
 
-A match at `max_strength: human_countersigned` is citeable prior
-adjudication: record it in `precision_gates.fired` (gate
-`"fp-precedent"`, plus the precedent's source repo + date in the
-entry) and apply the standard downgrade-not-drop posture — the
-observation moves to `dependency_audit`/lower severity with the
-precedent cited, never silently disappears, and this repo's own wiring
-is still checked (a precedent from another repo does not prove this
-repo's context matches). `machine_refuted_sound` matches are context
-only — never gate evidence at audit time; they surface again at
-/triage Phase 2g. With no recorded precedent nothing fires; audit judgment stays independent — the
-precedent is evidence to cite, never a verdict to copy.
+Precedent matching happens only after `traust reporting record`, through
+the native recorded input from `traust triage prepare`. `/triage` Phase 2g
+owns the supplied `precedents`, their provenance, verification routing and
+subsequent adjudication. Do not require a pre-filing match, downgrade on
+an unavailable match, or add an `"fp-precedent"` entry to
+`precision_gates.fired`. Human-countersigned matches reduce triage votes,
+never skip verification; machine matches are context only with full votes.
+Any supported downgrade-not-drop decision belongs in the new triage
+determination after independent verification, not in a retroactive edit
+to this audit's severity, evidence or gate metadata. A match never supplies
+an automatic false-positive verdict.
 
 ### Dependency and advisory gate
 
@@ -1641,8 +1639,10 @@ location paths and the primary CWE of every finding.
 This is not cosmetic. Cross-scan continuation, disposition carry-forward
 between scans, and the downstream platform's finding identity all key on it,
 so any edit that changes a finding's `locations` or `cwes` changes its
-identity. `traust findings find <report> --label <id>` shows which recorded
-finding a report entry is.
+identity. After recording, `traust findings find <path-to-report.json>
+--label <report-local-finding-id> --repo-url <audited-source-https-url>`
+shows which recorded finding that report entry is. Use the audited source
+repository URL, not the harness or a different repository's URL.
 
 **Step 3 — Run strict mode (recommended):**
 

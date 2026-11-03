@@ -343,7 +343,7 @@ Verify previous security findings against patched source, using an original repo
 
 ## generate-team-report
 
-Use when the user asks to generate a shareable findings folder, executive summary, or team-specific security audit report for one or more products from traust-core's recorded findings.
+Use when the user asks to generate a shareable findings folder, executive summary, or team-specific security audit report for one or more products from traust-core's recorded findings. Requires complete successful redaction before sharing.
 
 - **Stage:** ⑨ Delivery
 - **Tier:** `secondary`

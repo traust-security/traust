@@ -341,28 +341,25 @@ below the floor.
    `negative_results` citing the evidence — **not** a low-severity
    finding.
 
-### FP-precedent gate (vendored bundles, optional-degrade)
+### Shared-component precedent handoff (post-record, not an audit-time gate)
 
-Vendored dependency bundles are this profile's shared-component
-re-refutation shape. Before filing a critical/high candidate located in
-a vendored bundle (`SourceN` vendor tarballs, bundled libraries),
-look for prior adjudication exactly as `/secure-code-audit` does.
+For candidates in vendored bundles (`SourceN` vendor tarballs, bundled
+libraries), independently check **this package's own build wiring,
+compiled components and configuration**. Apply the audit-time gates and
+file using only evidence available before recording; another repo's
+context does not prove this spec compiles the component the same way.
 
-There is no precedent cache any more: traust-core matches precedents
-(same enclosing symbol, vendor-normalized path, shared CWE) and hands
-them to /triage with each recorded finding (`traust triage prepare`,
-Phase 2g).
-
-A match at `max_strength: human_countersigned` is citeable prior
-adjudication: record it in `precision_gates.fired` (gate
-`"fp-precedent"`, plus the precedent's source repo + date in the entry)
-and apply the standard downgrade-not-drop posture — **this package's
-own build wiring is still checked** (a precedent from another repo does
-not prove this spec compiles the component the same way).
-`machine_refuted_sound` matches are context only — never gate evidence
-at audit time; they surface again at /triage Phase 2g. With no recorded
-precedent nothing fires; the precedent is evidence to cite, never a
-verdict to copy.
+Precedent matching is supplied only after recording, through the native
+input from `traust triage prepare`. `/triage` Phase 2g owns the supplied
+`precedents`, their provenance, verification routing and subsequent
+adjudication. Do not require a pre-filing match, downgrade on an
+unavailable match, or add an `"fp-precedent"` entry to
+`precision_gates.fired`. Human-countersigned matches reduce triage votes,
+never skip verification; machine matches are context only with full votes.
+Any supported downgrade-not-drop decision belongs in the new triage
+determination after independent verification, not in a retroactive edit
+to this audit's findings, `dependency_audit` or gate metadata. A match
+never supplies an automatic false-positive verdict.
 
 ### Do-not-report classes
 
