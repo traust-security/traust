@@ -76,6 +76,10 @@ If the registry requires authentication (e.g. `registry.redhat.io`), verify acce
 
 2. **A payload analysis CSV file** (the same files `secure-code-audit` consumes). Use the **Payload Image Key(s)** column as the image list and the **GitHub URL** + **Branch** columns as the declared source for the drift check (Phase 5). Resolve image keys to full pullspecs via the release payload or operator bundle they came from (the `inventory-repositories` outputs record these).
 
+   Release-routed batches also carry **Inventory Source**, the original inventory CSV path.
+   Use it to resolve bare keys against that payload or operator bundle; never treat a bare key
+   as a globally unique pullspec. The batch contains the changed image identities only.
+
 3. **A plain text file of image references**, one per line (comments with `#` allowed).
 
 ### Deduplication
@@ -88,11 +92,11 @@ For multi-arch manifest lists, audit the `amd64` image by default and record the
 
 Images are immutable: a published digest's audit never goes stale — the
 *next tag/digest* does. Re-audits are therefore **release-event-driven,
-never calendar-driven**: the continuous-operations router
-(docs/continuous-operations.md) surfaces container release events via its
-`release-passthrough` lane (`rescan-events.jsonl`, `source: release`),
-and base-image CVE waves route through `/impact-analysis` + grype
-re-scan rather than a full re-audit. A quarterly full pass over the
+never calendar-driven**: `traust portfolio release-discover` observes inventory digest/tag
+changes through Core's recorded feed snapshots. The `release-passthrough` materializer
+plans the container audit asset, which invokes this skill on its exact observed batch.
+Base-image CVE waves route through `/impact-analysis` + grype re-scan rather than a full
+re-audit. A quarterly full pass over the
 flagship image set is the only calendar backstop.
 
 ---
@@ -616,18 +620,26 @@ truth flows through core findings
 ([`docs/disposition-ledger.md`](../../../docs/disposition-ledger.md)).
 `traust triage record` records triage verdicts and queues human review;
 `/track-findings` reads derived state and records explicit human judgements
-through `traust findings`. The former layer emitters and cumulative-file rebuild
-are **retired, not executable**. Bound machine validation uses `traust validation
-record`; container-specific cumulative output ports remain unfinished: retain reports and provenance,
-never hand-write events or claim a regenerated cumulative view.
-Historical container-specific output requirements:
+through `traust findings`. The former layer emitters remain retired.
+Bound machine validation uses `traust validation record`. Regenerate the
+derived container view after recording an audit or changing a decision:
 
-- **Naming.** The report shares its directory with the source repo's
-  code audit, so ledger artifacts keep the full report stem:
-  `<image>-container-audit-findings-layer.json` and
-  `<image>-container-audit-findings-current.{json,md}` — never the
-  short `<image>-findings-*` names, which belong to the code audit.
-  The port must preserve this naming; retired tooling is not a current writer.
+```bash
+python3 -m traust.cli dashboard view container-findings \
+  --assessment-id <recorded-container-assessment-uuid> \
+  --report-stem <image>-container-audit --out <report-directory>
+```
+
+- **Naming and population.** The full stem is required; output is
+  `<image>-container-audit-findings-current.{json,md,html}`, never the
+  code audit's short `<image>-findings-*` names. The assessment anchors the
+  source repository and image repository from `metadata.repository`.
+  All stored container reports for that image repository across tags and
+  digests contribute occurrences; unrelated images and code audits do not.
+  A registry port is part of the image repository. Preserve digest-pinned
+  image provenance when recording; a source URL is not image provenance.
+  JSON includes report provenance, scoped occurrences, canonical decisions
+  and folded current state. `--as-of` bounds reports and decisions.
 - **Identity across rebuilds.** Finding IDs are digest-keyed; a fixed
   image rebuild is a **new digest → new report → new finding IDs**.
   Dispositions do not carry forward by editing the old report: re-audit

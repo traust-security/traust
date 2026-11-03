@@ -6,6 +6,13 @@ live execution remain separate from recording already-produced evidence. The
 describes the existing guarded runner; the [record protocol](cli-reference.md#machine-validation-recording)
 is callable without contacting any live target.
 
+`traust admin attest-target --url <authorized-target> --out <run>/target-attestation.json`
+records browser-lane reachability separately from authentication and finding validity.
+An answering non-5xx endpoint, including a protected endpoint returning HTTP 401 or 403,
+is reachable. Transport errors, TLS failures and HTTP 5xx responses fail that required
+check. The command writes its artifact and exits zero for either attestation result;
+consumers must inspect `attested` and the individual checks, not infer success from exit status.
+
 ## Recording owner and gates
 
 `traust validation record` parses exact report bytes as core's
@@ -76,6 +83,29 @@ Auxiliary surface/credential counts live under
 `metadata.additional.validation_producer`, while the declared
 `not_attempted_reason` retains skip causes. Chain context is bounded; transcripts
 are not multiplied across every chain.
+
+### Credential-safe execution evidence
+
+The guarded adapters share the skill-local
+[`adapters/credentials.py`](../harnessing/5-validate/validate-findings/adapters/credentials.py)
+redactor for artifact content and observed transcripts. Credential pattern policy
+and recursive JSON Secret/SecretList `data`/`stringData` traversal live there;
+execution, classification, rollback and artifact storage remain in `AdapterBase`.
+Every Secret-map value is masked, including arbitrary custom keys. Plain-text
+credential assignments retain their key prefixes; DSN passwords, JWTs, PEM/key
+material and forge/cloud tokens are masked without retaining a secret prefix.
+Existing redaction markers retain their evidence lengths/digests on repeat passes.
+
+`_save_artifact` hashes the **original UTF-8 content**, writes only redacted
+content, and retains the existing `type`, relative `path`, `sha256` and `caption`
+metadata, adding `redacted: true` when the stored content differs. The digest is
+not a checksum of the sanitized file. Verdict logic still reads the original
+in-memory transcript; observed text is redacted before its display-length cap
+so truncation cannot prevent Secret-map traversal.
+
+Core's public `RedactionPolicy.redact(bytes)` serves publication with different
+prefix/marker semantics and no Kubernetes Secret-map traversal; it is not a
+drop-in replacement for this stricter validation evidence policy.
 
 No local cumulative rebuild, refuted-register refresh or retired emitter is part
 of this path. Supplied install-failure text and full target-attestation checks are

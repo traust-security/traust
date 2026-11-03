@@ -87,6 +87,11 @@ def test_legacy_primary(case, reference, tmp_path):
     assert run_primary(*reference, case["input"], tmp_path) == case["want"]
 
 
+def test_reference_preserves_postponed_annotations(reference):
+    namespace, _ = reference
+    assert namespace["never_audited_rows"].__annotations__["inventory"] == "InputSegmentInventory"
+
+
 def test_cases_detect_routing_behavior_drift(tmp_path):
     original = LEGACY_SOURCE.read_bytes()
     changed = original.replace(b"CHURN_FULL_LINES = 8000", b"CHURN_FULL_LINES = 9000", 1)

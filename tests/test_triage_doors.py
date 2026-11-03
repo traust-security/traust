@@ -93,6 +93,38 @@ def intake(home: Path, tmp_path: Path) -> str:
     return got["assessment_id"]
 
 
+@pytest.mark.parametrize("include_suppressed", [False, True])
+def test_suppressed_sarif_intake_requires_explicit_review_override(
+    home: Path, tmp_path: Path, include_suppressed: bool
+) -> None:
+    doc = json.loads(json.dumps(SARIF))
+    suppressed = json.loads(json.dumps(doc["runs"][0]["results"][0]))
+    suppressed["suppressions"] = [{"kind": "external"}]
+    suppressed["locations"][0]["physicalLocation"]["artifactLocation"]["uri"] = "suppressed.c"
+    doc["runs"][0]["results"].append(suppressed)
+    scan = tmp_path / "suppressed.sarif"
+    scan.write_text(json.dumps(doc))
+    rc, output = run(
+        triage.intake,
+        home,
+        str(scan),
+        "--format",
+        "sarif",
+        "--repo-url",
+        "https://github.com/example/canary",
+        "--sha",
+        SHA,
+        *(["--include-suppressed"] if include_suppressed else []),
+    )
+    assert rc == 0, output
+    receipt = json.loads(output)
+    assert receipt["findings"] == (2 if include_suppressed else 1)
+    rc, prepared = run(triage.prepare, home, receipt["assessment_id"])
+    assert rc == 0, prepared
+    paths = {item["locations"][0]["path"] for item in json.loads(prepared)["items"]}
+    assert paths == ({"entry.c", "suppressed.c"} if include_suppressed else {"entry.c"})
+
+
 def test_scanner_output_triaged_and_recorded(home: Path, tmp_path: Path) -> None:
     assessment = intake(home, tmp_path)
 

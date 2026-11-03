@@ -212,9 +212,13 @@ def load_vocabulary(explicit: str | None = None) -> tuple[tuple[str, str, str, s
     except ImportError as e:  # pragma: no cover
         raise VocabularyError("PyYAML is required to read the vocabulary") from e
     try:
-        doc = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        doc = yaml.safe_load(path.read_text(encoding="utf-8"))
     except yaml.YAMLError as e:
         raise VocabularyError(f"{path}: unparseable ({type(e).__name__})") from e
+    except (OSError, UnicodeError) as e:
+        raise VocabularyError(f"{path}: cannot read vocabulary ({type(e).__name__})") from e
+    if not isinstance(doc, dict):
+        raise VocabularyError(f"{path}: vocabulary must be a mapping")
     rules = doc.get("rules")
     if not isinstance(rules, list) or not rules:
         raise VocabularyError(f"{path}: no 'rules' list")
@@ -224,8 +228,12 @@ def load_vocabulary(explicit: str | None = None) -> tuple[tuple[str, str, str, s
             raise VocabularyError(f"{path}: rule entry is not a mapping: {r!r}")
         rid, tier, pat = r.get("id"), r.get("tier"), r.get("pattern")
         why = r.get("why") or rid
-        if not (rid and tier and pat):
-            raise VocabularyError(f"{path}: rule {rid or r!r} needs id, tier and pattern")
+        if not all(isinstance(value, str) and value for value in (rid, tier, pat)):
+            raise VocabularyError(
+                f"{path}: rule {rid or r!r} needs nonempty string id, tier and pattern"
+            )
+        if not isinstance(why, str):
+            raise VocabularyError(f"{path}: rule {rid} needs a string explanation")
         if tier not in _VALID_TIERS:
             raise VocabularyError(
                 f"{path}: rule {rid} has tier {tier!r}, expected one of {', '.join(_VALID_TIERS)}"

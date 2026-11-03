@@ -459,3 +459,122 @@ def test_record_on_core_refuses_a_crasher_of_an_unlisted_harness(core_home, tmp_
     )
     assert rc == 2
     assert "does not match any target harness" in err
+
+
+def test_legacy_campaign_import_keeps_supplied_counts_and_verbatim_analyst_files(
+    core_home, tmp_path, capsys
+):
+    summary = {
+        "generated": "2026-07-05",
+        "totals": {"targets": 3, "bugs": 1},
+        "batches": [{"batch": "2", "targets": 3, "fuzz_functions": 4, "bugs": 1}],
+        "bugs": [{"num": 1, "target": "widget", "title": "Parser split index"}],
+        "patterns": [{"name": "Unchecked index", "tested": 2, "vulnerable": 1, "rate": "50%¹"}],
+    }
+    path = document(tmp_path, summary)
+    rollup = tmp_path / "rollup.txt"
+    narrative = "### #1 — Parser\n\nCVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:N/I:N/A:H\n"
+    rollup.write_text(narrative, encoding="utf-8")
+    bug = tmp_path / "bug.txt"
+    bug.write_text("Fix: validate split length.\nPriority: P2.\n", encoding="utf-8")
+    priorities = tmp_path / "priorities.txt"
+    priorities.write_text("| P2 | Fix parser bounds |\n", encoding="utf-8")
+    controls = tmp_path / "controls.txt"
+    controls.write_text("Control: well-formed range; no bounds panic.\n", encoding="utf-8")
+    rc = cli(
+        [
+            "reporting",
+            "import-fuzz-campaign",
+            "--config-home",
+            str(core_home),
+            str(path),
+            "--legacy-summary",
+            "--campaign-id",
+            "parser-example",
+            "--repository",
+            URL,
+            "--rollup",
+            str(rollup),
+            "--bug-narrative",
+            f"1={bug}",
+            "--remediation-priority",
+            str(priorities),
+            "--negative-controls",
+            str(controls),
+        ]
+    )
+    assert rc == 0
+    artifact_id = uuid.UUID(json.loads(capsys.readouterr().out)["artifact_id"])
+    context = Context.from_file(core_home / "traust.yaml")
+    held = context.services().assessment.fuzz_campaign()
+    assert held is not None and held.artifact_id == artifact_id
+    doc = held.document
+    assert doc.narrative == narrative
+    assert doc.bugs[0].narrative == bug.read_text(encoding="utf-8")
+    assert doc.remediation_priority == priorities.read_text(encoding="utf-8")
+    assert doc.negative_controls == controls.read_text(encoding="utf-8")
+    assert (doc.patterns[0].tested, doc.patterns[0].vulnerable, doc.patterns[0].rate) == (
+        2,
+        1,
+        "50%¹",
+    )
+    assert set(doc.source_references) == {
+        str(path),
+        str(rollup),
+        str(bug),
+        str(priorities),
+        str(controls),
+    }
+    assert (
+        context.services().portfolio.find_repository(
+            HttpsRepoUrl.parse(URL, context.config.forge_hosts)
+        )
+        is None
+    )
+
+
+def test_campaign_import_refuses_unsupported_population_counts_without_recording(
+    core_home, tmp_path, capsys
+):
+    body = {
+        "artifact": "fuzz-campaign",
+        "campaign_id": "example",
+        "generated": "2026-07-05",
+        "repositories": [URL],
+        "source_references": ["campaign/summary.json"],
+        "patterns": [{"name": "index", "tested": 1, "vulnerable": 2}],
+    }
+    rc = cli(
+        [
+            "reporting",
+            "import-fuzz-campaign",
+            "--config-home",
+            str(core_home),
+            str(document(tmp_path, body)),
+        ]
+    )
+    assert rc == 2
+    capsys.readouterr()
+    assert (
+        Context.from_file(core_home / "traust.yaml").services().assessment.fuzz_campaign() is None
+    )
+
+
+def test_legacy_campaign_import_requires_explicit_identity_and_population(
+    core_home, tmp_path, capsys
+):
+    rc = cli(
+        [
+            "reporting",
+            "import-fuzz-campaign",
+            "--config-home",
+            str(core_home),
+            str(document(tmp_path, {"generated": "2026-07-05"})),
+            "--legacy-summary",
+        ]
+    )
+    assert rc == 2
+    capsys.readouterr()
+    assert (
+        Context.from_file(core_home / "traust.yaml").services().assessment.fuzz_campaign() is None
+    )

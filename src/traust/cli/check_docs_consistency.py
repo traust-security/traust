@@ -773,9 +773,9 @@ def phantom_skill_failures(repo: Path = REPO) -> list[str]:
 
 
 # --- config/ hygiene ---------------------------------------------------------
-# config/ ships the traust.yaml template, the model registry, the template for the one override
-# (rule_pack_allowlist) and its README (config/README.md). Anything else in config/ is
-# deployment data that leaked back in — the failure shape this repo had before 2026-09-03,
+# config/ ships traust.yaml, the model registry, the rule-pack override and dated
+# reachability-review reference templates, and their README (config/README.md).
+# Anything else is deployment data that leaked back in — the failure shape before 2026-09-03,
 # when corpus-config, product map, budget policy, signing key and safe-exec profiles all sat
 # here — or a template that belongs with its reader.
 CONFIG_SHIPPED = {
@@ -783,27 +783,31 @@ CONFIG_SHIPPED = {
     "traust.example.yaml",
     "model-registry.yaml",
     "rule-pack-allowlist.example.yaml",
+    "reachability-watch.example.yaml",
 }
 
 
-def _estate_patterns() -> list[tuple[str, re.Pattern]] | None:
-    """Block/review rules from scan_internal_refs — universal + the deployment
-    vocabulary ($HARNESS_INTERNAL_VOCABULARY). None when no vocabulary is configured
-    (a CI checkout), in which case the estate-marker leg
-    of the config check is skipped rather than run against a shipped list: a
-    gate that carries the internal names it looks for has published them
-    (2026-09-07 review §1)."""
-    try:
-        from traust.cli.scan_internal_refs import all_rules
+def _estate_patterns() -> tuple[list[tuple[str, re.Pattern]], list[str]]:
+    """Skip an absent vocabulary; report malformed configured data and retain universal rules."""
+    from traust.cli.scan_internal_refs import RULES, VocabularyError, all_rules, vocabulary_path
 
+    path = vocabulary_path()
+    if path is None:
+        return [], []
+    failures = []
+    try:
+        if not path.exists():
+            return [], []
         rules = all_rules()
-    except Exception:
-        return None
-    return [
+    except (VocabularyError, OSError) as e:
+        failures.append(f"configured estate vocabulary {path}: {e}")
+        rules = RULES
+    patterns = [
         (rid, re.compile(pat, re.IGNORECASE))
         for rid, tier, pat, _why in rules
         if tier in ("block", "review")
     ]
+    return patterns, failures
 
 
 def config_hygiene_failures(repo: Path = REPO) -> list[str]:
@@ -811,7 +815,8 @@ def config_hygiene_failures(repo: Path = REPO) -> list[str]:
     cfg = repo / "config"
     if not cfg.is_dir():
         return failures
-    patterns = _estate_patterns()
+    patterns, vocabulary_failures = _estate_patterns()
+    failures.extend(vocabulary_failures)
     for f in sorted(cfg.iterdir()):
         if f.name.startswith("."):
             failures.append(
@@ -830,7 +835,7 @@ def config_hygiene_failures(repo: Path = REPO) -> list[str]:
             text = f.read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue
-        for rid, rx in patterns or []:
+        for rid, rx in patterns:
             m = rx.search(text)
             if m:
                 failures.append(
@@ -1147,10 +1152,7 @@ def docs_estate_marker_failures(repo: Path = REPO) -> list[str]:
     docs = repo / "docs"
     if not docs.is_dir():
         return []
-    patterns = _estate_patterns()
-    if patterns is None:
-        return []
-    failures = []
+    patterns, failures = _estate_patterns()
     for f in sorted(docs.rglob("*.md")):
         try:
             text = f.read_text(encoding="utf-8", errors="ignore")

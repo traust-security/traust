@@ -74,39 +74,42 @@ Collect, one question at a time, anything not already provided:
    dashboards.
 6. **Inventory** (*retired*: core keys the corpus by ids, not paths) — path to the input inventory CSV in
    the inputs inventory (`locations.inputs`) if one exists.
-7. **Notes** (NEED(contracts: a `notes` field on the corpus-registry subject; the schema's subject allows no other field, so nothing records them)) — anything non-obvious, especially product-vs-BU
-   dualities (see the `ansible` entry: catalog operators inside
-   `findings/` stay owned while the BU engagement is external).
+7. **Notes** — optional boundary caveats, especially product-vs-BU dualities.
+   Pass `--note` to `products add/update`; subject-labelled caveats are retained in the
+   existing `CorpusRegistry.note` and returned by `products list`. No subject schema change.
 
 If the answers reveal a BU boundary cutting through an existing tree
 (some products owned, some not), do NOT force a tree-level tag — flag it
-to the user (recording the exception in notes: NEED(contracts: corpus-registry subject `notes`), flag only until then); per-product `overrides`
+to the user and record the exception with `--note`; per-product `overrides`
 support lands with a later phase.
 
 ### Step 3 — Apply
 
 ```bash
 traust products add <name> \
-    --label <label> --ownership <tag> --business-unit "<BU>"
+    --label <label> --ownership <tag> --business-unit "<BU>" [--note "<caveat>"]
 # or targeted field changes
 traust products update \
-    <name> [--label ...] [--ownership ...] [--business-unit ...]
+    <name> [--label ...] [--ownership ...] [--business-unit ...] [--note "<caveat>"]
 ```
 
 The tool validates before writing (ownership enum, name syntax) and
 records the product, then the registry; adding a registered name with the same fields changes nothing,
 with different fields is refused (use `update`), and a concurrent edit is refused rather than overwritten. Exit 2 = validation
 error: relay the message, fix the field, retry.
+Omitting `--note` preserves caveats. `--note ""` explicitly clears this product's caveat,
+without removing another product's caveat or the registry's existing free-text note.
 
 ### Step 4 — Refresh the census
 
 ```bash
-python3 RETIRED:build_census.py
+python3 -m traust.cli dashboard view census \
+  --out <progress-tracker>/metrics/dashboards/census
 ```
 
-Confirm the new entry appears (engagements show "registered, no output"
-until their tree exists) and that no unexpected DRIFT warnings remain
-(DRIFT warnings *retired*: status derives from assessments).
+Confirm the new product's registration with `traust products list` and its
+assessment population with `traust portfolio population`. The census view counts
+recorded assessments; a product with no assessed repositories has no exposure rows yet.
 
 ### Step 5 — Remind about inventory
 

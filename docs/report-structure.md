@@ -21,6 +21,24 @@ projections.
 > SKILL.mds reference it and state only their deltas — duplicated tables drift,
 > and the alignment gate rejects a skill that restates them.
 
+## Historical signature validation
+
+`python3 -m traust.cli reporting validate <path> --signing-pubkey <cosign.pub>`
+additionally verifies historical `*-findings-layer.json` documents against
+their stored Merkle roots and public-key signatures. For other filenames,
+name the contract with `--schema layer`. This is a read-only compatibility
+check, not a new layer writer or a signature over an ordinary audit report.
+Directory sweeps still validate other report families normally.
+
+The full contract schema remains required. Explicit verification fails with
+a nonzero status for changed event content, an invalid root, a wrong,
+missing or malformed public key, a missing or malformed signature, or an
+unavailable cosign verifier. Omitting `--signing-pubkey` preserves ordinary
+schema/content validation and does not require signatures on unsigned
+historical documents. Legacy signature formats retain the verifier's
+warnings; an event-ID-only Merkle tree does not establish content integrity.
+No report or layer bytes are rewritten.
+
 ## Required top-level keys
 
 | Key | Description |

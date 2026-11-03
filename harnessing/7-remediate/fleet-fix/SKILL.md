@@ -60,7 +60,8 @@ One deterministic command — never hand-grep:
 python3 -m traust.cli remediation fleet-targets \
     (--cwe CWE-1104 | --package-id <package-uuid> | \
      --module <name> --ecosystem <eco> | \
-     --repo-url https://github.com/org/a --repo-url https://github.com/org/b) \
+     --repo-url https://github.com/org/a --repo-url https://github.com/org/b | \
+     --rollup '<campaign regex>' --progress <path-to-PROGRESS.md>) \
     -o /tmp/fleet-fix/<id>/fleet.json
 ```
 
@@ -73,13 +74,17 @@ analysis-results/impact/<cve>-impact-analysis.json`). This scopes the
 campaign to demonstrated exposure instead of every importer of the
 module.
 
-Sources: `--cwe` reads the repositories with an open finding of that
-class (CWE-class fleets); `--rollup` (PROGRESS.md) is *retired* — the
-CWE and package scopes read the findings themselves; `--package-id`
-reads the package's dependents in traust-core — dependency fleets: every
-repo depending on it directly, through a base image or an internal
-library. `--module` (with `--ecosystem`) names the same package by its
-name instead of its id.
+Sources: `--cwe` reads repositories with an open finding of that class;
+`--package-id` reads the package's dependents in traust-core, directly,
+through a base image or an internal library. `--module` with `--ecosystem`
+names the same package by name instead of id.
+`--rollup` matches numbered Markdown table rows in the explicitly supplied
+`--progress` file, case-insensitively. The second cell must identify the
+target by registered HTTPS URL, Markdown link to that URL, or unique
+`owner/repository` inventory path. Only matched target rows are selected;
+prose mentions do not expand scope. Unknown or ambiguous targets fail the
+whole selection; use a full URL to disambiguate hosts. The file is an input
+target list, not finding state, approval, or evidence that a fix worked.
 Every target is enriched
 with **product reach** (fix highest-blast-radius repos
 first — the output is already sorted by it) and **owner team** (MR

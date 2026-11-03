@@ -69,6 +69,23 @@ def _core(config_home: Path | None) -> Context:
     return core
 
 
+def _advisory_files(ap: argparse.ArgumentParser) -> None:
+    ap.add_argument(
+        "--advisory-file",
+        type=Path,
+        action="append",
+        default=[],
+        help="exported OSV JSON; repeat for aliases (uses only these files, never the live API)",
+    )
+
+
+def _advisory_core(args: argparse.Namespace) -> Context:
+    core = _core(args.config_home)
+    if args.advisory_file:
+        core.use_exported_advisories(args.advisory_file)
+    return core
+
+
 def _advisory(services: Services, identifier: str) -> AdvisoryRecord:
     record = services.exposure.find_advisory(parse_advisory_identifier(identifier))
     if record is None or record.advisory_id is None:
@@ -79,12 +96,11 @@ def _advisory(services: Services, identifier: str) -> AdvisoryRecord:
 def find(argv: list[str] | None = None) -> int:
     ap = _parser("find", "Print an advisory as its source states it now, as JSON.")
     ap.add_argument("advisory", help="CVE-/GHSA-/MAL-/PYSEC-/GO-/RUSTSEC-/OSV- id")
+    _advisory_files(ap)
     args = ap.parse_args(argv)
 
     def call() -> str:
-        return _advisory(_core(args.config_home).services(), args.advisory).model_dump_json(
-            indent=2
-        )
+        return _advisory(_advisory_core(args).services(), args.advisory).model_dump_json(indent=2)
 
     return run(call)
 
@@ -94,11 +110,12 @@ def package(argv: list[str] | None = None) -> int:
     ap.add_argument("name", help="the package as its ecosystem names it")
     ap.add_argument("version")
     ap.add_argument("--ecosystem", required=True, choices=[e.value for e in Ecosystem])
+    _advisory_files(ap)
     args = ap.parse_args(argv)
 
     def call() -> str:
         found = (
-            _core(args.config_home)
+            _advisory_core(args)
             .services()
             .exposure.package_advisories(
                 Ecosystem(args.ecosystem), args.name, Version(args.version)
@@ -141,10 +158,11 @@ def sbom(argv: list[str] | None = None) -> int:
 def symbols(argv: list[str] | None = None) -> int:
     ap = _parser("symbols", "Print the functions the advisory's fix touched, as JSON.")
     ap.add_argument("advisory")
+    _advisory_files(ap)
     args = ap.parse_args(argv)
 
     def call() -> str:
-        services = _core(args.config_home).services()
+        services = _advisory_core(args).services()
         record = _advisory(services, args.advisory)
         assert record.advisory_id is not None
         return services.exposure.resolve_symbols(record.advisory_id).model_dump_json(indent=2)
@@ -155,6 +173,7 @@ def symbols(argv: list[str] | None = None) -> int:
 def analyze(argv: list[str] | None = None) -> int:
     ap = _parser("analyze", "Assess every commit an advisory reaches, or one, and record each.")
     ap.add_argument("advisory")
+    _advisory_files(ap)
     ap.add_argument("--repo-url", help="assess only this repository's commit (with --sha)")
     ap.add_argument("--sha", help="the commit to assess (with --repo-url)")
     add_branch_arg(ap)
@@ -176,7 +195,7 @@ def analyze(argv: list[str] | None = None) -> int:
         ap.error("--branch names the assessed commit's branch: give --repo-url and --sha")
 
     def call() -> dict:
-        core = _core(args.config_home)
+        core = _advisory_core(args)
         services = core.services()
         exposure = services.exposure
         record = _advisory(services, args.advisory)
@@ -199,8 +218,10 @@ def analyze(argv: list[str] | None = None) -> int:
         recorded = []
         for ref_id in commits:
             prepared = exposure.prepare(advisory_id, ref_id, judged=judged)
-            if args.scan and prepared.evidence.classification() in UNDECIDED:
-                subject = prepared.subject
+            if args.scan and any(
+                p.evidence.classification(p.package.ecosystem) in UNDECIDED for p in prepared
+            ):
+                [subject] = {item.subject for item in prepared}
                 workspace = services.checkouts.checkout(
                     CheckoutRequest(
                         repo=HttpsRepoUrl.parse(subject.repository_url, core.config.forge_hosts),
@@ -211,16 +232,19 @@ def analyze(argv: list[str] | None = None) -> int:
                     prepared = exposure.prepare(advisory_id, ref_id, workspace.path, judged)
                 finally:
                     services.checkouts.release(workspace)
-            when = datetime.now(UTC)
-            source = Provenance(
-                run_id=uuid.uuid4(), source=SourceType.IMPACT_REPORT, occurred_at=when
-            )
-            doc = prepared.document(version, args.feature_desc)
-            done = exposure.record(ref_id, doc, source)
-            recorded.append((prepared.subject.repository_url, prepared.subject.sha, done))
+            for item in prepared:
+                source = Provenance(
+                    run_id=uuid.uuid4(),
+                    source=SourceType.IMPACT_REPORT,
+                    occurred_at=datetime.now(UTC),
+                )
+                doc = item.document(version, args.feature_desc)
+                done = exposure.record(ref_id, doc, source)
+                recorded.append((item.subject.repository_url, item.subject.sha, done))
         return {
             "advisory": record.identifier,
-            "commits": len(recorded),
+            "commits": len(commits),
+            "analyses": len(recorded),
             "classifications": dict(Counter(d.classification.value for *_, d in recorded)),
             "affected": [
                 {"repository": url, "sha": sha, "finding_id": d.finding_id}
@@ -228,6 +252,27 @@ def analyze(argv: list[str] | None = None) -> int:
                 if d.classification == ImpactClassification.AFFECTED
             ],
         }
+
+    return run(call)
+
+
+def export(argv: list[str] | None = None) -> int:
+    ap = _parser("export", "Export all recorded commit/package verdicts for one advisory.")
+    ap.add_argument("advisory")
+    ap.add_argument("-o", "--out", type=Path, help="write the JSON here instead of stdout")
+    args = ap.parse_args(argv)
+
+    def call() -> str | None:
+        report = (
+            load(args.config_home)
+            .services()
+            .exposure.export_impacts(parse_advisory_identifier(args.advisory))
+        )
+        text = report.model_dump_json(indent=2)
+        if args.out is None:
+            return text
+        args.out.write_text(text + "\n", encoding="utf-8")
+        return None
 
     return run(call)
 
@@ -256,6 +301,7 @@ def sweep(argv: list[str] | None = None) -> int:
         help="comma list (go,npm,pypi,maven,cargo,ruby,nuget,actions) or 'all'",
     )
     ap.add_argument("--out", type=Path, help="also write the result here")
+    _advisory_files(ap)
     args = ap.parse_args(argv)
     wanted = [] if args.ecosystem == "all" else args.ecosystem.lower().split(",")
     try:
@@ -266,7 +312,7 @@ def sweep(argv: list[str] | None = None) -> int:
 
     def call() -> str:
         swept = (
-            _core(args.config_home)
+            _advisory_core(args)
             .services()
             .exposure.sweep(ScannerSeverity(args.min_severity), args.deep_scan_cap, ecosystems)
         )
@@ -276,6 +322,8 @@ def sweep(argv: list[str] | None = None) -> int:
             # argv only: run each as given, one call per array, never joined into a shell string
             row["impact_argv"] = ["python3", "-m", "traust.cli", "impact", "analyze"]
             row["impact_argv"] += [row["identifier"], *(["--scan"] if row["scan"] else [])]
+            for path in args.advisory_file:
+                row["impact_argv"] += ["--advisory-file", str(path.resolve())]
         text = json.dumps(doc, indent=2)
         if args.out:
             args.out.parent.mkdir(parents=True, exist_ok=True)

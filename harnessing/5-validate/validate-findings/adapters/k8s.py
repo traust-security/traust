@@ -19,6 +19,7 @@ except ImportError:  # pragma: no cover
     _yaml = None
 
 from .base import AdapterBase, Fingerprint, StepResult, step_get
+from .credentials import redact_credentials
 
 
 def _kbin() -> str:
@@ -365,7 +366,7 @@ class K8sAdapter(AdapterBase):
         # Redact AFTER verdict (verdict logic may key on token shape) but
         # BEFORE anything that persists — StepResult.observed lands in
         # validation-audit.jsonl and validation.json, both committed.
-        observed_out = self._redact_credentials(observed[:4000])
+        observed_out = redact_credentials(observed)[:4000]
         res = StepResult(
             step_id=sid,
             adapter="k8s",

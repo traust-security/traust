@@ -134,6 +134,7 @@ Use when the user asks to assess compliance of a product or deployed cloud envir
 - **Tier:** `primary`
 - **Invoke:** `/compliance-check`
 - **Skill:** [harnessing/3-audit/compliance-check/SKILL.md](../harnessing/3-audit/compliance-check/SKILL.md)
+- **Produces / consumes:** [Integrations](../harnessing/3-audit/compliance-check/SKILL.md#integrations)
 
 ## crypto-analysis
 
@@ -150,7 +151,7 @@ Use on the daily continuous-operations cadence, or when the user asks to "check 
 
 - **Stage:** ③ Audit
 - **Tier:** `primary`
-- **Invoke:** `/dependency-watch` — arguments: `[CVE-ID | --since <date> | below-range --task <dir>] [--include-likely] [--dry-run]`
+- **Invoke:** `/dependency-watch` — arguments: `[CVE-ID | --since <date> | below-range --task <dir>] [--advisory-file <osv.json> ...] [--dry-run]`
 - **Skill:** [harnessing/3-audit/dependency-watch/SKILL.md](../harnessing/3-audit/dependency-watch/SKILL.md)
 - **Produces / consumes:** [Integrations](../harnessing/3-audit/dependency-watch/SKILL.md#integrations)
 
@@ -243,7 +244,7 @@ Static source-code vulnerability scan. Reads a target directory (and its threat 
 
 ## track-findings
 
-Use when the user wants to record human feedback against audit findings, review core decision cards, countersign machine verdicts, or inspect current finding state. Imports forge/Jira statements and supports private asynchronous countersign-queue.md review, typed single/bulk answers and direct verified-human judgements through shared traust auth or explicit stdin tokens. Requires genuine judged fields and the reviewer's own rationale; core owns evidence admission. Reports validity, resolution, assurance, severity, SLA and review surfaces, and exports SARIF. Machine reports record through their own skills. Untrusted review blocks use the workbench's lossless JSON quotation.
+Use when the user wants to record human feedback against audit findings, review core decision cards, countersign machine verdicts, or inspect current finding state. Imports forge/Jira statements and supports private asynchronous countersign-queue.md review, typed single/bulk answers and direct verified-human judgements through shared traust auth or explicit stdin tokens. Requires genuine judged fields and the reviewer's own rationale; core owns evidence admission. Reports validity, resolution, assurance, severity, SLA and review surfaces, and exports SARIF. Reconciles later CVE provenance across recorded code audits with score thresholds, dry-run reports and explicit idempotent apply. Machine reports record through their own skills. Untrusted review blocks use the workbench's lossless JSON quotation.
 
 - **Stage:** ④ Triage
 - **Tier:** `primary`
@@ -352,7 +353,7 @@ Use when the user asks to generate a shareable findings folder, executive summar
 
 ## attack-coverage
 
-Use when the user asks for MITRE ATT&CK coverage of the portfolio — "which ATT&CK techniques/tactics do our threats or validated chains cover", "build the ATT&CK Navigator layer", "ATT&CK heat map", or after updating threat models/validations to refresh the coverage roll-up. Deterministically joins threat-model attack_refs and finding-category-derived candidates (validated attack chains once traust-core records them) against the pinned vendored ATT&CK table and emits a Navigator layer JSON plus a tactic/technique coverage one-pager.
+Use when the user asks for MITRE ATT&CK coverage of the portfolio — "which ATT&CK techniques/tactics do our threats or validated chains cover", "build the ATT&CK Navigator layer", "ATT&CK heat map", or after updating threat models/validations to refresh the coverage roll-up. Deterministically joins observed and attempted bound validation chains, threat-model attack_refs and finding-category-derived candidates against the pinned ATT&CK table; emits Navigator JSON and a tactic/technique coverage report.
 
 - **Stage:** —
 - **Tier:** `secondary`
@@ -407,7 +408,7 @@ Use before committing any new or edited skill or script to the traust repo, or w
 
 ## drift-watch
 
-Use when the user asks whether derived artifacts or paired sources are stale or drifting — "is anything stale", "check for drift", "are the feeds/graphs/findings-db current", "did inputs change since the graph was built", "run the drift report" — or on a regular cadence. Shows traust-core's freshness view over feeds, scanner readiness and tool databases, the toolchain's versions, threat-model and audit cadence, and audit coverage gaps, plus ADR-registry pins, rule-pack pins, docs-product-map version enumeration (declared doc versions vs the live docs.redhat.com landing pages — catches FUTURE product-doc versions the variance lane isn't covering), framework-spine upstream and dated policy provenance; writes freshness.{md,html,json} where asked.
+Use when the user asks whether inputs, supported consumers or paired sources are stale or drifting — "is anything stale", "check for drift", "did inputs change since the graph was built" — or on a regular cadence. Shows traust-core's freshness view over security feeds, reference-registry age, scanner readiness and upstream release age, stored PQC schema compatibility, dominant-language dependency/reachability coverage, review clocks, assessment cadence and reported audit gaps. The companion check drift command watches the surviving worklist and pack configuration; inventory bootstrap reads native inputs, never a stale graph export. Writes freshness.{md,html,json} where asked.
 
 - **Stage:** —
 - **Tier:** `secondary`
@@ -456,7 +457,7 @@ Use when the user asks whether portfolio security findings are trending up or do
 
 ## insecure-patterns
 
-Use when the user asks which insecure coding patterns recur across the portfolio, wants findings grouped/ranked by CWE or OWASP ASVS category, asks "what are our top vulnerabilities by pattern", "which repos share CWE-X", or asks to (re)build the insecure-patterns dashboard. Reads the findings recorded in traust-core (owned and upstream reported as separate ownership cuts), buckets by primary CWE, and writes insecure-patterns.{md,html,json}.
+Use when the user asks which insecure coding patterns recur across the portfolio, wants findings grouped/ranked by CWE or OWASP ASVS category, asks "what are our top vulnerabilities by pattern", "which repos share CWE-X", or asks to (re)build the insecure-patterns dashboard. Reads source-code findings recorded in traust-core (separate ownership cuts), enriches reviewed CWE/ASVS/fix references, and writes a detailed Markdown report, interactive HTML explorer and full JSON roll-up.
 
 - **Stage:** —
 - **Tier:** `secondary`
@@ -471,6 +472,7 @@ Use when the user asks how many lines of code have been scanned/audited, wants a
 - **Tier:** `tertiary`
 - **Invoke:** `/loc-dashboard`
 - **Skill:** [harnessing/loc-dashboard/SKILL.md](../harnessing/loc-dashboard/SKILL.md)
+- **Produces / consumes:** [Integrations](../harnessing/loc-dashboard/SKILL.md#integrations)
 
 ## mine-ledger
 
@@ -484,7 +486,7 @@ Use when the user asks to mine the disposition ledger for confirmed true positiv
 
 ## portfolio-graph
 
-Use when the user asks code-level portfolio questions or to build/refresh/query the portfolio source-code graph — "which products depend on module X" / CVE blast radius, "top shared libraries", "internal library coupling", "rebuild the portfolio graph", "query the code graph". Distinct from the retired /repo-graph (the organizational coverage graph): this one holds the code-level layers — module dependencies (L1), Kubernetes interfaces (L2), artifacts/SBOM (L3), and symbols (L4), all implemented — read through traust-core by python3 -m traust.cli.
+Use when the user asks code-level portfolio questions, fleet API-group coupling, package import/export evidence, or to build an organizational repository relationship map. Native SBOM and code-facts services answer dependencies (L1), Kubernetes interfaces (L2), image modules (L3) and exports/imports (L4); `portfolio graph` derives offline interactive HTML, JSON/DOT/GEXF and hub/coverage statistics without restoring SQLite graph storage. Read-only crown-jewel draft, IaC census and organization index views complement these sources; unsigned crown-jewel proposals never authorize dispatch.
 
 - **Stage:** —
 - **Tier:** `secondary`
@@ -494,7 +496,7 @@ Use when the user asks code-level portfolio questions or to build/refresh/query 
 
 ## recall-benchmark
 
-Use when the user asks to measure the auditor's detection recall, run the recall benchmark, score a harness release against ground truth, bootstrap/admit benchmark targets, or asks "what fraction of real vulnerabilities do we find". Audits pinned pre-fix refs of repos with known-real findings (self-replay from the disposition ledger, CVE replay, seeded) on clean checkouts using the shared canonical remediation-authoring rules, records real-target reports through Core, scores detection with the finding_identity match ladder via traust-core (`traust sweep score-benchmark`), and emits benchmark.json — recall overall/per-CWE/per-severity/per-language, held-out split, and run-to-run stability.
+Use when the user asks to measure the auditor's detection recall, run the recall benchmark, score a harness release against ground truth, bootstrap/admit benchmark targets, or asks "what fraction of real vulnerabilities do we find". Harvests unadmitted candidates from confirmed fixes, audits pinned pre-fix refs of repos with known-real findings (self-replay, CVE replay, seeded) on clean checkouts using the shared canonical remediation-authoring rules, records real-target reports through Core, scores detection with the finding_identity match ladder via traust-core (`traust sweep score-benchmark`), and emits benchmark.json plus benchmark.md — strict recall cuts, near-miss adjudication, injection resistance, population/skip detail and run-to-run stability.
 
 - **Stage:** —
 - **Tier:** `secondary`
@@ -532,7 +534,7 @@ Use when the user asks for a fleet-wide or portfolio-wide view of threats (not f
 
 ## traust-metrics
 
-Use when the user asks for campaign metrics, a leadership scoreboard, or to (re)build/refresh progress-tracker/metrics/dashboards/scoreboard/traust-metrics.md. Deterministically harvests headline numbers from traust-core's executive summary, findings trend and threat register views into one consistently-updatable Markdown scoreboard.
+Use when the user asks for campaign metrics, a leadership scoreboard, or to rebuild the scoreboard. Composes recorded executive, trend, threat, validation/fuzz, census, insecure-pattern and detection-quality views with separately measured harness checkout maturity.
 
 - **Stage:** —
 - **Tier:** `secondary`

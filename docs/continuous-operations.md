@@ -71,9 +71,28 @@ The threat-model lanes are the exception to that last arrow: they refresh the
 coverage diff rather than the ledger. They never file a finding.
 
 The router routes only — it never authors a finding, verdict, or audit. Its
-output is `analysis-results/findings/_manifest/rescan-worklist.json` plus a
-human summary (`rescan-worklist.md`) beside it; `/drift-watch` flags the
-worklist when older than 3 days.
+output is `findings/_manifest/rescan-worklist.json` under the configured
+`locations.analysis_results`, plus a human summary (`rescan-worklist.md`) beside
+it. `traust check drift` reports a missing worklist as stale and checks its
+`generated_at` against a 3-day window (not its filesystem modification time).
+
+The builder reads Core's current `repository_inventory()` snapshot for never-audited
+bootstrap, including input URLs that have not been registered or audited. This is the
+same typed inputs source as the native graph view, not Core's registered-repository
+list and not an exported graph snapshot. Changes to configured inventory files are
+visible on the next run without rebuilding a SQLite graph. Unavailable or malformed
+inventory fails the build before output; `--no-bootstrap` explicitly opts out.
+The obsolete `--graph-db` routing authority is removed. For a custom builder `--out`,
+check that same output with `traust check drift --worklist <file>`.
+
+This is a bootstrap-source cutover, not a replacement of the entire surviving
+router. Its HEAD code-audit population, live vulnerability counts, report-path
+metadata and cloud-config baseline presence still come from the existing interim
+`findings.db` projection (`--db`, default `graph/findings.db` under configured
+analysis-results). That projection is distinct from the retired portfolio graph.
+The router's branch exclusion, sibling-filings risk merge and IaC baseline/companion
+lanes retain that input's existing semantics; no native whole-router migration or
+new projection producer is claimed here.
 
 ## Hosts and credentials
 
@@ -112,7 +131,7 @@ dropped.
 | Weekly (rule mining) + post-wave | python3 -m traust.cli sweep rule-lane — the /mine-ledger lane: ledger miner → sweep-engine collect/draft → bounded regression-draft staging → delta report vs the previous `rule-mining.json`. Inputs: the confirmed findings and audits' `scanner_correlation` judge decisions recorded in traust-core. Outputs: `lane-delta.{json,md}` under the metrics tree + staged rule drafts, then calibrated pack rules via the scheduled `/mine-ledger` session (the mechanical test-and-calibrate gate is the promotion criterion; sweep hits and mined candidates still route to `/triage` — the lane never auto-files findings). Post-wave trigger: `/drift-watch`'s `rule-mining` row goes stale when ledger changes are >7d newer than the artifact |
 | Weekly (threat-model trickle) | the `threat-model-quarterly` pool drains alongside the diff pool, on its own weekly rate (default ceil(pool/13)): dispatch rows with `drain_order < summary.threat_model.quarterly_weekly_rate` as `/threat-model review --auto`. The rate is a **cadence spread, not a budget cap** — no row is ever dropped, only scheduled; `--threat-model-drain-rate` can impose a hard weekly ceiling if spend warrants |
 | Quarterly | class-sweep rotation at the measured FN classes; threshold re-derivation from router telemetry; recall benchmark; the threat-model calendar backstop completes one full pass |
-| Event-driven | rows injected via `rescan-events.jsonl` (next router run, ≤1 day) — including `release` rows, which additionally route a `threat-model-review` row on a **major/minor** bump |
+| Event-driven | Native observed release artifacts plan `release_passthrough` and operator-approved container/RPM audit batches; major/minor product-version changes additionally request source `threat-model-review` where identity is known. Explicit external-report/methodology/CVE injection remains separate. |
 
 ## Standing jobs — the complete inventory
 
@@ -129,7 +148,7 @@ rows named in the last column are the backstop that makes a dead timer visible.
 |---|---|---|---|---|
 | Fleet refresh + rescan router | daily | timer | python3 -m traust.cli build rescan-worklist | routes only, never authors findings; the engine tick is the cadence |
 | **Feed-source liveness** | *retired* with `check drift`; returns as traust-core provider readiness once the live sources are core providers | probe | — | Probes every source in traust-core's shipped `feeds.yaml` carrying a `probe` — both tiers — so a live-tier source that answers with an error is visible. A definitive HTTP error is `drift`; a transport failure is `unavailable`, never `drift`, so an offline workstation does not report every source as broken |
-| Release/dist-git event feeder | on demand | a recorded release (`traust portfolio import-release`) | `python3 -m traust.cli portfolio release-changes --product <slug> --version <v>` | derived from recorded releases, nothing stored (`PortfolioService.release_changes`); a dist-git head is the `repo_state` observation of a registered repository |
+| Release/dist-git event feeder | daily (`release_discovery`, 24h) | inventory digest/tag/local-key or watched dist-git HEAD change | `traust portfolio release-discover` | Native `release-inventory` feed snapshots retain observation identities. Initial observation is baseline only; changed artifacts plan `release_passthrough`, then approved container/RPM batches. Explicit product bindings record versions; dist-git movement never becomes a version. |
 | `/dependency-watch` (deps lane end to end) | daily | timer (advisory publication) | `traust feeds fetch`, `traust impact sweep` and `traust impact analyze` | Core exposure services record per-commit impact assessments and dependency finding intake for `affected` commits without changing baselines. Advisory/classification provenance and evidence admission remain core-owned; never invent severity or promote an OSV match directly to a verdict. |
 | Below-range verification (packets, then review) | weekly per repository | timer (`below_range_packets`, then `below_range_review` once its packets are fresh) | `traust impact below-range-scan --repo <url>` records the head's packets; the review session runs `traust impact below-range-review`, two blind reviews and a judge on a split, then `traust impact below-range-record` | only `applicable` becomes a dependency finding (D1); `undetermined` cases and coverage gaps stay in the recorded review, never clean; no human queue (D4) |
 | **Feed router** — security-data refresh (EPSS / KEV / vendor CVE and VEX feeds) | **daily** | timer | `python3 -m traust.cli feeds fetch --feed all` | Orchestrator-neutral ([routers.md](routers.md)), deliberately not bound to a CI pipeline in this repo. Snapshots every `tier: cached` source in traust-core's shipped `feeds.yaml` through traust-core (`ExposureService.refresh_feeds`: a `feed_snapshot` per source, the bytes in core's object store; `rh-cve` fetches only what published since its last snapshot). A dedicated job exists because consumer-triggered refresh only holds while something runs daily; without one the snapshots silently age. Every source in traust-core's shipped `feeds.yaml` is public. A source that fails keeps its last snapshot and the order is **degraded**, keyed by the source; one with no snapshot at all fails the order. **Backstop:** drift rows `feeds:*` at **48h** — one missed run plus slack; a threshold looser than the cadence it guards is how a dead job stays green |
@@ -138,9 +157,10 @@ rows named in the last column are the backstop that makes a dead timer visible.
 | Verify-remediation treadmill | weekly (worklist rebuilt per sweep) | timer | `traust remediation verify-sweep` → `/verify-remediation full-sweep` | verdicts gated by the verification schema + soundness lint; `traust remediation verify-record` records verdicts as decisions and regressions as findings |
 | Rule-mining lane | weekly + post-wave | timer + drift row `rule-mining` (ledger changes >7d newer than the artifact) | python3 -m traust.cli sweep rule-lane, then the scheduled `/mine-ledger` session | never auto-files findings; rule promotion sits behind the mechanical test-and-calibrate gate; sweep hits route to `/triage` |
 | Ledger audit | weekly | timer | python3 -m traust.cli ledger audit (`LedgerService.audit`) | verifies every ledger layer against its stored events and signature, so an edit to stored decision events is found within a week (appends no longer re-verify the layer); a layer that fails or can't be verified degrades the order, never green |
-| CVE-replay FN monitor | daily (cron-able, stdlib-only) | timer; per-ecosystem OSV watermark advances only on success | *retired with the traust-core hub*; rebuilt on `DetectionQualityService.critical_misses` (*Detection quality*), not in the pack until then | routes, never concludes (`detected`/`unclear`/`missed`); benchmark ground-truth candidates stay a human-gated queue |
+| CVE-replay FN monitor | daily (cron-able) | timer; OSV commit-source watermarks advance only after every query and recorded-report read succeeds | `traust sweep cve-replay monitor` (`--since <timezone-aware timestamp>` for historical discovery); `traust sweep cve-replay candidates` and `traust sweep cve-replay trends` export JSON | Core queries OSV for actual recorded audited commits, not guessed package identities. The oracle distinguishes identifier matches from area-only review and missing evidence; absent-at-audit cases never count as misses, and unknown presence never enters the missed trend series. Candidate admission remains human-gated; no findings or benchmark truth are auto-filed. |
+| Critical candidate anti-drop report | after each campaign wave / triage refresh | operator or timer after campaign artifacts change | `traust sweep critical-misses --campaign-dir <campaign>` | Core reads probe/matrix deltas, replay candidates, triage and sample-mapped reports; exports `CRITICAL-MISSES.md` plus JSON without requiring intake rows. Missing ingestion and pending human routing remain visible; no finding or ticket is created. |
 | `/drift-watch` | on demand; recommended alongside every `/census`; scheduled by the orchestrator | operator / timer | python3 -m traust.cli dashboard view freshness | routes attention only — never auto-rebuilds, auto-advances a pin, or files a finding |
-| Census + repo-liveness refresh | no fixed timer — run at intake (`/corpus-intake` triggers it), and before denominators are consumed | operator / intake flow | `/census` (runs `traust portfolio liveness` as its Step 2b) | liveness derives on read; the engine tick is the cadence |
+| Census + repo-liveness refresh | at intake and before denominators are consumed | operator / intake flow | `portfolio observe` records forge availability; `/census` reads `portfolio liveness` and the census view | The latest attempt and original unchanged `status_since` come from the typed repo-liveness reference; authentication/transport failures remain unknown, not a stale success. |
 | FP-precedent cache rebuild | formerly drift-triggered, no timer | former `fp-precedent-cache` drift row | no executable runner; core finding precedents own the unfinished skill port | Formerly indexed human-countersigned and sound machine refutations to inform review, never to dismiss automatically. Existing cache artifacts are not a current rebuild. |
 | Validation benchmark | release-cut + monthly hybrid | `traust sweep benchmark check-trigger` (exit 10 = benchmark required) + drift row `validation-benchmark` (35d) | python3 -m traust.cli sweep benchmark | below-floor runs exit non-zero; results land in the harness-QA tree, never campaign metrics |
 | Recall benchmark | quarterly, plus release scoring | timer / release cut (`--release` scores held-out targets) | `/recall-benchmark run` | manifest never enters an audited tree; held-out split scored only at release |
@@ -154,6 +174,38 @@ rows named in the last column are the backstop that makes a dead timer visible.
 | ADR / pin / external-tool advances | **human-decision, drift-flagged** — never automated | drift rows `adr-registry:*`, `checkov-pin`, `external-tools:*` | reviewed commits advancing the pins | no check may auto-advance a pin (drift-watch constraint) |
 | Spend capture (`/financial-tracking capture`) | **weekly** | timer; drift rows `dashboards:spend*` (>4d) | `/financial-tracking capture` — see *Spend capture cadence* below | capture is LOSSY if you are late: transcripts are retained for a rolling window only and there is no backfill. The reconcile step is a hard gate — a non-zero exit means recorded spend does not split losslessly by skill |
 | Docs semantic sweep | quarterly | drift row `docs-semantic-sweep` (92d) | reviewer sweep per the check-harness-docs SKILL procedure | report lands in the deployment's gap-assessments tree |
+
+## Critical candidate report
+
+Run `traust sweep critical-misses --campaign-dir <campaign>` after a campaign wave,
+triage refresh, or disposition refresh. The default outputs are
+`CRITICAL-MISSES.md` and `CRITICAL-MISSES.json` under configured `analysis_results`;
+`--out <markdown>` and `--json-out <json>` select independent export destinations.
+`--start <timezone-aware timestamp> --end <timezone-aware timestamp>` additionally
+includes the existing recorded-findings miss query as a separate population.
+Without the pair, the report still includes pre-intake candidates.
+
+The Core campaign reader owns `b-lite/*-delta.json`, `matrix/*-delta*.json`,
+`**/*-triage.json`, `cve-replay/candidates.json`, and `*sample*.json` acquisition.
+Sample entries map `slug` to a `report` ending in `-findings-current.json` and its
+baseline `-security-audit.json`; an explicit `audit` path can name another
+baseline. Relative report paths are relative to the campaign directory.
+Baseline and current documents must satisfy the existing report contract;
+malformed or unreadable sources fail the export instead of silently dropping rows.
+Missing optional arms, absent sample maps, and missing mapped reports remain
+explicitly unresolved rather than being treated as empty security results.
+
+Every critical probe/matrix delta is a candidate, not a concluded vulnerability.
+Replay enters the critical-miss population only with explicit
+`present_at_audit: true` and `audit_verdict: missed`; unknown presence or unclear
+verdicts remain excluded and counted separately. Source fragments preserve the
+original delta index, triage votes, confidence, and original IDs. An original-ID
+match or unique path-plus-CWE baseline match establishes ingestion only.
+Area-only or advisory-text matches and ambiguous identities require adjudication.
+A missing current disposition is unknown, never confirmed; a recorded refutation
+awaiting human signoff stays in the countersign queue. The report neither admits
+findings, updates the ledger, nor files tickets. Recorded findings and raw
+campaign candidates are not added into one vulnerability total.
 
 ## Spend capture cadence — capture weekly, report monthly
 
@@ -215,7 +267,7 @@ table — see *Event injection* below.
 
 | Rule | Trigger | Lane | Why this threshold |
 |---|---|---|---|
-| 1 | inventory repo (portfolio-graph spine, built from the inputs inventory) with **no baseline audit** | **full audit + threat-model bootstrap** (`rule-1-bootstrap`) | new intake is otherwise invisible to the loop until a human notices. Zero API calls — exposure from the curated designation, private default; the first audit self-heals the repo into change detection, the graph, and dependency watch |
+| 1 | repository in the current native inputs inventory with **no baseline audit**, including unregistered URLs | **full audit + threat-model bootstrap** (`rule-1-bootstrap`) | new intake is otherwise invisible to the loop until a human notices. No graph cache or forge calls; exposure uses the curated designation with a private default. The first audit establishes recorded change-detection and dependency-watch context |
 | 2 | `C ≥ 8,000` first-party changed lines, OR `R ≥ 10%` of audited LoC (R only where `lines_reviewed` is recoverable from the baseline report) | **full audit** | above this the old audit's coverage map no longer describes the code — the baseline is *invalid*, not merely stale. The line threshold sits near the upper tail of a typical two-week change; a change that large is a new codebase for coverage purposes, while a smaller one carries little churn-attributable expected yield |
 | 3 | any changed file matches the narrow sensitive-identifier matcher AND ≥200 changed lines in those files | **full audit** (P0/P1), **diff scan** (P2) | error analysis places the audit false-negative pool disproportionately in auth/config paths — sensitive-path change is the highest-yield trigger and is never throttled. The *narrow* matcher discriminates; a broad infrastructure matcher hits almost every changed repo and is useless |
 | 3b | every changed file is a dependency manifest | **deps lane (classification, not a queue)** — the row classifies manifest-only change for advisory-first `/dependency-watch` analysis. The former impact-finding router is retired; core finding intake owns its unfinished filing skill port, with no executable fallback. `/dependency-watch` does not read these worklist rows | manifest-only changes are common and deterministic reachability avoids a full agent scan; analysis is not proof of successful finding admission |
@@ -425,32 +477,37 @@ honored in `events_honored` and marks nothing consumed — flip `consumed` to
 
 ### Event feeders
 
-`rescan-events.jsonl` is fed by operators: `external-report`/`methodology`/`cve`
-rows by hand (or via feed importers), and `release` rows when a release should
-reach the router before the pack router reads releases itself.
+`traust portfolio release-discover` observes container inventory digests/tags and
+watched dist-git heads through the registered `release-inventory` feed. Native
+feed snapshots retain the baseline, cumulative observed identities and source
+failures; there is no JSONL feeder or private seen-state manifest.
 
-**Releases are recorded, not fed.** A product version is recorded with
-`traust portfolio import-release` (the commits it ships); its change is derived
-on demand, never stored:
+The security pack's daily `release_discovery` asset records explicitly
+product-bound inventory versions, injects `release_passthrough` for changed
+artifact targets and requests source threat-model review for major/minor bumps
+when a registered repository is known. The first observation seeds a baseline
+without a fleet-wide audit burst. A queued passthrough order coalesces later
+observations; budget-withheld work remains eligible.
+
+`release_passthrough` materializes separate operator-approved container and RPM
+audit batches. Container targets retain inventory provenance; RPM targets use
+the observed commit, not a branch that may move before execution. Dist-git
+observations never manufacture product version identity.
+
+Manual product release recording remains supported:
 
 ```bash
-python3 -m traust.cli portfolio release-changes --product <slug> --version <v> [--previous <v0>]
+traust portfolio import-release --help
+traust portfolio release-changes --product <slug> --version <v>
+traust portfolio release-discover
 ```
 
-returns the bump (`major` / `minor` / `patch` / `backfill` — a version *below*
-the high-water mark, an old release recorded late — / `none` / `unknown`, a
-label that is no version) against the highest version recorded before it,
-`remodels` (major or minor: the only bumps the threat-model-review lane acts
-on), and the commits it ships that the previous didn't (`added`) and the other
-way round (`removed`). A product's first recorded release has nothing to
-compare against and is refused. The committed seen-set
-(`release-events-state.json`) and the inventory-CSV diff are retired with
-`build_release_events.py`.
-
-**Dist-git heads** are not releases: register the dist-git repository in the
-inventory and the `repo_state` asset observes its head (`portfolio observe`);
-the pack router routes on that observation. The `rpm-distgit-watch.yaml` watch
-list is retired.
+`release-changes` derives the registered release's version movement and added/
+removed commits; only major/minor movement requests a threat-model review.
+The optional `<config-home>/rpm-distgit-watch.yaml` supplies HTTPS repositories
+under `active` and explicit inventory-family-to-product bindings under `products`.
+Missing watch configuration means no dist-git sources, not guessed coverage.
+The retired `/repo-graph` and SQLite graph database are not event authorities.
 
 ## Running the router
 

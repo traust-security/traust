@@ -24,12 +24,21 @@ from traust_core.v1.context.config import CONFIG_FILE
 from traust_core.v1.errors import AuthenticationError, ConfigError, DeploymentConfigMissing
 from traust_core.v1.models.identity import Credential, Principal
 
-from traust.paths import GITLEAKS_CONFIG, HARNESSING_DIR, OPENGREP_RULES_DIR, SECURITY_PACK_DIR
+from traust.paths import (
+    GITLEAKS_CONFIG,
+    HARNESS_ROOT,
+    HARNESSING_DIR,
+    OPENGREP_RULES_DIR,
+    SECURITY_PACK_DIR,
+    skill_dir,
+)
+from traust.release_config import register_release_inventory
 
 T = TypeVar("T")
 
 SLA_POLICY = SECURITY_PACK_DIR / "sla-policy.yaml"  # the default until one is recorded
 MODEL_REGISTRY = "model-registry.yaml"
+REACHABILITY_WATCH = "reachability-watch.yaml"
 # Security-pack content (home: traust-pack-security): the pinned ATT&CK release and its mapping.
 _ATTACK = HARNESSING_DIR / "attack-coverage" / "tables"
 ATTACK_TABLES = (_ATTACK / "attack-techniques.json", _ATTACK / "attack-mapping.json")
@@ -62,6 +71,9 @@ ATLAS_TABLE = _ATTACK / "atlas-techniques.json"  # the pinned MITRE ATLAS releas
 #   temp dir, or orchestrator-managed path. Feed mirrors are third-party licensed
 #   data — intentionally kept out of ``analysis-results/`` (different provenance
 #   and retention). Consumed by :func:`feeds_cache_dir`.
+#
+# BENCHMARK_REPO_ROOT
+#   Override the validation benchmark checkout (otherwise ``locations.workspace/traust``).
 #
 # TRAUST_OIDC_CLIENT_SECRET
 #   A service account's client secret for ``traust auth service-account`` when no
@@ -116,13 +128,27 @@ def load(
     the pins and safe-exec profiles traust-core ships; detection quality scores the rule pack
     (``rule_pack``, else :func:`_rule_pack`, with ``overrides.rule_pack_allowlist``) against
     canaries from ``recall-benchmark/<canaries>`` and stages rule drafts in ``rule_drafts``, else
-    ``locations.rule_drafts`` when one resolves.
+    ``locations.rule_drafts`` when one resolves. Release inventory is registered only when the
+    selected inputs source has a local form; remote locations remain available to URI-aware
+    consumers, while local path helpers still refuse them.
     """
     home = resolve_config_home(config_home)
     core = _guarded(CONFIG_FILE, lambda: Context(_with_bundled_rules(Config.from_home(home))))
+    if (
+        _feeds_cache_dir_from_env()
+        or core.config.locations.feeds_cache_dir()
+        or core.config.locations.progress_tracker_dir()
+    ):
+        effective = core.config.locations.model_copy(
+            update={"feeds_cache": str(feeds_cache_dir(core))}
+        )
+        core.config = core.config.model_copy(update={"locations": effective})
+    if home is not None:
+        core.register_reachability_review(home / REACHABILITY_WATCH)
     _guarded("ATT&CK catalog", lambda: core.register_attack_catalog(*ATTACK_TABLES))
     _guarded("ATLAS catalog", lambda: core.register_atlas_catalog(ATLAS_TABLE))
     _guarded("SLA policy", lambda: core.register_default_sla_policy(SLA_POLICY))
+    core.register_harness_metadata(HARNESS_ROOT)
     if sla_policy is not None:
         _guarded("SLA policy", lambda: core.register_sla_policy(sla_policy))
     if home is not None and (home / MODEL_REGISTRY).is_file():
@@ -131,6 +157,13 @@ def load(
         print(f"invoices need the spend view: no {MODEL_REGISTRY} in {home}", file=sys.stderr)
         raise SystemExit(2)
     core.register_toolchain()
+    pqc = skill_dir("pqc-readiness")
+    core.register_pqc_scanner(
+        pqc / "bin" / "pqc-scan",
+        pqc / "rules",
+        adapter_version="1.4.0",
+        scan_commit="be5c760adb7d1d4d99e39d35d87d2956079db76e",
+    )
     pack, pack_version = (
         (rule_pack, f"local:{rule_pack}") if rule_pack else _rule_pack(core.config.locations)
     )
@@ -143,7 +176,12 @@ def load(
     if drafts := rule_drafts or core.config.locations.rule_drafts_dir():
         core.register_rule_drafts(drafts)
     core.register_fleet_fix()
-    core.register_compliance_sources()
+    _guarded("compliance sources", core.register_compliance_sources)
+    inventory_location = core.config.locations.inputs or core.config.locations.workspace
+    if inventory_location and (
+        "://" not in inventory_location or inventory_location.startswith("file://")
+    ):
+        register_release_inventory(core, files)
     return core
 
 
@@ -236,6 +274,12 @@ def analysis_results_dir(src: Context) -> Path:
 def workspace_dir(src: Context) -> Path:
     """Configured workspace root (fail-loud when unset)."""
     return _required(locations(src).workspace_dir, "workspace")
+
+
+def benchmark_repo_root(src: Context) -> Path:
+    """Validation benchmark checkout when no explicit CLI repository is supplied."""
+    override = os.environ.get("BENCHMARK_REPO_ROOT")
+    return Path(override).expanduser() if override else workspace_dir(src) / "traust"
 
 
 def inputs_dir(src: Context) -> Path:

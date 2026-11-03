@@ -77,14 +77,13 @@ DECISION_TABLE so each rule is unit-testable):
   6   pushed_at moved but 0 commits ahead -> none (tag/branch noise)
   7   otherwise -> none
 Session-4 levers (wiring plan §6c, policy v1.4 §2.1b):
-  rule-1 bootstrap (lever 1d)  the inventory population (portfolio-
-      graph repo nodes, built from the inputs inventory) is diffed
-      against the audited baselines; never-audited repos get
-      full-audit+bootstrap rows (rule-1-bootstrap) so new intake
-      becomes a routed audit obligation on the next daily run. Zero
-      API calls: exposure from the curated designation only, private
-      default. --no-bootstrap disables; --graph-db overrides the spine
-      (default: portfolio-graph.db beside --db).
+  rule-1 bootstrap (lever 1d)  the configured inputs inventory is read
+      through Core's typed repository_inventory snapshot and diffed
+      against audited baselines, including never-registered URLs.
+      Never-audited repos get full-audit+bootstrap rows on the next run.
+      No graph database or forge API is involved. Exposure comes from
+      the curated designation only, private by default.
+      --no-bootstrap explicitly disables inventory bootstrap.
   exposure classes  public-external | private-external |
       public-internal | private-internal (visibility x externality,
       externality dominant — operator ground truth 2026-07-27),
@@ -167,7 +166,8 @@ from pathlib import Path
 # command_source's own parameter type; preflight_failures is the preflight's tool check.
 from traust_core.v1.context.observation import ForgeApi
 from traust_core.v1.context.preflight import preflight_failures
-from traust_core.v1.errors import TraustError
+from traust_core.v1.errors import ConfigError, TraustError
+from traust_core.v1.models.input_segments import InputSegmentInventory
 from traust_core.v1.models.observation import (
     SENSITIVE_RX,
     is_deps_manifest,
@@ -752,31 +752,18 @@ def gitlab_compare(api: ForgeApi, host: str, project: str, sha: str, default_bra
 
 
 def never_audited_rows(
-    graph_db: Path, baselined: set[str], designations: list[tuple[str, str]]
+    inventory: InputSegmentInventory, baselined: set[str], designations: list[tuple[str, str]]
 ) -> list[dict]:
-    """Cadence rule 1, implemented (lever 1d, operator directive
-    2026-07-28): the inventory population — portfolio-graph repo nodes,
-    built from the inputs inventory (the topology authority;
-    /drift-watch polices spine freshness) — diffed against the audited
-    baselines. Repos with no baseline get a full-audit+bootstrap row so
-    a newly ingested repo becomes a routed audit obligation on the next
-    daily run instead of waiting for a human to notice. Zero API calls
-    (GitHub fleet-sweep ban avoidance): visibility is unknown here, so
-    the exposure axis uses the curated designation only and defaults
-    private — fail-toward-standard; the bootstrap audit establishes
-    everything else (baseline, graph edges, change detection)."""
-    if not graph_db.is_file():
-        return []
-    con = sqlite3.connect(f"file:{graph_db}?mode=ro", uri=True)
-    try:
-        node_ids = [r[0] for r in con.execute("SELECT id FROM nodes WHERE id LIKE 'repo:%'")]
-    finally:
-        con.close()
+    """Route current inventory URLs without baselines; discovery never assumes public exposure."""
+    urls = {
+        url
+        for segment in inventory.segments
+        for raw in segment.repository_urls
+        if (url := _normalize_repo_url(raw))
+    }
+    baselined = {url for raw in baselined if (url := _normalize_repo_url(raw))}
     rows = []
-    for rid in node_ids:
-        url = _normalize_repo_url(f"https://{rid[5:]}")
-        if not url or url in baselined:
-            continue
+    for url in urls - baselined:
         designation = lookup_designation(url, designations)
         exposure = "private-external" if designation == "external" else "private-internal"
         rows.append(
@@ -2109,15 +2096,6 @@ def main(argv=None) -> int:
         "read-only, optional",
     )
     ap.add_argument(
-        "--graph-db",
-        type=Path,
-        default=None,
-        help="portfolio graph spine for rule-1 never-audited "
-        "bootstrap (built from the inputs inventory; "
-        "freshness policed by /drift-watch). Default: "
-        "portfolio-graph.db beside --db",
-    )
-    ap.add_argument(
         "--no-bootstrap", action="store_true", help="skip rule-1 never-audited inventory rows"
     )
     ap.add_argument(
@@ -2196,6 +2174,11 @@ def main(argv=None) -> int:
     args.events = args.events or manifest / "rescan-events.jsonl"
     args.out = args.out or manifest / "rescan-worklist.json"
     args.designations = args.designations or manifest / "exposure-designations.json"
+    try:
+        bootstrap_inventory = None if args.no_bootstrap else core.repository_inventory()
+    except ConfigError as e:
+        print(f"cannot read bootstrap inventory: {e}", file=sys.stderr)
+        return 2
 
     if not args.db.is_file():
         print(
@@ -2505,10 +2488,9 @@ def main(argv=None) -> int:
     table_rows.extend(companion_rows(non_event, cc_urls, {r["repo_url"] for r in lever6_rows}))
 
     # lever 1d: rule-1 never-audited inventory bootstrap
-    graph_db = args.graph_db or args.db.parent / "portfolio-graph.db"
-    if not args.no_bootstrap:
+    if bootstrap_inventory is not None:
         baselined_urls = {e["repo_url"] for e in entries if e["repo_url"]}
-        bootstrap_rows = never_audited_rows(graph_db, baselined_urls, designations)
+        bootstrap_rows = never_audited_rows(bootstrap_inventory, baselined_urls, designations)
         table_rows.extend(bootstrap_rows)
     else:
         bootstrap_rows = []

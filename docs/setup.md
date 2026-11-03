@@ -38,6 +38,38 @@ warning the run carries on past. Flags for CI: `--yes --config-home DIR
 --toolchain PROFILE` (`--no-toolchain`, `--no-profile-write`, `--force` also
 available). The full contract: [config/README.md](../config/README.md).
 
+### Official product documentation
+
+Register a product in the record store first (`traust products add`; `traust products list`
+reports its `product_id`), then configure its UUID under `compliance.docs_targets` in
+`$TRAUST_CONFIG_HOME/traust.yaml`:
+
+```yaml
+compliance:
+  docs_targets:
+    "4ea36226-c5c2-44cf-9071-11adae2de180":  # replace with your registered product's UUID
+      product_slug: red_hat_enterprise_linux
+      version: "9"
+      guides: [security_hardening]
+```
+
+The slug, quoted version and guide names come from the product's actual
+`https://docs.redhat.com/en/documentation/<product_slug>/<version>` URLs; they are
+adopter facts, not inferred from the registered product name. Omit `guides` or use `[]`
+to discover every guide linked by the landing page. The normal app composition root
+loads these targets and validates UUID references against the real product registry.
+Malformed targets or unknown products refuse startup; a registered product without a
+target refuses collection. The shipped provider requires `curl` on `PATH` and HTTPS
+access to `docs.redhat.com`; it fetches genuine single-page HTML and returns plain-text
+guides with section links. Missing pages and HTTP failures are explicit errors, never
+cached substitutes or invented content. See `config/traust.example.yaml` for the template.
+
+Collect with `traust compliance docs <registered-product-slug>`; the JSON output contains
+the fetched guide's source URL and extracted text. For a one-off source selection, use
+`traust compliance docs <registered-product-slug> --product-slug <official-slug>
+--version <version> --guide <guide>` (repeat `--guide`, or use `--all-guides`).
+Explicit selectors use the same provider and validation without changing saved config.
+
 ## 2. Prerequisites
 
 - Python 3.11+ and [`uv`](https://github.com/astral-sh/uv) (or pip with the

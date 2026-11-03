@@ -106,6 +106,25 @@ def test_a_config_rule_may_not_shadow_a_universal_one(tmp_path):
     assert "collides" in str(e.value)
 
 
+@pytest.mark.parametrize(
+    "content",
+    [
+        b"[]",
+        b"false",
+        b"\xff",
+        b"rules:\n  - {id: [], tier: block, pattern: fixture}\n",
+        b"rules:\n  - {id: fixture, tier: block, pattern: 42}\n",
+        b"rules:\n  - {id: fixture, tier: block, pattern: fixture, why: [invalid]}\n",
+    ],
+)
+def test_malformed_vocabulary_raises_contextual_load_error(tmp_path, content):
+    vocabulary = tmp_path / "vocabulary.yaml"
+    vocabulary.write_bytes(content)
+    with pytest.raises(S.VocabularyError) as error:
+        S.load_vocabulary(str(vocabulary))
+    assert str(vocabulary) in str(error.value)
+
+
 def test_all_rules_is_universal_plus_vocabulary():
     from pathlib import Path
 

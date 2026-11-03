@@ -102,6 +102,9 @@ def test_a_runs_dir_is_each_target_report_then_its_rerun(
     assert out["run"]["manifest_version"] == 3
     assert out["scorecard"]["overall"] == {"detected": 0, "expected": 0, "recall": None}
     assert json.loads(out_file.read_text()) == out
+    markdown = out_file.with_suffix(".md").read_text(encoding="utf-8")
+    assert markdown.startswith("# Detection-recall benchmark\n")
+    assert "| Expected findings | 0 |" in markdown
 
 
 def test_the_default_auditor_version_is_this_traust(wired: SimpleNamespace, tmp_path: Path) -> None:
@@ -154,3 +157,38 @@ def test_without_a_runs_dir_the_recorded_audits_are_scored(wired: SimpleNamespac
     [scorecard] = out["scorecards"]
     assert scorecard["overall"]["recall"] == 0.5
     assert scorecard["auditor_versions"] == ["h-1"]
+
+
+def test_recorded_scorecards_materialize_a_sibling_markdown_file(
+    wired: SimpleNamespace, tmp_path: Path
+) -> None:
+    out_file = tmp_path / "nested" / "benchmark.json"
+    rc, out = call("--out", str(out_file), "--auditor-version", "h-1")
+    assert rc == 0 and json.loads(out_file.read_text()) == out
+    markdown = out_file.with_suffix(".md").read_text(encoding="utf-8")
+    assert markdown.startswith("# Detection-recall benchmark — recorded scorecards\n")
+    assert "| Auditor versions | h-1 |" in markdown
+    assert "| Strict recall | 50.0% |" in markdown
+
+
+@pytest.mark.parametrize("runs_dir", [False, True])
+@pytest.mark.parametrize("json_output", [False, True])
+def test_explicit_markdown_is_reachable_in_both_scoring_modes(
+    wired: SimpleNamespace, tmp_path: Path, runs_dir: bool, json_output: bool
+) -> None:
+    markdown_file = tmp_path / "review" / "score.md"
+    out_file = tmp_path / "data" / "score.json"
+    argv = ["--markdown", str(markdown_file)]
+    if runs_dir:
+        audit(tmp_path / "runs" / "bt-a")
+        argv += ["--runs-dir", str(tmp_path / "runs")]
+    if json_output:
+        argv += ["--out", str(out_file)]
+    rc, out = call(*argv)
+    assert rc == 0
+    assert markdown_file.read_text(encoding="utf-8").startswith("# Detection-recall benchmark")
+    assert not out_file.with_suffix(".md").exists()
+    if json_output:
+        assert json.loads(out_file.read_text()) == out
+    else:
+        assert not out_file.exists()

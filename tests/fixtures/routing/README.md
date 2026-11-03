@@ -14,9 +14,10 @@ uv run --no-sync pytest -q tests/test_route_parity.py
 ```
 
 Tests need no sibling SDK checkout, Git history, network, external command, or
-production data. The primary adapter writes temporary JSONL events and a minimal
-SQLite inventory graph. Network connections and subprocesses are blocked during
-the test cases. The repository's normal `tests/conftest.py` setup still applies.
+production data. The primary adapter writes temporary JSONL events and supplies a
+typed `InputSegmentInventory` to the checked-out bootstrap helper. Network
+connections and subprocesses are blocked during the test cases. The repository's normal
+`tests/conftest.py` setup still applies.
 
 ## What is preserved
 
@@ -38,6 +39,9 @@ from `generate.py` and `generate_primary.py` in the SDK directory recorded in
 the manifest. It compiles the actual checked-out legacy functions/constants and
 the original `main()` block from `event_rows` up to `cc_urls`. It does not
 reimplement the decision table or regenerate expected answers during tests.
+The extracted modules retain the source's `__future__` imports, so annotations
+remain postponed without importing the CLI's deployment dependencies.
+
 
 The fixture keys retain their existing SDK spelling for provenance, not as a
 proposed Python API. URLs are already canonical; URL normalization is an identity

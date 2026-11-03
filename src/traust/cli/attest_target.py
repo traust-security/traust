@@ -38,6 +38,7 @@ import json
 import re
 import subprocess
 import sys
+import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -215,6 +216,10 @@ def main(argv=None) -> int:
             req = urllib.request.Request(args.url, method="GET")
             with urllib.request.urlopen(req, timeout=15) as resp:
                 checks.append(_check("url-reachable", resp.status < 500, f"HTTP {resp.status}"))
+            fp["url"] = args.url
+        except urllib.error.HTTPError as e:
+            with e:
+                checks.append(_check("url-reachable", e.code < 500, f"HTTP {e.code}"))
             fp["url"] = args.url
         except Exception as e:
             checks.append(_check("url-reachable", False, str(e)[:200]))

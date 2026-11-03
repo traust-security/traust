@@ -382,7 +382,6 @@ def test_attack_coverage_on_core_renders_on_the_pinned_catalog(
     assert answer["model"]["attack_version"] == "19.1" and answer["model"]["techniques"] == []
     layer = json.loads((out / "attack-coverage.json").read_text())["navigator_layer"]
     assert layer["versions"]["layer"] == "4.5" and "MITRE" in layer["description"]
-    assert "not yet recorded in core" in (out / "attack-coverage.md").read_text()
 
 
 def test_an_unresolvable_attack_catalog_is_exit_2(
@@ -415,3 +414,178 @@ def test_artifact_id_names_the_document_a_single_item_view_renders(
     assert publish.calls == [(ViewName.OSCAL, ViewFilter(artifact_id=assessment))]
     assert json.loads((out / "acme-compliance-assessment.json").read_text()) == document
     assert answer["model"] == document
+
+
+def test_container_view_preserves_the_full_report_stem_and_anchor(
+    publish: Door, home: Path, tmp_path: Path
+) -> None:
+    assessment_id, repository_id = uuid.uuid4(), uuid.uuid4()
+    stem = "Widget.RHEL9-container-audit"
+    publish.result = RenderedView(
+        view=ViewName.CONTAINER_FINDINGS,
+        stem=f"{stem}-findings-current",
+        model=insight.ContainerFindings(
+            repository_id=repository_id,
+            repository_url="https://github.com/example/widget",
+            report_stem=stem,
+            image_repository="registry.example:5000/apps/widget",
+            reports=(),
+            findings=(),
+            total=insight.FindingTally(),
+        ),
+        markdown="# Current container findings\n",
+        html="<title>Current container findings</title>",
+    )
+    out = tmp_path / "reports"
+    out.mkdir()
+    code_report = out / "Widget.RHEL9-findings-current.json"
+    code_report.write_text('{"code": true}')
+    rc, answer = run(
+        home,
+        "container-findings",
+        "--assessment-id",
+        str(assessment_id),
+        "--report-stem",
+        stem,
+        "--out",
+        str(out),
+    )
+    assert rc == 0
+    assert publish.calls == [
+        (
+            ViewName.CONTAINER_FINDINGS,
+            ViewFilter(assessment_id=assessment_id, report_stem=stem),
+        )
+    ]
+    assert {path.name for path in out.iterdir()} == {
+        code_report.name,
+        *(f"{stem}-findings-current.{ext}" for ext in ("json", "md", "html")),
+    }
+    assert json.loads(code_report.read_text()) == {"code": True}
+    assert json.loads((out / f"{stem}-findings-current.json").read_text()) == answer["model"]
+
+
+def test_executive_segment_options_publish_real_inventory_counts(
+    home: Path,
+    tmp_path: Path,
+) -> None:
+    from traust_core.v1.models.values import HttpsRepoUrl
+
+    from traust.context import load
+
+    inputs = tmp_path / "inputs"
+    (inputs / "services").mkdir(parents=True)
+    (inputs / "services/scope-repos.csv").write_text(
+        "URL\nhttps://github.com/example-org/service.git\n"
+    )
+    core = load(home)
+    core.services().portfolio.register_repository(
+        HttpsRepoUrl.parse("https://github.com/example-org/service", ("github.com",)), public=True
+    )
+    out = tmp_path / "executive"
+    rc, answer = run(
+        home,
+        "executive-summary",
+        "--by-segment",
+        "--inputs-root",
+        str(inputs),
+        "--panel",
+        "isolation",
+        "--panel",
+        "iac",
+        "--out",
+        str(out),
+    )
+    assert rc == 0
+    model = json.loads((out / "executive-summary-findings.json").read_text())
+    assert model["segments"]["rows"][0]["segment"] == "services"
+    assert model["segments"]["rows"][0]["repositories"] == 1
+    assert model["segments"]["rows"][0]["tally"]["open"]["high"] == 0
+    assert model["isolation"]["reviews"] == []
+    assert model["iac"]["assessments"] == 0
+    assert answer["model"] == model
+
+
+def test_executive_options_refuse_unrelated_views_before_loading_or_writing(
+    home: Path,
+    tmp_path: Path,
+) -> None:
+    out = tmp_path / "refused"
+    with pytest.raises(SystemExit) as error:
+        dashboard_view.main(
+            [
+                "--config-home",
+                str(home),
+                "findings-trend",
+                "--panel",
+                "attack",
+                "--out",
+                str(out),
+            ]
+        )
+    assert error.value.code == 2
+    assert not out.exists()
+
+
+def test_loc_comparison_and_calibration_options_reach_core(
+    publish: Door, home: Path, tmp_path: Path
+) -> None:
+    from decimal import Decimal
+
+    earlier = datetime(2026, 9, 1, tzinfo=UTC)
+    rc, answer = run(
+        home,
+        "loc",
+        "--compare-as-of",
+        earlier.isoformat(),
+        "--first-party-divisor",
+        "1.6",
+        "--out",
+        str(tmp_path / "loc"),
+    )
+    assert rc == 0, answer
+    assert publish.calls == [
+        (ViewName.LOC, ViewFilter(compare_as_of=earlier, first_party_divisor=Decimal("1.6")))
+    ]
+
+
+def test_spend_repricing_and_workstation_options_reach_core(
+    publish: Door, home: Path, tmp_path: Path
+) -> None:
+    rc, answer = run(
+        home, "spend", "--reprice", "--workstation-spend", "--out", str(tmp_path / "spend")
+    )
+    assert rc == 0, answer
+    assert publish.calls == [
+        (ViewName.SPEND, ViewFilter(reprice_spend=True, workstation_spend=True))
+    ]
+
+
+@pytest.mark.parametrize(
+    "options",
+    [
+        ("--compare-as-of", AS_OF.isoformat()),
+        ("--first-party-divisor", "1.6"),
+        ("--reprice",),
+        ("--workstation-spend",),
+    ],
+)
+def test_view_specific_options_cannot_silently_change_another_view(
+    publish: Door, home: Path, tmp_path: Path, options: tuple[str, ...]
+) -> None:
+    out = tmp_path / "wrong-view"
+    rc, _ = run(home, "scoreboard", *options, "--out", str(out))
+    assert rc == 2
+    assert publish.calls == []
+    assert not out.exists()
+
+
+@pytest.mark.parametrize("divisor", ["0", "-1", "NaN", "Infinity"])
+def test_invalid_loc_divisor_is_rejected_before_publication(
+    publish: Door, home: Path, tmp_path: Path, divisor: str
+) -> None:
+    out = tmp_path / "invalid-divisor"
+    rc, _ = run(home, "loc", "--first-party-divisor", divisor, "--out", str(out))
+    assert rc == 2
+    assert publish.calls == []
+    assert not out.exists()

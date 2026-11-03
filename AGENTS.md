@@ -51,7 +51,7 @@ Multi-skill CLIs live in `src/traust/cli/` and are invoked as `traust <group> <o
   move, never scrub, because the figures are the record of what the
   script did. `traust check estate-data` enforces both rules pre-commit.
 
-`validate_report`, `render_report`, `checkpoint`, `emit_triage_ledger_events`, `emit_validation_ledger_events`, and related tooling are package modules (many in sibling `traust-engine`). Skills invoke them via python3 -m … from the harness venv. The citation gate and symbol index are triage accelerators — they route, gate, tag, or index, and never author a verdict (see [`docs/deterministic-inferential-mix.md`](docs/deterministic-inferential-mix.md)).
+Report validation/rendering, triage decisions and machine-validation recording use grouped `traust reporting`, `traust triage` and `traust validation` doors on traust-core. The old layer emitters are retired, not executable package modules. The citation gate and symbol index are triage accelerators — they route, gate, tag, or index, and never author a verdict (see [`docs/deterministic-inferential-mix.md`](docs/deterministic-inferential-mix.md)).
 
 Legacy placement (pre-C8):
 - Used by exactly one skill: place under `harnessing/<skill>/`
