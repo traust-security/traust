@@ -39,6 +39,7 @@ from traust.cli._doors import run
 from traust.cli.groups._registry import OpSpec, passthrough_op
 from traust.context import (
     analysis_results_dir,
+    benchmark_repo_root,
     load,
     progress_tracker_dir,
     rule_drafts_dir,
@@ -202,9 +203,8 @@ def call_emit(args) -> int:
         )
         res = core.services().detection_quality.emit_sweep(args.rule, force=args.force)
         out = root / res.rule_id / "sweep-candidates.json"
-        if res.skipped or res.candidates is None or res.summary is None:
-            print(f"emit: candidates exist, skipping ({res.out}) — use --force to re-emit")
-            return 0
+        if res.candidates is None or res.summary is None:
+            raise ValidationError(f"sweep export has no candidates or summary: {res.out}")
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(res.candidates.model_dump_json(indent=2) + "\n", encoding="utf-8")
         (out.parent / "sweep-summary.md").write_text(res.summary, encoding="utf-8")
@@ -232,7 +232,12 @@ def add_benchmark_args(ap) -> None:
     sub.add_parser("plan", help="emit benchmark worklist and deploy commands")
     p = sub.add_parser("check-trigger", help="exit 10 if validation-lane paths changed since ref")
     p.add_argument("--since", required=True, help="git ref of the last benchmarked release")
-    p.add_argument("--repo-root", type=Path, default=None, help="the mono checkout to diff")
+    p.add_argument(
+        "--repo-root",
+        type=Path,
+        default=None,
+        help="git repo to diff (default: BENCHMARK_REPO_ROOT or locations.workspace/traust)",
+    )
     p = sub.add_parser("score", help="score one lane run against expectations")
     p.add_argument("--report", required=True)
     p.add_argument("--variant", required=True, choices=[v.value for v in BenchmarkVariant])
@@ -249,8 +254,7 @@ def call_benchmark(args) -> int:
     core = load(args.config_home)
     quality = core.services().detection_quality
     if args.benchmark_cmd == "check-trigger":
-        if args.repo_root is None:
-            raise SystemExit("--repo-root required")
+        args.repo_root = args.repo_root or _required(lambda: benchmark_repo_root(core))
         return _door(lambda: _check_trigger(quality, args))
     if args.benchmark_cmd == "scorecard":
         return _door(lambda: _scorecard(quality))
@@ -532,6 +536,20 @@ MINE = OpSpec(
 
 BENCHMARK_TARGETS = passthrough_op(
     "recall", "Record the recall benchmark's answer key (benchmark-targets).", "targets"
+)
+BOOTSTRAP_BENCHMARK = passthrough_op(
+    "recall", "Harvest confirmed fixes as unadmitted benchmark target candidates.", "bootstrap"
+)
+COMPLIANCE_PRECISION = passthrough_op(
+    "compliance_precision",
+    "Report compliance field precision and demotion-review candidates.",
+    "main",
+)
+CRITICAL_MISSES = passthrough_op(
+    "critical_misses", "Report critical pre-intake campaign candidates and recorded misses.", "main"
+)
+CVE_REPLAY = passthrough_op(
+    "cve_replay", "Discover advisory replay candidates against audited commits.", "main"
 )
 BUILD_CANARIES = passthrough_op(
     "recall", "Materialise canaries (or --seeded fixtures) as answer-key targets.", "canaries"

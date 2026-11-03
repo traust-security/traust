@@ -75,6 +75,7 @@ def doors(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
     repos = {REPO: _repo(REPO_ID, REPO), OTHER: _repo(OTHER_ID, OTHER)}
     stub = SimpleNamespace(
         sweep=Door(SWEEP),
+        sweep_markdown=Door("# Remediation verification worklist\n"),
         prepare=Door(SimpleNamespace(model_dump_json=lambda indent: '{"work_item": "w"}')),
         differential=Door(EVIDENCE),
         differential_of=Door(EVIDENCE),
@@ -91,6 +92,7 @@ def doors(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
     services = SimpleNamespace(
         verification=SimpleNamespace(
             sweep=stub.sweep,
+            sweep_markdown=stub.sweep_markdown,
             prepare=stub.prepare,
             differential=stub.differential,
             differential_of=stub.differential_of,
@@ -129,7 +131,7 @@ def run(door: Any, home: Path, *argv: str) -> tuple[int, Any]:
 def test_sweep_defaults_to_every_registered_repository(doors: SimpleNamespace, home: Path) -> None:
     rc, out = run(remediation.verify_sweep, home)
     assert rc == 0
-    assert doors.sweep.calls == [([REPO_ID, OTHER_ID],)]
+    assert doors.sweep.calls == [([REPO_ID, OTHER_ID], False)]
     [(filter, _)] = doors.list_repositories.calls
     assert filter == RepositoryFilter()
     assert [(e["tier"], e["repository"]) for e in out["queued"]] == [("T2", REPO)]
@@ -141,7 +143,7 @@ def test_sweep_scopes_to_named_repositories_and_products(
 ) -> None:
     rc, _ = run(remediation.verify_sweep, home, "--repo-url", REPO, "--product", "example-product")
     assert rc == 0
-    assert doors.sweep.calls == [([REPO_ID, OTHER_ID],)]
+    assert doors.sweep.calls == [([REPO_ID, OTHER_ID], False)]
     assert doors.find_product.calls == [(ProductSlug("example-product"),)]
     assert doors.list_repositories.calls == []
 

@@ -165,13 +165,6 @@ def test_llm_app_is_one_call(facts, capsys, tmp_path):
     assert doc["files"][0]["path"] == "server/tools.py"
 
 
-def test_config_matrix_keeps_the_class_field_name(facts, capsys, tmp_path):
-    assert code_facts.config_matrix([str(tmp_path)]) == 0
-    assert facts.calls == [("enumerate", CodeFactKind.CONFIG, tmp_path)]
-    [triple] = _json(capsys)["triples"]
-    assert (triple["class"], triple["literal_redacted"]) == ("secret", True)
-
-
 def test_sanitizers_lists_candidates(facts, capsys, tmp_path):
     assert code_facts.sanitizers([str(tmp_path)]) == 0
     assert facts.calls == [("enumerate", CodeFactKind.SANITIZER, tmp_path)]
@@ -230,3 +223,34 @@ def test_priv_profile_needs_a_name(facts, tmp_path):
 
 def test_priv_profile_is_registered_under_adapters():
     assert "priv-profile" in GROUPS["adapters"]
+
+
+def test_config_matrix_cli_caps_real_defaults_without_leaking_credentials(
+    capsys: pytest.CaptureFixture[str], tmp_path
+) -> None:
+    checkout = tmp_path / "checkout"
+    checkout.mkdir()
+    (checkout / "app.py").write_text(
+        "import os\n"
+        'password = os.getenv("DB_PASSWORD", "audit-fixture-value")\n'
+        'verify = os.getenv("TLS_VERIFY", "false")\n'
+        'region = os.getenv("REGION", "west")\n',
+        encoding="utf-8",
+    )
+    home = tmp_path / "config"
+    home.mkdir()
+    (home / "traust.yaml").write_text(f"home: {tmp_path / 'store'}\n", encoding="utf-8")
+    assert (
+        code_facts.config_matrix(["--config-home", str(home), str(checkout), "--max-triples", "2"])
+        == 0
+    )
+    document = _json(capsys)
+    assert {t["key"] for t in document["triples"]} == {"DB_PASSWORD", "TLS_VERIFY"}
+    assert document["stats"] == {
+        "total": 2,
+        "judgement_required": 2,
+        "weak_defaults": 2,
+        "by_class": {"secret": 1, "tls": 1},
+    }
+    assert document["coverage_gaps"][0]["count"] == 1
+    assert "audit-fixture-value" not in json.dumps(document)

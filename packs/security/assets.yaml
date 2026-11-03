@@ -113,6 +113,33 @@ assets:
     admission: {approval: operators}
     runner: {labels: [llm]}
 
+  release_discovery:
+    run: [python3, -m, traust.cli, portfolio, release-discover, --run-id, "{run_id}"]
+    trigger: {every: 24h}
+    priority: 18
+    freshness: {fail: 72h}
+    runner: {labels: [deterministic]}
+
+  release_passthrough:
+    run: [python3, -m, traust.cli, portfolio, release-passthrough, --run-id, "{run_id}"]
+    trigger: {lanes: [release-passthrough]}
+    deps: [release_discovery]
+    runner: {labels: [deterministic]}
+
+  release_container_audit:
+    model: {role: deep-audit}
+    run: [python3, -m, traust.cli, portfolio, release-audit, --kind, container, --role, "{role}", --run-id, "{run_id}"]
+    admission: {approval: operators}
+    deps: [release_discovery]
+    runner: {labels: [llm]}
+
+  release_rpm_audit:
+    model: {role: deep-audit}
+    run: [python3, -m, traust.cli, portfolio, release-audit, --kind, rpm, --role, "{role}", --run-id, "{run_id}"]
+    admission: {approval: operators}
+    deps: [release_discovery]
+    runner: {labels: [llm]}
+
   # A skill session is `model: {role}` plus a `run` that starts it (`traust session run`);
   # `traust-engine claim` fills `{role}`. PENDING(roles): each role is the registry role closest
   # to the session's work, until the pack owner confirms.

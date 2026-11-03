@@ -72,7 +72,8 @@ severity writer rebuilds or a second write target.
 | Artifact | Schema | Produced by | Consumed by |
 |---|---|---|---|
 | `<target>-cloud-config-audit.json` (+ its own findings-current) | `cloud-config-audit.schema.json`, `cloud-config-findings-current.schema.json` | `/cloud-config-audit` | `/track-findings`, `/verify-remediation`, SARIF export, dashboards |
-| `<cve>-impact-analysis.json` | `impact-analysis.schema.json` | `/impact-analysis` via core exposure/assessment services | `/triage`, `/verify-remediation --impact-filter`, `/patch` and dependency-exposure consumers; `affected` commits enter core dependency finding intake, never `route_impact_findings` or a `findings.db` write |
+| Native impact document (one commit/package/version) | `impact-analysis.schema.json` | `/impact-analysis` via Core exposure/assessment services | Core exposure reads and dependency finding intake for `affected` rows; never `route_impact_findings` or a `findings.db` write |
+| `<advisory-id>-impact-analysis.json` | Core `ImpactExport` view; each `.repos[].document` retains a complete native `impact-analysis` document | `traust impact export <advisory-id> --out <path>` after `/impact-analysis` | `/triage`, `/patch`, dependency-exposure review and `traust remediation verify-sweep --impact-filter <path>`; every classification/evidence retained, verification scopes to affected/likely rows |
 | `<slug>-pqc-facts.json`, `-pqc-readiness.json`, `-pqc-blockers.json` | `pqc-facts`, `pqc-readiness`, `pqc-blockers` schemas | `/pqc-readiness` | its own Layer-2 scoring, `/patch` (first-party blockers), the PQC rollup and dashboards |
 | `<service>-isolation-review.{json,md}` | `isolation-review.schema.json` | `/isolation-review` | `/threat-model` tenant-boundary rows (`isolation_review_ref`), portfolio rollups |
 | `compliance-assessment.{json,md}` | `compliance-assessment.schema.json` | `/compliance-check` | the compliance dashboard |

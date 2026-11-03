@@ -34,8 +34,15 @@ def intake(argv: list[str] | None = None) -> int:
     ap.add_argument("--repo-url", required=True, help="https URL of the scanned repository")
     ap.add_argument("--sha", required=True, help="the scanned commit")
     ap.add_argument("--public", action="store_true", help="the repository is public")
+    ap.add_argument(
+        "--include-suppressed",
+        action="store_true",
+        help="Include suppressed SARIF results as unjudged review candidates (SARIF only).",
+    )
     add_branch_arg(ap)
     args = ap.parse_args(argv)
+    if args.include_suppressed and args.format != CandidateFormat.SARIF.value:
+        ap.error("--include-suppressed requires --format sarif")
 
     def call() -> dict:
         core = load(args.config_home)
@@ -49,6 +56,7 @@ def intake(argv: list[str] | None = None) -> int:
             args.scan.read_bytes(),
             CandidateFormat(args.format),
             Provenance(run_id=uuid.uuid4(), source=SourceType.VULN_SCAN_REPORT, occurred_at=when),
+            include_suppressed=args.include_suppressed,
         )
         found, new = len(taken.findings), len(taken.created)
         return {"assessment_id": assessment.id, "findings": found, "new": new}

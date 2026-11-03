@@ -59,7 +59,6 @@ allowed-tools:
   - Bash(python3 *-m traust.cli.check_citations:*)
   - Bash(python3 *-m traust.cli corpus finding-identity:*)
   - Bash(python3 *-m traust.cli impact enrich:*)
-  - Bash(python3 *-m traust.cli.emit_triage_ledger_events:*)
   - Bash(python3 *-m traust.cli sweep mine:*)
   - Bash(python3 *-m traust.cli corpus:*)
 ---

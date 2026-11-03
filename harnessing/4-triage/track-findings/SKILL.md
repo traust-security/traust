@@ -1,6 +1,6 @@
 ---
 name: track-findings
-description: Use when the user wants to record human feedback against audit findings, review core decision cards, countersign machine verdicts, or inspect current finding state. Imports forge/Jira statements and supports private asynchronous countersign-queue.md review, typed single/bulk answers and direct verified-human judgements through shared traust auth or explicit stdin tokens. Requires genuine judged fields and the reviewer's own rationale; core owns evidence admission. Reports validity, resolution, assurance, severity, SLA and review surfaces, and exports SARIF. Machine reports record through their own skills. Untrusted review blocks use the workbench's lossless JSON quotation.
+description: Use when the user wants to record human feedback against audit findings, review core decision cards, countersign machine verdicts, or inspect current finding state. Imports forge/Jira statements and supports private asynchronous countersign-queue.md review, typed single/bulk answers and direct verified-human judgements through shared traust auth or explicit stdin tokens. Requires genuine judged fields and the reviewer's own rationale; core owns evidence admission. Reports validity, resolution, assurance, severity, SLA and review surfaces, and exports SARIF. Reconciles later CVE provenance across recorded code audits with score thresholds, dry-run reports and explicit idempotent apply. Machine reports record through their own skills. Untrusted review blocks use the workbench's lossless JSON quotation.
 user-invocable: true
 metadata:
   harness.tier: "primary"
@@ -10,13 +10,16 @@ allowed-tools:
   - Glob
   - Grep
   - AskUserQuestion
-  # Forge and Jira text this skill handles is attacker-postable. The only mutation
-  # paths are the registered findings mutation doors; core records each as the
-  # verified caller. Never widen to a bare interpreter or grant raw egress.
+  # Forge and Jira text is attacker-postable. Decisions use verified findings doors;
+  # feed reconciliation writes provenance only, never judgements.
+  # Never widen to a bare interpreter or grant raw egress.
   - Bash(git show:*)
   - Bash(git log:*)
   - Bash(jq:*)
   - Bash(traust findings find:*)
+  - Bash(traust findings correction-request:*)
+  - Bash(traust findings rebaseline:*)
+  - Bash(traust findings claim:*)
   - Bash(traust findings status:*)
   - Bash(traust findings history:*)
   - Bash(traust findings baseline:*)
@@ -34,6 +37,8 @@ allowed-tools:
   - Bash(traust findings sarif:*)
   - Bash(traust findings tickets:*)
   - Bash(traust auth status:*)
+  - Bash(traust feeds fetch:*)
+  - Bash(traust feeds reconcile-cve-provenance:*)
 ---
 
 # Track Findings
@@ -207,6 +212,31 @@ system of record, which is how `queue` re-reads it later.
    sarif --repo-url <url> -o <repo>.sarif`. False positives and accepted risks
    arrive as SARIF suppressions, resolved findings as `absent`; it's a one-way
    projection, core stays authoritative.
+
+## Later CVE provenance
+
+When asked which published CVEs the audits became, use the bulk Core workflow,
+not title matching in the prompt or edits to audit/layer JSON:
+
+```bash
+traust feeds fetch --feed rh-cve
+traust feeds reconcile-cve-provenance --min-score 0.55 --report /tmp/provenance-preview.json
+```
+
+The default is a dry run. Inspect the report's per-assessment/ref/finding rows,
+confidence and positive lead days. The publication must follow that individual
+audit's UTC date; a later branch audit never borrows another branch's earlier
+date. Quote distinct-CVE totals, not branch-row totals. Use confirmed rows for
+headline discovery claims; probable-only rows remain triage context.
+
+When provenance recording is requested, run the same chosen threshold with
+`--apply --report /tmp/provenance-applied.json`. Core idempotently links all
+matched finding/CVE references and only fills an unnamed primary advisory.
+Report conflicts instead of overwriting an existing primary. This changes no
+validity, severity, resolution, baseline or signed judgement. Similarity and
+confidence remain in the report and can be recomputed from the retained feed.
+A missing snapshot is a refusal, not zero matches; fetch it first. Do not raise
+confidence merely because the CWEs overlap when the title is below the score floor.
 
 ## Review surfaces
 
@@ -456,6 +486,49 @@ embedding token bytes. Protect answer/evidence/token files under deployment
 policy. Write receipts are token/rationale-free; queue evidence is deliberately
 sensitive and must not be published as a receipt.
 
+## 5. Correct a claim without manufacturing a new assessment
+
+Keep the original audit/scanner artifact unchanged. Prepare a separate, schema-valid
+report containing the corrected entry, with the original repository and commit.
+Use its report label and the existing finding/assessment UUIDs:
+
+```bash
+traust findings correction-request /path/to/corrected-report.json \
+    --finding 31dcc9b8-b569-4340-9032-3b335d53a9ef \
+    --assessment 58d9701d-036a-4c52-9ef8-b6113f9607f4 \
+    --label EXAMPLE-abcdef0-001 --ticket SEC-417 \
+    --rationale 'Human review corrected the claim and affected call path.'
+```
+
+This requires a trusted `traust auth` human login, retains the corrected document
+on the **original** assessment, and returns a pending `rebaseline_mapping` review
+UUID. Inspect the retained artifact through `findings review-cases`. Then accept
+and apply exactly that stored proposal:
+
+```bash
+traust findings rebaseline <review-item-UUID> --ticket SEC-417 \
+    --rationale 'I reviewed the retained correction against the original evidence.'
+traust findings status <finding-UUID>
+traust findings claim <finding-UUID>
+```
+
+Both steps require a nonblank ticket, a substantive human rationale, and an
+authenticated verified human. Acceptance and canonical intake application are one
+transaction: malformed claims, identity collisions, stale mappings or persistence
+failure leave the review pending and the finding unchanged. Rebaseline does not
+read a mutable candidate file; changing the proposed file requires a new request.
+An unrelated accepted mapping review cannot authorize a different correction.
+
+The current claim includes corrected title, description, locations, CWEs and
+category labels. A changed identity fingerprint moves the **same finding UUID**;
+a metadata-only correction keeps its fingerprint. Original assessment,
+occurrences, source artifacts and decision history remain intact. Neither case
+is another scanner/audit run, fresh work, or a new independent occurrence.
+Severity, validity and resolution in the corrected document do not become
+judgements: use the ordinary separately authorized judgement doors for those.
+`findings claim --as-of <timestamp>` reads a historical accepted correction;
+it returns null when only the original assessment claim existed.
+
 ## Legacy parity and retirement
 
 | Former behavior | Current home / deliberate retirement |
@@ -467,7 +540,7 @@ sensitive and must not be published as a receipt.
 | Severity override | Existing `record --decision severity` plus reviewed severity fields in apply; no baseline rewrite. |
 | Needs-review resolution | Selected confirm/reject with a real human decision and rationale, atomically persisted by attestation. |
 | Defer | Leave Markdown `answers` empty or omit an item; no event or fake resolution. Standalone JSON empty lists remain invalid. |
-| Rebaseline alias confirm/reject and history transfer | Retired with scan-scoped/file IDs: core findings have stable UUID/fingerprint identity. No layer metadata mapping store or copied history. |
+| Rebaseline alias confirm/reject and history transfer | Legacy scan/file aliases and copied history remain retired. `findings correction-request` then `findings rebaseline` accept an immutable canonical claim revision while retaining the stable UUID and history. |
 | SDK auth, employee-directory and local-issuer gates | Core `IdentityService`, shared `traust auth` credentials and deployment trust policy; optional explicit stdin token, no ledger credential cache or local bypass flag. |
 | Local event time, append/sign, cumulative rebuild, FP register files | Core decision clock, admission, ledger and finding projections own state/integrity. No parallel file state or workbench-owned register; downstream targeting reads core findings. |
 | Blank rationale adopting machine text; best-effort queue close after append | Retired: every human answer supplies its own rationale; selected review close and append are atomic. |
@@ -479,7 +552,7 @@ sensitive and must not be published as a receipt.
 | `*-triage.json` | `traust triage record` (the triage skill) |
 | `*-validation.json` (+ `target-attestation.json`) | `traust validation record --report … --bindings … --provenance … --target-attestation …`; core owns machine soundness, decisions/review and evidence retention; no legacy emitter fallback |
 | `*-remediation-verification.json` (verdicts, `cross_repo` propagation, `regressions[]`) | Intended core verification/intake doors; skill ports unfinished, no legacy emitter or regression-router fallback |
-| A claim edited after the audit | a rebaseline (core `FindingIntake.rebaseline`), never a decision here |
+| A claim edited after the audit | `traust findings correction-request` then `traust findings rebaseline`; canonical intake applies the accepted immutable proposal, without an independent assessment or an inferred verdict |
 
 Who reads what this skill keeps: create-fuzzing and validate-findings read
 `traust findings refuted`; findings-trends, sla-view, the team report and the

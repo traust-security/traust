@@ -24,11 +24,12 @@ Roll up every recorded finding (traust-core's `ExecutiveSummaryView`) into a lea
 | *(none)* | Standard run — every repository in the inventory, write the outputs. |
 | `open` | Open the resulting HTML dashboard in the default browser when done. |
 | `summary` | After building, print the severity table and top-5 themes/criticals to the conversation. |
-| `by-segment` | *Retired:* scope is product or team (`--product`, `--team-id`). Was: add a per-input-segment breakdown (one row per inventory segment), mapping each repo against the inputs inventory (`locations.inputs`). The `ansible` input is excluded by default (`--exclude-segment` to change). Pass `--by-segment` to the script. |
+| `by-segment` | Add the arbitrary input-inventory segment severity matrix (`--by-segment`). First match wins in inventory declaration order; overlap, unmapped and excluded-only repositories are accounted for explicitly. `ansible` is excluded by default; repeat `--exclude-segment` to supply another exclusion list. |
 | `include-triage` | *Retired:* the decision fold is the one counting source; unconfirmed triage verdicts are never counted. Was: for repos without a `findings-current` disposition ledger, count from unconfirmed `/triage` verdicts (true positives only) instead of the raw audit. **OFF by default** — early /triage runs over-marked false positives (unreachable repos, hardening misfiled as FP), so counting TP-only silently trusts those bad FP exclusions. When enabled, every affected figure is labeled "unconfirmed triage" in both outputs (KPI card + warning note with FP-excluded and undetermined counts). Pass `--include-triage` to the script. |
 | `exclude-branch-variants` | *Retired:* repositories are unique inventory rows. Was: skip `__`-slugged release-branch re-audits when the same product tree also carries the base-slug audit (the within-product duplicate case, e.g. `rhacm/search-v2-api` holding main + release-5.1 audits). Branch-only audits — per-release payload products like `openshift-4.14-payload`, where the branch audit is the only audit — always count: release branches are tracked per-branch by design. The excluded-report count is stated in both outputs. Pass `--exclude-branch-variants` to the script. |
 | `<product slug>` | Only that product's repositories (`--product`, repeatable; `--team-id <uuid>` for a team). |
-| `as-of <ISO time>` | The summary as it stood then (`--as-of`, with a zone). |
+| `as-of <ISO time>` | Recompute recorded facts at that time with today's methodology (`--as-of`, with a zone); use archived snapshots for the as-reported summary. |
+| `panel <name>` | Compose a retained domain panel with `--panel attack`, `--panel pqc`, `--panel isolation` or `--panel iac` (repeatable); results stay inside the executive Markdown, HTML and JSON. |
 
 ---
 
@@ -41,12 +42,15 @@ Roll up every recorded finding (traust-core's `ExecutiveSummaryView`) into a lea
 ### Step 2 — Run the command
 
 ```bash
-python3 -m traust.cli dashboard view executive-summary \
+python3 -m traust.cli dashboard capture executive-summary \
     [--product <slug>]... [--team-id <uuid>]... [--as-of <ISO time>] \
+    [--by-segment] [--inputs-root <inventory>] [--exclude-segment <name>]... \
+    [--panel attack] [--panel pqc] [--panel isolation] [--panel iac] \
+    --note "<counting methodology or change explanation>" \
     --out <progress-tracker>/metrics/dashboards
 ```
 
-What it does (traust-core's `ExecutiveSummaryView`, one `InsightService.publish`):
+What it does (traust-core's `ExecutiveSummaryView`, archived by `InsightService.capture`):
 
 1. *Retired:* file discovery, MD/JSON parsing and the `findings-current` precedence; each finding's state comes from the decision fold (human-confirmed false positives, resolved, risk-accepted and hardening are counted apart from open). The view renders the "Remediation Status" closure rate and the remediated count by severity; *retired:* the per-month remediation chart (the trend is `traust dashboard view findings-trend`). Was: walks `<results-root>/findings/` and `<results-root>/oss-findings/` for every `*security-audit.json` (preferred) or `*security-audit.md` (fallback when no JSON sibling exists). The `_manifest/` directory is skipped. When a sibling `*-findings-current.json` (cumulative report from the `track-findings` skill) exists, it is used **instead of** the audit by default: human-confirmed false positives are excluded from every figure, severity counts are recomputed from the surviving findings, and per-finding resolution status feeds a "Remediation Status" section (Markdown) / KPIs + cards (HTML): closure rate across dispositioned repos, a "Findings remediated" count broken down by severity, and a per-month remediation trend (stacked resolved / partially-resolved bar chart, bucketed by each finding's last disposition event date).
 2. Resolves each repository's primary language from the lines the code-facts scan measured (`CodeFactsService.language_stats`); an unmeasured repository is `unknown`.
@@ -75,7 +79,11 @@ What it does (traust-core's `ExecutiveSummaryView`, one `InsightService.publish`
      findings-trends) and files via `/file-security-defect --hardening`
    - Common risk themes — CWE → bucket clustering (Injection, Path Traversal, Secrets, Crypto, AuthN/Z, SSRF, TLS, RBAC, Supply-Chain, XSS, DoS, …)
    - Per-language severity matrix and repo counts
-   - *Retired* (scope is product or team): with `--by-segment`, a per-input-segment severity matrix. Every `*-repos.csv` under every segment of the inputs inventory (`locations.inputs`; the `ansible` input and any `--exclude-segment` skipped; `owners*.csv` ignored) is read into a canonical-URL → segment map; each report's `metadata.repository` resolves to its first matching segment in priority order — the declaration order of `<inputs>/inventory.yaml`, undeclared segments after by name (totals stay additive; the multi-segment overlap count is reported), and repos absent from the inventories — including all of `oss-findings/` — land in `unmapped`. Renders as a Markdown table and an HTML stacked-bar card + table. `--inputs-root` defaults to `locations.inputs`.
+   - With `--by-segment`, read every `*-repos.csv` below each inventory segment, ignoring `owners*.csv`. Declaration order in `<inputs>/inventory.yaml` wins; undeclared segments follow alphabetically. The matrix counts each repository once, reports multi-segment overlaps and unmapped repositories, and separately identifies repositories found only in excluded segments. Exclusions affect the matrix, not overall headline totals. `--inputs-root` overrides `locations.inputs`.
+   - Top measured RBAC-surplus profiles, with the number scored; profiles without a tier-2 measurement remain unknown.
+   - Per-advisory accountability joins canonical advisory identities (including aliases), impact counts when recorded, and scoped findings' filed/resolved clocks at the cutoff. Missing impact analysis is `null`, not zero affected.
+   - Optional ATT&CK and PQC panels compose the retained domain models and reports. PQC retains its current-state/product-only boundary and refuses historical or team requests rather than silently mixing times or populations.
+   - Optional isolation includes the latest completed default-line reviews, interface/gap counts, dimension results and the five weakest stated posture categories, plus modeled tenant boundaries. Optional declared IaC includes latest default-line target audits, suppressed/unsuppressed/needs-review counts, severity and ledger coverage; neither panel is evidence of live-cluster posture.
 4. Stamps the traust-core version in the population block.
 5. Writes `executive-summary-findings.{md,html,json}` in `--out`:
    - `.md` — leadership one-pager
@@ -84,10 +92,49 @@ What it does (traust-core's `ExecutiveSummaryView`, one `InsightService.publish`
 
 ### Step 2a — Trends
 
-*Retired:* no metrics-ledger snapshot or "Trend vs" line; nothing is
-stored. An earlier state is the same view with `--as-of`. *Retired:* the leadership
-time-series view `progress-tracker/metrics/Executive-Trends.{md,html}`, with the metrics
-history.
+The capture returns an artifact UUID and preserves the exact JSON/Markdown/no-script HTML
+report, Core version, scope and methodology note. Compare it with the previous report using
+`traust dashboard compare <artifact-uuid> --against previous --out <dir>`; report the
+changed headline counts alongside the brief. A first report has no prior comparison.
+
+`traust dashboard history executive-summary [--product <slug>] --out <dir>`
+lists and renders saved values. `dashboard read-report <artifact-uuid> --out <dir>`
+exports the original bytes. For a methodology/late-ingestion check use
+`dashboard compare <artifact-uuid> --against recomputed`; `--against current`
+instead compares with today's data cut. Neither replay rewrites the archived report.
+`dashboard view executive-summary` is a non-recording preview; an earlier `--as-of`
+is a current-methodology reconstruction, not proof of what leadership saw then.
+
+### Step 2b — Explain missing language measurements
+
+When the executive view contains unknown-language repositories, use
+`/loc-dashboard` with the same product/team filters and `as-of` cutoff:
+
+```bash
+python3 -m traust.cli dashboard view loc \
+    [--product <slug>]... [--team-id <uuid>]... [--as-of <ISO time>] \
+    --out <loc-output-dir>
+```
+
+Read `lines-of-code.json` from that output directory. Match the executive
+repositories by `repository_id` and carry their `unmeasured` reasons into
+the report-back caveats (for example, no observed default head or no
+qualifying scan). A missing measurement stays unknown, never zero lines
+or evidence of an unsupported language. This is a diagnostic handoff only:
+the executive view still computes its language matrix from recorded code
+facts, not by parsing a dashboard export. After a missing scan is recorded,
+regenerate the views rather than editing their generated rows.
+
+The matching identities are in the executive JSON's
+`rollup.repositories[]` and the LoC JSON's `repositories[]`. A recorded
+empty language list with no `unmeasured` reason is a genuine measured
+zero, not a missing scan; retain that distinction in the caveat.
+
+For interactive drill-down, ask `/loc-dashboard explore` for
+`loc-explorer.html`, open that trusted local page and import the same
+`lines-of-code.json`. Use its "Not measured" size bucket to inspect
+measurement gaps. Local filters never change the executive view's scope
+or headline counts.
 
 ### Step 3 — Report back
 
@@ -108,7 +155,9 @@ If `summary` was requested, also print the full severity table and the top-10 Cr
 | `executive-summary-findings.md` | Markdown one-pager: severity table, top Critical/High, credential leaks, risk themes, per-language matrix. Suitable for pasting into a doc or Slack. |
 | `executive-summary-findings.html` | Self-contained dashboard with summary and tables. Suitable for sharing with leadership or attaching to a coordination meeting. |
 
-Both files are written to `--out`, normally `progress-tracker/metrics/dashboards/` (dashboards live with the metrics, separate from findings data), and are overwritten on every run — the headline series is the view at an earlier `--as-of`. The view renders the standard population block.
+The current output filenames in `--out` are overwritten on each run, while immutable
+artifact bundles preserve each published report separately. History renders the saved
+headline series, and the view renders the standard population block.
 
 ---
 
@@ -118,7 +167,7 @@ Both files are written to `--out`, normally `progress-tracker/metrics/dashboards
 - **JSON preferred, MD fallback.** *Retired:* no report files are parsed.
 - **Triage verdicts are never a counting source.** Each finding's state is the decision fold (live-validation, verify-remediation, countersigned decisions); `--include-triage` is retired.
 - **Dedup.** Each finding is one record (its identity is the fingerprint), so the tables count it once; raw occurrence counts are retired.
-- **Idempotent.** Safe to wire into `finalize_batch.sh` or a `/loop` after each audit batch lands.
+- **Preview versus publication.** `dashboard view` previews; `dashboard capture` appends a reported snapshot with a methodology note. Archive publication is deliberate, not a background refresh side effect.
 - **Tuning.** The constants live in traust-core's `ExecutiveSummaryView`:
   - the credential CWE set and title pattern — what counts as a secret leak
   - the CWE → risk-theme map
@@ -155,3 +204,11 @@ in-process.)
 Upstream inputs are traust-core's recorded findings, code facts,
 privilege profiles and impact analyses; regenerate after any batch that
 moves those.
+
+**Consumes:** `lines-of-code.json` from `/loc-dashboard` for the same-scope
+missing-language diagnostic in step 2b. Its repository IDs and measurement
+gaps explain the report-back caveats; neither the JSON nor its companion
+prose is used to author or overwrite executive headline counts.
+For interactive investigation it can also use `/loc-dashboard`'s
+`loc-explorer.html` with that JSON; the page is not a new measurement or
+a source of persisted findings.

@@ -1,6 +1,6 @@
 ---
 name: attack-coverage
-description: Use when the user asks for MITRE ATT&CK coverage of the portfolio — "which ATT&CK techniques/tactics do our threats or validated chains cover", "build the ATT&CK Navigator layer", "ATT&CK heat map", or after updating threat models/validations to refresh the coverage roll-up. Deterministically joins threat-model attack_refs and finding-category-derived candidates (validated attack chains once traust-core records them) against the pinned vendored ATT&CK table and emits a Navigator layer JSON plus a tactic/technique coverage one-pager.
+description: Use when the user asks for MITRE ATT&CK coverage of the portfolio — "which ATT&CK techniques/tactics do our threats or validated chains cover", "build the ATT&CK Navigator layer", "ATT&CK heat map", or after updating threat models/validations to refresh the coverage roll-up. Deterministically joins observed and attempted bound validation chains, threat-model attack_refs and finding-category-derived candidates against the pinned ATT&CK table; emits Navigator JSON and a tactic/technique coverage report.
 user-invocable: true
 metadata:
   harness.tier: "secondary"
@@ -18,13 +18,20 @@ Fleet-wide MITRE ATT&CK coverage from artifacts the pipeline already
 produces. **Fully deterministic** — every number is a table lookup or a
 count; no agent authors, adds, or reinterprets a technique reference.
 
-## The three evidence classes (never blended)
+## Evidence classes (never blended)
 
 | Class | Source | Meaning |
 |---|---|---|
-| **observed** (score 3) | confirmed validation chains' `mitre_attack_refs`: not yet recorded in traust-core (NEED: ValidationService), so the view reports this class as not recorded | adversary behavior demonstrated against a live target |
+| **observed** (score 3) | `ValidationService.reports`: bound reports' confirmed chains with a sound confirmed step and valid target attestation | adversary behavior demonstrated against a live target |
+| **attempted** (score 0 when no stronger evidence exists) | executed chains not meeting observed requirements | an attempt, never evidence of exploitation |
 | **modeled** (score 2) | each repository's latest recorded threat model: its threats' ATT&CK techniques (`AssessmentService.threats`) | behavior an owner/bootstrap pass named as a threat |
 | **derived** (score 1) | recorded findings' categories (`FindingService.summary`) → [`tables/attack-mapping.json`](tables/attack-mapping.json) `category_map` | candidate techniques implied by a weakness class — potential, not behavior |
+
+Each technique counts once per chain, even when a chain repeats its reference.
+Reports shared across source bindings count once per recording run. `--as-of`
+uses recorded assessment time; chain-only runs remain visible. Target-invalid or
+unattested runs cannot become observed. Every reference is checked against the
+pinned live technique catalog; invalid IDs are counted in the dropped report.
 
 ## Shared assets (used by other skills)
 
@@ -52,7 +59,7 @@ Outputs to `progress-tracker/metrics/dashboards/attack-coverage/`:
 
 | File | Contents |
 |---|---|
-| `attack-coverage.json` `navigator_layer` | ATT&CK Navigator layer (format 4.5) — load at <https://mitre-attack.github.io/attack-navigator/>; score 1/2/3 = derived/modeled/observed |
+| `attack-coverage.json` `navigator_layer` | ATT&CK Navigator layer (format 4.5) — load at <https://mitre-attack.github.io/attack-navigator/>; score 0/1/2/3 = attempted-only/derived/modeled/observed |
 | `attack-coverage.md` (and `.html`) | per-tactic and per-technique coverage tables, population block, dropped-reference report |
 
 *(Retired: the metrics append to the shared ledger; trends come from `--as-of`.)*

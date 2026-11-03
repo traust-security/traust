@@ -43,6 +43,7 @@ allowed-tools:
   - Bash(python3 *traust* -m traust.cli triage prepare:*)
   - Bash(python3 *traust* -m traust.cli triage record:*)
   - Bash(python3 *traust* -m traust.cli triage render:*)
+  - Bash(python3 *traust* -m traust.cli impact export:*)
 ---
 
 # triage
@@ -327,11 +328,16 @@ Continue with 1b, skipping all (A)/(B)/(C) detection below.
 
   ```bash
   python3 -m traust.cli triage intake <file> --format sarif|dependabot|govulncheck \
-      --repo-url <https URL> --sha <scanned commit> [--public] [--branch <scanned branch>]
+      --repo-url <https URL> --sha <scanned commit> [--public] [--branch <scanned branch>] \
+      [--include-suppressed]
   ```
 
-  Never hand-parse these formats. Suppressed SARIF results are skipped.
-  A scanner that gives no severity reports `unrated`.
+  Never hand-parse these formats. Suppressed SARIF results are skipped by default;
+  use `--include-suppressed` only for an explicit review of those results (`--format sarif`).
+  Included results are still unjudged claims; inclusion does not accept or reject the suppression.
+  A scanner that gives no severity reports `unrated`. An explicitly formatted empty Dependabot
+  array is a valid empty scan; a malformed govulncheck stream is rejected atomically, not
+  accepted as a valid prefix.
   Core records source kind and the scanner name/version from the supplied output.
   Do not supply an origin override; the first assessment's assessor owns origin
   grouping after later scans too.
@@ -661,37 +667,40 @@ path.
 
 ### 2f. Portfolio-wide impact analysis context (deterministic, no subagent, optional)
 
-Impact artifacts live canonically at
-`analysis-results/impact/<cve>-impact-analysis.json` — that is where
-python3 -m traust.cli impact analyze writes them and where all 28
-production artifacts sit (docs-verification 2026-07-31: the previous
-"beside the report" glob matched nothing in any production run). Look
-there first, matching on the repo under triage appearing in the
-artifact's `repos[]`; fall back to `*-impact-analysis.json` beside the
-input findings file or baseline audit report for ad-hoc copies.
+Produce the advisory-wide view with `python3 -m traust.cli impact export
+<advisory-id> --out <path>` after impact analysis has recorded its native
+documents. The usual path is
+`<configured-analysis-results>/impact/<advisory-id>-impact-analysis.json`;
+`impact analyze` itself records to
+Core and does not write this fleet file. An explicitly supplied ad-hoc
+export may also be used. Missing context is not a clean exposure result.
 
 If the artifact exists:
 
-1. Read it and validate `metadata.cve` is present.
-2. Build a lookup of `repos[]` keyed by `repo` ID.
+1. Read the `ImpactExport` view and its `advisory` identifier.
+2. Select `.repos` rows for the repository's `repository_url` and analyzed
+   SHA when known; preserve distinct ecosystem/module/version rows rather
+   than overwriting one repository entry with another.
 3. A finding **matches** when its title/description mentions the
-   artifact's `metadata.cve` or `metadata.module`, or when it matches a
-   govulncheck candidate from Phase 2e that shares the same CVE.
-4. For each matched finding, attach the impact analysis context for the
-   Phase 3b annotation block — the portfolio-wide summary plus this
-   repo's classification and evidence.
+   advisory (or a row's native `document.metadata.cve`) or its `module`,
+   or shares the CVE with a govulncheck candidate from Phase 2e.
+4. Attach the export's portfolio counts and each matching row's
+   classification/evidence to Phase 3b. Native ranges, feature descriptions
+   and sources remain under that row's `document.metadata`. Cite the
+   analyzed SHA; evidence from another commit is historical context.
 
 The annotation block appended to matched findings in Phase 3b:
 
 ```
   PORTFOLIO-IMPACT (deterministic portfolio-wide CVE analysis; context
   only — the verdict is still yours):
-    CVE:            {metadata.cve}
-    module:         {metadata.module} (vulnerable: {metadata.vulnerable_range})
-    portfolio:      {summary.repos_in_blast_radius} repos import this module;
-                    {summary.affected} affected, {summary.not_observed} not observed
-    this repo:      classified '{classification}' — {evidence summary}
-    feature:        {metadata.feature_description or "(not specified)"}
+    advisory:       {advisory}
+    module:         {module} (vulnerable: {document.metadata.vulnerable_range})
+    portfolio:      {commits} analyzed commits, {analyses} package/version rows;
+                    {classifications.affected} affected analyses,
+                    {classifications.not_observed} not observed
+    this repo:      {sha}@{version}, classified '{classification}' — {evidence summary}
+    feature:        {document.metadata.feature_description or "(not specified)"}
 
   How to use this: the impact analysis classifies repos by whether they
   actually USE the vulnerable feature, not just import the module. A

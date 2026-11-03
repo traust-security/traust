@@ -9,11 +9,13 @@ from pathlib import Path
 from traust_core.v1.errors import TraustError, ValidationError
 from traust_core.v1.models.artifacts import (
     CloudConfigAuditArtifact,
+    FuzzCampaignArtifact,
     RenderFormat,
     ReportArtifact,
     ThreatModelArtifact,
 )
 
+from traust.cli import _doors
 from traust.cli.groups._registry import OpSpec, passthrough_op
 from traust.context import load
 
@@ -35,6 +37,11 @@ def add_validate_args(ap) -> None:
         action="store_true",
         help="Also enforce the named schema's canonical_write contract for new output "
         "(requires --schema; omit for historical reads)",
+    )
+    ap.add_argument(
+        "--signing-pubkey",
+        type=Path,
+        help="cosign public key for historical findings-layer Merkle/signature verification",
     )
 
 
@@ -62,6 +69,7 @@ def call_validate(args) -> int:
             strict=args.strict,
             schema=schema,
             canonical_write=args.canonical_write,
+            signing_pubkey=args.signing_pubkey,
         )
     except TraustError as e:
         print(f"ERROR: {e}", file=sys.stderr)
@@ -368,4 +376,95 @@ SARIF = OpSpec(
 
 RECORD = passthrough_op(
     "assessment_record", "Record an audit document as an assessment of a commit."
+)
+
+
+def add_import_fuzz_campaign_args(ap) -> None:
+    ap.add_argument("document", type=Path, help="campaign snapshot or legacy summary JSON")
+    ap.add_argument("--legacy-summary", action="store_true", help="import a legacy summary sidecar")
+    ap.add_argument("--campaign-id", help="identity of the supplied legacy campaign")
+    ap.add_argument("--repository", action="append", default=[], help="declared repository URL")
+    ap.add_argument(
+        "--source-reference", action="append", default=[], help="declared evidence reference"
+    )
+    ap.add_argument("--rollup", type=Path, help="legacy analyst rollup Markdown, retained verbatim")
+    ap.add_argument("--bug-narrative", action="append", default=[], metavar="NUM=PATH")
+    ap.add_argument("--remediation-priority", type=Path, help="supplied priority text")
+    ap.add_argument("--negative-controls", type=Path, help="supplied negative-control text")
+
+
+def call_import_fuzz_campaign(args) -> int:
+    def call() -> dict:
+        if not args.legacy_summary:
+            if (
+                args.campaign_id
+                or args.repository
+                or args.source_reference
+                or args.rollup
+                or args.bug_narrative
+                or args.remediation_priority
+                or args.negative_controls
+            ):
+                raise ValidationError("legacy input options require --legacy-summary")
+            doc = FuzzCampaignArtifact.parse(args.document.read_bytes())
+        else:
+            if not args.campaign_id or not args.repository:
+                raise ValidationError("--legacy-summary requires --campaign-id and --repository")
+            try:
+                body = json.loads(args.document.read_bytes())
+            except (ValueError, UnicodeDecodeError) as error:
+                raise ValidationError(
+                    f"cannot read legacy campaign {args.document}: {error}"
+                ) from error
+            if not isinstance(body, dict):
+                raise ValidationError("legacy campaign summary must be a JSON object")
+            references = [str(args.document), *args.source_reference]
+            for key, path in (
+                ("narrative", args.rollup),
+                ("remediation_priority", args.remediation_priority),
+                ("negative_controls", args.negative_controls),
+            ):
+                if path is not None:
+                    body[key] = path.read_text(encoding="utf-8")
+                    references.append(str(path))
+            seen: set[int] = set()
+            for supplied in args.bug_narrative:
+                label, separator, raw_path = supplied.partition("=")
+                if not separator or not label.isdecimal() or int(label) in seen:
+                    raise ValidationError("--bug-narrative requires a unique NUM=PATH")
+                number, path = int(label), Path(raw_path)
+                bugs = body.get("bugs", [])
+                if not isinstance(bugs, list):
+                    raise ValidationError("legacy campaign bugs must be an array")
+                matches = [b for b in bugs if isinstance(b, dict) and b.get("num") == number]
+                if len(matches) != 1:
+                    raise ValidationError(f"legacy campaign must contain exactly one bug #{number}")
+                existing = matches[0].get("references", [])
+                if not isinstance(existing, list) or not all(isinstance(r, str) for r in existing):
+                    raise ValidationError(f"bug #{number} references must be an array of strings")
+                matches[0]["narrative"] = path.read_text(encoding="utf-8")
+                matches[0]["references"] = list(dict.fromkeys([*existing, str(path)]))
+                references.append(str(path))
+                seen.add(number)
+            body.update(
+                artifact="fuzz-campaign",
+                campaign_id=args.campaign_id,
+                repositories=list(dict.fromkeys(args.repository)),
+                source_references=list(dict.fromkeys(references)),
+            )
+            doc = FuzzCampaignArtifact.from_document(body)
+        recorded = (
+            load(args.config_home)
+            .services()
+            .assessment.record_fuzz_campaign(doc, _doors.interactive())
+        )
+        return {"artifact_id": recorded.artifact_id}
+
+    return _doors.run(call)
+
+
+IMPORT_FUZZ_CAMPAIGN = OpSpec(
+    add_args=add_import_fuzz_campaign_args,
+    call=call_import_fuzz_campaign,
+    help="Import supplied campaign analysis without inventing fuzz executions or findings",
 )

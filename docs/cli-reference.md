@@ -26,31 +26,118 @@ python3 -m traust.cli check skill-alignment      # equivalent
 | `attack` | The pack's pinned MITRE ATT&CK release | `validate` |
 | `auth` | Who you act as, over traust-core's identity provider | `local`, `login`, `logout`, `refresh`, `service-account`, `status`, `token` |
 | `build` | Deterministic builders | `rescan-worklist`, `skills-reference`, `symbol-index` |
-| `check` | Deterministic gates | `citations`, `content-licenses`, `coverage`, `docs-consistency`, `estate-data`, `drift`, `fix-propagation`, `location-paths`, `reference-integrity`, `skill-alignment`, `skill-security` |
+| `check` | Deterministic gates | `citations`, `content-licenses`, `coverage`, `docs-consistency`, `estate-data`, `drift`, `fix-propagation`, `location-paths`, `reference-integrity`, `script-placement`, `skill-alignment`, `skill-security` |
 | `cloud-config` | The cloud-config-audit skill's doors on traust-core | `check`, `record`, `run` |
-| `compliance` | compliance-check doors on traust-core (posture: `dashboard view compliance`) | `adrs`, `calibrate`, `check`, `declare`, `evaluate`, `evidence`, `latest`, `policy`, `record`, `resolve`, `scopes` |
+| `compliance` | compliance-check doors on traust-core (posture: `dashboard view compliance`) | `adrs`, `calibrate`, `check`, `declare`, `docs`, `evaluate`, `evidence`, `latest`, `policy`, `record`, `resolve`, `scopes` |
 | `config` | The config home's one file, `traust.yaml`: `migrate <old home>` writes it from a pre-traust.yaml home and reports every file (carried, dropped, a fact to record with its command) | `migrate` |
-| `dashboard` | Dashboard rebuilds, the team report, one insight view and the recorded SLA policy | `refresh`, `sla-policy`, `team-report`, `view` |
-| `feeds` | Security feed snapshots (traust-core) and the product-definitions cache | `fetch`, `fetch-products` |
-| `findings` | track-findings' and findings-db's doors on traust-core | `apply`, `baseline`, `confirm`, `decide`, `find`, `history`, `import`, `queue`, `record`, `refuted`, `reject`, `request`, `review-cases`, `sarif`, `status`, `summary`, `surfaces`, `tickets`, `timeline` |
-| `impact` | Impact analysis; `manifest-sbom` is the `manifest_sbom` materializer, `below-range-scan` the `below_range_packets` one, `below-range-review` / `below-range-record` the review lane's doors | `analyze`, `below-range`, `below-range-record`, `below-range-review`, `below-range-scan`, `calibrate-rule-pack`, `cluster-state-diff`, `document`, `enrich`, `find`, `manifest-sbom`, `package`, `sbom`, `sweep`, `symbols` |
+| `dashboard` | Dashboard rebuilds, immutable reported history, the team report and SLA policy | `capture`, `compare`, `explore-loc`, `history`, `read-report`, `refresh`, `sla-policy`, `team-report`, `view` |
+| `feeds` | Security feed snapshots, CVE provenance (traust-core) and the product-definitions cache | `fetch`, `fetch-products`, `reconcile-cve-provenance` |
+| `findings` | track-findings' and findings-db's doors on traust-core | `apply`, `baseline`, `claim`, `confirm`, `correction-request`, `decide`, `find`, `history`, `import`, `queue`, `rebaseline`, `record`, `refuted`, `reject`, `request`, `review-cases`, `sarif`, `status`, `summary`, `surfaces`, `tickets`, `timeline`, `verified-fix-mtta` |
+| `impact` | Impact analysis; `export` reads the retained advisory-wide fleet view; `manifest-sbom` is the `manifest_sbom` materializer, `below-range-scan` the `below_range_packets` one, `below-range-review` / `below-range-record` the review lane's doors | `analyze`, `below-range`, `below-range-record`, `below-range-review`, `below-range-scan`, `calibrate-rule-pack`, `cluster-state-diff`, `document`, `enrich`, `export`, `find`, `manifest-sbom`, `package`, `sbom`, `sweep`, `symbols` |
 | `isolation` | Tenant-isolation review | `repos` |
 | `ledger` | Ledger audit (traust-core) and the doc-variance register | `audit`, `doc-variance` |
 | `metrics` | Metrics & spend | `attribute-spend`, `collect-spend`, `lane-costs` |
-| `portfolio` | The portfolio on traust-core (the graph ops are retired); `observe` is the `repo_state` materializer; `checkout-refresh` / `mirror-evict` are the repo checkout service's mirror-cache materializers; `plan` / `onboard` / `owner-hints` / `file` / `import-owners` / `import-release` / `release-changes` are add-inputs' and inventory-repositories' doors on traust-core; `dependencies` / `dependents` read traust-core's SBOMs | `checkout-refresh`, `dependencies`, `dependents`, `file`, `import-owners`, `import-release`, `liveness`, `mirror-evict`, `observe`, `onboard`, `owner-hints`, `plan`, `population`, `release-changes` |
-| `pqc` | The pqc-readiness skill's doors on traust-core | `blockers`, `check`, `prepare`, `record`, `summary`, `vendor-claims` |
+| `portfolio` | Native inventory and declared owner/contact/tracker handoffs, forge liveness, recorded dependency/interface facts, unsigned analytical proposals, graph presentation and release discovery | `checkout-refresh`, `crd-consumers`, `crown-jewel-draft`, `dependencies`, `dependents`, `exports-of`, `facts-collect`, `file`, `graph`, `iac-census`, `import-owners`, `import-reference`, `import-release`, `imports-package`, `internal-coupling`, `inventory-export`, `liveness`, `mirror-evict`, `observe`, `onboard`, `org-index`, `owner-hints`, `plan`, `population`, `release-audit`, `release-changes`, `release-discover`, `release-passthrough`, `ships-module` |
+| `pqc` | The pqc-readiness skill's doors on traust-core; ranked worklists, bounded stamped refresh and non-destructive report repair | `blockers`, `check`, `prepare`, `record`, `repair`, `summary`, `sweep`, `vendor-claims`, `worklist` |
 | `products` | corpus-intake's doors on traust-core: products and their corpus ownership | `add`, `list`, `update` |
 | `registry` | Model/product registry and the recorded product map | `models`, `product-map`, `products` |
 | `remediation` | The remediation loop's doors on traust-core (remediate-finding, patch, property-test, fleet-fix, verify-remediation) | `assemble`, `candidates`, `fleet-approve`, `fleet-claim`, `fleet-record`, `fleet-submit`, `fleet-targets`, `fork`, `mutation-evidence`, `next`, `open`, `prepare`, `progress`, `property-evidence`, `record`, `verifications`, `verify-differential`, `verify-prepare`, `verify-record`, `verify-sweep`, `work-items` |
 | `repo` | A commit's files through core's checkout service (the mirror cache): prints the workspace path, for skills and hand runs | `checkout` |
-| `reporting` | Report validation, rendering & recording | `lint`, `rate-threats`, `record`, `render`, `sarif`, `validate` |
+| `reporting` | Report validation, rendering & recording | `import-fuzz-campaign`, `lint`, `rate-threats`, `record`, `render`, `sarif`, `validate` |
 | `session` | Headless skill sessions and artifact-only task preparation/recording | `prepare`, `record`, `run` |
 | `tools` | One door over traust-core's tool registry: each registered tool's readiness, version and database; one tool over a checkout, SBOM, image or symbols, its typed result as JSON | `list`, `run` |
 | `triage` | The triage skill's doors on traust-core | `check`, `intake`, `prepare`, `record`, `render` |
-| `sweep` | Class-generalization sweep; the rule-proposal gate; recall-benchmark answer key | `benchmark`, `benchmark-targets`, `build-canaries`, `cards`, `collect`, `draft`, `emit`, `mine`, `propose-rule`, `regression-drafts`, `rule-lane`, `score-benchmark`, `screen-injection`, `sweep`, `verify-draft` |
+| `sweep` | Class-generalization sweep; detection-quality reports; recall-benchmark answer key | `benchmark`, `benchmark-targets`, `bootstrap-benchmark`, `build-canaries`, `cards`, `collect`, `compliance-precision`, `critical-misses`, `cve-replay`, `draft`, `emit`, `mine`, `propose-rule`, `regression-drafts`, `rule-lane`, `score-benchmark`, `screen-injection`, `sweep`, `verify-draft` |
 | `util` | Utility commands | `elf`, `redact`, `safe-exec` |
 | `validation` | Core-backed machine validation evidence | `prepare`, `plan`, `record` |
 
+### Detection-quality operations
+
+- `traust sweep bootstrap-benchmark --out candidates.yaml [--limit 100]` harvests
+  confirmed fixes as **unadmitted** answer-key candidates with fix evidence and a stable
+  held-out split. Human review precedes `benchmark-targets candidates.yaml`.
+- `traust sweep score-benchmark --runs-dir <runs> --out benchmark.json` also writes
+  `benchmark.md`; `--markdown <path>` selects an explicit Markdown destination. Without
+  `--runs-dir`, the recorded scorecards receive the same human-readable export.
+- `traust sweep cards <deck.yaml> --artifact symbol-index:<card-id>=facts.json`
+  compiles pre-generated typed facts without checkout tools. `--checkout` remains the
+  live mode; reference cards enumerate textual mentions, not resolved calls. Live target
+  sanitizer execution remains tools-package-owned; supplied execution facts are replayable.
+- `traust impact calibrate-rule-pack [pack] --fixtures [--rules <path-or-URL@SHA>]`
+  runs pack sanity without corpus truth; omit `--fixtures` for integrated pinned-TP rescans.
+  `--scan <UUID>` retains recorded-scan scoring. `--out <dir>` writes `calibration.json`,
+  `summary.md` and `review-samples.jsonl`; see `--help` for limits/timeouts.
+- `traust sweep compliance-precision --framework <framework> --gate 0.5 --out-dir <dir>`
+  exports JSON and Markdown field precision from recorded assessments. The inclusive gate
+  flags checks for human demotion review; it does not run the evaluator twice or mutate checks.
+- `traust sweep critical-misses --campaign-dir <campaign> --out <dir>/CRITICAL-MISSES.md`
+  exports Markdown and sibling JSON from critical deltas, replay, triage and sample/report maps,
+  including un-ingested candidates. `--start` and `--end` add recorded Core misses.
+- `traust sweep cve-replay monitor [--since <ISO8601>]` emits JSON discovery results for newly
+  published advisory candidates against recorded audited commits. `oracle`, `candidates`
+  and `trends` emit their separate JSON views. Presence uncertainty, near matches and misses stay
+  distinct; candidate export never admits findings. Source watermarks advance only after success.
+- `traust sweep emit --rule <rule> --sweeps-root <dir>` exports the cached candidate and
+  summary payload too; `--force` recomputes rather than being required to export elsewhere.
+- `traust sweep benchmark check-trigger --since <ref>` resolves its checkout from explicit
+  `--repo-root`, then `BENCHMARK_REPO_ROOT`, then configured `locations.workspace/traust`.
+
+### Compliance assessment output and official documentation
+
+`traust compliance evaluate <boundary> --out <assessment.json>` writes both draft JSON and
+a per-control `<assessment.md>` report. `--markdown <path>` chooses a different report path;
+the two outputs must not name the same file. Coverage and skipped-framework reasons precede
+the individual verdicts, rationales and evidence citations. A failed citation gate still writes
+both draft outputs and exits 1; neither output makes a certification claim.
+
+`traust compliance calibrate <boundary>` runs the evaluation twice and compares the full
+OSCAL exports as well as assessment/coverage/gate outcomes. UUID and structural differences
+fail calibration; only documented run timestamps are ignored. JSON `oscal_compared` states
+whether the selected frameworks support the 800-53-spine export.
+
+`traust compliance docs <registered-product-slug>` fetches official guides using that
+product's `compliance.docs_targets` entry in `traust.yaml` (see
+[setup](setup.md)). The result is JSON containing real source URLs and extracted text,
+not generated documentation. For an explicit one-run source selection:
+
+```bash
+traust compliance docs <registered-product-slug> \
+  --product-slug <official-documentation-slug> --version <official-version> \
+  --guide <official-guide-slug>
+```
+
+Repeat `--guide` to fetch several guides; omit it (or use `--all-guides`) to discover actual
+guide links from the official product page. Explicit mode requires both source slug and version
+and does not rewrite configuration. Missing mappings, unknown products and fetch failures
+are errors, never fabricated fallback documents.
+### Portfolio facts, views and artifact releases
+
+`portfolio facts-collect` records package/interface facts at observed default heads;
+repeat `--repository-ref-id` to select pinned commits and `--checkout UUID=PATH`
+to supply an existing checkout. `crd-consumers <api-group>` joins owners,
+consumers, RBAC and webhook evidence fleet-wide. `imports-package <package>` and
+`exports-of [package]` return cited persisted facts; `ships-module <package> --ecosystem <ecosystem>`
+reads image SBOMs. `internal-coupling` counts distinct
+dependent repositories of packages with declared producing-repository provenance.
+
+`portfolio graph --out <dir>` writes full relationship JSON, GraphViz, Gephi,
+interactive offline HTML and a top-20 hub/coverage Markdown report. It reads
+native services and optional `--inputs` hierarchy; it never creates a graph database.
+`crown-jewel-draft`, `iac-census` and `org-index` accept optional scope and `--out`
+to publish JSON/Markdown/HTML; without output they print the typed model.
+The crown-jewel proposal is explicitly unsigned human-review input, never
+dispatch authorization or a write to approved crown-jewel facts.
+
+`portfolio release-discover` observes payload digests/tags and watched dist-git
+heads into the native release-inventory feed. The first observation is a baseline,
+not a burst of audit jobs. Changes plan `release-passthrough` and artifact-specific
+container/RPM audit batches; major/minor inventory version changes also request a
+source threat review when identity is known. Dist-git commits are not versions.
+`portfolio release-audit --kind container|rpm --role <role> --run-id <uuid>`
+runs the exact observed batch through the existing security skill.
+
+
+`traust dashboard view executive-summary --out <dir>` accepts repeatable `--panel attack|pqc|isolation|iac`, plus `--by-segment`, `--inputs-root <dir>` and repeatable `--exclude-segment <name>` (default exclusion: `ansible`). Segment rows are first-match in input declaration order and include overlap/unmapped/excluded-only accounting. Optional panels are embedded in all three generated formats, not links to unrelated views. PQC retains its current-state/product-only boundary. `dashboard view scoreboard` composes validation/fuzz, census, patterns and benchmark recall alongside the leadership headlines; harness checkout maturity carries its own current measurement timestamp, independently of `--as-of`.
 ### Check scope and inputs
 
 `traust check estate-data --staged` reads the Git index, including migration portability
@@ -67,6 +154,57 @@ Go build/test commands are checked even without package arguments or trailing wh
 
 `traust check docs-consistency --root <path>` compares the model-class index against the
 skills in that selected checkout, not the checkout where the checker is installed.
+
+### Immutable as-reported dashboards
+
+`dashboard view` computes a preview; `dashboard capture` also archives the exact report
+exports in content-addressed ObjectStore bytes plus an append-only artifact row. Capture
+requires `--note` for the counting methodology or change explanation and returns its artifact
+UUID/digest. Scoreboard, executive summary and threat register use this shared archive;
+other registered views can be captured too. No new schema or legacy metrics JSONL writer is used.
+
+```bash
+traust dashboard capture scoreboard --note "Published counting policy" --out <report-dir>
+traust dashboard capture executive-summary --product <slug> --note "Leadership brief" --out <report-dir>
+traust dashboard capture threat-register --note "Latest recorded threat models" --out <report-dir>
+traust dashboard history scoreboard --limit 20 --out <history-dir>
+traust dashboard read-report <artifact-uuid> --out <original-report-dir>
+traust dashboard compare <artifact-uuid> --against previous --out <comparison-dir>
+traust dashboard compare <artifact-uuid> --against recomputed --out <replay-comparison-dir>
+traust dashboard compare <artifact-uuid> --against current --out <current-comparison-dir>
+```
+
+Capture accepts the same scope/window/configuration options as `view`. Repeat those
+scope options for `history`; `--as-of` is excluded from the history key, while view,
+product/team/category sets and non-default calculation/window options distinguish streams.
+`history` without `--out` lists report metadata; with it, the saved metric columns are also
+rendered as Markdown/HTML/JSON. `read-report` without `--out` reads the saved bundle;
+with it, original JSON/Markdown/HTML/CSV and `<artifact-uuid>.snapshot.json` bytes are exported.
+
+`previous` compares two immutable reported snapshots linked in the same stream. The
+first has no predecessor and returns a not-found error. Each link retains its prior
+artifact UUID/digest; concurrent captures can share a predecessor without overwriting
+either report. `recomputed` uses today's code/configuration at the saved report time,
+where the view supports historical reads; `current` uses today's data cut. The comparison
+names both methodologies and shows field-level old/new values and numeric deltas.
+Missing values remain distinct from JSON null. No comparison rewrites an archive.
+Portable history, comparison and original exports remain script-free.
+
+`traust check drift [--config-home <dir>] [--worklist <file>]`
+prints pack configuration checks and the surviving rescan worklist's age backstop.
+The worklist override matches `build rescan-worklist --out`; otherwise it uses
+configured analysis-results. Bootstrap reads Core's current typed inputs inventory,
+including unregistered repositories; there is no graph-database routing override.
+The command remains informational (no `--fail-on` gate); native feed/registry age,
+upstream releases, stored-PQC-schema compatibility and measured-language coverage are
+in `traust dashboard view freshness --out <dir>`.
+
+The surviving `build rescan-worklist` router still reads its existing interim
+`findings.db` projection for HEAD code-audit population, live vulnerability risk,
+report paths and cloud-config baseline presence. `--db <file>` selects that input;
+the default remains `graph/findings.db` under configured analysis-results. This is
+not the retired portfolio graph, and the native inventory bootstrap replacement
+does not claim that the whole router or its population backend has migrated.
 
 ### Artifact-only below-range sessions
 
@@ -101,6 +239,80 @@ then the same `--worker` during recording. Missing/invalid output fails with
 `session-output-invalid`; an executor failure retains measured usage and fails with
 `runner-crashed`. Other skill/mode pairs retain their existing command behavior.
 
+### Static configuration and placement diagnostics
+
+`traust adapters config-matrix <checkout> [--max-triples N] [--out F]` retains
+judged defaults first and records omitted rows as coverage gaps. Its JSON includes
+the checkout name, generation time, harness version, YAML-parser availability and
+statistics over the emitted triples. Credential literals remain redacted in every
+tier and in sink expressions; a row limit never means complete coverage.
+
+`traust check script-placement [--root <harness checkout>] [--only <class>]`
+restores the repository placement audit. It emits a CSV class summary and module
+rows based on static production/test importers, registry entries and literal
+skill references, including nested workflow skills. Tests never count toward the
+shared-library threshold. Classes are placement nominations, not proof that
+dynamic callers are absent; the command never moves or deletes files.
+
+### Advisory inputs and sweep-generated analysis
+
+`impact find`, `package`, `symbols`, `analyze` and `sweep` accept repeatable
+`--advisory-file <osv.json>` inputs exported from OSV's per-ID endpoint.
+When supplied, Core reads only these exports, including connected aliases;
+it never falls back to live advisory HTTP. Malformed or unrelated requested
+inputs fail without recording an impact. Export every alias needed for coverage.
+An offline sweep describes only that supplied advisory collection.
+
+Live sweeps group known aliases by canonical identity, retaining ecosystem,
+module, affected spans, explicit versions and fixes from every member. Ordinary
+advisories without fixes remain visible with `fix_available: false`.
+`impact_argv` arrays retain offline file arguments; execute them as vectors.
+`analyze` records each reached ecosystem/module/installed version independently,
+returning unique `commits`, `analyses`, classification counts and affected finding IDs.
+
+### Advisory fleet export and verification scope
+
+`traust impact export <advisory-id> [-o <path>]` reads kept advisory identities
+(including aliases) and native impact documents without refreshing feeds.
+It returns `ImpactExport`: unique `commits`, exported `analyses`, complete
+classification counts and `.repos` rows with repository URL/SHA, package/version,
+classification/evidence and recorded IDs. Each row's `document` preserves the
+complete native payload. Export selects the latest complete preparation scope
+for each commit/advisory and retains every declared package/version member.
+An incomplete newer scope cannot clear the prior complete result; a complete
+corrected SBOM scope replaces obsolete modules and versions. Within that selected
+scope the newest packet for a member wins. Without `-o` JSON is printed to stdout.
+An unknown advisory fails; a known advisory with no analyses exports empty rows.
+
+`traust remediation verify-sweep --impact-filter <path>` consumes this export,
+retaining repositories with an affected/likely row and intersecting any explicit
+repository/product scope. Nonmatching or empty filters produce no work, never
+the whole fleet. Do not pass the counts-only `impact analyze` response or a
+single native artifact as this advisory-wide filter.
+
+### Bulk CVE provenance
+
+```bash
+traust feeds fetch --feed rh-cve
+traust feeds reconcile-cve-provenance --min-score 0.55 --report /tmp/provenance-preview.json
+traust feeds reconcile-cve-provenance --apply --report /tmp/provenance-applied.json
+```
+
+The default is a dry run over all recorded code audits and the retained `rh-cve`
+snapshot: no advisory or finding link is written. `--apply` records each distinct
+finding/CVE reference idempotently and links an unnamed finding's best primary
+advisory through Core. Existing primary conflicts stay visible and are never
+overwritten; no finding verdict or resolution changes.
+
+Stdout and optional `--report` contain the same typed reconciliation JSON:
+per-audit/ref/finding match rows with publication/audit dates, positive lead days,
+title score and confidence; distinct-CVE counts; confirmed lead-day min/median/max;
+and planned/written link counts. One CVE can match several branch reports but counts
+once in `distinct_cves`. The median uses the upper middle row, as the original workflow did.
+The score floor must be finite and within 0–1; lowering it below 0.55 does not admit
+unclassified matches. Shared CWEs promote confidence but never rescue a title below
+the chosen floor. A missing snapshot fails with exit 2: fetch it first. This command
+uses recorded assessment IDs and current services, not legacy corpus/layer paths.
 ### Retired workflow entry points
 
 The core-hub cutover removed the following entry points; they are **not**
@@ -111,9 +323,8 @@ here so an old runbook cannot be mistaken for an executable fallback:
 |---|---|---|
 | `build cumulative` | Replay legacy layers into findings-current reports | Core finding queries and insight services; report skill port unfinished |
 | `check report-digests` | Verify report/artifact digest bindings | Core artifact publishing/index services; gate skill port unfinished |
-| `feeds reconcile-cve-provenance` | Reconcile advisory provenance on findings | Core exposure service; skill port unfinished |
-| Ledger triage / validation / verification emitters | Convert report verdicts into legacy layer events | `traust triage record` and `traust validation record` use core; the verification/remediation service port remains unfinished |
-| `ledger pull` | Ingest external source determinations into the legacy ledger | `traust findings import` uses core attestation and the shared authenticated caller |
+| Ledger triage / validation / verification emitters | Convert report verdicts into legacy layer events | `traust triage record`, `traust validation record`, and `traust remediation verify-record` persist through Core; use `remediation verifications` and `findings baseline` for recorded/current results |
+| `ledger pull` | Export a read-only snapshot of one legacy ledger layer | Legacy layer stores remain retired. Core `ledger.layer(layer_id)` and paged `ledger.events(layer_id, page)` read native layers; `findings import` is a distinct external-statement intake operation, not a snapshot-export replacement |
 | `corpus` group | Report discovery, identity, projections, summaries and precedents | Core assessment and finding services; corpus skill ports unfinished |
 | `route` group | Admit impact findings and remediation regressions without changing baselines | Core finding intake; routing skill ports unfinished |
 
@@ -121,6 +332,97 @@ There is no executable fallback for these retired workflows. Do not hand-write a
 layer or invoke a removed module. The human countersign workbench below records
 judgements on existing core findings; it does not replace machine-report intake.
 
+### Remediation target and verification views
+
+- `traust remediation fleet-targets --rollup REGEX --progress PROGRESS.md`
+  matches numbered table rows, resolving only their explicit target cell through
+  registered inventory. Full registered URLs disambiguate same-path repositories
+  on different hosts. Unknown/ambiguous targets refuse the selection; no match is
+  an empty fleet, not an all-repository scope.
+- `traust remediation fork --list` enumerates inventory mappings under the same
+  private-fork policy as single-repository resolution, including unresolved rows
+  with a reason. It does not create forks or grant push authorization.
+- `traust remediation verify-sweep --include-branches --out worklist.json`
+  includes registered non-default branches and writes `worklist.md` beside JSON.
+  Each target retains repository/ref UUIDs, branch, head source, pinned/head SHAs,
+  counts, and tier or skip. Stored observations are not live probes; an unobserved
+  branch's registered commit is labeled separately.
+- `traust remediation verify-record REPORT` records the real verification result,
+  decisions and regressions idempotently. `remediation verifications --repo-url URL`
+  reads those recorded results, while `findings baseline --repo-url URL` reads
+  current default-line disposition. Neither sweep rendering nor patch progress
+  establishes a verified fix or changes forward-only work-item status.
+- `traust findings baseline --repo-url URL --ref-id UUID` reads current findings
+  and resolution on that registered branch. The ref must belong to the named
+  repository; historical `--as-of` and current `--ref-id` are separate scopes.
+  If an original SHA was audited on several named lines, verification reports
+  must identify the verified branch with `metadata.patched_ref`; Core refuses an
+  ambiguous baseline rather than resolving another line.
+
+
+
+## Inventory reference and owner/contact export
+
+```bash
+traust portfolio onboard --product example --label Example --org example-org \
+  --sub-service Gateway --manager morgan --ownership-source "reviewed org directory"
+traust portfolio owner-hints --repo https://github.com/example-org/api --save
+traust portfolio import-reference --source /private/inventory-declarations.yaml
+traust portfolio inventory-export --format csv
+traust products add example --label Example --ownership owned --business-unit Commerce \
+  --note "The BU boundary cuts this shared tree."
+traust products update example --note "Reviewed boundary exception."
+traust products list
+```
+
+`plan` accepts the same intake declarations and writes nothing. `--reference <file>` on
+`onboard`/`plan` accepts per-repository labels and contacts (and supplies the named repositories):
+
+```yaml
+version: 1
+repositories:
+  - repo_url: https://github.com/example-org/api
+    service: Gateway
+    individual_owners: [alice]
+    ownership_source: "OWNERS at reviewed commit"
+    manager: morgan
+    business_unit: Commerce
+    jira_project: PAY
+    jira_component: API
+    escalation_contact: oncall@example.com
+    payload_versions: ["4.0"]
+    operator_versions: ["1.0", "2.0"]
+```
+
+`onboard` derives `Resource Type=adhoc`. Organization intake defaults an omitted service
+label to the organization name. `--sub-service`, `--individual-owner` (repeatable),
+`--ownership-source`, `--manager`, `--business-unit`, `--jira-project`, `--jira-component`
+and `--escalation-contact` provide request-wide defaults; per-repository reference values win.
+`--payload-version` / `--operator-version` are repeatable observed inventory labels;
+onboarding accumulates them without claiming commit-qualified release membership.
+CSV exposes these separately from `Recorded Product Versions`.
+`import-reference` applies facts to already registered repositories, without forge discovery.
+The provider retains these declarations in `<traust.yaml home>/inventory-reference.yaml`
+outside domain tables. Omitted fields preserve previous facts; explicit nulls in YAML clear
+optional fields; explicit empty version lists replace/clear the authoritative declaration.
+No contact, manager or tracker key is fabricated.
+
+`inventory-export` emits JSON by default or spreadsheet-safe CSV with service/intake kind,
+team/person/source/manager/BU facts, explicit tracker and escalation routes, shipped
+`product:version` labels and trusted product-definitions contacts. A declared manager is a
+person fallback only when no individual owners exist. `owner-hints --save` retains the forge
+handles and provenance, never a team-ownership assignment. Contacts carry source and embargo
+eligibility; neither an exported route nor a candidate grants authority to disclose findings.
+The registry join uses `locations.feeds_cache` and the recorded product map, not slug guesses.
+For an SLA-specific snapshot, use `traust dashboard view sla --pd-cache-dir <feeds-dir> --out <dir>`;
+this override affects only that invocation and leaves deployment configuration unchanged.
+Saved forge hints are retained separately (`owner_hints`, `owner_hint_source`), so they cannot
+overwrite declared individuals/provenance. Exported people use declared individuals first,
+then forge hints, then a known manager. Organization defaults preserve existing service labels.
+
+`products add/update --note` round-trips subject-labelled caveats through the existing
+corpus-registry document note. Omitting the flag preserves the caveat; `--note ""` clears
+only that product. `products list` returns the note with each product.
 
 ## Deprecated forms
 
@@ -556,3 +858,68 @@ produces typed report bytes and immediately calls this same door with actual
 run provenance. Prepare/plan/authorize/live execution and novel-finding intake
 remain separate plan24 work; scanner/carried/cumulative families and historical
 deployment mapping certification are not completed by this producer slice.
+
+## Suppressed scanner review and verified-fix timing
+
+`traust triage intake scan.sarif --format sarif --repo-url <url> --sha <commit>
+--include-suppressed` includes suppressed SARIF results for explicit review. Without
+the flag they remain excluded. Inclusion creates unjudged candidates under the
+normal intake gates, not suppression approvals or false-positive verdicts. Other
+scanner formats reject the flag.
+
+`traust findings verified-fix-mtta --repo-url <url> [--as-of <ISO-with-zone>]`
+returns severity, sample count and elapsed mean days from first recorded
+report/decision activity to first validation/verification-backed resolved decision.
+Human-only and triage closures do not enter the metric; retracted fixes are excluded.
+Severity is the effective rating at the requested time, including an unrated group.
+This historical first-fix clock retains fixes even after reopening; use `--open` or
+`--closed` to restrict the current population. `findings timeline` remains a separate,
+overall bucketed MTTR across all resolving sources.
+
+## Historical report signature verification
+
+`traust reporting validate PATH [--schema layer] --signing-pubkey COSIGN_PUBLIC_KEY`
+additionally verifies historical `*-findings-layer.json` documents' stored-event
+Merkle tree and public-key signature. Missing or invalid signatures, unusable or
+wrong keys, and Merkle tampering exit nonzero. Omit the flag for ordinary unsigned
+validation. This read-only historical check does not restore retired layer writers
+or verify signatures over ordinary audit-report bodies; all reports still pass
+their exact contract schema.
+
+## Human-reviewed claim correction
+
+`traust findings correction-request REPORT --finding UUID --assessment ORIGINAL_UUID
+--label LABEL --ticket CHANGE_RECORD --rationale WHY` requires a verified human
+login and a schema-valid corrected report for the original repository and commit.
+It retains the immutable proposal artifact on the original assessment and opens a
+`rebaseline_mapping` review. It does not admit fresh audit work or a verdict.
+
+`traust findings rebaseline REVIEW_UUID --ticket CHANGE_RECORD --rationale WHY`
+atomically records human acceptance and applies the stored proposal through canonical
+intake. It takes no replacement candidate from the command line, so approval cannot
+be reused for changed content. The stable finding UUID, original report/occurrence,
+judgement history and original assessment count are retained. Collision and repository
+checks still apply; correcting claim text is not a severity/validity judgement.
+
+`traust findings claim FINDING_UUID [--as-of ISO_WITH_ZONE]` reads the accepted
+corrected candidate, or null when there is none. Current finding views project the
+corrected title, description, locations, CWE and category while preserving the original
+reported severity and separate canonical decisions.
+
+## Container cumulative view and rating diagnostics
+
+`traust dashboard view container-findings --assessment-id CONTAINER_ASSESSMENT_UUID
+--report-stem IMAGE-container-audit --out DIRECTORY` exports cumulative JSON,
+Markdown and HTML under `IMAGE-container-audit-findings-current`, preserving the
+full case-sensitive image stem. The anchor is mandatory: only original container
+reports for its source repository and image repository contribute. Tag/digest
+changes keep the population; unrelated images and code audits do not. Canonical
+decisions determine state; absence from a later report never resolves a finding.
+`--as-of ISO_WITH_ZONE` selects the historical view.
+
+`traust dashboard view findings-rollup --category authorization --out DIRECTORY`
+adds `severity_cvss_mismatches` to the exact label-scoped population: documented
+and undocumented counts plus detailed scored-informational and two-band-downgrade
+diagnostics. Each score identifies its canonical occurrence or immutable original
+report source; the diagnostic does not rerate findings or infer categories from text.
+The retired RBAC tiers, pattern buckets and ATT&CK heat are not restored.

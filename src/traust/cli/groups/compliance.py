@@ -16,4 +16,5 @@ CHECK = passthrough_op("compliance", "The citation gate over an assessment.", "c
 RECORD = passthrough_op("compliance", "Record a gated assessment.", "record")
 LATEST = passthrough_op("compliance", "A boundary's newest recorded assessment.", "latest")
 ADRS = passthrough_op("compliance", "The decisions governing a product.", "adrs")
+DOCS = passthrough_op("compliance", "Fetch official guides for a registered product.", "docs")
 CALIBRATE = passthrough_op("compliance", "Evaluate twice; score on an answer key.", "calibrate")

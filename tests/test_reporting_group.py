@@ -2,11 +2,18 @@
 
 from __future__ import annotations
 
+import copy
 import json
 import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
+from traust_ledger.integrity import (
+    SigningConfig,
+    sign_if_configured,
+    stamp_merkle_metadata,
+)
 
 from tests.test_render_section_guard import FULL
 from tests.test_validate_report import _valid_report
@@ -175,3 +182,124 @@ def test_sarif_sweeps_a_results_root(tmp_path, capsys):
         == 0
     )
     assert (out_dir / "widget" / "widget-security-audit.sarif").is_file()
+
+
+@pytest.fixture(scope="module")
+def historical_signature_fixture(tmp_path_factory):
+    root = tmp_path_factory.mktemp("reporting-signatures")
+    layer = {
+        "metadata": {
+            "audit_report": "widget-security-audit.json",
+            "repository": "https://example.com/team/widget",
+            "created": "2026-05-21T12:00:00Z",
+            "harness_version": "0.1.0",
+        },
+        "events": [
+            {
+                "event_id": "a" * 64,
+                "finding_ref": "WIDGET-abcdef0-001",
+                "recorded_at": "2026-05-21T12:00:00Z",
+                "source": {
+                    "type": "triage_report",
+                    "ref": "widget-triage.json",
+                    "actor": {"kind": "machine", "identity": "triage"},
+                },
+                "disposition": {"validity": "confirmed"},
+                "rationale": "A reviewer confirmed the supplied execution evidence.",
+            }
+        ],
+        "needs_review": [],
+    }
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setenv("COSIGN_PASSWORD", "")
+        for name in ("trusted", "wrong"):
+            subprocess.run(
+                ["cosign", "generate-key-pair", "--output-key-prefix", str(root / name)],
+                check=True,
+                capture_output=True,
+            )
+        stamp_merkle_metadata(layer)
+        attempt = sign_if_configured(
+            layer, SigningConfig(method="keypair", key_path=str(root / "trusted.key"))
+        )
+        assert attempt.status == "signed", attempt.error
+    return layer, root / "trusted.pub", root / "wrong.pub"
+
+
+@pytest.mark.parametrize(
+    ("mutation", "expected"),
+    [
+        ("valid", 0),
+        ("tampered_content", 1),
+        ("tampered_root", 1),
+        ("wrong_key", 1),
+        ("missing_key", 1),
+        ("malformed_key", 1),
+        ("missing_signature", 1),
+        ("malformed_signature", 1),
+        ("schema_invalid", 1),
+    ],
+)
+def test_validate_signing_pubkey_runs_real_historical_verification(
+    tmp_path, historical_signature_fixture, mutation, expected
+):
+    original, public_key, wrong_key = historical_signature_fixture
+    layer = copy.deepcopy(original)
+    if mutation == "tampered_content":
+        layer["events"][0]["rationale"] = "An attacker rewrote the recorded rationale."
+    elif mutation == "tampered_root":
+        layer["metadata"]["merkle_root"] = "f" * 64
+    elif mutation == "wrong_key":
+        public_key = wrong_key
+    elif mutation in ("missing_key", "malformed_key"):
+        public_key = tmp_path / "unusable.pub"
+        if mutation == "malformed_key":
+            public_key.write_text("not a PEM public key", encoding="utf-8")
+    elif mutation == "missing_signature":
+        del layer["metadata"]["merkle_root_signature"]
+    elif mutation == "malformed_signature":
+        layer["metadata"]["merkle_root_signature"] = "not-a-signature"
+    elif mutation == "schema_invalid":
+        del layer["needs_review"]
+    path = _write(tmp_path / "widget-findings-layer.json", layer)
+    before = path.read_bytes()
+
+    assert (
+        cli(["reporting", "validate", str(path), "--signing-pubkey", str(public_key)]) == expected
+    )
+    assert path.read_bytes() == before
+
+
+def test_validate_signatures_uses_an_explicit_named_layer_schema(
+    tmp_path, historical_signature_fixture
+):
+    layer, public_key, _ = historical_signature_fixture
+    path = _write(tmp_path / "historical.json", layer)
+    assert (
+        cli(
+            [
+                "reporting",
+                "validate",
+                str(path),
+                "--schema",
+                "layer.schema.json",
+                "--signing-pubkey",
+                str(public_key),
+            ]
+        )
+        == 0
+    )
+
+
+def test_validate_unsigned_control_keeps_ordinary_audit_reports_and_layers(
+    tmp_path, historical_signature_fixture
+):
+    layer, public_key, _ = historical_signature_fixture
+    unsigned = copy.deepcopy(layer)
+    del unsigned["metadata"]["merkle_root_signature"]
+    path = _write(tmp_path / "widget-findings-layer.json", unsigned)
+    report = _write(tmp_path / "widget-security-audit.json", _valid_report())
+
+    assert cli(["reporting", "validate", str(path)]) == 0
+    assert cli(["reporting", "validate", str(report), "--signing-pubkey", str(public_key)]) == 0
+    assert cli(["reporting", "validate", str(tmp_path)]) == 0

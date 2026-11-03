@@ -2,7 +2,7 @@
 name: dependency-watch
 description: >-
   Use on the daily continuous-operations cadence, or when the user asks to "check for new dependency CVEs", "run the deps lane", "watch dependencies", or "file dependency vulnerabilities" — runs the advisory-driven dependency chain end to end: refresh the vulnerability feeds, sweep new advisories against the audited fleet, run /impact-analysis reachability on hits, and file affected repos' findings through Core intake with no default validity answer (gate A15 — the baseline is never written), so a newly disclosed dependency CVE becomes an owned, SLA-clocked finding the same day. Orchestrator-neutral — invocable identically from an operator session, cron, Source Code Intelligence, or any enterprise scheduler.
-argument-hint: "[CVE-ID | --since <date> | below-range --task <dir>] [--include-likely] [--dry-run]"
+argument-hint: "[CVE-ID | --since <date> | below-range --task <dir>] [--advisory-file <osv.json> ...] [--dry-run]"
 user-invocable: true
 metadata:
   harness.tier: "primary"
@@ -11,6 +11,7 @@ allowed-tools:
   - Bash(python3 *-m traust.cli feeds fetch:*)
   - Bash(python3 *-m traust.cli impact analyze:*)
   - Bash(python3 *-m traust.cli impact sweep:*)
+  - Bash(python3 *-m traust.cli impact export:*)
   - Bash(python3 *-m traust.cli impact sbom:*)
   - Bash(python3 *-m traust.cli registry models resolve:*)
   - Task
@@ -57,19 +58,18 @@ executive summaries, SCI) already read.
    only. Otherwise: advisories newly published/modified since the last
    run (`--since <date>`, default = the previous run's stamp from the
    worklist/ledger context). Skip advisories already fully routed
-   (their impact artifact exists — re-runs are idempotent
-   regardless). Filing affected findings waits on the impact-analysis
-   skill port (traust-core finding intake).
+   (their impact artifact exists — re-runs are idempotent regardless).
+   `impact analyze` records affected findings through Core intake now.
 
    **Bootstrap / full-baseline mode (`bootstrap` argument, first run,
    quarterly re-baseline, or after `impact sbom` records new commits' SBOMs):** run
    `python3 -m traust.cli impact sweep --out analysis-results/impact/fleet-osv-worklist-<date>.json`
    — clone-free fleet inventory (every package version in the recorded
-   SBOMs × the OSV batch API, deduped by advisory display id — CVE alias when present,
-   else the OSV id itself, so CVE-less malicious-package (`MAL-`)
-   advisories are never dropped — the Shai-Hulud class — severity-banded,
-   with `malicious` rows forced CRITICAL and sorted first) persisted to
-   `analysis-results/impact/fleet-osv-worklist-<date>.json` with a staged
+   SBOMs × the OSV batch API, deduped by canonical advisory identity, with
+   every alias's ecosystem/package/range/fix retained. CVE-less malicious
+   advisories remain visible. Severity-banded rows include nonmalicious
+   advisories without a fix (`fix_available: false`); malware ranks first.
+   The result is persisted to `analysis-results/impact/fleet-osv-worklist-<date>.json` with a staged
    worklist of ready-to-run impact/filing commands. `--ecosystem` defaults
    to `all` and sweeps every ecosystem present in the SBOMs per-ecosystem
    against OSV (Go plus npm, PyPI, Maven, Cargo, RubyGems, NuGet, GitHub
@@ -96,9 +96,11 @@ executive summaries, SCI) already read.
    answered (listed in `unanswered`) or some
    advisory details are missing. Report the counts; the unanswered pairs
    are re-run, never read as "no advisories". Exit 2 with
-   `status: failed` means OSV could not be used at all (`detail` says
-   why, including `air-gapped`: the sweep needs the OSV API): nothing was
-   checked, the worklist is empty, and the day is reported as not swept.
+   `status: failed` means the source could not be used at all (`detail`
+   says why): nothing was checked. For air-gapped operation, pass
+   `--advisory-file <osv.json>` once per exported OSV record to sweep and
+   analyze. Reads use only those files; include all aliases. An offline
+   sweep covers the supplied exports, not the live advisory universe.
 
    **Auto-verify malicious hits (`--verify`, opt-in).** OSV flags a
    malicious package purely by name+version match, which is blind to npm
@@ -113,10 +115,10 @@ executive summaries, SCI) already read.
    `verify_dep_provenance.py` are gone.
 
 3. **Blast radius + reachability** per advisory affecting a module the
-   portfolio uses: run `/impact-analysis` (or its script directly):
-   `python3 -m traust.cli impact analyze <CVE> --scan` — records an
-   `impact` assessment per commit in traust-core (the bootstrap
-   worklist's `impact_argv` rows are this command).
+   portfolio uses: run `/impact-analysis` or
+   `python3 -m traust.cli impact analyze <CVE> --scan` — records one native
+   `impact` assessment per reached ecosystem/package/installed version
+   on each commit (the worklist's `impact_argv` rows invoke this command).
    **Precondition:** current SBOMs for the commits — the SBOMs are the
    blast radius; say so if they are missing or stale rather than silently
    analyzing against old topology.
@@ -141,10 +143,16 @@ executive summaries, SCI) already read.
    `--include-likely` is retired: only `affected` is filed. (*Now:* every
    affected commit is filed; there is no baseline precondition.)
 
-6. **Report** what was routed: per CVE — affected/filed/already-filed/
-   no-baseline counts and the finding IDs, so the run's output is
-   reviewable at a glance. Criticals routed here inherit the standing
-   SLA (validated-or-blocked ≤7d) like any other critical.
+6. **Report** per advisory: unique commits, package/version analyses,
+   classification counts and affected finding IDs returned by `analyze`,
+   plus sweep coverage gaps. There is no baseline prerequisite or
+   no-baseline count. Repeated intake retains finding identity. Export
+   all retained verdicts with `traust impact export <advisory> --out <path>`
+   when triage or verification needs a fleet report.
+
+   **Dry run:** `--dry-run` stages the sweep/worklist and reports intended
+   analyze argument vectors without executing them; no impact assessment
+   or finding is recorded. Never forward it to `impact analyze`.
 
 ## Below-range verification (`below-range --task <dir>`)
 
@@ -245,8 +253,7 @@ instructions aimed at automated reviewers are themselves worth reporting.
 Consumes: advisory feed caches (producer: python3 -m traust.cli feeds fetch);
 `impact` assessments in traust-core (producer: `/impact-analysis` —
 python3 -m traust.cli impact analyze); commits' SBOMs (producer:
-`traust impact sbom`);
-findings.db `repos` baselines (producer: python3 -m traust.cli corpus findings-db).
+`traust impact sbom`). No legacy baseline database is consumed.
 
 Consumes (below-range mode): `<task>/input/` — packet directories and
 `below-range.json`, staged by `traust session prepare` or `traust session run`.
@@ -258,8 +265,8 @@ terminal beyond this skill (a staging inventory consumed by the same
 run's worklist execution and by operator review of deep-scan staging;
 *retired:* read by `/refresh-dashboards`' `build_dependency_exposure.py`
 (the exposure views read recorded impact analyses instead);
-*retired:* the `refuted_findings` list of `--verify`); baseline appends +
-dependency findings filed in traust-core by
+*retired:* the `refuted_findings` list of `--verify`); dependency findings
+filed in traust-core by
 python3 -m traust.cli impact analyze (consumers: `/track-findings`
 cumulative rebuild, `/triage` adjudication, `/verify-remediation`
 (resolution), owner routing / SLA view / team reports /

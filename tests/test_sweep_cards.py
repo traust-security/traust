@@ -16,6 +16,7 @@ from traust_core.v1.context import Context
 from traust_core.v1.models.common import ToolRequest
 from traust_core.v1.models.detection_quality import (
     CardEnumerator,
+    CardFactInput,
     CardRun,
     CardStatus,
     CardSweep,
@@ -36,12 +37,20 @@ VALID = [
 
 class Sweep:
     def __init__(self) -> None:
-        self.calls: list[tuple[list[str], ToolRequest]] = []
+        self.calls: list[tuple[list[str], ToolRequest | None]] = []
+        self.artifacts: list[tuple[CardFactInput, ...] | None] = []
 
-    def __call__(self, cards: tuple[PrecedentCard, ...], request: ToolRequest) -> CardSweep:
+    def __call__(
+        self,
+        cards: tuple[PrecedentCard, ...],
+        request: ToolRequest | None = None,
+        *,
+        artifacts: tuple[CardFactInput, ...] | None = None,
+    ) -> CardSweep:
         self.calls.append(([c.id for c in cards], request))
+        self.artifacts.append(artifacts)
         return CardSweep(
-            repo=request.workspace.name,
+            repo=request.workspace.name if request is not None else "artifact-input",
             cards=tuple(
                 CardRun(
                     id=c.id, enumerator=CardEnumerator(c.enumerator), status=CardStatus.COMPILED
@@ -129,3 +138,64 @@ def test_a_refused_file_is_exit_2(
 def test_a_missing_file_is_exit_2(door: Sweep, home: Path, tmp_path: Path) -> None:
     rc, err = call(home, tmp_path / "absent.yaml")
     assert rc == 2 and "absent.yaml" in err
+
+
+def test_artifacts_are_typed_and_swept_without_a_checkout(
+    door: Sweep, home: Path, tmp_path: Path
+) -> None:
+    artifact = tmp_path / "config.json"
+    artifact.write_text('{"triples": []}')
+    rc, out = call(
+        home,
+        PILOT,
+        "--artifact",
+        f"config-matrix={artifact}",
+        "--artifact",
+        f"config-matrix:pc-dsn-plaintext-default={artifact}",
+    )
+    assert rc == 0 and out["repo"] == "artifact-input"
+    assert door.calls == [(VALID, None)]
+    [provided] = door.artifacts
+    assert provided is not None
+    assert [(item.enumerator, item.card_id) for item in provided] == [
+        (CardEnumerator.CONFIG_MATRIX, None),
+        (CardEnumerator.CONFIG_MATRIX, "pc-dsn-plaintext-default"),
+    ]
+    assert provided[0].facts.triples == ()
+
+
+def test_artifacts_with_checkout_still_use_the_offline_service_mode(
+    door: Sweep, home: Path, tmp_path: Path
+) -> None:
+    artifact = tmp_path / "routes.json"
+    artifact.write_text('{"routes": []}')
+    checkout = tmp_path / "not-a-checkout"
+    rc, _ = call(home, PILOT, "--checkout", checkout, "--artifact", f"route-guards={artifact}")
+    assert rc == 0 and door.calls[0][1].workspace == checkout
+    assert door.artifacts[0] is not None
+
+
+@pytest.mark.parametrize("binding", ["route-guards", "=facts.json", "route-guards:=", "x="])
+def test_bad_artifact_bindings_are_exit_2(door: Sweep, home: Path, binding: str) -> None:
+    rc, error = call(home, PILOT, "--artifact", binding)
+    assert rc == 2 and "expected ENUMERATOR[:CARD]=JSON" in error
+    assert door.calls == []
+
+
+def test_duplicate_artifact_bindings_are_refused(door: Sweep, home: Path, tmp_path: Path) -> None:
+    artifact = tmp_path / "facts.json"
+    artifact.write_text('{"routes": []}')
+    spec = f"route-guards={artifact}"
+    rc, error = call(home, PILOT, "--artifact", spec, "--artifact", spec)
+    assert rc == 2 and "duplicate --artifact" in error
+    assert door.calls == []
+
+
+@pytest.mark.parametrize("content", ['{"routes": [{}]}', '{"routes": {}}', "{"])
+def test_malformed_artifacts_are_refused_before_sweeping(
+    door: Sweep, home: Path, tmp_path: Path, content: str
+) -> None:
+    artifact = tmp_path / "facts.json"
+    artifact.write_text(content)
+    rc, _ = call(home, PILOT, "--artifact", f"route-guards={artifact}")
+    assert rc == 2 and door.calls == []

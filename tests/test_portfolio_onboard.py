@@ -121,7 +121,7 @@ def test_plan_prints_urls_ids_and_gaps(home: Path, doors: SimpleNamespace) -> No
     assert (rc, out) == (
         0,
         {
-            "new": [{"url": REPO, "refs": [], "team": None}],
+            "new": [{"url": REPO, "refs": [], "team": None, "declaration": None}],
             "existing_repository_ids": [str(REPO_ID)],
             "gaps": [{"subject": "example", "reason": "product is not registered"}],
             "orders": [],
