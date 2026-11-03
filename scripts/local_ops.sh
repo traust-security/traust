@@ -52,7 +52,12 @@ if command -v podman >/dev/null 2>&1; then CT=podman; else CT=docker; fi
 # The toolchain installer (install-toolchain.sh) downloads pinned scanners into
 # HARNESS_BIN_DIR (default ~/.local/bin). Keep it on PATH for every rig command
 # so engine claims can run them even when the operator's shell profile doesn't.
-export PATH="${HARNESS_BIN_DIR:-$HOME/.local/bin}:$PATH"
+# HOME can be unset (stripped CI environments); then there is no default bin
+# dir to add, and the script must still dispatch — cleanup subcommands included.
+OPS_BIN_DIR="${HARNESS_BIN_DIR:-${HOME:+$HOME/.local/bin}}"
+if [ -n "$OPS_BIN_DIR" ]; then
+    export PATH="$OPS_BIN_DIR:$PATH"
+fi
 
 # The cadence compression: pack value → rig value (sed pairs).
 pack_overlay() {
@@ -141,7 +146,7 @@ cmd_up() {
     command -v syft >/dev/null 2>&1 || {
         echo "syft is missing and could not be installed: manifest_sbom orders need it." >&2
         echo "run: bash scripts/install-toolchain.sh local-ops" >&2
-        echo "then make ops-up again (or add ${HARNESS_BIN_DIR:-$HOME/.local/bin} to PATH)" >&2
+        echo "then make ops-up again (or add ${OPS_BIN_DIR:-the install-toolchain.sh bin dir} to PATH)" >&2
         return 1
     }
 
