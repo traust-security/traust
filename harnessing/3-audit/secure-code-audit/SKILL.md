@@ -364,12 +364,15 @@ configuration and trust boundaries**. File and apply the audit-time gates
 using only evidence available before recording; another repo's context
 does not establish this one's applicability.
 
-Precedent handling requires admitted native findings. `traust reporting
-record` stores an audit assessment and artifact only; it does not admit
-the report's findings. This is a current assessment-only audit handoff
-gap, not a reason to convert or rewrite the report. Only after a trusted,
-supported finding-intake/admission receipt exists can `traust triage
-prepare` supply native candidates and any matched precedents. If only the
+Precedent handling requires admitted native findings. For this skill's
+`--kind secure_code`, `traust reporting record` stores the canonical
+secure-code assessment/artifact only: `SECURE_CODE_CANONICAL` has no
+reported-findings admission mapping. This gap is specific to secure code,
+not canonical container/RPM/vuln-scan recording. Do not convert or rewrite
+the report to bypass it. Only separate actual supported admission of
+matching claims can supply a native assessment for `traust triage prepare`.
+Use that admitted assessment's identity, not the stored-only secure-code
+assessment ID. If only the
 assessment receipt exists or reported claims remain unadmitted,
 adjudication of those claims is unavailable, not a clean audit or proof
 of no findings. A genuinely empty batch after successful supported finding
@@ -1542,7 +1545,7 @@ Key profile obligations for this skill:
 - Always emit `review_surface_coverage`: one entry per review surface ([`review-surfaces.md` → Recording coverage](review-surfaces.md#recording-coverage)). Required from traust 0.20.0; the validator checks every `finding_ids`, `negative` and `not_assessed` entry against the rest of the report.
 - Include `metadata.loc_breakdown` on all new reports.
 - Stamp `metadata.additional.repo_status` from `progress-tracker/metrics/repo-liveness.json` when present (`active | archived | moved | missing`, with `status_since`); absent from the artifact → `"unknown: not in liveness artifact"`. **Record only** — status never changes findings, severity, or scan depth: archived code that ships is exactly as exploitable as live code. Consumers read the artifact; do not re-query GitHub.
-- Core computes the cross-scan `fingerprint` on supported finding intake, not assessment-only `reporting record`; never stamp it into the report.
+- Core computes cross-scan `fingerprint` on native finding admission, not this skill's assessment-only `reporting record --kind secure_code`; never stamp it into the report.
 
 ### Field Conventions
 
@@ -1644,13 +1647,13 @@ If errors appear, read each error message, fix the JSON, and re-run the validato
 Core computes cross-scan identity on supported **finding intake** —
 never model-authored or stamped into this report. It uses the canonical
 repo URL, lineless location paths and primary CWE. Changing locations or
-CWEs can change that identity. `traust reporting record` only stores the
-assessment/artifact; its receipt is not a finding-admission receipt and
-does not complete finding identity.
+CWEs can change that identity. This skill's `traust reporting record
+--kind secure_code` stores the assessment/artifact only; its receipt is not
+a finding-admission receipt and does not complete finding identity.
 
-Only after a trusted supported finding-intake/admission receipt exists,
-the following is an **optional diagnostic lookup**, not a required
-post-record check:
+Only after separate actual supported admission of matching claims, using
+the corresponding admitted native assessment for triage, is the following
+an **optional diagnostic lookup**, not a required post-record check:
 
 ```bash
 traust findings find <path-to-report.json> --label <report-local-finding-id> \
@@ -1719,8 +1722,10 @@ admission checks at this door; compatibility validation and rendering are
 not a substitute. Preserve historical reports and stored-run replay
 rather than rewriting them to satisfy new-authorship rules.
 
-**Current handoff gap:** this door does not call finding intake or admit
-the report's findings as native candidates. Retain its assessment receipt
+**Current secure-code handoff gap:** `SECURE_CODE_CANONICAL` recording
+does not admit this report's findings as native candidates. This is not
+the behavior of canonical container/RPM/vuln-scan recording. Retain this
+secure-code assessment receipt
 and the original artifact. If there is no trusted supported admission
 receipt, or artifact claims remain unadmitted, report their native
 adjudication/identity/precedent handoff as unavailable. Successful supported

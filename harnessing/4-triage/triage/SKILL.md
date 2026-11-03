@@ -303,12 +303,14 @@ checkpoint as `core_input`; carry its subject/assessor unchanged, and use
 this native shape, stop and report the input error; never fall back to
 scanner parsing or make up absent source fields. An empty `items[]` is not
 a reason to scan the checkout for new findings. When the trusted caller's
-source binding establishes successful supported finding intake of a
+source binding establishes successful native admission (canonical
+container/RPM/vuln-scan recording or supported scanner intake) of a
 genuinely empty batch, it is valid: skip candidate-dependent work and
 continue to Phase 6 with zero native-batch counts under the existing
 artifact contract; recording remains the external caller's responsibility.
-If only assessment/artifact storage is established, or source claims
-remain unadmitted, report their adjudication unavailable instead. Never
+If only secure-code assessment/artifact storage is established, without
+separate matching native admission, or source claims remain unadmitted,
+report their adjudication unavailable instead. Never
 treat either case as proof the repository is secure or erase unadmitted
 source claims. Use existing trusted provenance, not new DTO fields.
 The trusted caller owns preparation and source binding. Do not query Core
@@ -322,17 +324,21 @@ Continue with 1b, skipping all (A)/(B)/(C) detection below.
   Only actual admitted native `items[]` are findings to judge (1b maps
   them), with their supplied `locations` and any `precedents` (2g);
   `subject` names the repository URL and commit (`sha`) to check out.
-  `traust reporting record` stores an audit/scan assessment and artifact
-  only, not admitted findings. Its receipt does not guarantee `items[]`
-  or precedents: this is the current assessment-only audit handoff gap.
-  Native recorded adjudication requires trusted supported
-  finding-intake/admission evidence. If that is absent, or source artifact
-  claims remain unadmitted, report their adjudication unavailable and skip
-  Phase 6e; empty prepared items are not proof of a clean audit. In
-  contrast, successful supported intake of a genuinely empty batch is valid:
-  skip candidate-dependent work, keep zero native counts, and follow the
-  existing Phase 6 artifact/recording contract. Use the assessment ID
-  returned by that intake, not the original assessment-only audit ID.
+  Admission depends on the actual kind and successful canonical-record
+  receipt. Core's reported-findings mapping admits canonical `container`,
+  `rpm` and `vuln_scan` findings atomically when recording uses that kind's
+  recorded schema. For these successful records, use the returned
+  assessment ID directly: no separate intake, wait or unavailable warning
+  is needed. Genuine zero-finding reports are valid empty native batches
+  under the existing Phase 6 artifact/recording contract.
+
+  `secure_code` (`SECURE_CODE_CANONICAL`) is absent from that mapping:
+  its receipt establishes assessment/artifact storage only. Without
+  separate actual admission of matching claims, their native adjudication
+  is unavailable; skip Phase 6e for that stored-only source. If matching
+  claims are separately admitted, use that admission's native assessment
+  ID, not the original secure-code audit ID. Empty prepared items from
+  a stored-only secure-code assessment are not proof of a clean audit.
   Retain the original source artifact and receipts. Do not invent an
   audit-intake CLI, synthesize native IDs, silently convert an audit into
   scanner input, or automatically fall back to (C) to imply admission.
@@ -342,8 +348,8 @@ Continue with 1b, skipping all (A)/(B)/(C) detection below.
   `-o sarif`, grype `-o sarif`, govulncheck `-format sarif`), a
   Dependabot alerts JSON export, or a govulncheck `-json` stream (never
   run govulncheck from inside triage, Phase 2e; this only *reads* a
-  stream the user supplies). Unlike assessment-only `reporting record`,
-  this supported scanner intake admits native findings. Continue as (A)
+  stream the user supplies). This supported scanner intake also admits
+  native findings. Continue as (A)
   with its printed `assessment_id` and retain its admission receipt:
 
   ```bash
@@ -763,14 +769,15 @@ first.
 
 This is the post-record owner of precedent handling for all four audit
 skills (`/secure-code-audit`, `/vuln-scan`, `/secure-container-audit`,
-`/secure-rpm-audit`) when native findings are admitted. `reporting record`
-alone stores the assessment/artifact and guarantees neither candidates
-nor matches. Without trusted supported admission, or where source claims
-remain unadmitted, their adjudication is unavailable, not a clean audit or
-no-findings proof. Successful intake of a genuinely empty batch is valid
-but has no per-finding precedent work; preserve its zero-count contract.
-Use only native prepared input tied to supported finding admission, never
-an audit-time lookup, second matcher, invented intake CLI or converted report.
+`/secure-rpm-audit`) when native items exist. Successful canonical
+container/RPM/vuln-scan `reporting record` supplies native admission under
+the returned assessment ID; no second intake is needed. Secure-code
+recording is assessment/artifact-only and needs separate matching native
+admission before recorded claim adjudication. Apply the actual kind and
+receipt rules in 1a, never a blanket recording rule. Valid empty admitted
+batches have no per-finding precedent work and retain their zero-count
+contract. Use only the supplied native prepared evidence, never an
+audit-time lookup, second matcher, invented intake CLI or converted report.
 Preserve each supplied precedent and its provenance in working state;
 read its native `reason.strength` for routing:
 
@@ -1654,7 +1661,7 @@ findings and duplicates only). If the renderer errors, fix `<repo>-triage.json`
 and re-run 6c rather than writing the Markdown by hand — divergent
 hand-built reports are exactly what the renderer exists to prevent.
 
-### 6e. Record the verdicts (input A/B with supported native finding intake)
+### 6e. Record the verdicts (input A/B with supported native admission)
 
 **For input (D), skip this entire section.** Do not call Core, create a
 replacement assessment or print a fabricated recording receipt. Report that
@@ -1662,17 +1669,22 @@ canonical output is ready for the external SDK caller to record against the
 unchanged prepared source subject. All verification, canonical-write
 validation and deterministic rendering still run before completion.
 
-For input (A)/(B) with only assessment/artifact storage, no trusted
-supported admission evidence, or unadmitted source claims, do not claim
-recorded adjudication of those claims; report the handoff gap and preserve
-the source receipts/artifacts. Do not call `triage record` against the
-assessment-only audit ID to bridge that gap.
+For input (A)/(B), successful canonical container/RPM/vuln-scan recording
+already admits findings: use its returned assessment ID directly. A
+supported scanner-intake receipt likewise supplies its native assessment.
+Do not require another intake or wait after either successful admission.
 
-A genuinely empty native batch after successful supported finding intake
-is valid and follows this existing recording contract with zero decisions.
-Do not blanket-skip recording merely because `items[]` is empty. Use the
-intake's assessment ID and preserve its successful receipt; zero native
-counts describe that batch, not proof the repository is secure.
+In contrast, a secure-code assessment/artifact-only receipt does not admit
+its claims. Without separate actual matching admission, report that
+profile's handoff gap, preserve the original source and do not call
+`triage record` against the stored-only secure-code assessment ID to bridge
+it. Separately admitted claims use their actual native assessment ID.
+
+A genuinely empty batch from successful canonical recording for an
+admitting kind or supported scanner intake follows this existing recording
+contract with zero decisions. Do not skip it as unavailable merely because
+`items[]` is empty. Preserve the successful receipt and use its assessment
+ID; zero native counts do not prove the repository secure.
 
 Bash:
 
@@ -1702,8 +1714,9 @@ a triage whose verdicts don't match the assessment's admitted findings
 1b / 6b using actual native evidence only. Unadmitted source claims instead
 require the explicit handoff-gap report above, never invented fingerprints,
 replacement assessments or a retry presented as admission. A genuinely
-empty batch after successful supported intake is not a missing-fingerprint
-error and retains the normal zero-decision contract.
+empty batch after successful native admission, including canonical
+container/RPM/vuln-scan recording, is not a missing-fingerprint error and
+retains the normal zero-decision contract.
 
 Retain the JSON receipt when validation follows. `baseline_assessment_id` is
 the actual input; each `records[]` item exposes the native recorded decision,
@@ -1728,17 +1741,19 @@ fresh.
 
 Under ~14 lines:
 
-For an assessment-only source without trusted supported admission, or
-with unadmitted claims, replace the completion claim below with
+For a secure-code assessment-only source without separate actual matching
+native admission, or other genuinely unadmitted source claims, replace
+the completion claim below with
 `Adjudication unavailable: source claims lack supported native admission`.
-Report storage separately from admission; do not claim those source
-claims were adjudicated, identity-matched or precedent-processed.
+Do not apply that warning to a successful canonical container/RPM/vuln-scan
+record: these kinds admit their findings under the returned assessment.
 
-A genuinely empty native batch after successful supported finding intake
-is valid: report completion with zero native-batch counts and the actual
-artifact/recording outcome (for D, output ready for the external caller).
-Do not label it unavailable merely because it is empty. Neither valid
-zero counts nor an admission gap proves the repository secure.
+A genuinely empty native batch after successful canonical recording for
+an admitting kind or supported scanner intake is valid: report completion
+with zero native-batch counts and the actual artifact/recording outcome
+(for D, output ready for the external caller). Do not label it unavailable
+or request another intake merely because it is empty. Neither valid zero
+counts nor an admission gap proves the repository secure.
 
 ```
 Triage complete: {N} findings -> {T} non-weakness true positives, {G} confirmed weaknesses, {U} undetermined, {F} false positives, {D} duplicates.
@@ -1884,10 +1899,12 @@ for environment context; `*-impact-analysis.json` from
 `analysis-results/impact/` (Phase 2f); precedents from `traust triage prepare`
 (Phase 2g), or the same native `TriageInput` staged read-only by a trusted
 caller with `--prepared-input` (input D; no in-process intake/prepare/record).
-Assessment/artifact storage alone does not admit findings: recorded
-adjudication and Phase 2g require actual native candidates tied to
-supported admission. Generic artifact review remains input (C), without
-recorded decisions; do not silently convert it into a native batch.
+Admission is kind-specific: successful canonical container/RPM/vuln-scan
+recording admits native findings under its returned assessment ID;
+secure-code recording stores only the assessment/artifact. Recorded
+adjudication and Phase 2g consume the actual native prepared items.
+Generic artifact review remains input (C), without recorded decisions;
+do not silently convert it into a native batch.
 
 **Emits:** `<repo>-triage.{json,md}` next to the input report —
 consumed by `/patch` and as explicitly bound source evidence by

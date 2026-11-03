@@ -349,16 +349,13 @@ compiled components and configuration**. Apply the audit-time gates and
 file using only evidence available before recording; another repo's
 context does not prove this spec compiles the component the same way.
 
-Precedent handling requires admitted native findings. `reporting record`
-stores the assessment/artifact only, not the report's native findings:
-this is the current assessment-only audit handoff gap. Only a trusted
-supported finding-intake/admission receipt establishes candidates for
-`traust triage prepare` and any precedent matches. Without trusted
-admission, or where package-audit claims remain unadmitted, their
-adjudication is unavailable, not a clean package audit or no-findings proof.
-A genuinely empty batch after successful supported finding intake is
-valid, with zero native counts under triage's existing contract, not proof
-the package is secure. Do not convert or rewrite the report to bypass the gap.
+Successful canonical `reporting record --kind rpm` stores the
+assessment/artifact and atomically admits its findings under Core's
+recorded schema. Pass the returned assessment ID directly to `traust
+triage prepare`; current-finding lookups can read the admitted findings
+without another intake or wait. Precedent matching is post-record only, for actual native
+items. A canonical report with zero findings is a valid empty native
+batch, not proof the package is secure. Do not rewrite or convert the report.
 For admitted candidates, `/triage` Phase 2g owns the supplied `precedents`,
 their provenance, verification routing and subsequent adjudication.
 Do not require a pre-filing match, downgrade on an
@@ -594,11 +591,11 @@ Where:
 - `<component>` is the source package name (the `Name:` field from the spec, e.g. `389-ds-base`).
 
 The standard `-security-audit.json` filename and
-`metadata.audit_profile: "rpm"` identify the report artifact and profile,
-not native finding admission. File discovery, census/dashboard inclusion
-or assessment storage does not automatically create disposition-ledger
-findings for `/triage`, `/validate-findings` or `/track-findings`; the
-assessment-only handoff gap in Step 5 still applies.
+`metadata.audit_profile: "rpm"` identify the report artifact/profile.
+File discovery or census/dashboard inclusion alone is not admission.
+Successful canonical `reporting record --kind rpm` does atomically admit
+the report's findings, making its returned assessment ID available
+directly for native triage and current-finding reads (Step 5).
 
 **Ref provenance.** Stamp `metadata.ref: "<stream>"` with `metadata.ref_kind: "stream"`. A dist-git stream is a **mainline deliverable audited in its own right** — `"stream"` keeps the report in the census HEAD cuts, whereas `"branch"` would misclassify it as a branch re-audit and drop it from every headline count. Never stamp `ref_kind: "branch"` for a stream checkout.
 
@@ -651,8 +648,8 @@ Reports are **JSON files** validated against `contracts/schemas/report.schema.js
 Read it before writing the report — it defines the required/optional
 top-level keys, the authored finding fields, and this skill's profile
 deltas (`metadata.audit_profile: "rpm"`). Core's cross-scan finding
-identity is computed on supported native finding intake, not stamped
-into the report or completed by assessment-only recording. The schema
+identity is computed on native finding admission, including successful
+canonical RPM recording, never model-stamped into the report. The schema
 (`contracts/schemas/report.schema.json`) remains the authoritative source for types
 and constraints. Do not restate the tables here — duplicated copies drift.
 
@@ -675,7 +672,7 @@ Key profile obligations for this skill:
 - `metadata.repository` = dist-git URL; upstream Source0/Version/Release/patches under `metadata.additional`.
 - `category` uses the `RPM01`–`RPM10` packaging taxonomy; digit-leading slugs take the `RPM_` prefix.
 - Emit `review_surface_coverage`, one entry per review surface (see *Review surfaces* above). Required from traust 0.21.0; the validator checks every entry against the rest of the report.
-- After validation, `reporting record` (Step 5) stores the assessment/artifact only; it does not admit native findings or complete fingerprint identity. Preserve its receipt and report the finding-admission handoff gap.
+- Successful canonical `reporting record --kind rpm` (Step 5) atomically admits the report's findings by Core-computed identity. Preserve its receipt and use the returned assessment ID for native triage preparation; current-finding reads can use the admitted findings without separate intake.
 
 ### Report Validation
 
@@ -733,15 +730,13 @@ remediation fields.** Do not begin analysis of the next component before
 both succeed. Compatibility validation and rendering alone are not
 publication; historical reports and stored-run replay are not rewritten.
 
-**Current handoff gap:** this is assessment/artifact storage, not native
-finding intake. The assessment receipt does not establish candidates for
-recorded triage, precedent matching or finding identity. Without trusted
-supported admission, or for unadmitted source claims, that handoff remains
-unavailable. A genuinely empty batch after successful supported intake
-instead follows triage's existing zero-count contract using the intake's
-assessment ID, not the assessment-only audit's ID. Keep the original
-report; do not invent an audit-intake CLI or silently convert/rewrite it.
-Neither an admission gap nor valid zero native counts proves a clean audit.
+**Native finding handoff:** successful canonical RPM recording admits the
+report's findings under the returned assessment ID. Pass that ID directly
+to `traust triage prepare`; current-finding lookups can read the admitted
+findings without another intake. Genuine zero-finding canonical reports
+follow the valid empty-batch contract, not an unavailable-adjudication
+path. Preserve the original report; admission does not author a validity
+verdict or guarantee precedent matches.
 
 ## Spend declaration (calibration tuple)
 

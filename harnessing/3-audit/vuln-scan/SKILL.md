@@ -8,9 +8,9 @@ description: >-
   ({REPO_SLUG}-{SHORTSHA}-{NNN}) and the shared severity enum, for /triage
   to consume. When traust-core holds a baseline for the repository, the scan
   supplements it: known admitted findings are deduped against the baseline.
-  The report is stored as a scan assessment/artifact, not admitted native
-  findings; the current finding-admission handoff gap is reported explicitly.
-  No validity answer is authored; triage adjudicates available candidates —
+  Successful canonical recording stores the scan assessment/artifact and
+  atomically admits its findings under the returned assessment ID.
+  No validity answer is authored; triage adjudicates downstream —
   /secure-code-audit remains the preferred baseline and
   /verify-remediation the way to update it after fixes. Read-only — no
   building, running, or network. Use when asked to "scan for vulns",
@@ -92,14 +92,13 @@ ingests directly.
   `/secure-code-audit`: a fast sweep for **new** candidate findings (new
   code, new release, a focus area the audit under-covered). When a
   baseline exists this skill **reads** its admitted findings to dedupe.
-  `reporting record` stores the scan assessment and artifact only, not
-  native findings; do not claim direct ledger entry or equivalent
-  visibility in native finding reads. The current finding-admission
-  handoff gap is explicit in Step 5. The baseline itself is off limits:
-  only the three `secure*audit` skills may write one (alignment gate
-  **A15**). `/triage` remains the downstream adjudicator when native
-  findings actually exist; recording the artifact alone does not supply
-  candidates or precedents.
+  Successful canonical `reporting record --kind vuln_scan` stores the scan
+  assessment/artifact and atomically admits its new findings, with no
+  authored validity answer or triage precondition. Use that returned
+  assessment ID directly for native triage; no separate intake is needed.
+  The baseline itself is off limits: only the three `secure*audit` skills
+  may write one (alignment gate **A15**). `/triage` remains the downstream
+  adjudicator; precedent handling occurs only for actual native items.
 
 **This skill does not execute code.** It reads source and reasons about it.
 For execution-verified findings (ASAN crashes, reproducing PoCs), point the
@@ -376,9 +375,10 @@ exactly as it does to files read from the checkout.
    `finding.id`, title, locations, cwes, severity) into a **baseline
    table** for Step 3 dedupe, and record `baseline_assessment_id` + the
    finding count for the output metadata. If there are none, distinguish
-   absent admitted findings from an absent audit assessment: an
-   assessment-only audit can have reported candidates without native
-   baseline rows. State that limitation; an empty baseline is not clean
+   absent admitted findings from an absent code-audit assessment:
+   `secure_code` recording can store claims without native baseline rows,
+   unlike successful canonical `vuln_scan` recording. State that limitation;
+   an empty baseline is not clean
    audit evidence. Recommend `/secure-code-audit` only when campaign-grade
    audit coverage is actually missing.
 4. If no threat model and no `--focus`: do a **quick recon** — list the
@@ -741,16 +741,13 @@ For candidates in vendored/shared code (`vendor/`, `third_party/`,
 `node_modules/`, …), independently check **this repo's own wiring,
 configuration and trust boundaries** and record only the local evidence
 available before recording. Do not require a pre-filing precedent match
-or downgrade on one. `reporting record` stores the assessment/artifact
-only, not native findings: this is the current finding-admission handoff
-gap. Matching through `traust triage prepare` requires a trusted supported
-finding-intake/admission receipt; actual native candidates are needed for
-per-finding adjudication and matches. Without trusted admission, or where
-report claims remain unadmitted, their adjudication is unavailable, not a
-clean scan or no-findings proof. A genuinely empty batch after successful
-supported intake is valid, with zero native counts under triage's existing
-contract, not proof the repository is secure. Do not convert or rewrite
-this report to bypass the admission gap.
+or downgrade on one. Successful canonical `reporting record --kind
+vuln_scan` atomically admits the report's findings; its returned assessment
+ID can be passed directly to `traust triage prepare` to obtain native
+items and IDs; no second intake is needed. Precedent matching is post-record
+only, for actual native items. A canonical report with zero findings produces a valid empty
+batch under triage's existing contract, not proof the repository is secure.
+Do not rewrite the scan artifact or invent another intake command.
 
 `/triage` Phase 2g owns the supplied `precedents`, their provenance,
 verification routing and subsequent adjudication. Human-countersigned
@@ -945,15 +942,12 @@ Tell the user:
    K known findings deduped against the baseline, across F focus areas
    and M source files.
 2. Top 3 by confidence, one line each.
-3. Next steps — distinguish artifact storage from finding admission:
-   - Verify locally: `> /triage <target-dir>/<repo>-vuln-findings.json --repo <target-dir>`.
-     This is generic input (C), not native admission or recorded decisions.
-   - Store the scan assessment/artifact **without claiming ledger entry**.
-     **NEVER write the baseline.** Only `/secure-code-audit`,
+3. Next steps — record canonical candidates, then adjudicate:
+   - **NEVER write the baseline.** Only `/secure-code-audit`,
      `/secure-rpm-audit` and `/secure-container-audit` may write
      `*-{security,rpm,container}-audit.json` — enforced by alignment gate
-     **A15**. Do not append candidates to an old baseline, invent an
-     audit-intake CLI, or convert this report into scanner input.
+     **A15**. Do not append candidates to an old baseline or convert this
+     report into scanner input; canonical recording already admits it.
 
      Record the scan in traust-core once the validator passes:
 
@@ -963,30 +957,30 @@ Tell the user:
          --sha <the scanned commit>
      ```
 
-     It stores a vuln-scan assessment of that commit and the report as
-     its artifact (schema-checked; re-recording the same `scanned_at` is
-     the same run). It does **not** call finding intake or admit the
-     report's `findings[]` as native findings. Its assessment receipt
-     proves storage only, not admission, identity completion or findings
-     visibility. Preserve the original report and receipt and state this
-     current assessment-only handoff gap explicitly.
-
-     No validity answer is authored: do not add a `validation_status`
-     property or infer confirmation from confidence scores. Native
-     `/triage` requires trusted supported finding-intake/admission evidence.
-     Without it, or where scan claims remain unadmitted, their native
-     adjudication is unavailable, not a clean scan or no-findings proof.
-     A genuinely empty batch after successful supported intake is valid
-     under triage's existing zero-count artifact/recording contract. Use
-     the intake's assessment ID, not the assessment-only scan's ID.
-     For actual native findings, decisions flow through `traust triage
-     record` → `/track-findings`; never hand-edit an existing baseline or
-     silently rewrite the scan artifact.
+     Successful canonical recording stores the vuln-scan assessment and
+     artifact and atomically admits its `findings[]` as native findings
+     under Core's recorded schema. Re-recording the same `scanned_at` is
+     the same run. Preserve the original report and returned receipt.
+     Hand the returned assessment ID directly to `/triage`'s existing
+     input (A) workflow, which runs `traust triage prepare` under triage's
+     own permissions, and consumes the returned native items and IDs.
+     Do not use `traust findings find` on `*-vuln-findings.json`: its
+     `file`/`cwe` shape is not that command's report `locations`/`cwes`
+     input. Do not convert or rewrite the report to make it fit.
+     No separate intake, waiting period or admission-gap warning is needed
+     for this successful canonical record. An empty canonical
+     report is a valid zero-native-findings batch, not proof of security.
+     No validity answer is authored: do not add `validation_status` or
+     infer confirmation from confidence scores. Phase 2g handles any
+     supplied precedents for actual items; decisions flow through
+     `traust triage record` → `/track-findings`. Never rewrite the baseline
+     or scan artifact. Direct review of the raw file remains generic input
+     (C), without native decision recording.
    - No audit assessment? Recommend `/secure-code-audit <target>` for
      campaign-grade report coverage; this scan remains a leads artifact.
-     An existing audit assessment without trusted supported admission, or
-     with unadmitted claims, has the handoff gap above; do not call it a
-     missing or clean audit. A valid empty native intake is distinct.
+     An existing secure-code assessment without separately admitted claims
+     has that profile's distinct handoff gap; do not infer it applies to
+     this successfully recorded canonical scan.
    - Repository not registered (Step 1.2 exit 2)? Say so, and ask to
      register it (`/add-inputs <repo-url> --product <slug>`): until then
      traust-core holds no threat model or baseline for it.
@@ -1008,9 +1002,8 @@ Tell the user:
   reproduction).
 - **Never modify the baseline audit.** This skill reads admitted native
   findings for dedupe only. Neither scan recording nor later triage
-  appends to or rewrites the baseline artifact. Decisions for admitted
-  findings use the append-only ledger; assessment storage does not create
-  those findings.
+  appends to or rewrites the baseline artifact. Canonical scan recording
+  admits its findings; subsequent decisions use the append-only ledger.
 - **Don't fabricate line numbers.** Every `file:line` you emit must be
   something you Read or Grep'd. If unsure of the exact line, cite the
   function and say so in the description.
@@ -1044,19 +1037,20 @@ Consumed artifacts (producer named per artifact):
   fact that gates the LLM application focus area and its checklist
   (`/secure-code-audit`'s `llm-application-review.md`); never a finding.
 - Precedents — no cache file; Core matches admitted native findings and
-  `/triage` owns Phase 2g provenance and verification routing. A stored
-  assessment alone does not supply candidates or precedents; see Step 5.
+  `/triage` owns Phase 2g provenance and verification routing. Successful
+  canonical scan recording supplies native findings for preparation;
+  actual precedent matches are optional, never verdicts.
 
 Emitted artifacts:
 
-- `<repo>-vuln-findings.json` — consumed by `/triage` as generic input (C)
-  and `/patch`; stored as the vuln-scan assessment's artifact, without
-  native finding admission or an authored validity answer. Without trusted
-  supported admission, or for unadmitted claims, native adjudication is
-  unavailable; a successful genuinely empty native intake remains valid
-  under triage's existing contract (Step 5). The baseline is never written
-  (gate A15), and this
-  artifact has no `validation_status` field.
+- `<repo>-vuln-findings.json` — stored as the canonical scan assessment's
+  artifact, with its findings atomically admitted on successful canonical
+  `reporting record --kind vuln_scan`. `/triage` consumes the native
+  prepared assessment for recorded adjudication, or the raw file as
+  generic input (C); `/patch` also consumes the artifact. No separate
+  intake is required after successful canonical recording (Step 5).
+  The baseline is never written (gate A15), and this artifact has no
+  `validation_status` field.
 - `<repo>-vuln-findings.md` — human companion of the JSON.
 - `metadata.additional.coverage_diff` (diff mode) — consumed by the
   continuous-operations rescan telemetry: the refused/covered split feeds

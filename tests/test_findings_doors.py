@@ -19,6 +19,7 @@ from traust_core.v1.providers.base import Acquisition, Result
 
 from tests.test_triage_doors import SARIF, SHA
 from tests.test_validate_report import _canonical_report
+from tests.test_validate_vuln_findings import _valid_doc as _canonical_vuln_findings
 from traust.cli import auth, findings, triage
 from traust.cli.__main__ import main
 from traust.context import load
@@ -667,7 +668,47 @@ def test_review_evidence_preserves_binary_bytes_losslessly() -> None:
     assert "document" not in evidence
 
 
-def test_audit_recording_is_not_native_finding_admission(home: Path, tmp_path: Path) -> None:
+@pytest.mark.parametrize("kind", ["container", "rpm", "vuln_scan"])
+def test_recorded_audit_findings_are_ready_for_native_triage(
+    home: Path, tmp_path: Path, kind: str
+) -> None:
+    document = _canonical_vuln_findings() if kind == "vuln_scan" else _canonical_report()
+    if kind != "vuln_scan":
+        document["metadata"]["repository"] = REPO
+    report = tmp_path / "audit.json"
+    report.write_text(json.dumps(document))
+    original = report.read_bytes()
+
+    rc, recorded = registered(
+        home,
+        "reporting",
+        "record",
+        str(report),
+        "--kind",
+        kind,
+        "--repo-url",
+        REPO,
+        "--sha",
+        SHA,
+    )
+    assert rc == 0, recorded
+    rc, prepared = run(triage.prepare, home, recorded["id"])
+    assert rc == 0, prepared
+    items = {item["finding"]["title"]: item for item in prepared["items"]}
+    assert items.keys() == {entry["title"] for entry in document["findings"]}
+    for entry in document["findings"]:
+        item = items[entry["title"]]
+        expected_path = entry["file"] if kind == "vuln_scan" else entry["locations"][0]["path"]
+        assert item["occurrence"]["severity"] == entry["severity"]
+        assert item["locations"][0]["path"] == expected_path
+        if kind != "vuln_scan":
+            assert run(
+                findings.find, home, str(report), "--label", entry["id"], "--repo-url", REPO
+            ) == (0, {"label": entry["id"], "finding_id": item["finding"]["id"]})
+    assert report.read_bytes() == original
+
+
+def test_secure_code_recording_is_not_native_finding_admission(home: Path, tmp_path: Path) -> None:
     document = _canonical_report()
     document["metadata"]["repository"] = REPO
     report = tmp_path / "canary-security-audit.json"

@@ -56,7 +56,7 @@ No report or layer bytes are rewritten.
 | Field | Required | Description |
 |---|---|---|
 | `id` | Yes | Globally-unique **scan-scoped** ID `{REPO_SLUG}-{SHORTSHA}-{NNN}`. Provenance to an exact commit; unique across the corpus. Never reuse across scans. |
-| `fingerprint` | No (historical report field) | **Cross-scan identity** is computed by Core's supported finding intake from the canonical repo URL, sorted lineless location paths and primary CWE — never model-authored. `reporting record` stores an assessment/artifact only; it neither admits native findings nor stamps this field. A finding-store identity exists only after finding admission. Historical report fingerprints remain readable, but are not an admission receipt or a reason to revive report stamping or layer-based alias writers. |
+| `fingerprint` | No (historical report field) | **Cross-scan identity** is computed by Core's supported finding intake from the canonical repo URL, sorted lineless location paths and primary CWE — never model-authored. Canonical container/RPM recording admits findings and computes their stored identity; secure-code recording stores the assessment/artifact without admitting findings. Neither path stamps this report field. Historical report fingerprints remain readable, but are not an admission receipt or a reason to revive report stamping or layer-based alias writers. |
 | `title` | Yes | Short description (≥5 chars). |
 | `kind` | No | Explicit finding classification from the installed [finding-kind vocabulary](https://github.com/traust-security/traust-contracts/blob/development/enums/v1/finding-kind.json). Use it to distinguish a vulnerability from a defense-in-depth weakness; omission remains unknown. Kind is not a validity answer or evidence grade. Core intake preserves it for a new finding without reclassifying an existing one. |
 | `severity` | Yes | `critical` \| `high` \| `medium` \| `low` \| `informational`. |
@@ -283,16 +283,20 @@ apply unrelated classifier policies, or recreate retired report writers.
    instructions (container source labels identify its source commit).
    A new report is not published until Core accepts the record. An
    admission error is not a reason to guess a size or priority.
-   The receipt identifies an assessment/artifact, **not finding admission**.
-   The current canonical-audit recording path does not automatically create native
-   findings or triage bindings. A trusted supported intake receipt and its admitted
-   assessment/candidates are prerequisites for native triage and precedent handling.
-   `findings find <report.json> --label <report-local-id> --repo-url <audited-source-url>`
-   is then an optional diagnostic: exit 0 with `finding_id: null` means no match,
-   not a completed identity check. Preparing the assessment-only audit can return
-   no native items even while its report contains findings; that is an admission
-   gap, not evidence of a clean audit. Do not invent an intake command, convert or
-   rewrite the audit to imply admission, or stamp a caller-generated identity.
+   Finding admission depends on the kind: canonical `container` and `rpm`
+   reports admit their findings atomically with recording. Use their returned
+   assessment ID with `triage prepare` for native findings and any matching
+   precedents; no separate intake receipt is required. Canonical `vuln_scan`
+   documents likewise admit their findings when recorded.
+   `secure_code` records only the assessment/artifact; report its admission
+   handoff gap until a supported intake supplies admitted candidates and their
+   actual assessment binding. `benchmark_audit` reports are scored, not admitted.
+   After admission, `findings find <report.json> --label <report-local-id>
+   --repo-url <audited-source-url>` is an optional report-label diagnostic:
+   exit 0 with `finding_id: null` means no match, not a completed identity check.
+   An empty assessment-only secure-code batch can coexist with report findings;
+   it is not evidence of a clean audit. Do not invent an intake command, convert
+   or rewrite the audit to imply admission, or stamp a caller-generated identity.
 3. Preserve historical reports and raw notes. A re-audit is a new report
    and assessment, not a rewrite of the old report. Use the current Core
    finding doors for later decisions; the former layer emitters and
