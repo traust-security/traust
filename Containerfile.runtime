@@ -44,7 +44,9 @@ COPY LICENSES/ ./LICENSES/
 # https:// URLs (not runtime-supplied), so AGENTS.md rule S3 (GIT_ALLOW_PROTOCOL=https on
 # non-literal URLs) doesn't apply here — and setting it would break uv's own internal
 # cache-to-checkout step, which clones over the local `file://` transport.
-RUN uv sync --frozen --no-dev --no-editable --python "${PYTHON_VERSION}"
+# --extra s3: the runtime image is configuration-driven — a deployment that enables
+# artifacts.s3 in its mounted traust.yaml needs boto3 present, not a rebuild.
+RUN uv sync --frozen --no-dev --no-editable --extra s3 --python "${PYTHON_VERSION}"
 
 ARG TRAUST_ENGINE_SHA
 RUN UV_TOOL_DIR=/opt/traust-engine/tools UV_TOOL_BIN_DIR=/opt/traust-engine/bin \
