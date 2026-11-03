@@ -169,14 +169,18 @@ locations:
   workspace: $RUN_DIR/workspace
   analysis_results: $RUN_DIR/analysis-results
   progress_tracker: $RUN_DIR/progress-tracker
-# manifest_sbom runs syft through core's ProcessRunner, which runs only what is listed here.
+# The deterministic lanes run through core's ProcessRunner, which runs only
+# what is listed here: the manifest SBOM sweep's syft and the observation
+# tripwire's gitleaks.
 process:
-  allowed_binaries: [syft]
+  allowed_binaries: [syft, gitleaks]
 EOF
     fi
-    # A rig created before this PR has a traust.yaml without the syft grant:
-    # merge it in so an upgraded rig can run manifest_sbom (core's ProcessRunner
-    # refuses unlisted binaries). Idempotent: no-op when syft is already allowed.
+    # A rig created before these grants has a traust.yaml without them — or
+    # with a process section allowing other binaries (checkout's git): merge
+    # the grants in so an upgraded rig runs the deterministic lanes (core's
+    # ProcessRunner refuses unlisted binaries). Idempotent: a no-op for
+    # binaries already allowed, and it keeps every operator addition.
     OPS_CONFIG="$CONFIG_HOME/traust.yaml" uv run --no-sync python - <<'PYEOF'
 import os
 import yaml
@@ -186,24 +190,17 @@ with open(path) as f:
     cfg = yaml.safe_load(f) or {}
 process = cfg.get("process") or {}
 binaries = process.get("allowed_binaries") or []
-if "syft" not in binaries:
-    binaries.append("syft")
+added = [b for b in ("syft", "gitleaks") if b not in binaries]
+if added:
+    binaries.extend(added)
     process["allowed_binaries"] = binaries
     cfg["process"] = process
     with open(path, "w") as f:
         yaml.safe_dump(cfg, f, sort_keys=False)
-    print("traust.yaml: granted process.allowed_binaries syft (manifest_sbom upgrade)")
+    print(f"traust.yaml: granted process.allowed_binaries {', '.join(added)}")
 PYEOF
     mkdir -p "$RUN_DIR/home" "$RUN_DIR/workspace" "$RUN_DIR/analysis-results" "$RUN_DIR/progress-tracker" "$OPS_DIR/pack"
     pack_overlay > "$OPS_DIR/pack/assets.yaml"
-
-    # Safe-exec: core's ProcessRunner allowlist defaults to empty, so the
-    # deterministic lanes' binaries are refused ("binary not allowed: syft")
-    # until the deployment names them. The rig allows the manifest SBOM
-    # sweep's syft and the observation tripwire's gitleaks.
-    if ! grep -q "^process:" "$CONFIG_HOME/traust.yaml"; then
-        printf '\nprocess:\n  allowed_binaries: [syft, gitleaks]\n' >> "$CONFIG_HOME/traust.yaml"
-    fi
 
     # Core applies its schema itself only for its local SQLite; a Postgres
     # deployment applies the contract DDL, so the rig does too (idempotent).
