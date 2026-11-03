@@ -507,6 +507,15 @@ removed commits; only major/minor movement requests a threat-model review.
 The optional `<config-home>/rpm-distgit-watch.yaml` supplies HTTPS repositories
 under `active` and explicit inventory-family-to-product bindings under `products`.
 Missing watch configuration means no dist-git sources, not guessed coverage.
+An empty operator-owned starting point is:
+
+```yaml
+active: []
+products: {}
+```
+
+Keep that file in the deployment config home, not the shipped `config/` directory.
+
 The retired `/repo-graph` and SQLite graph database are not event authorities.
 
 ## Running the router
