@@ -4,6 +4,10 @@ All notable changes to Traust are documented here.
 
 ## [0.40.0]
 
+- Reject forged validation-evidence redaction markers in text and Kubernetes Secret maps.
+  Only emitted tags, canonical ASCII lengths and 12-character lowercase digest markers
+  (or length-only Secret-map markers) retain idempotence; marker-like wrappers cannot
+  hide credentials from saved-artifact scrubbing.
 - Preserve complete dotted report stems when materializing native view artifacts, so container
   findings never overwrite a neighboring code-audit report.
 - Route inventory CSV and PQC worklist Markdown through Core's safe public rendering doors

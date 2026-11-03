@@ -88,7 +88,12 @@ _PATTERNS = (
     ),
 )
 _SECRET_MAP_KEYS = ("data", "stringData")
-_REDACTED = re.compile(r"\[REDACTED:[^\]\r\n]+\]")
+# Only canonical emitted markers are opaque; a target-controlled prefix is not.
+_REDACTED = re.compile(
+    r"\[REDACTED:(?:(?:"
+    + "|".join(re.escape(tag) for _, tag in _PATTERNS)
+    + r"):[1-9][0-9]*b:sha256:[0-9a-f]{12}|secret-data:(?:0|[1-9][0-9]*)b)\]"
+)
 
 
 def redact_credentials(text: str) -> str:
