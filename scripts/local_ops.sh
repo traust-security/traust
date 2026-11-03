@@ -134,21 +134,26 @@ cmd_up() {
     uv sync --quiet
     install_engine
 
-    # The smoke's manifest_sbom order runs syft through core's ProcessRunner
-    # (the binary the traust.yaml grant below allows). A fresh host has none:
-    # provision it through the same pinned, checksum-verified download CI uses
-    # (install-toolchain.sh's local-ops profile) instead of letting the order
-    # fail at claim time with an unexplained gap.
-    if ! command -v syft >/dev/null 2>&1; then
+    # The deterministic lanes' scanners, both named in the allowlist below:
+    # manifest_sbom's syft and the observation tripwire's gitleaks (the pack
+    # makes gitleaks a required tool for repo_state, so a fresh host without
+    # it cannot even observe). A fresh host has neither: provision them
+    # through the same pinned, checksum-verified download CI uses
+    # (install-toolchain.sh's local-ops profile) instead of letting the
+    # orders fail at claim time with an unexplained gap.
+    if ! command -v syft >/dev/null 2>&1 || ! command -v gitleaks >/dev/null 2>&1; then
         # A failed download still falls through to the actionable message below.
         bash scripts/install-toolchain.sh local-ops || true
     fi
-    command -v syft >/dev/null 2>&1 || {
-        echo "syft is missing and could not be installed: manifest_sbom orders need it." >&2
-        echo "run: bash scripts/install-toolchain.sh local-ops" >&2
-        echo "then make ops-up again (or add ${OPS_BIN_DIR:-the install-toolchain.sh bin dir} to PATH)" >&2
-        return 1
-    }
+    local binary
+    for binary in syft gitleaks; do
+        command -v "$binary" >/dev/null 2>&1 || {
+            echo "$binary is missing and could not be installed: the rig's orders need it." >&2
+            echo "run: bash scripts/install-toolchain.sh local-ops" >&2
+            echo "then make ops-up again (or add ${OPS_BIN_DIR:-the install-toolchain.sh bin dir} to PATH)" >&2
+            return 1
+        }
+    done
 
     # The rig's traust.yaml: its database and locations. `home` keeps core's credential
     # store and local-issuer key inside the rig: without it they land in ~/.traust, over a
@@ -169,14 +174,18 @@ locations:
   workspace: $RUN_DIR/workspace
   analysis_results: $RUN_DIR/analysis-results
   progress_tracker: $RUN_DIR/progress-tracker
-# manifest_sbom runs syft through core's ProcessRunner, which runs only what is listed here.
+# The deterministic lanes run through core's ProcessRunner, which runs only
+# what is listed here: the manifest SBOM sweep's syft and the observation
+# tripwire's gitleaks.
 process:
-  allowed_binaries: [syft]
+  allowed_binaries: [syft, gitleaks]
 EOF
     fi
-    # A rig created before this PR has a traust.yaml without the syft grant:
-    # merge it in so an upgraded rig can run manifest_sbom (core's ProcessRunner
-    # refuses unlisted binaries). Idempotent: no-op when syft is already allowed.
+    # A rig created before these grants has a traust.yaml without them — or
+    # with a process section allowing other binaries (checkout's git): merge
+    # the grants in so an upgraded rig runs the deterministic lanes (core's
+    # ProcessRunner refuses unlisted binaries). Idempotent: a no-op for
+    # binaries already allowed, and it keeps every operator addition.
     OPS_CONFIG="$CONFIG_HOME/traust.yaml" uv run --no-sync python - <<'PYEOF'
 import os
 import yaml
@@ -186,13 +195,14 @@ with open(path) as f:
     cfg = yaml.safe_load(f) or {}
 process = cfg.get("process") or {}
 binaries = process.get("allowed_binaries") or []
-if "syft" not in binaries:
-    binaries.append("syft")
+added = [b for b in ("syft", "gitleaks") if b not in binaries]
+if added:
+    binaries.extend(added)
     process["allowed_binaries"] = binaries
     cfg["process"] = process
     with open(path, "w") as f:
         yaml.safe_dump(cfg, f, sort_keys=False)
-    print("traust.yaml: granted process.allowed_binaries syft (manifest_sbom upgrade)")
+    print(f"traust.yaml: granted process.allowed_binaries {', '.join(added)}")
 PYEOF
     mkdir -p "$RUN_DIR/home" "$RUN_DIR/workspace" "$RUN_DIR/analysis-results" "$RUN_DIR/progress-tracker" "$OPS_DIR/pack"
     pack_overlay > "$OPS_DIR/pack/assets.yaml"
@@ -261,6 +271,58 @@ cmd_claim() {
         engine claim || true
         sleep 5
     done
+}
+
+cmd_approve() {
+    # The operator door: core can hold an order for a verified person
+    # (OperationsService.approve), but no CLI or REST surface calls it. This is
+    # the rig's: approve every awaiting order, or exactly one by id — a prefix
+    # that names more than one order lists them and approves nothing.
+    source_env
+    # An order id prefix, nothing else: shell-breaking selectors from a make
+    # invocation are refused here rather than silently matching every order.
+    local selector="${1:-}"
+    case "$selector" in
+        *[!A-Za-z0-9_-]*)
+            echo "order selector must be an id prefix (alphanumeric): $selector" >&2
+            return 2
+            ;;
+    esac
+    TRAUST_CONFIG_HOME="$CONFIG_HOME" uv run --no-sync python - "$selector" <<'PYEOF'
+import sys
+from traust.context import load, load_caller
+from traust_core.v1.errors import TraustError
+from traust_core.v1.models.common import every_item
+from traust_core.v1.models.operations import OrderFilter, OrderState
+
+core = load(None)
+caller = load_caller(core)
+services = core.services()
+awaiting = list(every_item(lambda p: services.ops.list(OrderFilter(states=(OrderState.AWAITING_APPROVAL,)), p)))
+only = sys.argv[1] if len(sys.argv) > 1 and sys.argv[1] else None
+if only:
+    matching = [o for o in awaiting if str(o.id).startswith(only)]
+    if len(matching) > 1:
+        print(f"prefix {only} names {len(matching)} awaiting orders; approve by a longer prefix:", file=sys.stderr)
+        for o in matching:
+            repo = services.portfolio.get_repository(o.repository_id) if o.repository_id else None
+            label = repo.url if repo else o.asset
+            print(f"  {o.id} {o.asset}: {label}", file=sys.stderr)
+        sys.exit(2)
+    awaiting = matching
+if not awaiting:
+    print("no orders awaiting approval" if not only else f"no awaiting order {only}")
+    sys.exit(0)
+for order in awaiting:
+    repo = services.portfolio.get_repository(order.repository_id) if order.repository_id else None
+    label = repo.url if repo else order.asset
+    try:
+        approved = services.ops.approve(order.id, caller)
+        print(f"approved {order.asset}: {label} ({approved.state})")
+    except TraustError as e:
+        print(f"skipped {order.asset}: {label} ({e})", file=sys.stderr)
+        sys.exit(1)
+PYEOF
 }
 
 cmd_sh() {
@@ -361,6 +423,7 @@ case "${1:-}" in
     up) shift; cmd_up "$@" ;;
     down) shift; cmd_down "$@" ;;
     reset) shift; cmd_reset "$@" ;;
+    approve) shift; cmd_approve "$@" ;;
     run) shift; cmd_run "$@" ;;
     claim) shift; cmd_claim "$@" ;;
     sh) shift; cmd_sh "$@" ;;

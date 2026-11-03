@@ -1,6 +1,6 @@
 .PHONY: help install test doctor setup update-vuln-dbs build-image build-tools-image lint lint-fix hooks sync status bump $(BUMP_PARTS)
 .PHONY: skillsaw-lint skillsaw-fix skillsaw-badge
-.PHONY: ops-up ops-down ops-reset ops-run ops-claim ops-sh ops-scan ops-smoke ops-doctor
+.PHONY: ops-up ops-down ops-reset ops-run ops-claim ops-approve ops-sh ops-scan ops-smoke ops-doctor
 
 PROFILE    ?= secure-code-audit
 CLI        := uv run python -m traust.cli.toolchain
@@ -8,6 +8,11 @@ PYTHON     ?= python3
 RELEASE    := ./release.py
 BUMP_PARTS := patch minor major
 SKILLSAW_VERSION := 0.20.0
+# ops-approve's selector travels through the environment (never interpolated
+# into the recipe text): a value carrying quotes or semicolons reaches the
+# script as one literal argument for cmd_approve to validate, not as shell
+# syntax the recipe would execute.
+export ORDER
 
 help: ## Show targets
 	@grep -E '^[a-z][-a-z]+:.*## ' $(MAKEFILE_LIST) | \
@@ -55,6 +60,8 @@ ops-run: ## Engine tick loop, pane 1 (make ops-run OPS_EVERY=5m)
 	bash scripts/local_ops.sh run
 ops-claim: ## Claim loop, pane 2
 	bash scripts/local_ops.sh claim
+ops-approve: ## Operator door: approve awaiting orders (all, or one by an unambiguous id prefix)
+	bash scripts/local_ops.sh approve "$$ORDER"
 ops-sh: ## Shell with the rig's environment (TRAUST_CONFIG_HOME, .local-ops/env)
 	bash scripts/local_ops.sh sh
 ops-scan: ## Walk the workflow by hand: onboard + observe + one scan (REPO=https://...)

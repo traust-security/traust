@@ -55,7 +55,7 @@ dependency-watch:gitleaks
 impact-analysis:joern
 triage:govulncheck
 ledger-signing:cosign
-local-ops:syft
+local-ops:syft gitleaks
 '
 
 # All profile names, space-separated.
