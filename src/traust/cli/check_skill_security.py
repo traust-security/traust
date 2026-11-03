@@ -189,31 +189,9 @@ EXEMPTIONS: dict[tuple[str, str], str] = {
     ): "grandfathered — same WS1 batch as the Makefile",
     (
         "S10",
-        "harnessing/create-fuzzing/scripts/build_fuzz_rollup.py",
-    ): "reviewed — rollup reader; build tokens are report/status strings, no execution",
-    (
-        "S10",
-        "harnessing/create-fuzzing/harnesses/_templates/python_fuzz.py",
-    ): "reviewed — harness stub dropped INTO the target tree by design; "
-    "runs under the target's own build, WS1 wraps the driver",
-    (
-        "S10",
         "harnessing/pqc-readiness/build_pqc_scan.sh",
     ): "reviewed — builds the PINNED harness-owned pqc-scan tool "
     "(cargo build at a pinned commit), not target code",
-    (
-        "S10",
-        "harnessing/validation-fuzz-dashboard/scripts/build_validation_fuzz_dashboard.py",
-    ): "reviewed — dashboard builder; 'go test -fuzz' appears in "
-    "rendered method strings, no execution",
-    (
-        "S10",
-        "harnessing/remediate-finding/scripts/mutation_evidence.py",
-    ): "reviewed — pure JSON builder for a patch_evidence item; imports only "
-    "argparse/json/sys/pathlib and runs nothing. 'go test ./...' appears as "
-    "the descriptive `command` field recorded in the evidence so a reader can "
-    "re-run it. Execution lives in run_mutation.sh, under the container "
-    "boundary (ToB plan item 3)",
     (
         "S10",
         "harnessing/remediate-finding/run_checks.sh",
@@ -420,34 +398,95 @@ def _s10_unrouted_shell_build(text: str) -> bool:
 
 
 def _s10_unrouted_build(text: str) -> bool:
-    """Recognize literal Python safe_exec.run arguments and shell invocations."""
+    """Inspect literal commands at Python execution calls, or shell commands."""
     import ast
 
     try:
         tree = ast.parse(text)
     except SyntaxError:
         return _s10_unrouted_shell_build(text)
-    routed: set[int] = set()
+
+    imports: dict[str, str] = {}
     for node in ast.walk(tree):
-        if (
-            isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Attribute)
-            and isinstance(node.func.value, ast.Name)
-            and node.func.value.id == "safe_exec"
-            and node.func.attr == "run"
-        ):
-            for arg in [*node.args, *(kw.value for kw in node.keywords)]:
-                if isinstance(arg, ast.Constant):
-                    routed.add(id(arg))
-                elif isinstance(arg, ast.JoinedStr):
-                    routed.update(id(part) for part in arg.values if isinstance(part, ast.Constant))
-    return any(
-        isinstance(node, ast.Constant)
-        and isinstance(node.value, str)
-        and id(node) not in routed
-        and _s10_unrouted_shell_build(node.value)
-        for node in ast.walk(tree)
-    )
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                name = alias.asname or alias.name.split(".")[0]
+                imports[name] = alias.name if alias.asname else name
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            for alias in node.names:
+                imports[alias.asname or alias.name] = f"{node.module}.{alias.name}"
+
+    def call_name(node: ast.expr) -> str:
+        if isinstance(node, ast.Name):
+            return imports.get(node.id, node.id)
+        if isinstance(node, ast.Attribute):
+            return f"{call_name(node.value)}.{node.attr}"
+        return ""
+
+    def command_text(node: ast.expr) -> str:
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            return node.value
+        if isinstance(node, ast.JoinedStr):
+            return "".join(command_text(part) for part in node.values)
+        if isinstance(node, (ast.List, ast.Tuple)):
+            return " ".join(command_text(part) for part in node.elts)
+        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+            if isinstance(node.left, (ast.List, ast.Tuple)) or isinstance(
+                node.right, (ast.List, ast.Tuple)
+            ):
+                return f"{command_text(node.left)} {command_text(node.right)}"
+            return command_text(node.left) + command_text(node.right)
+        # Keep unknown values between known tokens; do not invent adjacent argv.
+        return "__dynamic__"
+
+    subprocess_calls = {
+        "run",
+        "Popen",
+        "call",
+        "check_call",
+        "check_output",
+        "getoutput",
+        "getstatusoutput",
+    }
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        name = call_name(node.func)
+        if name in {"safe_exec.run", "traust_engine._util.safe_exec.run"}:
+            continue
+        module, _, operation = name.rpartition(".")
+        command = None
+        if module == "subprocess" and operation in subprocess_calls:
+            command = (
+                node.args[0]
+                if node.args
+                else next((kw.value for kw in node.keywords if kw.arg in {"args", "cmd"}), None)
+            )
+        elif module == "os" and operation in {"system", "popen"}:
+            command = (
+                node.args[0]
+                if node.args
+                else next((kw.value for kw in node.keywords if kw.arg in {"command", "cmd"}), None)
+            )
+        elif module == "os" and operation.startswith(("exec", "spawn")):
+            offset = 2 if operation.startswith("spawn") else 1
+            if len(node.args) > offset:
+                if operation in {
+                    "execv",
+                    "execve",
+                    "execvp",
+                    "execvpe",
+                    "spawnv",
+                    "spawnve",
+                    "spawnvp",
+                    "spawnvpe",
+                }:
+                    command = node.args[offset]
+                else:
+                    command = ast.List(elts=node.args[offset:])
+        if command is not None and _s10_unrouted_shell_build(command_text(command)):
+            return True
+    return False
 
 
 def _s3_failures(text: str) -> list[str]:

@@ -4,6 +4,13 @@ All notable changes to Traust are documented here.
 
 ## [Unreleased]
 
+- Keep feed drift's registry, optionality and source/reference classification bound
+  to its selected engine, independent of earlier fetches from another config home.
+- Inspect Python build commands only at execution calls, retaining per-command
+  safe-exec routing without flagging docstrings or printed/help examples. Remove
+  four reporting/template exemptions made obsolete by this narrower analysis.
+- Validate configured vocabulary before absent config/docs directory returns, and
+  keep CLI syntax scanning usable on those sparse checkouts.
 - Treat HTTP 4xx responses as reachable targets during attestation while retaining
   fail-closed behavior for server and transport failures.
 - Fail the config/docs estate gate on a malformed configured vocabulary, keeping

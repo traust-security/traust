@@ -454,3 +454,49 @@ def test_vocabulary_configuration_boundary(tmp_path, monkeypatch, present):
         failures = check(tmp_path)
         assert any("fixture-host" in f for f in failures) is present
         assert not any("cannot load" in f for f in failures)
+
+
+@pytest.mark.parametrize("directories", [(), ("config",), ("docs",)])
+@pytest.mark.parametrize("state", ["malformed", "valid", "missing"])
+def test_vocabulary_validation_does_not_depend_on_scannable_directories(
+    tmp_path, monkeypatch, directories, state
+):
+    from traust.cli import scan_internal_refs as scanner
+
+    vocabulary = tmp_path / "internal-vocabulary.yaml"
+    if state == "malformed":
+        vocabulary.write_text("rules: [")
+    elif state == "valid":
+        vocabulary.write_text(
+            "rules:\n  - {id: fixture-host, tier: block, pattern: fixture-internal, why: test}\n"
+        )
+    monkeypatch.setattr(scanner, "vocabulary_path", lambda explicit=None: vocabulary)
+    repo = tmp_path / "checkout"
+    repo.mkdir()
+    for directory in directories:
+        (repo / directory).mkdir()
+
+    for check in (C.config_hygiene_failures, C.docs_estate_marker_failures):
+        failures = check(repo)
+        if state == "malformed":
+            assert any(str(vocabulary) in failure for failure in failures)
+        else:
+            assert failures == []
+
+
+def test_docs_gate_reports_broken_vocabulary_on_an_empty_selected_root(
+    tmp_path, monkeypatch, capsys
+):
+    from traust.cli import scan_internal_refs as scanner
+
+    vocabulary = tmp_path / "internal-vocabulary.yaml"
+    vocabulary.write_text("rules: [")
+    monkeypatch.setattr(scanner, "vocabulary_path", lambda explicit=None: vocabulary)
+    repo = tmp_path / "checkout"
+    repo.mkdir()
+    for name in ("PROCESS.md", "README.md", "AGENTS.md"):
+        (repo / name).write_text("# Fixture\n")
+    (repo / "VERSION").write_text("1.0.0\n")
+
+    assert C.main(["--root", str(repo)]) == 1
+    assert str(vocabulary) in capsys.readouterr().out

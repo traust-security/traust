@@ -301,51 +301,17 @@ def item(name, status, detail, refresh=None):
 # --------------------------------------------------------------------------
 
 
-def watched_feeds() -> list[tuple]:
-    """(name, optional) for every feed fetch_feeds.py knows about.
-
-    Driven from fetch_feeds.FEEDS rather than a literal list here: a
-    hardcoded ("epss", "kev") is how a newly added feed goes silently
-    unmonitored, which is the one failure a staleness checker must not
-    have. Falls back to the known-public pair if fetch_feeds cannot be
-    imported, so this check degrades instead of vanishing.
-    """
-    try:
-        mod = importlib.import_module("traust.cli.fetch_feeds")
-        return [(n, bool(s.get("internal"))) for n, s in mod.FEEDS.items()]
-    except Exception:
-        return [("epss", False), ("kev", False)]
-
-
-def _feed_row_prefix(name: str) -> str:
-    """`feeds:` for a security source, `registry:` for a reference one.
-
-    Derived from membership in config/feeds.yaml rather than hardcoded, so
-    the row name follows the CATEGORY instead of the fetch mechanism.
-    `product-definitions` is fetched by fetch_feeds but is Red Hat Product
-    Security's product/ownership registry — zero vulnerability data — and
-    calling its row `feeds:product-definitions` kept re-merging two
-    categories the registry exists to separate. A source that cannot be
-    classified (unreadable registry) reports as a feed: the conservative
-    side, since under-reporting a security source is the worse error.
-    """
-    try:
-        from traust.registry import feeds_config as fc
-
-        return "feeds" if name in fc.cached_sources() else "registry"
-    except Exception:
-        return "feeds"
-
-
 def check_feeds(engine) -> list[dict]:
     # Resolve through the registry so the checker and fetch_feeds can
     # never disagree about where the cache lives. They did once: with
     # FEEDS_CACHE_DIR unset the fetcher wrote one tree while every
     # consumer read another, and the corpus copy sat 38 days stale while
     # a refresh reported success (measured 2026-08-25).
+    from traust.cli.fetch_feeds import feed_registry
     from traust.context import workspace_dir
     from traust.registry.feeds_config import feeds_cache_dir
 
+    registry = feed_registry(engine)
     cache = feeds_cache_dir(engine=engine)
     meta_p = cache / "feeds-meta.json"
     if not meta_p.is_file():
@@ -353,21 +319,17 @@ def check_feeds(engine) -> list[dict]:
         legacy = _ar(ws) / "feeds" / "feeds-meta.json"
         if legacy.is_file():  # one-release compatibility read
             meta_p = legacy
-    if not meta_p.is_file():
-        return [
-            item(
-                "feeds:epss+kev",
-                "pending",
-                "no feeds cache yet",
-                "python3 -m traust.cli.fetch_feeds",
-            )
-        ]
-    try:
-        meta = json.loads(meta_p.read_text(encoding="utf-8"))
-    except json.JSONDecodeError:
-        return [item("feeds:meta", "unavailable", "feeds-meta unparseable")]
+    has_cache = meta_p.is_file()
+    if has_cache:
+        try:
+            meta = json.loads(meta_p.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            return [item("feeds:meta", "unavailable", "feeds-meta unparseable")]
+    else:
+        meta = {}
     out = []
-    for feed, optional in watched_feeds():
+    for feed, spec in registry.items():
+        optional = bool(spec.get("internal"))
         threshold = FEED_STALE_HOURS_BY_NAME.get(feed, FEED_STALE_HOURS)
         # internal feeds are excluded from `--feed all`, so name them
         refresh = (
@@ -375,7 +337,12 @@ def check_feeds(engine) -> list[dict]:
             if optional
             else "python3 -m traust.cli.fetch_feeds"
         )
-        row = f"{_feed_row_prefix(feed)}:{feed}"
+        # Only security sources carry a cached tier; ownership references do not.
+        prefix = "feeds" if spec.get("tier") == "cached" else "registry"
+        row = f"{prefix}:{feed}"
+        if not has_cache:
+            out.append(item(row, "pending", "no feeds cache yet", refresh))
+            continue
         t = _parse_iso((meta.get(feed) or {}).get("retrieved_at", ""))
         if t is None:
             # An optional (VPN-only) feed nobody has fetched is a normal

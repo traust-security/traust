@@ -50,12 +50,18 @@ hide a missing portability marker.
 Both `traust util safe-exec run` and `python3 -m traust.cli util safe-exec run`
 are accepted. Prose, comments, imports, an unrelated wrapped build, or
 `safe-exec check` do not route a direct build.
+Python command inspection is limited to execution-call arguments; module/function
+docstrings, printed examples and argument-parser descriptions/help are not
+execution. Import aliases are recognized, but importing safe-exec never exempts
+an unrelated subprocess build.
 
 `traust check docs-consistency --root <path>` uses the selected checkout's skills
 for the model-class index. Its config/docs estate checks skip deployment vocabulary
 when no vocabulary file is configured. An existing but invalid
 `internal-vocabulary.yaml` fails the gate, and universal credential/network rules
 remain active even when the deployment rules cannot load.
+Vocabulary validation also runs when the selected checkout has no `config/` or
+`docs/` directory; absent content cannot make broken configuration look clean.
 
 `traust check drift --config-home <path>` resolves inventory and results from that
 configuration, including roots outside the workspace. Graph, impact, language
@@ -67,6 +73,10 @@ workspace uses that workspace's conventional `inputs/`, `analysis-results/` and
 `traust feeds fetch --config-home <path> --feed <name>` validates names and resolves
 feed configuration from the explicit home before fetching, regardless of
 `TRAUST_CONFIG_HOME`. Without the flag, the environment/default home still applies.
+Feed drift enumerates and classifies sources from its own selected engine/home,
+including optionality and ownership-reference rows. A fetch from another home
+earlier in the same process cannot change those rows or their cache freshness.
+An absent cache reports pending rows for the actual configured sources.
 
 `traust admin attest-target --url <url>` treats an HTTP response below 500,
 including a 4xx rejection, as reachability evidence and records the URL. This does

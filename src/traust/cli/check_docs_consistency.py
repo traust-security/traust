@@ -816,12 +816,10 @@ def _estate_patterns() -> tuple[list[tuple[str, re.Pattern]], list[str]]:
 
 
 def config_hygiene_failures(repo: Path = REPO) -> list[str]:
-    failures: list[str] = []
+    patterns, failures = _estate_patterns()
     cfg = repo / "config"
     if not cfg.is_dir():
         return failures
-    patterns, vocabulary_failures = _estate_patterns()
-    failures.extend(vocabulary_failures)
     for f in sorted(cfg.iterdir()):
         if f.name.startswith("."):
             failures.append(
@@ -908,7 +906,9 @@ _CLI_SYNTAX_EXEMPT = {"docs/cli-reference.md"}
 def _cli_scanned_docs(repo: Path) -> list[Path]:
     """Files whose CLI invocations are held to the grouped syntax."""
     docs = list(_count_docs(repo))
-    docs += sorted(p for p in (repo / "config").iterdir() if p.is_file())
+    cfg = repo / "config"
+    if cfg.is_dir():
+        docs += sorted(p for p in cfg.iterdir() if p.is_file())
     docs += sorted((repo / "harnessing").glob("*/SKILL.md"))
     docs += sorted((repo / "harnessing").glob("*/*/SKILL.md"))
     docs += sorted((repo / ".claude" / "commands").glob("*.md"))
@@ -1166,10 +1166,10 @@ def graph_consumer_failures(repo: Path = REPO) -> list[str]:
 # FIGURES (graph sizes, corpus counts) cannot be pattern-matched and remain a
 # review concern — state them as "deployment-specific" instead.
 def docs_estate_marker_failures(repo: Path = REPO) -> list[str]:
+    patterns, failures = _estate_patterns()
     docs = repo / "docs"
     if not docs.is_dir():
-        return []
-    patterns, failures = _estate_patterns()
+        return failures
     for f in sorted(docs.rglob("*.md")):
         try:
             text = f.read_text(encoding="utf-8", errors="ignore")

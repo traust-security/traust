@@ -508,14 +508,22 @@ def test_load_rh_cves_splits_component_and_title(tmp_path):
     assert got["public_date"] == "2026-08-17" and got["cvss3"] == 9.9
 
 
-def test_rh_cve_is_watched_by_drift():
+def test_rh_cve_is_watched_by_drift(tmp_path, monkeypatch):
     """A new feed must not go silently unmonitored."""
-    from traust.cli.check_drift import watched_feeds
+    from traust.cli.check_drift import check_feeds
+    from traust.context import load_engine
 
-    assert ("rh-cve", False) in watched_feeds()
+    cache = tmp_path / "drift-cache"
+    cache.mkdir()
+    (cache / "feeds-meta.json").write_text("{}\n", encoding="utf-8")
+    monkeypatch.setenv("FEEDS_CACHE_DIR", str(cache))
+    rows = {row["item"]: row for row in check_feeds(load_engine())}
+    assert rows["feeds:rh-cve"]["status"] == "unavailable"
 
 
 def test_explicit_config_home_controls_feed_validation_and_fetch(tmp_path, monkeypatch):
+    from traust.context import load_engine
+
     homes = {}
     for name in ("alpha", "beta"):
         home = tmp_path / name
@@ -554,6 +562,13 @@ def test_explicit_config_home_controls_feed_validation_and_fetch(tmp_path, monke
     assert ff._feeds()["beta"]["file"] == "beta.json"
     assert ff._feeds()["product-definitions"]["url"] == "https://beta.test/products.json"
     assert "alpha" not in ff._feeds()
+    alpha_registry = ff.feed_registry(load_engine(homes["alpha"]))
+    assert set(alpha_registry) == {"alpha", "product-definitions"}
+    assert alpha_registry["alpha"]["file"] == "alpha.json"
+    assert alpha_registry["product-definitions"]["url"] == "https://alpha.test/products.json"
+    # Reading another engine's registry must not alter the fetcher's selection.
+    assert "beta" in ff._feeds()
+    assert "alpha" not in ff._feeds()
     with pytest.raises(SystemExit) as exc:
         ff.main(["--config-home", str(homes["beta"]), "--feed", "alpha", "--offline"])
     assert exc.value.code == 2
@@ -571,3 +586,20 @@ def test_explicit_config_home_controls_feed_validation_and_fetch(tmp_path, monke
         == 0
     )
     assert "beta" not in ff._feeds()
+    # Successive explicit homes must also select the new home's payload and URL.
+    assert (
+        ff.main(
+            [
+                "--config-home",
+                str(homes["beta"]),
+                "--cache-dir",
+                str(cache),
+                "--feed",
+                "beta",
+                "--offline",
+            ]
+        )
+        == 0
+    )
+    assert ff._feeds()["beta"]["file"] == "beta.json"
+    assert ff._feeds()["product-definitions"]["url"] == "https://beta.test/products.json"

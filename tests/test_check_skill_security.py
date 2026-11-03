@@ -427,9 +427,96 @@ def test_s10_prose_does_not_route_build(tmp_path):
         ('import safe_exec\nsubprocess.run("go build ./...")\n', True),
         ('import safe_exec\nsafe_exec.run(\n    "go build ./..."\n)\n', False),
         ('safe_exec.run(subprocess.run("go build ./..."))\n', True),
+        ('safe_exec.run(["go", "build", "./..."])\n', False),
+        ('safe_exec.run(command="go build ./...")\n', False),
+        ('subprocess.run(["go", "build", "./..."])\n', True),
+        ('subprocess.run([\n    "go",\n    "build",\n    "./...",\n])\n', True),
+        ('subprocess.run(["go", "build"] + extra_args)\n', True),
+        ('subprocess.run(args=("go", "test", "./..."))\n', True),
+        ('subprocess.run(f"go build {target}")\n', True),
+        ('subprocess.run("go build " + target)\n', True),
+        ('safe_exec.run(subprocess.run(["go", "build", "./..."]))\n', True),
+        ('import subprocess as proc\nproc.run(["go", "build", "./..."])\n', True),
+        ('import subprocess as safe_exec\nsafe_exec.run(["go", "build", "./..."])\n', True),
+        (
+            'from subprocess import check_call as execute\nexecute(["go", "build", "./..."])\n',
+            True,
+        ),
+        (
+            'from traust_engine._util.safe_exec import run\nrun("go build ./...")\n',
+            False,
+        ),
+        (
+            'subprocess.run(["traust", "util", "safe-exec", "run", "--", "go", "build", "./..."])\n',
+            False,
+        ),
+        (
+            'subprocess.run(["python3", "-m", "traust.cli", "util", "safe-exec", "run", '
+            '"--profile", profile, "--", "go", "build", "./..."])\n',
+            False,
+        ),
+        (
+            'subprocess.run(["python3", "safe_exec.py", "run", "--", "go", "build", "./..."])\n',
+            False,
+        ),
+        (
+            'subprocess.run("traust util safe-exec run -- go test ./...; go build ./...")\n',
+            True,
+        ),
+        ('subprocess.run(["go", option, "build"])\n', False),
+        ('subprocess.run(["echo", "ok"], input="go build ./...")\n', False),
+        ('subprocess.run(["echo", "ok"], cwd="go build")\n', False),
     ],
 )
 def test_s10_python_call_routing(tmp_path, script, blocked):
     repo = _mk_repo(tmp_path, skill_md=CLEAN_SKILL, script=script, script_name="run.py")
+    failures, _ = css.security_failures(repo)
+    assert any(f.startswith("S10") for f in failures) is blocked
+
+
+@pytest.mark.requires_git
+@pytest.mark.parametrize(
+    ("execution", "blocked"),
+    [
+        ("", False),
+        ('subprocess.run("go build ./...")', True),
+        ('subprocess.run(["go", "build", "./..."])', True),
+        ('subprocess.Popen(["go", "test", "./..."])', True),
+        ('subprocess.call(["make", "build"])', True),
+        ('subprocess.check_call(["cargo", "build"])', True),
+        ('subprocess.check_output(args=["npm", "run", "build"])', True),
+        ('subprocess.getoutput("go build ./...")', True),
+        ('subprocess.getstatusoutput(cmd="go build ./...")', True),
+        ('os.system("go build ./...")', True),
+        ('os.popen("go build ./...")', True),
+        ('os.popen(cmd="go build ./...")', True),
+        ('os.execv("/usr/bin/go", ["go", "build", "./..."])', True),
+        ('os.spawnv(os.P_WAIT, "/usr/bin/go", ["go", "build", "./..."])', True),
+        ('os.execl("/usr/bin/go", "go", "build", "./...")', True),
+        ('os.spawnl(os.P_WAIT, "/usr/bin/go", "go", "build", "./...")', True),
+    ],
+)
+def test_s10_python_examples_do_not_execute_or_route_builds(tmp_path, execution, blocked):
+    script = '''"""Build example: go build ./..."""
+import argparse
+import os
+import subprocess
+from traust_engine._util import safe_exec
+
+def example():
+    """Another example: cargo build"""
+    print("npm run build")
+
+print("go build ./...")
+parser = argparse.ArgumentParser(description="Example: go build ./...")
+parser.add_argument("--example", help="Try make build or go test ./...")
+safe_exec.run("go test ./...")
+'''
+    repo = _mk_repo(
+        tmp_path,
+        skill_md=CLEAN_SKILL,
+        script=script + execution + "\n",
+        script_name="run.py",
+    )
     failures, _ = css.security_failures(repo)
     assert any(f.startswith("S10") for f in failures) is blocked
