@@ -6,6 +6,13 @@ live execution remain separate from recording already-produced evidence. The
 describes the existing guarded runner; the [record protocol](cli-reference.md#machine-validation-recording)
 is callable without contacting any live target.
 
+`traust admin attest-target --url <authorized-target> --out <run>/target-attestation.json`
+records browser-lane reachability separately from authentication and finding validity.
+An answering non-5xx endpoint, including a protected endpoint returning HTTP 401 or 403,
+is reachable. Transport errors, TLS failures and HTTP 5xx responses fail that required
+check. The command writes its artifact and exits zero for either attestation result;
+consumers must inspect `attested` and the individual checks, not infer success from exit status.
+
 ## Recording owner and gates
 
 `traust validation record` parses exact report bytes as core's

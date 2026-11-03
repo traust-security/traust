@@ -2,6 +2,13 @@
 
 All notable changes to Traust are documented here.
 
+## [0.39.5]
+
+- Treat answering HTTP 4xx targets as reachable in browser preflight attestation,
+  while transport, TLS and HTTP 5xx failures still invalidate the target.
+- Fail the config/docs estate gate on malformed configured vocabulary and retain
+  universal rules; an absent vocabulary remains the unconfigured checkout case.
+
 ## [0.39.4]
 
 - Check sandbox routing per target-build command; prose, comments, imports, and unrelated
@@ -44,6 +51,7 @@ All notable changes to Traust are documented here.
   judgments on replay.
 
 ## [Unreleased]
+
 
 - **Review checks for FastAPI, aiohttp and Express** (Vercel comparison gap
   plan, step 5). `framework-checks.md` gains FA.1–FA.15 (FastAPI and
