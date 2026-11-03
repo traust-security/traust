@@ -14,6 +14,8 @@ The schemas below (from the installed `traust-contracts` package) are the comple
 | `schemas/v1/vuln-findings.schema.json` | JSON Schema for vuln-scan candidate reports (`<repo>-vuln-findings.json`) |
 | `schemas/v1/adapter-result.schema.json` | JSON Schema for traust-engine scanner adapter `scan()` return values (distinct from skill-level vuln-findings output) |
 | `traust-contracts/artifacts_schema/v1/code-facts.schema.json` | Recorded symbols and measured language statistics on a `tool_scan` assessment; read through core's artifact and code-facts services |
+| `traust-contracts/artifacts_schema/v1/fuzz-campaign.schema.json` | Supplied historical fuzz-campaign aggregates and raw narratives, distinct from measured per-target execution evidence |
+| `traust-contracts/artifacts_schema/v1/repo-liveness.schema.json` | Repository liveness references with supported status, observation provenance and explicit unknowns |
 | `schemas/v1/validation.schema.json` | JSON Schema for live-validation reports |
 | `schemas/v1/remediation.schema.json` | JSON Schema for remediation patches |
 | `schemas/v1/verification.schema.json` | JSON Schema for remediation-verification reports |
