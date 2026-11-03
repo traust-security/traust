@@ -13,6 +13,7 @@ from adapters.container import ContainerAdapter
 from adapters.credentials import redact_credentials
 from adapters.k8s import K8sAdapter
 from adapters.wasm import WasmAdapter
+from traust_core.v1.context import Config, Context
 
 # Deliberately synthetic credential shapes, assembled rather than stored as tokens.
 _PEM = (
@@ -97,6 +98,29 @@ def test_artifact_masks_plain_credentials_and_hashes_original(
         "redacted": True,
     }
     assert meta["sha256"] != hashlib.sha256(stored.encode("utf-8")).hexdigest()
+    assert redact_credentials(stored) == stored
+
+
+@pytest.mark.parametrize(
+    "value,tag",
+    [
+        ("AIza" + "q" * 35, "google-api-key"),
+        ("sk-" + "q" * 24, "llm-api-key"),
+        ("abc8Q~" + "q" * 32, "azure-client-secret"),
+    ],
+)
+def test_shared_core_shapes_reach_saved_validation_evidence(tmp_path, value, tag):
+    core = Context(Config(home=tmp_path / "core"))
+    assert tag in {hit.category for hit in core.services().redaction.scan(value)}
+    published = core.services().redaction.redact(value.encode()).payload.decode()
+    assert value[:5] in published
+
+    meta = AdapterBase._save_artifact(tmp_path / "artifacts", "core-shape", "stdout", value)
+    stored = (tmp_path / meta["path"]).read_text()
+    assert stored == _marker(tag, value)
+    assert value[:5] not in stored
+    assert meta["sha256"] == hashlib.sha256(value.encode()).hexdigest()
+    assert meta["redacted"] is True
     assert redact_credentials(stored) == stored
 
 

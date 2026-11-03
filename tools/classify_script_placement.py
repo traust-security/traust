@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import ast
 import csv
 import sys
@@ -9,13 +10,13 @@ from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 
-from traust_core.v1.errors import ValidationError
+from traust_core.v1.errors import TraustError, ValidationError
 
-from traust.cli._doors import parser, run
-from traust.paths import HARNESS_ROOT, skill_md_paths
+from traust.paths import skill_md_paths
 
 CLASSES = ("shared-library", "multi-skill-cli", "single-skill-cli", "orphan", "other")
 _SKIP = frozenset({".git", ".venv", "__pycache__", "clones", "node_modules", "vendor"})
+HARNESS_ROOT = Path(__file__).resolve().parents[1]
 
 
 @dataclass(frozen=True)
@@ -119,8 +120,8 @@ def classify(root: Path = HARNESS_ROOT) -> tuple[list[Placement], dict[str, int]
 
 
 def main(argv: list[str] | None = None) -> int:
-    ap = parser(
-        "check", "script-placement", "Classify CLI placement from static callers and skills."
+    ap = argparse.ArgumentParser(
+        description="Classify checkout CLI placement from static callers and skills."
     )
     ap.add_argument("--root", type=Path, default=HARNESS_ROOT, help="harness checkout to inspect")
     ap.add_argument("--only", choices=CLASSES)
@@ -148,7 +149,12 @@ def main(argv: list[str] | None = None) -> int:
             if args.only is None or row.classification == args.only
         )
 
-    return run(call)
+    try:
+        call()
+    except (OSError, TraustError) as error:
+        print(f"ERROR: {error}", file=sys.stderr)
+        return 2
+    return 0
 
 
 if __name__ == "__main__":

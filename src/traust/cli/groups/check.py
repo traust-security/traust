@@ -51,11 +51,6 @@ _ENTRIES: tuple[tuple[str, str, str], ...] = (
         "Reference-integrity gate (C8.4 placement-rule companion).",
     ),
     (
-        "script-placement",
-        "classify_script_placement",
-        "Classify CLI placement from static Python callers and literal skill references.",
-    ),
-    (
         "skill-alignment",
         "check_skill_alignment",
         "Cross-skill alignment guard — catch a skill drifting from the corpus.",

@@ -32,7 +32,7 @@ traust = "traust.cli.__main__:main"
 dev = ["ruff>=0.6", "pytest-xdist>=3", "psycopg[binary]>=3.1"]
 
 [tool.uv.sources]
-traust-core = { git = "https://github.com/traust-security/traust-core.git", rev = "c332eb7681ddc3aeab8334c725ab88b1aed96e65" }
+traust-core = { git = "https://github.com/traust-security/traust-core.git", rev = "51848cf7a7d96bb972934bd5b6425a0a7bede909" }
 
 # Multi-skill CLIs live under src/traust/; harnessing/<skill>/ for single-skill
 # scripts. Install for deps + importable path helpers.

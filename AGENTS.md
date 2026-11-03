@@ -41,6 +41,8 @@ Multi-skill CLIs live in `src/traust/cli/` and are invoked as `traust <group> <o
 - Multi-skill CLI: `src/traust/cli/` (installed package)
 - Shared library (>=3 importers): `src/traust/lib/`
 - Ops: `src/traust/ops/`
+- Repository-hygiene audits of this checkout: `tools/`, not the installed runtime CLI
+  (for example, `python tools/classify_script_placement.py`).
 - **Migrations: `src/traust/migrations/` is for migrations an ADOPTER runs**
   — a schema upgrade path shipped with a release, declared with an
   `adopter-portable: <why>` line in its docstring. A one-shot that cleans

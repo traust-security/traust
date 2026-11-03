@@ -26,7 +26,7 @@ python3 -m traust.cli check skill-alignment      # equivalent
 | `attack` | The pack's pinned MITRE ATT&CK release | `validate` |
 | `auth` | Who you act as, over traust-core's identity provider | `local`, `login`, `logout`, `refresh`, `service-account`, `status`, `token` |
 | `build` | Deterministic builders | `rescan-worklist`, `skills-reference`, `symbol-index` |
-| `check` | Deterministic gates | `citations`, `content-licenses`, `coverage`, `docs-consistency`, `estate-data`, `drift`, `fix-propagation`, `location-paths`, `reference-integrity`, `script-placement`, `skill-alignment`, `skill-security` |
+| `check` | Deterministic gates | `citations`, `content-licenses`, `coverage`, `docs-consistency`, `estate-data`, `drift`, `fix-propagation`, `location-paths`, `reference-integrity`, `skill-alignment`, `skill-security` |
 | `cloud-config` | The cloud-config-audit skill's doors on traust-core | `check`, `record`, `run` |
 | `compliance` | compliance-check doors on traust-core (posture: `dashboard view compliance`) | `adrs`, `calibrate`, `check`, `declare`, `docs`, `evaluate`, `evidence`, `latest`, `policy`, `record`, `resolve`, `scopes` |
 | `config` | The config home's one file, `traust.yaml`: `migrate <old home>` writes it from a pre-traust.yaml home and reports every file (carried, dropped, a fact to record with its command) | `migrate` |
@@ -247,12 +247,13 @@ the checkout name, generation time, harness version, YAML-parser availability an
 statistics over the emitted triples. Credential literals remain redacted in every
 tier and in sink expressions; a row limit never means complete coverage.
 
-`traust check script-placement [--root <harness checkout>] [--only <class>]`
-restores the repository placement audit. It emits a CSV class summary and module
-rows based on static production/test importers, registry entries and literal
-skill references, including nested workflow skills. Tests never count toward the
-shared-library threshold. Classes are placement nominations, not proof that
-dynamic callers are absent; the command never moves or deletes files.
+Repository-hygiene placement auditing lives in the checkout, not the installed CLI:
+`python tools/classify_script_placement.py [--root <harness checkout>] [--only <class>]`.
+It emits a CSV class summary and module rows based on static production/test
+importers, registry entries and literal skill references, including nested workflow
+skills. Tests never count toward the shared-library threshold. Classes are placement
+nominations, not proof that dynamic callers are absent; the tool never moves or
+deletes files. Run it with the checkout's installed dependency environment.
 
 ### Advisory inputs and sweep-generated analysis
 

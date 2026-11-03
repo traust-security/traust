@@ -380,13 +380,16 @@ def test_tickets_name_the_jira_keys_on_a_repositorys_findings(
 
 def test_sarif_and_surfaces(home: Path, tmp_path: Path) -> None:
     finding_id = scanned(home, tmp_path)
-    rc, doc = run(findings.sarif, home, "--repo-url", REPO)
+    argv = ("--repo-url", REPO, "--as-of", "2099-01-01T00:00:00+00:00")
+    rc, doc = run(findings.sarif, home, *argv)
     assert rc == 0 and doc["version"] == "2.1.0"
     [result] = doc["runs"][0]["results"]
     assert result["partialFingerprints"]["traustFindingId/v1"] == finding_id
+    assert doc["runs"][0]["versionControlProvenance"] == [{"repositoryUri": REPO}]
+    assert result["locations"][0]["physicalLocation"]["artifactLocation"]["uri"] == "entry.c"
     out = tmp_path / "canary.sarif"
-    assert run(findings.sarif, home, "--repo-url", REPO, "-o", str(out))[0] == 0
-    assert json.loads(out.read_text())["runs"][0]["results"][0]["level"] == result["level"]
+    assert run(findings.sarif, home, *argv, "-o", str(out))[0] == 0
+    assert json.loads(out.read_text()) == doc
     assert run(findings.surfaces, home, "--repo-url", REPO) == (0, {})
 
 

@@ -74,7 +74,6 @@ from traust_core.v1.models.vocabulary import (
     Validity,
 )
 from traust_core.v1.providers.comments import FORGE, JIRA
-from traust_core.v1.services.insight import SarifExport
 
 from traust.cli._doors import parser, run, when
 from traust.context import load, load_caller
@@ -858,7 +857,7 @@ def sarif(argv: list[str] | None = None) -> int:
         repo = _repository(core, args.repo_url)
         assert repo.id is not None
         views = core.services().findings.baseline(repo.id, when(args.as_of) or datetime.now(UTC))
-        doc = SarifExport().document(views, repo.url)
+        doc = core.services().reporting.sarif_findings(views, repo.url)
         if args.out is None:
             return doc
         args.out.write_text(json.dumps(doc, indent=2) + "\n", encoding="utf-8")

@@ -8,6 +8,9 @@ All notable changes to Traust are documented here.
   Only emitted tags, canonical ASCII lengths and 12-character lowercase digest markers
   (or length-only Secret-map markers) retain idempotence; marker-like wrappers cannot
   hide credentials from saved-artifact scrubbing.
+- Use Core's public shared secret detectors for validation evidence without weakening
+  no-prefix markers, forged-marker rejection, Secret-map traversal or original-source hashes.
+- Route findings SARIF through Core's reporting service rather than constructing its renderer.
 - Preserve complete dotted report stems when materializing native view artifacts, so container
   findings never overwrite a neighboring code-audit report.
 - Route inventory CSV and PQC worklist Markdown through Core's safe public rendering doors
@@ -22,8 +25,8 @@ All notable changes to Traust are documented here.
   regenerate the skills reference from the final skill sources.
 - Restore config-matrix triple limits and generation/parser/statistics diagnostics
   without weakening credential redaction or hiding cap-related coverage gaps.
-- Restore `traust check script-placement` over static Python callers, registration
-  entries and nested skill references.
+- Keep the repository-specific script-placement audit under
+  `tools/classify_script_placement.py`, outside the installed runtime CLI.
 - Correct the retired ledger-pull documentation: layer snapshot export is not
   external finding-statement intake.
 - Restore detection-quality operator workflows on Core: unadmitted confirmed-fix benchmark

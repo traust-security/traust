@@ -129,7 +129,7 @@ Three adapters implement a common interface (`AdapterBase`):
 All adapters share:
 - **Verb classification** — each verb is tagged `safe`, `mutating`, or `destructive`; kube argv is additionally analyzed server-side (`adapters/kubeargv.py`: denied flags, subcommand classification as the verb-table floor)
 - **safe_exec step vetting** — string-form PoC steps never reach a shell: they are validated and executed through python3 -m traust.cli util safe-exec under the `validation-step` profile (argv allowlist, scrubbed env, shell-free pipelines; blocked steps exit 126 → `inconclusive`, never a silent pass). See [safe-exec.md](safe-exec.md)
-- **Credential redaction** — the shared write-time redaction patterns (`traust_engine._util.redact`, plus adapter-local ones) scrub PEM keys, cloud credentials, bearer tokens, JWTs, and registry auth from all artifacts before they hit disk (all adapters, including container/wasm)
+- **Credential redaction** — Core's public `models.redaction.SecretDetector` owns shared credential shapes; the validation adapter renders strict no-prefix markers and recursively scrubs arbitrary Secret-map values before saving any artifact or observed transcript (including container/wasm). See [validation-process.md](validation-process.md#credential-safe-execution-evidence).
 - **Rollback** — mutating steps track what they created/modified for cleanup
 
 ## Model routing & spend

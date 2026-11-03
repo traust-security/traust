@@ -7,8 +7,7 @@ from pathlib import Path
 import pytest
 from traust_core.v1.errors import ValidationError
 
-from traust.cli.__main__ import main
-from traust.cli.classify_script_placement import classify
+from tools.classify_script_placement import classify, main
 
 
 @pytest.fixture
@@ -60,8 +59,8 @@ def test_import_and_skill_thresholds_do_not_count_tests_as_production_callers(
     }
 
 
-def test_grouped_cli_filters_rows_without_narrowing_summary(harness: Path, capsys) -> None:
-    assert main(["check", "script-placement", "--root", str(harness), "--only", "orphan"]) == 0
+def test_checkout_cli_filters_rows_without_narrowing_summary(harness: Path, capsys) -> None:
+    assert main(["--root", str(harness), "--only", "orphan"]) == 0
     rows = list(csv.reader(io.StringIO(capsys.readouterr().out)))
     boundary = rows.index([])
     assert dict(rows[1:boundary])["shared-library"] == "1"
@@ -76,3 +75,24 @@ def test_unreadable_python_is_not_reported_as_an_unused_module(harness: Path) ->
     (harness / "src" / "traust" / "lib" / "broken.py").write_text("def broken(\n", encoding="utf-8")
     with pytest.raises(ValidationError):
         classify(harness)
+
+
+def test_checkout_cli_reports_inspection_errors_without_partial_csv(harness: Path, capsys) -> None:
+    (harness / "src" / "traust" / "lib" / "broken.py").write_text("def broken(\n", encoding="utf-8")
+    assert main(["--root", str(harness)]) == 2
+    output = capsys.readouterr()
+    assert output.out == ""
+    assert "cannot inspect Python imports" in output.err
+
+
+def test_static_command_registrations_remain_production_importers(harness: Path) -> None:
+    groups = harness / "src" / "traust" / "cli" / "groups"
+    groups.mkdir()
+    (groups / "check.py").write_text(
+        '_ENTRIES: tuple = (("check-orphan", "orphan", "Inspect it"),)\n',
+        encoding="utf-8",
+    )
+    rows, _ = classify(harness)
+    row = next(row for row in rows if row.module == "orphan")
+    assert row.classification == "other"
+    assert (row.non_test_importers, row.total_importers) == (1, 2)
