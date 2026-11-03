@@ -31,8 +31,10 @@ def redact_credentials(text: str) -> str:
     for rule in SecretDetector.evidence_rules():
         markers = list(_REDACTED.finditer(out))
         marker_starts = [marker.start() for marker in markers]
+        # Marker syntax is opaque, but offsets and enclosing credential spans must survive.
+        scan_text = _REDACTED.sub(lambda marker: "*" * len(marker.group()), out)
 
-        for match in reversed(tuple(rule.spans(out))):
+        for match in reversed(tuple(rule.spans(scan_text))):
             start, end = match.start, match.end
             index = bisect_right(marker_starts, start) - 1
             if index >= 0 and end <= markers[index].end():

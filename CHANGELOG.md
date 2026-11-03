@@ -10,6 +10,8 @@ All notable changes to Traust are documented here.
   hide credentials from saved-artifact scrubbing.
 - Use Core's public shared secret detectors for validation evidence without weakening
   no-prefix markers, forged-marker rejection, Secret-map traversal or original-source hashes.
+  Preserve publication-detected tokens beside word-character prefixes/suffixes, and merge
+  overlapping publication/evidence spans without shifting saved-evidence offsets.
 - Route findings SARIF through Core's reporting service rather than constructing its renderer.
 - Preserve complete dotted report stems when materializing native view artifacts, so container
   findings never overwrite a neighboring code-audit report.

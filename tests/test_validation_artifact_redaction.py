@@ -125,6 +125,58 @@ def test_shared_core_shapes_reach_saved_validation_evidence(tmp_path, value, tag
 
 
 @pytest.mark.parametrize(
+    "category,value,tag",
+    [
+        ("aws-access-key", "AKIA" + "A" * 16, "aws-akid"),
+        ("github-token", "ghp_" + "a" * 30, "github-token"),
+        ("gitlab-token", "glpat-" + "a" * 20, "gitlab-pat"),
+        ("slack-token", "xoxb-" + "a" * 16, "slack-token"),
+    ],
+)
+@pytest.mark.parametrize("prefix,suffix", [("", ""), ("x", ""), ("", "é"), ("x", "é")])
+def test_publication_matches_survive_word_adjacency_in_saved_evidence(
+    tmp_path, category, value, tag, prefix, suffix
+):
+    original = prefix + value + suffix
+    policy = Context(Config(home=tmp_path / "core")).services().redaction
+    assert category in {hit.category for hit in policy.scan(original)}
+    assert value not in policy.redact(original.encode()).payload.decode()
+
+    meta = AdapterBase._save_artifact(tmp_path / "artifacts", "adjacent", "stdout", original)
+    stored = (tmp_path / meta["path"]).read_text()
+    assert stored == prefix + _marker(tag, value) + suffix
+    assert meta["sha256"] == hashlib.sha256(original.encode()).hexdigest()
+    assert meta["redacted"] is True
+    assert redact_credentials(stored) == stored
+
+
+def test_prefixed_bearer_publication_capture_is_scrubbed_in_saved_evidence(tmp_path):
+    value = "f" * 24
+    original = "xBearer " + value + "é"
+    policy = Context(Config(home=tmp_path / "core")).services().redaction
+    assert "bearer-token" in {hit.category for hit in policy.scan(original)}
+    meta = AdapterBase._save_artifact(tmp_path / "artifacts", "bearer", "stdout", original)
+    stored = (tmp_path / meta["path"]).read_text()
+    assert stored == "xBearer " + _marker("bearer", value) + "é"
+    assert meta["sha256"] == hashlib.sha256(original.encode()).hexdigest()
+    assert meta["redacted"] is True
+    assert redact_credentials(stored) == stored
+
+
+@pytest.mark.parametrize("separator", ["", "é"])
+def test_canonical_marker_cannot_consume_a_following_credential(tmp_path, separator):
+    marker = _marker("github-token", _GITHUB)
+    prefix = marker + separator + "admin_token="
+    original = prefix + _PASSWORD
+    meta = AdapterBase._save_artifact(tmp_path / "artifacts", "following", "stdout", original)
+    stored = (tmp_path / meta["path"]).read_text()
+    assert stored == prefix + _marker("generic-secret", _PASSWORD)
+    assert meta["sha256"] == hashlib.sha256(original.encode()).hexdigest()
+    assert meta["redacted"] is True
+    assert redact_credentials(stored) == stored
+
+
+@pytest.mark.parametrize(
     "original",
     ["", "ordinary output \u2603\n", "token=short\n", '{"status": "ok", "items": [1, null, true]}'],
 )
