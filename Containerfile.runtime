@@ -15,7 +15,7 @@ ARG TOOLS_IMAGE
 ARG TOOLCHAIN_HASH=unknown
 ARG VCS_REF=unknown
 # The continuous-ops service (`traust-engine run|claim`), installed beside traust, not into it.
-ARG TRAUST_ENGINE_SHA=fe9e9129e2e4682fc8b7d0040efe4fee7c748073
+ARG TRAUST_ENGINE_SHA=779471df5b9473bbf31cf0ad78d213f88bda9153
 # The interpreter traust runs on, uv-managed: the code-facts scans parse target Python with its
 # `ast`, so it must read current syntax. uv verifies the download against the checksum its pinned
 # release carries.
@@ -76,6 +76,7 @@ RUN chown -R 1001:1001 /opt/traust /opt/traust-engine
 # Harness skill data — the same payload the pre-split image shipped, now layered on top of the
 # tools base instead of installed alongside ad hoc scanner commands.
 COPY harnessing/ /harness/harnessing/
+COPY packs/      /harness/packs/
 COPY config/     /harness/config/
 COPY docs/       /harness/docs/
 COPY bin/        /harness/bin/
@@ -96,7 +97,10 @@ platform.python_version()" "${PYTHON_VERSION}" \
 print({n: v(n) for n in ('traust', 'traust-ledger', 'traust-contracts', 'traust-core')})" \
     && python -m traust.cli --help >/dev/null \
     && traust-engine --help >/dev/null \
-    && echo "runtime image verified: traust stack importable, CLIs run"
+    && TRAUST_CONFIG_HOME=/tmp/smoke-home python -c "from traust.context import load; \
+from traust.paths import OPENGREP_RULES_DIR as r; load(); \
+assert any(r.rglob('*.yaml')), f'no opengrep rules under {r}'" \
+    && echo "runtime image verified: traust stack importable, CLIs run, the pack loads"
 
 WORKDIR /workspace
 ENTRYPOINT ["/opt/traust/.venv/bin/python", "-m", "traust.cli"]

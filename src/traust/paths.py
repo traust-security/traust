@@ -7,13 +7,16 @@ points. This module holds harness-checkout layout only (harnessing/, schemas).
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from traust_core.v1.context import config_path, optional_config_path, schema_dir, schema_path
 from traust_core.v1.errors import DeploymentConfigMissing
 
 _PKG_ROOT = Path(__file__).resolve().parent
-HARNESS_ROOT = _PKG_ROOT.parents[1]
+# A wheel install (the runtime image) has no checkout around the package: the image copies the
+# harness payload elsewhere and names it in HARNESS_ROOT.
+HARNESS_ROOT = Path(os.environ.get("HARNESS_ROOT") or _PKG_ROOT.parents[1])
 SRC_DIR = HARNESS_ROOT / "src"
 CLI_DIR = _PKG_ROOT / "cli"
 HARNESSING_DIR = HARNESS_ROOT / "harnessing"

@@ -40,7 +40,8 @@ audits of Red Hat Hybrid Platforms source code. Mounted as a volume by agent run
 # traust-core, which pins traust-contracts + traust-ledger (pip/uv from pyproject.toml git pins).
 #
 # What lives where after the scripts/ → packages refactor:
-#   harnessing/          skills, per-skill scripts, rule-pack copies — YES (payload)
+#   harnessing/          skills, per-skill scripts — YES (payload)
+#   packs/               the security pack: rule packs, SLA policy — YES (payload)
 #   config/              shipped estate-neutral config + *.example.* templates — YES
 #                        (deployment config is NOT here: mount it and set
 #                        TRAUST_CONFIG_HOME — see config/README.md)
@@ -57,6 +58,9 @@ WORKDIR /harness
 
 # Core skill definitions (the primary payload)
 COPY harnessing/ ./harnessing/
+
+# The security pack: rule packs, SLA policy, compliance catalogs (traust.paths reads them)
+COPY packs/ ./packs/
 
 # Shipped config (model-registry) + the traust.example.yaml template
 COPY config/ ./config/

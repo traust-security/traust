@@ -47,6 +47,10 @@ ATLAS_TABLE = _ATTACK / "atlas-techniques.json"  # the pinned MITRE ATLAS releas
 #   The config home, when no --config-home is given. Consumed by core's
 #   ``resolve_config_home``.
 #
+# HARNESS_ROOT
+#   Where the harness payload (harnessing/, packs/) sits when traust is installed as a wheel
+#   and not run from its checkout (the runtime image sets it). Consumed by :mod:`traust.paths`.
+#
 # XDG_CACHE_HOME
 #   Where the recall benchmark commits its canary repositories
 #   (``<cache>/recall-bench/<canaries>``). Consumed by :func:`load`.

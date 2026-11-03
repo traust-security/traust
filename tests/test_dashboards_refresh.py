@@ -146,6 +146,15 @@ def test_a_degraded_refresh_exits_with_its_outcome(insight: Insight, tmp_path: P
     assert rc == 4
 
 
+def test_a_runner_reads_the_job_result_as_the_last_stdout_line(
+    insight: Insight, tmp_path: Path
+) -> None:
+    insight.result = RefreshResult(failed={ViewName.FINDINGS_ROLLUP: "ValidationError: x"})
+    rc, out = run("--results-root", str(tmp_path), "--out", str(tmp_path / "d"))
+    job = JobResult.model_validate_json(out.strip().splitlines()[-1])
+    assert (rc, job.outcome) == (4, Outcome.DEGRADED)
+
+
 def test_views_run_first_and_render_the_scoreboard() -> None:
     stages = refresh_dashboards.build_stages(Path("/w"), Path("/r"), False)
     assert stages[0][0] == "views" and "scoreboard" not in [name for name, _, _ in stages]

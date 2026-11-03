@@ -4,6 +4,7 @@
 # Usage:
 #   ./scripts/install-toolchain.sh secure-code-audit
 #   ./scripts/install-toolchain.sh secure-container-audit
+#   ./scripts/install-toolchain.sh local-ops
 #   ./scripts/install-toolchain.sh --all
 #
 # This script installs the actual binaries. It is the "one command" the
@@ -54,6 +55,7 @@ dependency-watch:gitleaks
 impact-analysis:joern
 triage:govulncheck
 ledger-signing:cosign
+local-ops:syft
 '
 
 # All profile names, space-separated.

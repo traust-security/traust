@@ -41,13 +41,23 @@ OPS_DB_PASS="${OPS_DB_PASS:-traust}"
 OPS_DB_NAME="${OPS_DB_NAME:-traust}"
 OPS_DSN="postgresql://${OPS_DB_USER}:${OPS_DB_PASS}@localhost:${OPS_PORT}/${OPS_DB_NAME}"
 OPS_EVERY="${OPS_EVERY:-1m}"            # engine --every: minutes, hours or days
-OPS_ENGINE_SRC="${OPS_ENGINE_SRC:-git+https://github.com/traust-security/traust-engine@fe9e9129e2e4682fc8b7d0040efe4fee7c748073}"
+OPS_ENGINE_SRC="${OPS_ENGINE_SRC:-git+https://github.com/traust-security/traust-engine@779471df5b9473bbf31cf0ad78d213f88bda9153}"
 OPS_SMOKE_REPO="${OPS_SMOKE_REPO:-https://github.com/octocat/Hello-World}"
 
 CONFIG_HOME="$REPO_ROOT/$OPS_DIR/config"
 RUN_DIR="$REPO_ROOT/$OPS_DIR/run"
 
 if command -v podman >/dev/null 2>&1; then CT=podman; else CT=docker; fi
+
+# The toolchain installer (install-toolchain.sh) downloads pinned scanners into
+# HARNESS_BIN_DIR (default ~/.local/bin). Keep it on PATH for every rig command
+# so engine claims can run them even when the operator's shell profile doesn't.
+# HOME can be unset (stripped CI environments); then there is no default bin
+# dir to add, and the script must still dispatch — cleanup subcommands included.
+OPS_BIN_DIR="${HARNESS_BIN_DIR:-${HOME:+$HOME/.local/bin}}"
+if [ -n "$OPS_BIN_DIR" ]; then
+    export PATH="$OPS_BIN_DIR:$PATH"
+fi
 
 # The cadence compression: pack value → rig value (sed pairs).
 pack_overlay() {
@@ -124,6 +134,22 @@ cmd_up() {
     uv sync --quiet
     install_engine
 
+    # The smoke's manifest_sbom order runs syft through core's ProcessRunner
+    # (the binary the traust.yaml grant below allows). A fresh host has none:
+    # provision it through the same pinned, checksum-verified download CI uses
+    # (install-toolchain.sh's local-ops profile) instead of letting the order
+    # fail at claim time with an unexplained gap.
+    if ! command -v syft >/dev/null 2>&1; then
+        # A failed download still falls through to the actionable message below.
+        bash scripts/install-toolchain.sh local-ops || true
+    fi
+    command -v syft >/dev/null 2>&1 || {
+        echo "syft is missing and could not be installed: manifest_sbom orders need it." >&2
+        echo "run: bash scripts/install-toolchain.sh local-ops" >&2
+        echo "then make ops-up again (or add ${OPS_BIN_DIR:-the install-toolchain.sh bin dir} to PATH)" >&2
+        return 1
+    }
+
     # The rig's traust.yaml: its database and locations. `home` keeps core's credential
     # store and local-issuer key inside the rig: without it they land in ~/.traust, over a
     # real install's login there.
@@ -143,8 +169,31 @@ locations:
   workspace: $RUN_DIR/workspace
   analysis_results: $RUN_DIR/analysis-results
   progress_tracker: $RUN_DIR/progress-tracker
+# manifest_sbom runs syft through core's ProcessRunner, which runs only what is listed here.
+process:
+  allowed_binaries: [syft]
 EOF
     fi
+    # A rig created before this PR has a traust.yaml without the syft grant:
+    # merge it in so an upgraded rig can run manifest_sbom (core's ProcessRunner
+    # refuses unlisted binaries). Idempotent: no-op when syft is already allowed.
+    OPS_CONFIG="$CONFIG_HOME/traust.yaml" uv run --no-sync python - <<'PYEOF'
+import os
+import yaml
+
+path = os.environ["OPS_CONFIG"]
+with open(path) as f:
+    cfg = yaml.safe_load(f) or {}
+process = cfg.get("process") or {}
+binaries = process.get("allowed_binaries") or []
+if "syft" not in binaries:
+    binaries.append("syft")
+    process["allowed_binaries"] = binaries
+    cfg["process"] = process
+    with open(path, "w") as f:
+        yaml.safe_dump(cfg, f, sort_keys=False)
+    print("traust.yaml: granted process.allowed_binaries syft (manifest_sbom upgrade)")
+PYEOF
     mkdir -p "$RUN_DIR/home" "$RUN_DIR/workspace" "$RUN_DIR/analysis-results" "$RUN_DIR/progress-tracker" "$OPS_DIR/pack"
     pack_overlay > "$OPS_DIR/pack/assets.yaml"
 
@@ -266,18 +315,23 @@ cmd_smoke() {
     local repo="${1:-$OPS_SMOKE_REPO}"
     echo "smoke: onboarding $repo"
     traust_cli portfolio onboard --product local-rig --label "Local rig" --repo "$repo" >/dev/null
-    echo "smoke: one engine pass (applies the schema, plans what is due)"
-    engine run --router traust.ops.router:SecurityRouter --once >/dev/null
-    echo "smoke: claiming until the queue drains"
-    local idle=0 _
-    for _ in $(seq 1 40); do
-        if engine claim | grep -q '"claimed": null'; then
-            idle=$((idle + 1))
-            [ "$idle" -ge 2 ] && break
-        else
-            idle=0
-        fi
-        sleep 2
+    # Two passes: the first observes the repository, the second plans what depends on it
+    # (manifest_sbom waits on repo_state).
+    local pass idle _
+    for pass in 1 2; do
+        echo "smoke: engine pass $pass (applies the schema, plans what is due)"
+        engine run --router traust.ops.router:SecurityRouter --once >/dev/null
+        echo "smoke: claiming until the queue drains"
+        idle=0
+        for _ in $(seq 1 40); do
+            if engine claim | grep -q '"claimed": null'; then
+                idle=$((idle + 1))
+                [ "$idle" -ge 2 ] && break
+            else
+                idle=0
+            fi
+            sleep 2
+        done
     done
     echo "smoke: orders by asset and state"
     "$CT" exec "$OPS_CONTAINER" psql -U "$OPS_DB_USER" -d "$OPS_DB_NAME" \
@@ -292,6 +346,9 @@ cmd_smoke() {
     "$CT" exec "$OPS_CONTAINER" psql -U "$OPS_DB_USER" -d "$OPS_DB_NAME" -tAc \
         "select count(*) from traust_ops.run_order where asset = 'repo_state' and state in ('succeeded', 'degraded')" \
         | grep -qx 0 && { echo "smoke: no completed repo_state order" >&2; bad=1; }
+    "$CT" exec "$OPS_CONTAINER" psql -U "$OPS_DB_USER" -d "$OPS_DB_NAME" -tAc \
+        "select count(*) from traust_ops.run_order where asset = 'manifest_sbom' and state in ('succeeded', 'degraded')" \
+        | grep -qx 0 && { echo "smoke: no completed manifest_sbom order" >&2; bad=1; }
     if [ "${OPS_TEARDOWN:-0}" = "1" ]; then
         "$CT" rm -f "$OPS_CONTAINER" >/dev/null 2>&1 || true
         "$CT" volume rm "$OPS_VOLUME" >/dev/null 2>&1 || true

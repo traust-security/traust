@@ -43,6 +43,7 @@ from traust.context import (
     progress_tracker_dir,
     rule_drafts_dir,
 )
+from traust.paths import skill_dir
 
 SWEEPS_REL = Path("scan-testing") / "sweeps"
 VALIDATION_BENCHMARK_REL = Path("scan-testing") / "validation-benchmark"
@@ -224,7 +225,8 @@ def add_benchmark_args(ap) -> None:
         type=Path,
         default=None,
         help="validate-findings benchmark dir: expected.json + fixtures/, and the plan's output "
-        "(default: <analysis_results>/scan-testing/validation-benchmark)",
+        "(default: the shipped benchmark, with the plan's output under "
+        "<analysis_results>/scan-testing/validation-benchmark)",
     )
     sub = ap.add_subparsers(dest="benchmark_cmd", required=True)
     sub.add_parser("plan", help="emit benchmark worklist and deploy commands")
@@ -252,19 +254,21 @@ def call_benchmark(args) -> int:
         return _door(lambda: _check_trigger(quality, args))
     if args.benchmark_cmd == "scorecard":
         return _door(lambda: _scorecard(quality))
-    bench = args.benchmark_dir or (
-        _required(lambda: analysis_results_dir(core)) / VALIDATION_BENCHMARK_REL
-    )
+    # The harness ships the benchmark (expected.json, fixtures/); a plan writes to the estate.
+    bench = args.benchmark_dir or skill_dir("validate-findings") / "benchmark"
     if args.benchmark_cmd == "plan":
-        return _door(lambda: _plan(quality, bench))
+        runs = args.benchmark_dir or (
+            _required(lambda: analysis_results_dir(core)) / VALIDATION_BENCHMARK_REL
+        )
+        return _door(lambda: _plan(quality, bench, runs))
     return _door(lambda: _score(quality, bench, args))
 
 
-def _plan(quality, bench: Path) -> int:
+def _plan(quality, bench: Path, runs: Path) -> int:
     expected = _benchmark(bench)
     worklist = quality.benchmark_worklist(expected)
-    bench.mkdir(parents=True, exist_ok=True)
-    out = bench / "benchmark-findings.json"
+    runs.mkdir(parents=True, exist_ok=True)
+    out = runs / "benchmark-findings.json"
     out.write_text(worklist.model_dump_json(indent=1) + "\n", encoding="utf-8")
     print(f"benchmark worklist: {len(worklist.findings)} claims → {out}")
     print("\nDeploy (vuln variant):")

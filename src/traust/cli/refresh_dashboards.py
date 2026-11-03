@@ -8,6 +8,7 @@ builders of the dashboards core has no view for yet.
 
 All stages are deterministic (~$0, no agent). A failure is recorded and
 the remaining stages still run; the exit code is non-zero if anything failed.
+The summary goes to stderr: a runner reads the views stage's JobResult as the last stdout line.
 
 The spend-actuals leg (collect_session_spend.py --append) reads Claude
 Code session transcripts on the operator's workstation, so it is NOT
@@ -196,22 +197,24 @@ def main(argv=None):
     if args.dry_run:
         return 0
 
-    print("\n== refresh-dashboards summary ==")
+    print("\n== refresh-dashboards summary ==", file=sys.stderr)
     failed = [n for n, _, ok, _ in results if not ok]
     for name, tier, ok, elapsed in results:
-        print(f"  {'ok  ' if ok else 'FAIL'} {name:20s} {tier:10s} {elapsed:6.1f}s")
+        mark = "ok  " if ok else "FAIL"
+        print(f"  {mark} {name:20s} {tier:10s} {elapsed:6.1f}s", file=sys.stderr)
     skipped = [
         n
         for n, _, _ in stages
         if n not in {r[0] for r in results} and (args.only is None or n in args.only)
     ]
     if skipped:
-        print(f"  not run: {', '.join(skipped)}")
+        print(f"  not run: {', '.join(skipped)}", file=sys.stderr)
     if not spend_actuals and args.only is None:
         print(
             "  note: spend actuals not appended (operator-side leg; "
             "rerun with --spend-actuals on a workstation with "
-            "session transcripts)"
+            "session transcripts)",
+            file=sys.stderr,
         )
     return views_rc or (1 if failed else 0)
 
