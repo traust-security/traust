@@ -2,10 +2,13 @@
 
 import gzip
 import json
+import os
+import shutil
 import sys
 from pathlib import Path
 
 import pytest
+import yaml
 from traust_contracts import Locations
 
 from traust.paths import skill_dir
@@ -31,11 +34,18 @@ en = _load("enrich_findings_cves")
 
 
 @pytest.fixture(autouse=True)
-def _product_definitions_configured(monkeypatch):
+def _product_definitions_configured(tmp_path, monkeypatch):
     """product-definitions is config-gated (locations.product_definitions) since it
     targets a deployment-specific registry. The suite exercises it as a configured
     estate would; the lazy feeds cache is reset so the gate is re-evaluated per
     test. Tests that want the open-source default (absent) override it."""
+    home = tmp_path / "configured-home"
+    shutil.copytree(os.environ["TRAUST_CONFIG_HOME"], home)
+    loc_path = home / "locations.yaml"
+    loc = yaml.safe_load(loc_path.read_text())
+    loc["product_definitions"] = "https://feeds.test/product-definitions.json"
+    loc_path.write_text(yaml.safe_dump(loc), encoding="utf-8")
+    monkeypatch.setenv("TRAUST_CONFIG_HOME", str(home))
     monkeypatch.setattr(
         ff.locations,
         "configured_locations",
@@ -503,3 +513,61 @@ def test_rh_cve_is_watched_by_drift():
     from traust.cli.check_drift import watched_feeds
 
     assert ("rh-cve", False) in watched_feeds()
+
+
+def test_explicit_config_home_controls_feed_validation_and_fetch(tmp_path, monkeypatch):
+    homes = {}
+    for name in ("alpha", "beta"):
+        home = tmp_path / name
+        shutil.copytree(os.environ["TRAUST_CONFIG_HOME"], home)
+        registry = yaml.safe_load((home / "feeds.yaml").read_text())
+        spec = dict(registry["sources"]["kev"])
+        spec.update(file=f"{name}.json", internal=False)
+        registry["sources"] = {name: spec}
+        (home / "feeds.yaml").write_text(yaml.safe_dump(registry), encoding="utf-8")
+        loc_path = home / "locations.yaml"
+        loc = yaml.safe_load(loc_path.read_text())
+        loc["product_definitions"] = f"https://{name}.test/products.json"
+        loc_path.write_text(yaml.safe_dump(loc), encoding="utf-8")
+        homes[name] = home
+    monkeypatch.setenv("TRAUST_CONFIG_HOME", str(homes["alpha"]))
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    (cache / "alpha.json").write_text("{}\n")
+    (cache / "beta.json").write_text("{}\n")
+    assert "alpha" in ff._feeds()
+    assert "beta" not in ff._feeds()
+    assert (
+        ff.main(
+            [
+                "--config-home",
+                str(homes["beta"]),
+                "--cache-dir",
+                str(cache),
+                "--feed",
+                "beta",
+                "--offline",
+            ]
+        )
+        == 0
+    )
+    assert ff._feeds()["beta"]["file"] == "beta.json"
+    assert ff._feeds()["product-definitions"]["url"] == "https://beta.test/products.json"
+    assert "alpha" not in ff._feeds()
+    with pytest.raises(SystemExit) as exc:
+        ff.main(["--config-home", str(homes["beta"]), "--feed", "alpha", "--offline"])
+    assert exc.value.code == 2
+    # A second invocation must not retain the previous run's registry.
+    assert (
+        ff.main(
+            [
+                "--cache-dir",
+                str(cache),
+                "--feed",
+                "alpha",
+                "--offline",
+            ]
+        )
+        == 0
+    )
+    assert "beta" not in ff._feeds()

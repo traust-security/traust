@@ -1968,3 +1968,130 @@ def test_shipped_compliance_data_is_what_drift_watch_reads():
     items = {i["item"]: i for i in cd.check_policy_provenance(Path("/nonexistent-ws"))}
     for name in ("compliance-spine", "catalog-pci-dss", "catalog-soc2-tsc", "catalog-gdpr"):
         assert items[f"provenance:{name}"]["status"] != "pending", items[f"provenance:{name}"]
+
+
+def test_external_inputs_belong_to_configured_workspace(tmp_path, monkeypatch):
+    ws = _mk_ws(tmp_path)
+    _engine_for_ws(tmp_path, ws, monkeypatch)
+    inventory = tmp_path / "external-inventory"
+    (inventory / "adhoc").mkdir(parents=True)
+    (inventory / "adhoc" / "docs-product-map.yaml").write_text(
+        'fetched_at: "2000-01-01"\nproducts: {}\n', encoding="utf-8"
+    )
+    loc_path = _home() / "locations.yaml"
+    loc = yaml.safe_load(loc_path.read_text())
+    loc["inputs"] = str(inventory)
+    loc_path.write_text(yaml.safe_dump(loc), encoding="utf-8")
+    assert cd._inputs_root(ws) == inventory
+    assert [(r["item"], r["status"]) for r in cd.check_docs_product_map(ws)] == [
+        ("docs-product-map", "stale")
+    ]
+    # An explicitly different workspace remains isolated from deployment data.
+    other = tmp_path / "other-workspace"
+    assert cd._inputs_root(other) == other / "inputs"
+    assert cd.check_docs_product_map(other)[0]["status"] == "pending"
+
+
+@pytest.mark.requires_git
+@pytest.mark.parametrize("external", [False, True])
+def test_drift_cli_uses_selected_results_and_inventory_roots(tmp_path, monkeypatch, external):
+    ws = _mk_ws(tmp_path)
+    _engine_for_ws(tmp_path, ws, monkeypatch)
+    results = tmp_path / "external-results" if external else ws / "analysis-results"
+    inventory = tmp_path / "external-inventory"
+    inventory.mkdir()
+    subprocess.run(["git", "init", "-q", str(inventory)], check=True)
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(inventory),
+            "-c",
+            "user.name=Fixture",
+            "-c",
+            "user.email=fixture@example.com",
+            "-c",
+            "commit.gpgsign=false",
+            "-c",
+            "core.hooksPath=/dev/null",
+            "commit",
+            "--allow-empty",
+            "-qm",
+            "inventory",
+        ],
+        check=True,
+    )
+    loc_path = _home() / "locations.yaml"
+    loc = yaml.safe_load(loc_path.read_text())
+    loc.update(inputs=str(inventory), analysis_results=str(results))
+    loc_path.write_text(yaml.safe_dump(loc), encoding="utf-8")
+    graph = results / "graph"
+    graph.mkdir(parents=True, exist_ok=True)
+    (graph / "repo-graph.json").write_text('{"generated": "2020-01-01"}\n')
+    db = graph / "portfolio-graph.db"
+    db.touch()
+    old = datetime.datetime(2020, 1, 1, tzinfo=datetime.UTC).timestamp()
+    os.utime(db, (old, old))
+    impact = results / "impact" / "CVE-2099-0001-impact-analysis.json"
+    impact.parent.mkdir(parents=True)
+    impact.write_text("{}\n")
+    os.utime(impact, (old - 86400, old - 86400))
+    scorecard = results / "scan-testing" / "validation-benchmark" / "scorecard.json"
+    scorecard.parent.mkdir(parents=True)
+    scorecard.write_text("{}\n")
+    os.utime(scorecard, (old, old))
+    cache = results / Path(cd.LANG_CACHE_REL).relative_to("analysis-results")
+    cache.parent.mkdir(parents=True)
+    count = max(cd.LANGUAGE_COVERAGE_THRESHOLD, cd.REACHABILITY_COVERAGE_THRESHOLD)
+    cache.write_text(
+        "".join(
+            json.dumps({"repo": f"org/r{i}", "languages": {"FixtureLang": 10}}) + "\n"
+            for i in range(count)
+        )
+    )
+    # Isolate this CLI run to the real affected checks, without external feed probes.
+    monkeypatch.setattr(cd, "check_feeds", lambda engine: [])
+    monkeypatch.setattr(cd, "ENGINE_CHECKS", [])
+    monkeypatch.setattr(
+        cd,
+        "CHECKS",
+        [
+            cd.check_graphs,
+            cd.check_impact_artifacts,
+            cd.check_validation_benchmark,
+            cd.check_language_cache_freshness,
+            cd.check_language_coverage,
+            cd.check_reachability_coverage,
+        ],
+    )
+    out = tmp_path / "report"
+    assert (
+        cd.main(["--config-home", str(_home()), "--out-dir", str(out), "--fail-on", "stale"]) == 1
+    )
+    report = json.loads((out / "drift-report.json").read_text())
+    rows = {r["item"]: r["status"] for r in report["items"]}
+    assert {
+        key: rows[key]
+        for key in [
+            "repo-graph",
+            "portfolio-graph",
+            "impact:CVE-2099-0001",
+            "validation-benchmark",
+            "language-cache-freshness",
+            "language-coverage:FixtureLang",
+            "reachability-coverage:FixtureLang",
+        ]
+    } == {
+        "repo-graph": "stale",
+        "portfolio-graph": "stale",
+        "impact:CVE-2099-0001": "stale",
+        "validation-benchmark": "stale",
+        "language-cache-freshness": "fresh",
+        "language-coverage:FixtureLang": "drift",
+        "reachability-coverage:FixtureLang": "drift",
+    }
+    assert cd._run_ar is cd._run_pt is cd._run_inputs is None
+    db.unlink()
+    # The same selected impact tree must report the missing graph, not a sibling graph.
+    monkeypatch.setattr(cd, "_run_ar", results)
+    assert cd.check_impact_artifacts(ws)[0]["status"] == "unavailable"

@@ -64,6 +64,7 @@ except ImportError:
 # (analysis_results / progress_tracker not nested under workspace).
 _run_ar: Path | None = None
 _run_pt: Path | None = None
+_run_inputs: Path | None = None
 
 
 def _ar(ws: Path) -> Path:
@@ -617,23 +618,20 @@ def check_rule_mining(ws: Path) -> list[dict]:
 
 
 def _inputs_root(ws: Path) -> Path:
-    """The inputs inventory: ``locations.inputs`` when a config home resolves,
-    else ``<ws>/inputs`` (the same default ``inputs_dir`` uses)."""
-    fallback = ws / "inputs"
+    """Configured inventory for this workspace, including external trees."""
+    if _run_inputs is not None:
+        return _run_inputs
     try:
-        configured = inputs_dir(load_engine())
-    except SystemExit:
-        return fallback
-    except Exception:
-        return fallback
-    # The configured inventory is authoritative only for the workspace it
-    # belongs to; a caller passing a different workspace (tests build one in
-    # tmp_path) gets that workspace's own inputs/ tree.
-    try:
-        configured.resolve().relative_to(ws.resolve())
-    except ValueError:
-        return fallback
-    return configured
+        engine = load_engine()
+    except (SystemExit, Exception):
+        return ws / "inputs"
+    return _inputs_for_checks(ws, engine)
+
+
+def _inputs_for_checks(ws: Path, engine) -> Path:
+    if ws.resolve() == workspace_dir(engine).resolve():
+        return inputs_dir(engine)
+    return ws / "inputs"
 
 
 def check_graphs(ws: Path) -> list[dict]:
@@ -643,10 +641,10 @@ def check_graphs(ws: Path) -> list[dict]:
     for name, path, stamp_getter in (
         (
             "repo-graph",
-            ws / "analysis-results/graph/repo-graph.json",
+            _ar(ws) / "graph/repo-graph.json",
             lambda p: _parse_iso((json.loads(p.read_text(encoding="utf-8"))).get("generated", "")),
         ),
-        ("portfolio-graph", ws / "analysis-results/graph/portfolio-graph.db", _mtime),
+        ("portfolio-graph", _ar(ws) / "graph/portfolio-graph.db", _mtime),
     ):
         if not path.is_file():
             out.append(item(name, "pending", "artifact absent"))
@@ -699,10 +697,10 @@ def check_impact_artifacts(ws: Path) -> list[dict]:
     data also moves, but that staleness is unbounded by design — the graph
     comparison is the deterministic pair we can check."""
     out = []
-    impact_dir = ws / "analysis-results/impact"
+    impact_dir = _ar(ws) / "impact"
     if not impact_dir.is_dir():
         return out  # nothing produced yet — not even pending
-    db = ws / "analysis-results/graph/portfolio-graph.db"
+    db = _ar(ws) / "graph/portfolio-graph.db"
     db_stamp = _mtime(db) if db.is_file() else None
     for art in sorted(impact_dir.glob("*-impact-analysis.json")):
         name = f"impact:{art.stem.removesuffix('-impact-analysis')}"
@@ -729,7 +727,7 @@ def check_validation_benchmark(ws: Path) -> list[dict]:
     """P7 hybrid cadence, monthly leg: the validation benchmark scorecard
     must be younger than 35 days; the release-cut leg is
     traust_engine.sweep.benchmark check-trigger in the release flow."""
-    card = ws / "analysis-results/scan-testing/validation-benchmark/scorecard.json"
+    card = _ar(ws) / "scan-testing/validation-benchmark/scorecard.json"
     if not card.is_file():
         return [
             item(
@@ -3384,6 +3382,10 @@ def _language_mass(cache_p: Path) -> tuple[dict[str, int], dict[str, int], int, 
     return dominant, present, repos, malformed
 
 
+def _language_cache(ws: Path) -> Path:
+    return _ar(ws) / Path(LANG_CACHE_REL).relative_to("analysis-results")
+
+
 def check_reachability_coverage(ws: Path) -> list[dict]:
     """Portfolio language mass vs SYMBOL-TIER REACHABILITY coverage, plus
     the review clock on the reachability watch register.
@@ -3413,13 +3415,13 @@ def check_reachability_coverage(ws: Path) -> list[dict]:
     ground-truth corpus (docs/reachability.md "Validation records").
     """
     out = []
-    cache_p = ws / LANG_CACHE_REL
+    cache_p = _language_cache(ws)
     if not cache_p.is_file():
         out.append(
             item(
                 "reachability-coverage",
                 "pending",
-                f"no portfolio language cache yet ({LANG_CACHE_REL})",
+                f"no portfolio language cache yet ({cache_p})",
                 "build the language cache (loc-dashboard / build_portfolio_graph language harvest)",
             )
         )
@@ -3562,13 +3564,13 @@ def check_language_coverage(ws: Path) -> list[dict]:
     allowlist is a deliberate human/config decision.
     """
     out = []
-    cache_p = ws / LANG_CACHE_REL
+    cache_p = _language_cache(ws)
     if not cache_p.is_file():
         out.append(
             item(
                 "language-coverage",
                 "pending",
-                f"no portfolio language cache yet ({LANG_CACHE_REL})",
+                f"no portfolio language cache yet ({cache_p})",
                 "build the language cache (loc-dashboard / build_portfolio_graph language harvest)",
             )
         )
@@ -3681,7 +3683,7 @@ def check_language_cache_freshness(ws: Path) -> list[dict]:
     language/ecosystem entering the portfolio. Flags `drift` when the cache
     file is MISSING or older than LANGUAGE_CACHE_MAX_AGE_DAYS; /loc-dashboard
     (with fetch) refreshes it. Routes attention only."""
-    cache_p = ws / LANG_CACHE_REL
+    cache_p = _language_cache(ws)
     refresh = "/loc-dashboard (with fetch) refreshes the gh-languages cache"
     mt = _mtime(cache_p)
     if mt is None:
@@ -3689,7 +3691,7 @@ def check_language_cache_freshness(ws: Path) -> list[dict]:
             item(
                 "language-cache-freshness",
                 "drift",
-                f"portfolio language cache missing ({LANG_CACHE_REL}) — the "
+                f"portfolio language cache missing ({cache_p}) — the "
                 f"language-coverage tripwire has no data to run on",
                 refresh,
             )
@@ -3700,7 +3702,7 @@ def check_language_cache_freshness(ws: Path) -> list[dict]:
         item(
             "language-cache-freshness",
             status,
-            f"{LANG_CACHE_REL} is {days:.0f}d old (threshold "
+            f"{cache_p} is {days:.0f}d old (threshold "
             f"{LANGUAGE_CACHE_MAX_AGE_DAYS}d) — a stale cache lets the "
             f"language-coverage check miss a new language/ecosystem",
             refresh if status != "fresh" else None,
@@ -3986,9 +3988,10 @@ def main(argv=None) -> int:
 
     engine = load_engine(args.config_home)
     ws = (args.workspace or workspace_dir(engine)).resolve()
-    global _run_ar, _run_pt
+    global _run_ar, _run_pt, _run_inputs
     _run_ar = _analysis_results_for_checks(ws, engine)
     _run_pt = _progress_tracker_for_checks(ws, engine)
+    _run_inputs = _inputs_for_checks(ws, engine)
     items = []
     try:
         try:
@@ -4012,7 +4015,7 @@ def main(argv=None) -> int:
             except Exception as e:
                 items.append(item(chk.__name__, "unavailable", f"checker error: {e}"))
     finally:
-        _run_ar = _run_pt = None
+        _run_ar = _run_pt = _run_inputs = None
     counts = {}
     for i in items:
         counts[i["status"]] = counts.get(i["status"], 0) + 1

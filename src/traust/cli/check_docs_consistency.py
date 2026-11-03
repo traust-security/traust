@@ -790,24 +790,29 @@ CONFIG_SHIPPED = {"README.md", "external-tools.yaml", "feeds.yaml", "model-regis
 CONFIG_EXAMPLE_RX = re.compile(r"^[a-z0-9-]+\.example\.[a-z]+$")
 
 
-def _estate_patterns() -> list[tuple[str, re.Pattern]] | None:
-    """Block/review rules from scan_internal_refs — universal + the deployment
-    vocabulary in $TRAUST_CONFIG_HOME. None when no vocabulary is configured
-    (a CI checkout without a config home), in which case the estate-marker leg
-    of the config check is skipped rather than run against a shipped list: a
-    gate that carries the internal names it looks for has published them
-    (2026-09-07 review §1)."""
-    try:
-        from traust.cli.scan_internal_refs import all_rules
+def _estate_patterns() -> tuple[list[tuple[str, re.Pattern]], list[str]]:
+    """Skip an unconfigured vocabulary, never a broken configured one."""
+    from traust.cli.scan_internal_refs import RULES, all_rules, vocabulary_path
 
+    path = vocabulary_path()
+    if path is None or not path.exists():
+        return [], []
+    failures = []
+    try:
         rules = all_rules()
-    except Exception:
-        return None
+    except Exception as exc:
+        # Keep universal rules active even when deployment rules cannot load.
+        # The error is a gate failure, not evidence that the tree is clean.
+        failures.append(
+            f"internal-vocabulary.yaml: cannot load configured vocabulary "
+            f"({type(exc).__name__}); repair {path}"
+        )
+        rules = RULES
     return [
         (rid, re.compile(pat, re.IGNORECASE))
         for rid, tier, pat, _why in rules
         if tier in ("block", "review")
-    ]
+    ], failures
 
 
 def config_hygiene_failures(repo: Path = REPO) -> list[str]:
@@ -815,7 +820,8 @@ def config_hygiene_failures(repo: Path = REPO) -> list[str]:
     cfg = repo / "config"
     if not cfg.is_dir():
         return failures
-    patterns = _estate_patterns()
+    patterns, vocabulary_failures = _estate_patterns()
+    failures.extend(vocabulary_failures)
     for f in sorted(cfg.iterdir()):
         if f.name.startswith("."):
             failures.append(
@@ -840,7 +846,7 @@ def config_hygiene_failures(repo: Path = REPO) -> list[str]:
             text = f.read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue
-        for rid, rx in patterns or []:
+        for rid, rx in patterns:
             m = rx.search(text)
             if m:
                 failures.append(
@@ -1070,7 +1076,7 @@ def model_class_failures(repo: Path = REPO) -> list[str]:
     for rel in _MODEL_CLASS_SOURCES:
         source.update(_class_rows(repo, rel))
     index = _class_index(repo)
-    real = {d.name for d in skill_dirs()}
+    real = {d.name for d in skill_dirs(repo)}
     where = " / ".join(_MODEL_CLASS_SOURCES)
     out = []
     for name, cls in sorted(index.items()):
@@ -1163,10 +1169,7 @@ def docs_estate_marker_failures(repo: Path = REPO) -> list[str]:
     docs = repo / "docs"
     if not docs.is_dir():
         return []
-    patterns = _estate_patterns()
-    if patterns is None:
-        return []
-    failures = []
+    patterns, failures = _estate_patterns()
     for f in sorted(docs.rglob("*.md")):
         try:
             text = f.read_text(encoding="utf-8", errors="ignore")

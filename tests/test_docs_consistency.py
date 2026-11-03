@@ -13,6 +13,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import pytest
+
 from traust.cli import check_docs_consistency as C
 
 
@@ -384,3 +386,71 @@ class TestSingleRulePack(unittest.TestCase):
                 "moved harnessing/3-audit/secure-code-audit/opengrep-rules\n", encoding="utf-8"
             )
             self.assertEqual(C.rule_pack_copy_failures(repo), [])
+
+
+class TestModelClassRoot(unittest.TestCase):
+    def test_selected_checkout_defines_real_skills(self):
+        with tempfile.TemporaryDirectory() as td:
+            repo = Path(td)
+            skill = repo / "harnessing" / "3-audit" / "campaign-fixture-skill"
+            skill.mkdir(parents=True)
+            (skill / "SKILL.md").write_text(
+                "---\nname: campaign-fixture-skill\ndescription: Fixture.\n---\n",
+                encoding="utf-8",
+            )
+            docs = repo / "docs"
+            docs.mkdir()
+            usage = docs / "campaign-workflow.md"
+            index = docs / "model-classes.md"
+            usage.write_text("| `campaign-fixture-skill` | sonnet-class |\n", encoding="utf-8")
+            index.write_text("### `sonnet-class`\n\n`campaign-fixture-skill`\n", encoding="utf-8")
+            self.assertEqual(C.model_class_failures(repo), [])
+            usage.write_text("| `triage` | sonnet-class |\n", encoding="utf-8")
+            index.write_text("### `sonnet-class`\n\n`triage`\n", encoding="utf-8")
+            self.assertTrue(any("triage" in f for f in C.model_class_failures(repo)))
+
+
+@pytest.mark.parametrize(
+    "contents",
+    [
+        "rules: [",
+        "rules: []\n",
+        "- not-a-mapping\n",
+        "rules:\n  - {id: fixture, tier: block, pattern: '['}\n",
+        b"\xff",
+    ],
+)
+def test_broken_vocabulary_fails_gate_and_keeps_universal_rules(tmp_path, monkeypatch, contents):
+    from traust.cli import scan_internal_refs as scanner
+
+    vocabulary = tmp_path / "internal-vocabulary.yaml"
+    vocabulary.write_bytes(contents if isinstance(contents, bytes) else contents.encode())
+    monkeypatch.setattr(scanner, "vocabulary_path", lambda explicit=None: vocabulary)
+    (tmp_path / "config").mkdir()
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "config" / "model-registry.yaml").write_text("endpoint: 10.23.45.67\n")
+    (tmp_path / "docs" / "example.md").write_text("Private endpoint: 10.23.45.67\n")
+    for check in (C.config_hygiene_failures, C.docs_estate_marker_failures):
+        failures = check(tmp_path)
+        assert any("internal-vocabulary.yaml:" in f for f in failures)
+        assert any("rfc1918" in f for f in failures)
+
+
+@pytest.mark.parametrize("present", [False, True])
+def test_vocabulary_configuration_boundary(tmp_path, monkeypatch, present):
+    from traust.cli import scan_internal_refs as scanner
+
+    vocabulary = tmp_path / "internal-vocabulary.yaml"
+    monkeypatch.setattr(scanner, "vocabulary_path", lambda explicit=None: vocabulary)
+    if present:
+        vocabulary.write_text(
+            "rules:\n  - {id: fixture-host, tier: block, pattern: fixture-internal, why: test}\n"
+        )
+    (tmp_path / "config").mkdir()
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "config" / "model-registry.yaml").write_text("endpoint: fixture-internal\n")
+    (tmp_path / "docs" / "example.md").write_text("Endpoint: fixture-internal\n")
+    for check in (C.config_hygiene_failures, C.docs_estate_marker_failures):
+        failures = check(tmp_path)
+        assert any("fixture-host" in f for f in failures) is present
+        assert not any("cannot load" in f for f in failures)

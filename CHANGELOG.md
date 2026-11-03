@@ -4,6 +4,19 @@ All notable changes to Traust are documented here.
 
 ## [Unreleased]
 
+- Treat HTTP 4xx responses as reachable targets during attestation while retaining
+  fail-closed behavior for server and transport failures.
+- Fail the config/docs estate gate on a malformed configured vocabulary, keeping
+  universal credential/network rules active instead of reporting a clean scan.
+- Honor split `locations.inputs` and `locations.analysis_results` roots in drift
+  checks for product maps, graphs, impact artifacts, portfolio language coverage
+  and cache freshness, and validation benchmarks.
+- Resolve feed names and optional ownership-feed configuration from the selected
+  `--config-home` before validating `--feed`; repeated runs reload the registry.
+- Backport the #351 guards without the Core migration: staged estate scans read
+  index blobs (including rename destinations and removed working copies), S10
+  accepts grouped safe-exec commands but checks routing per build, and model-class
+  documentation checks use the selected checkout's skill tree.
 - Pin traust-engine `13bdce3` (engine#117, rule pack v1.11): TypeScript/JavaScript
   XSS, path traversal and open redirect rules, and more SSRF sinks, now run in
   default opengrep scans on `main`.
