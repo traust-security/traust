@@ -60,6 +60,7 @@ from pathlib import Path
 
 from traust_engine.ledger import LedgerService
 
+from traust.cli.emit_validation_ledger_events import merge_register
 from traust.context import (
     add_config_home_arg,
     add_ledger_binding_args,
@@ -543,15 +544,13 @@ def main(argv=None) -> int:
             layer_path.name.replace("-findings-layer.json", "-refuted-register.json")
         )
     )
+    register_added = 0
     if out["register"]:
-        register_path.write_text(
-            json.dumps(
-                {"source": source_ref, "generated_at": recorded_at, "entries": out["register"]},
-                indent=2,
-            )
-            + "\n",
-            encoding="utf-8",
-        )
+        # Same merge-append semantics as the validation emitter: the register
+        # is shared between sources, so a triage emission must never clobber
+        # validation-sourced entries (merge_register dedupes by
+        # (finding_ref, asserted_by) and preserves the sources list).
+        register_added = merge_register(register_path, source_ref, out["register"], recorded_at)
 
     by_validity = {}
     for e in out["events"]:
@@ -573,7 +572,7 @@ def main(argv=None) -> int:
             "(`traust admin countersign queue`) to review and sign"
         )
     if out["register"]:
-        print(f"  refuted register: {len(out['register'])} entr(ies) -> {register_path}")
+        print(f"  refuted register: {register_added} added -> {register_path}")
     for s in out["skipped"]:
         print(f"  skipped {s['id']} ({s['verdict']}): {s['reason']}")
     print(f"Layer: {layer_path}")
