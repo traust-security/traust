@@ -45,6 +45,9 @@ All notable changes to Traust are documented here.
 
 ## [Unreleased]
 
+- Run artifact-session, cloud-config, and product door PostgreSQL tests in a dedicated
+  development-branch Konflux/Tekton pipeline with a disposable database.
+
 - **Review checks for FastAPI, aiohttp and Express** (Vercel comparison gap
   plan, step 5). `framework-checks.md` gains FA.1–FA.15 (FastAPI and
   aiohttp) and EX.1–EX.18 (Express, with Backstage's `httpRouter` default and

@@ -79,6 +79,26 @@ uv run pytest -q       # full suite (integration tests need the scanner toolchai
 
 pytest is the only runner; `unittest discover` silently skips part of the suite.
 
+### PostgreSQL-backed consumer coverage
+
+Konflux/Pipelines-as-Code runs `.tekton/traust-postgres.yaml` for pull requests targeting
+`development` and for pushes to that branch. It tests artifact-session, cloud-config, and product
+doors against a disposable PostgreSQL 16 sidecar. The source snapshot and database live only
+for that run; no production data or build-publishing credentials are needed.
+
+The existing main-branch build pipelines and GitHub Actions configuration are unchanged.
+
+To run the same selection locally, set `TRAUST_TEST_DATABASE_URL` to an isolated PostgreSQL
+test server, then run:
+
+```bash
+uv sync --frozen
+uv run pytest tests/test_artifact_sessions.py tests/test_cloud_config_doors.py tests/test_products_doors.py -q -rs
+```
+
+The database user needs permission to create databases: the door fixtures create and drop
+their own databases. A run without the URL skips those variants; `-rs` makes the reason visible.
+
 ### Isolated home in tests
 
 `tests/conftest.py` points `HOME` at a temporary directory at import time, so

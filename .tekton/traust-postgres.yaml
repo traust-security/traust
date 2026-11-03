@@ -1,0 +1,139 @@
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  name: traust-postgres-tests
+  namespace: source-code-intelligence-tenant
+  annotations:
+    build.appstudio.openshift.io/repo: https://github.com/traust-security/traust?rev={{revision}}
+    build.appstudio.redhat.com/commit_sha: '{{revision}}'
+    build.appstudio.redhat.com/target_branch: '{{target_branch}}'
+    pipelinesascode.tekton.dev/cancel-in-progress: "true"
+    pipelinesascode.tekton.dev/max-keep-runs: "3"
+    pipelinesascode.tekton.dev/on-cel-expression: >-
+      event in ["pull_request", "push"] && target_branch == "development"
+  labels:
+    appstudio.openshift.io/application: traust
+    appstudio.openshift.io/component: traust
+    pipelines.appstudio.openshift.io/type: test
+spec:
+  params:
+    - name: git-url
+      value: '{{source_url}}'
+    - name: revision
+      value: '{{revision}}'
+  timeouts:
+    pipeline: 30m
+  taskRunTemplate:
+    serviceAccountName: default
+    podTemplate:
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+  pipelineSpec:
+    params:
+      - name: git-url
+        type: string
+      - name: revision
+        type: string
+    tasks:
+      - name: postgres-consumer-tests
+        params:
+          - name: git-url
+            value: $(params.git-url)
+          - name: revision
+            value: $(params.revision)
+        taskSpec:
+          params:
+            - name: git-url
+              type: string
+            - name: revision
+              type: string
+          stepTemplate:
+            workingDir: /workspace
+            env:
+              - name: HOME
+                value: /workspace/home
+              - name: UV_CACHE_DIR
+                value: /workspace/cache
+              - name: UV_PROJECT_ENVIRONMENT
+                value: /workspace/venv
+              - name: UV_PYTHON
+                value: "3.12"
+              - name: UV_PYTHON_DOWNLOADS
+                value: never
+              - name: GIT_TERMINAL_PROMPT
+                value: "0"
+              - name: GIT_CONFIG_GLOBAL
+                value: /dev/null
+              - name: GIT_CONFIG_NOSYSTEM
+                value: "1"
+            volumeMounts:
+              - name: source
+                mountPath: /workspace
+            securityContext:
+              runAsNonRoot: true
+              allowPrivilegeEscalation: false
+              capabilities:
+                drop: [ALL]
+          steps:
+            - name: checkout
+              image: ghcr.io/astral-sh/uv:0.13.6-python3.12-trixie@sha256:101820b96a31d3438aab226230bc5516d62c6b5b506f0e2d72cb4b6975e27dea
+              env:
+                - name: GIT_ALLOW_PROTOCOL
+                  value: https
+                - name: GIT_URL
+                  value: $(params.git-url)
+                - name: REVISION
+                  value: $(params.revision)
+              script: |
+                #!/usr/bin/env bash
+                set -euo pipefail
+                mkdir -p "$HOME" /workspace/source
+                cd /workspace/source
+                git init --quiet
+                git remote add origin "$GIT_URL"
+                git fetch --quiet --depth=1 -- origin "$REVISION"
+                git checkout --quiet --detach FETCH_HEAD
+            - name: test-postgres
+              image: ghcr.io/astral-sh/uv:0.13.6-python3.12-trixie@sha256:101820b96a31d3438aab226230bc5516d62c6b5b506f0e2d72cb4b6975e27dea
+              env:
+                # uv also clones its own local Git cache.
+                - name: GIT_ALLOW_PROTOCOL
+                  value: https:file
+                - name: TRAUST_TEST_DATABASE_URL
+                  value: postgresql+psycopg://traust:traust-test-only@127.0.0.1:5432/traust_test
+              script: |
+                #!/usr/bin/env bash
+                set -euo pipefail
+                cd /workspace/source
+                uv sync --frozen
+                uv run pytest tests/test_artifact_sessions.py tests/test_cloud_config_doors.py tests/test_products_doors.py -q -rs
+          sidecars:
+            - name: postgres
+              image: docker.io/library/postgres:16@sha256:5db6dac2ef5dcff512f4f00a009c3c332b9f2f28f24277175bf3e4a3d02ef83a
+              env:
+                - name: POSTGRES_USER
+                  value: traust
+                - name: POSTGRES_PASSWORD
+                  value: traust-test-only
+                - name: POSTGRES_DB
+                  value: traust_test
+                - name: PGDATA
+                  value: /var/lib/postgresql/data/pgdata
+              volumeMounts:
+                - name: postgres-data
+                  mountPath: /var/lib/postgresql/data
+              readinessProbe:
+                exec:
+                  command: [pg_isready, -h, 127.0.0.1, -U, traust, -d, traust_test]
+                periodSeconds: 2
+                failureThreshold: 30
+              securityContext:
+                runAsNonRoot: true
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: [ALL]
+          volumes:
+            - name: source
+              emptyDir: {}
+            - name: postgres-data
+              emptyDir: {}
