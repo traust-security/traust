@@ -128,8 +128,20 @@ def emit_draft(cand: dict, out_dir: Path) -> dict | None:
             shutil.rmtree(draft)
         for sub, _idx in (("before", 1), ("after", 2)):
             (draft / sub).mkdir(parents=True)
+        used_names: set[str] = set()
         for p, before, after in pairs:
             name = Path(p).name
+            if name in used_names:
+                # two expected paths share a basename — keep both fixtures by
+                # flattening the repo-relative path (sep -> "__"), else the
+                # second pair silently overwrites the first and narrows the
+                # calibration set
+                name = "__".join(Path(p).parts)
+                i = 2
+                while name in used_names:
+                    name = f"{name}~{i}"
+                    i += 1
+            used_names.add(name)
             (draft / "before" / name).write_text(before, encoding="utf-8")
             if after is not None:
                 (draft / "after" / name).write_text(after, encoding="utf-8")

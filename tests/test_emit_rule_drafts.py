@@ -178,3 +178,53 @@ def test_promoted_codecov_rule_calibrates():
     res = json.loads(proc.stdout)["results"]
     hits = [r for r in res if r["check_id"].endswith("codecov-uploader-latest")]
     assert len(hits) == 2
+
+
+@pytest.mark.requires_git
+def test_emit_draft_keeps_same_basename_paths(tmp_path):
+    """Two expected paths with the same basename must both land in before/
+    — a silently overwritten fixture narrows the calibration set."""
+    paths = ["pkg/a/creds.go", "pkg/b/creds.go"]
+    repo = tmp_path / "srcrepo"
+    for p in paths:
+        (repo / p).parent.mkdir(parents=True)
+    subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True)
+    for p in paths:
+        (repo / p).write_text(f'// vulnerable {p}\nvar creds = "{p}"\n')
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-qm", "vulnerable")
+    for p in paths:
+        (repo / p).write_text("// fixed\n")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-qm", "fix")
+    fix = subprocess.run(
+        ["git", "-C", str(repo), "rev-parse", "HEAD"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    cand = {
+        "id": "bt-demo-002",
+        "repo_url": f"file://{repo}",
+        "fix_commit": fix,
+        "evidence": {"kind": "ledger_event", "ref": "layer.json", "excerpt": "x"},
+        "expected": [
+            {
+                "source_finding": "FIND-001",
+                "fingerprint": "f" * 64,
+                "cwes": ["CWE-798"],
+                "paths": paths,
+                "severity": "high",
+                "title": "hardcoded credential",
+            }
+        ],
+    }
+    res = erd.emit_draft(cand, tmp_path / "drafts")
+    assert res, "draft must be emitted"
+    assert res["files"] == 2
+    before = sorted((tmp_path / "drafts" / res["draft"] / "before").iterdir())
+    assert len(before) == 2, (
+        f"same-basename fixtures overwrote each other: {[f.name for f in before]}"
+    )
+    texts = {f.read_text() for f in before}
+    assert len(texts) == 2, "both fixtures' content must survive"
