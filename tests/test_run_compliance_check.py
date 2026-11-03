@@ -195,3 +195,38 @@ externalResources:
   - {provider: rds, identifier: d1, defaults: /terraform/resources/rds.yml,
      region: us-west-2}
 """
+
+
+def test_findings_db_views_repo_prefix_isolation(tmp_path):
+    # 'org/ap' must not match 'https://github.com/org/api': the views feed
+    # control assertions, so a prefix match counts a foreign repo's findings.
+    import sqlite3
+
+    db = tmp_path / "findings.db"
+    con = sqlite3.connect(db)
+    con.execute("CREATE TABLE repos (repo_key TEXT, repo_url TEXT)")
+    con.execute(
+        "CREATE TABLE v_open (finding_id TEXT, severity TEXT, primary_cwe TEXT,"
+        " validity TEXT, repo_key TEXT)"
+    )
+    con.executemany(
+        "INSERT INTO repos VALUES (?, ?)",
+        [
+            ("org/ap", "https://github.com/org/ap"),
+            ("org/api", "https://github.com/org/api"),
+        ],
+    )
+    con.executemany(
+        "INSERT INTO v_open VALUES (?, ?, ?, ?, ?)",
+        [
+            ("F-1", "critical", "CWE-1395", "confirmed", "org/ap"),
+            ("F-2", "critical", "CWE-1395", "confirmed", "org/api"),
+        ],
+    )
+    con.commit()
+    con.close()
+
+    views = rcc.findings_db_views(db, ["org/ap"])
+
+    ids = {r["id"] for r in views["open_critical_dependency_findings"]}
+    assert ids == {"F-1"}, f"foreign findings leaked into the view: {ids}"
