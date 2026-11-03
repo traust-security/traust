@@ -188,11 +188,14 @@ EOF
     # binaries already allowed, and it keeps every operator addition.
     # The ledger joins the same pass: the rig's dev keypair (cosign) signs the
     # proof chain's layers; without cosign the layers record unsigned, but the
-    # ledger is configured either way (ledger_audit stops refusing).
+    # ledger is configured either way (ledger_audit stops refusing). A cosign
+    # that is installed but fails is loud, never a silent unsigned fallback.
     if command -v cosign >/dev/null 2>&1 && [ ! -f "$RUN_DIR/ledger/dev-key.key" ]; then
         mkdir -p "$RUN_DIR/ledger"
-        COSIGN_PASSWORD="" cosign generate-key-pair \
-            --output-key-prefix "$RUN_DIR/ledger/dev-key" >/dev/null 2>&1 || true
+        if ! COSIGN_PASSWORD="" cosign generate-key-pair \
+            --output-key-prefix "$RUN_DIR/ledger/dev-key" >/dev/null 2>&1; then
+            echo "warning: cosign generate-key-pair failed; the rig's ledger stays unsigned" >&2
+        fi
     fi
     OPS_CONFIG="$CONFIG_HOME/traust.yaml" OPS_LEDGER_DIR="$RUN_DIR/ledger" uv run --no-sync python - <<'PYEOF'
 import os
@@ -211,7 +214,10 @@ if added:
     process["allowed_binaries"] = binaries
     cfg["process"] = process
     print(f"traust.yaml: granted process.allowed_binaries {', '.join(added)}")
-if "ledger" not in cfg:
+if cfg.get("ledger") in (None, {}):
+    # None: never configured. {}: the rig's own unsigned placeholder from a
+    # startup without cosign — upgraded, not kept, once a keypair exists. A
+    # non-empty section is an operator's and is never touched.
     key = Path(os.environ["OPS_LEDGER_DIR"]) / "dev-key.key"
     pub = Path(os.environ["OPS_LEDGER_DIR"]) / "dev-key.pub"
     if key.is_file() and pub.is_file():
@@ -230,10 +236,12 @@ PYEOF
     # role re-floored to opus. The rig's key has no mythos entitlement
     # (claude-mythos-5-1 is limited availability), and what the rig proves is
     # the pipeline — session, assessment, ledger, spend — not audit quality.
-    # A key with mythos access restores the shipped registry by deleting
-    # this file before the next up.
-    OPS_REGISTRY_SRC="$REPO_ROOT/config/model-registry.yaml" \
-    OPS_REGISTRY_OUT="$CONFIG_HOME/model-registry.yaml" uv run --no-sync python - <<'PYEOF'
+    # Generated once: an operator's edit or replacement survives every up.
+    # A key with mythos access restores the shipped routing by copying the
+    # repo's config/model-registry.yaml over this file.
+    if [ ! -f "$CONFIG_HOME/model-registry.yaml" ]; then
+        OPS_REGISTRY_SRC="$REPO_ROOT/config/model-registry.yaml" \
+        OPS_REGISTRY_OUT="$CONFIG_HOME/model-registry.yaml" uv run --no-sync python - <<'PYEOF'
 import os
 
 import yaml
@@ -252,30 +260,66 @@ header = (
     "# RIG DEVIATION from the shipped config/model-registry.yaml: the roles\n"
     f"# {', '.join(refloored)} are re-floored to opus-class because the rig's\n"
     "# key has no claude-mythos-5-1 entitlement. Audit quality is NOT what the\n"
-    "# rig proves; a mythos-entitled key restores the shipped registry.\n"
+    "# rig proves. Generated once; edits survive up. Restore shipped routing\n"
+    "# by copying the repo's config/model-registry.yaml over this file.\n"
 )
 with open(os.environ["OPS_REGISTRY_OUT"], "w") as f:
     f.write(header)
     yaml.safe_dump(registry, f, sort_keys=False)
 print(f"model-registry.yaml: re-floored to opus-class: {', '.join(refloored)}")
 PYEOF
+    fi
 
     # The runner's headless sessions (repo-config isolation: CLAUDE_CONFIG_DIR
     # is this dir, never the workstation's ~/.claude; agent cwd stays outside
     # the audited checkout; repo-supplied .claude/CLAUDE.md/hooks are never
     # loaded as config) deny every ungranted tool, so an audit cannot even
-    # resolve its HEAD at the forge without a grant. The rig grants the
-    # audit's tool set; a deployment scopes this tighter and owns that policy.
+    # resolve its HEAD at the forge without a grant. The rig grants the audit's
+    # actual tool set — scoped Bash prefixes, not blanket Bash — and denies
+    # reads of the rig's own secrets (the env file, the ledger signing key,
+    # workstation credentials): an audited checkout is untrusted content, and
+    # a prompt injection must not reach host credentials. Residual risk the
+    # rig accepts, a deployment must not: environment variables (the runner's
+    # API key) stay visible to granted Bash. A deployment owns the full
+    # posture (sandbox, scrubbed env, network egress policy).
     if [ ! -f "$CONFIG_HOME/claude-runner/settings.json" ]; then
         mkdir -p "$CONFIG_HOME/claude-runner"
         cat > "$CONFIG_HOME/claude-runner/settings.json" <<'EOF'
 {
   "permissions": {
-    "allow": ["Bash", "WebFetch", "Read", "Write", "Edit", "Glob", "Grep", "WebSearch"]
+    "allow": [
+      "Bash(git:*)",
+      "Bash(syft:*)",
+      "Bash(gitleaks:*)",
+      "Bash(grype:*)",
+      "Bash(opengrep:*)",
+      "Bash(govulncheck:*)",
+      "Bash(python3:*)",
+      "Bash(gh api:*)",
+      "Bash(tokei:*)",
+      "Bash(cloc:*)",
+      "Bash(scc:*)",
+      "WebFetch(domain:api.github.com)",
+      "WebFetch(domain:osv.dev)",
+      "WebFetch(domain:deps.dev)",
+      "Read",
+      "Write",
+      "Edit",
+      "Glob",
+      "Grep"
+    ],
+    "deny": [
+      "Read(./.local-ops/env)",
+      "Read(**/.local-ops/env)",
+      "Read(**/.local-ops/run/ledger/**)",
+      "Read(~/.claude/.credentials.json)",
+      "Read(~/.ssh/**)",
+      "Read(~/.aws/**)"
+    ]
   }
 }
 EOF
-        echo "claude-runner: granted the rig's session tool set (a deployment scopes this tighter)"
+        echo "claude-runner: granted the audit's scoped tool set; rig secrets denied"
     fi
 
     # Core applies its schema itself only for its local SQLite; a Postgres
@@ -359,7 +403,12 @@ cmd_approve() {
             return 2
             ;;
     esac
-    TRAUST_CONFIG_HOME="$CONFIG_HOME" uv run --no-sync python - "$selector" <<'PYEOF'
+    # The selector is forwarded only when set: with none, python sees no
+    # argument and approves every awaiting order (the documented path); a
+    # make invocation with an empty ORDER is the same no-selector call.
+    local -a forward=()
+    [ -n "$selector" ] && forward=("$selector")
+    TRAUST_CONFIG_HOME="$CONFIG_HOME" uv run --no-sync python - "${forward[@]}" <<'PYEOF'
 import sys
 from traust.context import load, load_caller
 from traust_core.v1.errors import TraustError
@@ -370,9 +419,6 @@ core = load(None)
 caller = load_caller(core)
 services = core.services()
 awaiting = list(every_item(lambda p: services.ops.list(OrderFilter(states=(OrderState.AWAITING_APPROVAL,)), p)))
-if len(sys.argv) > 1 and not sys.argv[1]:
-    print("give an order id prefix, or no argument to approve every awaiting order", file=sys.stderr)
-    sys.exit(2)
 only = sys.argv[1] if len(sys.argv) > 1 else None
 if only:
     matching = [o for o in awaiting if str(o.id).startswith(only)]
