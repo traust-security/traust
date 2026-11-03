@@ -56,7 +56,7 @@ ops-run: ## Engine tick loop, pane 1 (make ops-run OPS_EVERY=5m)
 ops-claim: ## Claim loop, pane 2
 	bash scripts/local_ops.sh claim
 ops-approve: ## Operator door: approve awaiting orders (all, or one by an unambiguous id prefix)
-	bash scripts/local_ops.sh approve $(ORDER)
+	bash scripts/local_ops.sh approve '$(ORDER)'
 ops-sh: ## Shell with the rig's environment (TRAUST_CONFIG_HOME, .local-ops/env)
 	bash scripts/local_ops.sh sh
 ops-scan: ## Walk the workflow by hand: onboard + observe + one scan (REPO=https://...)

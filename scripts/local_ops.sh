@@ -274,7 +274,16 @@ cmd_approve() {
     # the rig's: approve every awaiting order, or exactly one by id — a prefix
     # that names more than one order lists them and approves nothing.
     source_env
-    TRAUST_CONFIG_HOME="$CONFIG_HOME" uv run --no-sync python - "${1:-}" <<'PYEOF'
+    # An order id prefix, nothing else: shell-breaking selectors from a make
+    # invocation are refused here rather than silently matching every order.
+    local selector="${1:-}"
+    case "$selector" in
+        *[!A-Za-z0-9_-]*)
+            echo "order selector must be an id prefix (alphanumeric): $selector" >&2
+            return 2
+            ;;
+    esac
+    TRAUST_CONFIG_HOME="$CONFIG_HOME" uv run --no-sync python - "$selector" <<'PYEOF'
 import sys
 from traust.context import load, load_caller
 from traust_core.v1.errors import TraustError
