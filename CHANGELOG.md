@@ -4,6 +4,9 @@ All notable changes to Traust are documented here.
 
 ## [Unreleased]
 
+- Link local callable return sources to S10 execution sinks, including zero-argument
+  helpers, aliases and helper/lambda chains. Preserve returned argv data, routed
+  commands and effective finally returns without sweeping unrelated child scopes.
 - Complete S10 review handling with execution-ordered imports and assignments,
   conservative branch/loop joins, execution-function aliases, wildcard exports,
   command variables and split operations. Later bindings cannot approve earlier

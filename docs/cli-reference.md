@@ -65,6 +65,9 @@ Literal argv is checked by the actual executable, including explicit OS
 exec/spawn paths; build words passed to `echo` are data. Actual shell/Python
 wrapper payloads are checked as code with their quoting and option semantics.
 An unresolved execution command uses non-inert source provenance conservatively.
+Local callable return sources follow the caller into the execution sink, including
+zero-argument helpers and helper/lambda chains. Only effective returned values
+contribute those links; unrelated child-scope examples are not swept into callers.
 Shell-file checks retain their conservative per-command routing policy.
 
 `traust check docs-consistency --root <path>` uses the selected checkout's skills

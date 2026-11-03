@@ -113,9 +113,10 @@ def _unbound(name: str) -> _Value:
 class _State:
     bindings: dict[str, _Value] = field(default_factory=dict)
     writes: dict[tuple[int, str], _Value] = field(default_factory=dict)
+    returned: _Value | None = None
 
     def copy(self) -> _State:
-        return _State(dict(self.bindings), dict(self.writes))
+        return _State(dict(self.bindings), dict(self.writes), self.returned)
 
 
 def _merge(states: Iterable[_State | None]) -> _State | None:
@@ -124,9 +125,11 @@ def _merge(states: Iterable[_State | None]) -> _State | None:
         return None
     names = set().union(*(state.bindings for state in states))
     writes = set().union(*(state.writes for state in states))
+    returned = [state.returned for state in states if state.returned is not None]
     return _State(
         {name: _join(state.bindings.get(name, _UNKNOWN) for state in states) for name in names},
         {key: _join(state.writes.get(key, _UNKNOWN) for state in states) for key in writes},
+        _join(returned) if returned else None,
     )
 
 
@@ -245,6 +248,7 @@ class _Analyzer:
         self.sources: dict[int, _Value] = {}
         self.inert_sources: set[int] = set()
         self.source_dependencies: dict[int, set[int]] = {}
+        self.return_sources: dict[str, int] = {}
 
     def argv(self, argv: tuple[str | None, ...]) -> bool:
         return unrouted_argv(
@@ -262,6 +266,12 @@ class _Analyzer:
         plain = replace(value, sources=frozenset())
         self.sources[key] = _join((self.sources[key], plain)) if key in self.sources else plain
         return replace(value, sources=frozenset({key}))
+
+    def local_function(self, node: ast.FunctionDef | ast.AsyncFunctionDef | ast.Lambda) -> _Value:
+        # Definition identity separates same-named helpers in different scopes.
+        origin = f"local:{id(node)}"
+        self.return_sources[origin] = id(node)
+        return _origin(origin)
 
     def mark_inert(self, sources: Iterable[int]) -> None:
         pending = list(sources)
@@ -436,7 +446,7 @@ class _Analyzer:
             for arg in [*node.args.posonlyargs, *node.args.args, *node.args.kwonlyargs]:
                 self.expr(arg.annotation, state, scope)
             self.expr(node.returns, state, scope)
-            self.bind(node.name, _origin(f"local:{node.name}"), state, scope)
+            self.bind(node.name, self.local_function(node), state, scope)
             self.defer(node, scope.parent if scope.kind == "class" else scope, defaults)
         elif isinstance(node, ast.ClassDef):
             for value in [*node.decorator_list, *node.bases, *(kw.value for kw in node.keywords)]:
@@ -531,14 +541,19 @@ class _Analyzer:
             if not exhaustive:
                 paths.append(_Flow(normal=state))
             return _flows(paths)
-        elif isinstance(node, (ast.Return, ast.Raise, ast.Break, ast.Continue)):
+        elif isinstance(node, ast.Return):
+            state.returned = (
+                self.expr(node.value, state, scope)
+                if node.value is not None
+                else _Value(literals=frozenset({None}))
+            )
+            return _Flow(returns=state)
+        elif isinstance(node, (ast.Raise, ast.Break, ast.Continue)):
             for child in ast.iter_child_nodes(node):
                 if isinstance(child, ast.expr):
                     self.expr(child, state, scope)
             kind = (
-                "returns"
-                if isinstance(node, ast.Return)
-                else "raises"
+                "raises"
                 if isinstance(node, ast.Raise)
                 else "breaks"
                 if isinstance(node, ast.Break)
@@ -711,9 +726,11 @@ class _Analyzer:
                 for name, value in state.bindings.items():
                     self.remember(name, value, scope)
                 if isinstance(node, ast.Lambda):
-                    self.expr(node.body, state, scope)
+                    self.source(node, self.expr(node.body, state, scope))
                 else:
-                    self.block(body, state, scope)
+                    flow = self.block(body, state, scope)
+                    if flow.returns is not None and flow.returns.returned is not None:
+                        self.source(node, flow.returns.returned)
             if not changed:
                 break
 
@@ -967,7 +984,7 @@ class _Analyzer:
                 scope.parent if scope.kind == "class" else scope,
                 self.defaults(node.args, state, scope),
             )
-            return _origin("local:lambda")
+            return self.local_function(node)
         if isinstance(node, (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)):
             iterable = self.expr(node.generators[0].iter, state, scope)
             value = self.comprehension(node, state, scope, iterable=iterable)
@@ -1154,5 +1171,8 @@ class _Analyzer:
                 self.execute(command, scope, shell=shell)
         if executed or safe or printed:
             return _UNKNOWN
-        sources = frozenset().union(*(value.sources for value in [*args, *kwargs.values()]))
-        return _Value(unknown=True, sources=sources)
+        sources = set().union(*(value.sources for value in [*args, *kwargs.values()]))
+        sources.update(
+            self.return_sources[name] for name in function.origins if name in self.return_sources
+        )
+        return _Value(unknown=True, sources=frozenset(sources))
