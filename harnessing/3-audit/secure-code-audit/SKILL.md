@@ -364,9 +364,19 @@ configuration and trust boundaries**. File and apply the audit-time gates
 using only evidence available before recording; another repo's context
 does not establish this one's applicability.
 
-Precedent matching happens only after `traust reporting record`, through
-the native recorded input from `traust triage prepare`. `/triage` Phase 2g
-owns the supplied `precedents`, their provenance, verification routing and
+Precedent handling requires admitted native findings. `traust reporting
+record` stores an audit assessment and artifact only; it does not admit
+the report's findings. This is a current assessment-only audit handoff
+gap, not a reason to convert or rewrite the report. Only after a trusted,
+supported finding-intake/admission receipt exists can `traust triage
+prepare` supply native candidates and any matched precedents. If only the
+assessment receipt exists or reported claims remain unadmitted,
+adjudication of those claims is unavailable, not a clean audit or proof
+of no findings. A genuinely empty batch after successful supported finding
+intake is valid, with zero native counts under triage's existing contract;
+it still does not prove the repository secure. For admitted candidates,
+`/triage` Phase 2g owns the
+supplied `precedents`, their provenance, verification routing and
 subsequent adjudication. Do not require a pre-filing match, downgrade on
 an unavailable match, or add an `"fp-precedent"` entry to
 `precision_gates.fired`. Human-countersigned matches reduce triage votes,
@@ -1513,9 +1523,9 @@ Reports are **JSON files** validated against `contracts/schemas/report.schema.js
 
 **The structure tables live in one place: [`docs/report-structure.md`](../../../docs/report-structure.md).**
 Read it before writing the report — it defines the required/optional
-top-level keys, the finding object fields (including the script-computed
-`fingerprint` cross-scan identity), and this skill's profile deltas
-(`metadata.audit_profile: "code"`). The schema
+top-level keys, the authored finding fields, and this skill's profile
+deltas (`metadata.audit_profile: "code"`). Core's native finding identity
+is separate from the report artifact (Step 2b). The schema
 (`contracts/schemas/report.schema.json`) remains the authoritative source for types
 and constraints. Do not restate the tables here — duplicated copies drift.
 
@@ -1532,7 +1542,7 @@ Key profile obligations for this skill:
 - Always emit `review_surface_coverage`: one entry per review surface ([`review-surfaces.md` → Recording coverage](review-surfaces.md#recording-coverage)). Required from traust 0.20.0; the validator checks every `finding_ids`, `negative` and `not_assessed` entry against the rest of the report.
 - Include `metadata.loc_breakdown` on all new reports.
 - Stamp `metadata.additional.repo_status` from `progress-tracker/metrics/repo-liveness.json` when present (`active | archived | moved | missing`, with `status_since`); absent from the artifact → `"unknown: not in liveness artifact"`. **Record only** — status never changes findings, severity, or scan depth: archived code that ships is exactly as exploitable as live code. Consumers read the artifact; do not re-query GitHub.
-- The cross-scan `fingerprint` is computed by traust-core when the report is recorded; never stamp it.
+- Core computes the cross-scan `fingerprint` on supported finding intake, not assessment-only `reporting record`; never stamp it into the report.
 
 ### Field Conventions
 
@@ -1629,20 +1639,29 @@ If errors appear, read each error message, fix the JSON, and re-run the validato
 - **Schema violations** — missing required fields, wrong types, values too short, pattern mismatches (e.g. CWE format)
 - **Cross-validation errors** — `findings_summary` counts don't match actual findings, `finding_ids` reference nonexistent IDs, `remediation_roadmap` addresses unknown findings, duplicate finding IDs, missing mandatory severity criteria levels
 
-**Step 2b — The cross-scan finding identity (traust-core computes it):**
+**Step 2b — Informational: Core finding identity, not an audit completion gate:**
 
-Deterministic and computed in traust-core's intake when the report is
-recorded (`traust reporting record`) — **never model-authored**, and not
-stamped into the report: it hashes the canonical repo URL, the sorted lineless
-location paths and the primary CWE of every finding.
+Core computes cross-scan identity on supported **finding intake** —
+never model-authored or stamped into this report. It uses the canonical
+repo URL, lineless location paths and primary CWE. Changing locations or
+CWEs can change that identity. `traust reporting record` only stores the
+assessment/artifact; its receipt is not a finding-admission receipt and
+does not complete finding identity.
 
-This is not cosmetic. Cross-scan continuation, disposition carry-forward
-between scans, and the downstream platform's finding identity all key on it,
-so any edit that changes a finding's `locations` or `cwes` changes its
-identity. After recording, `traust findings find <path-to-report.json>
---label <report-local-finding-id> --repo-url <audited-source-https-url>`
-shows which recorded finding that report entry is. Use the audited source
-repository URL, not the harness or a different repository's URL.
+Only after a trusted supported finding-intake/admission receipt exists,
+the following is an **optional diagnostic lookup**, not a required
+post-record check:
+
+```bash
+traust findings find <path-to-report.json> --label <report-local-finding-id> \
+    --repo-url <audited-source-https-url>
+```
+
+Use the audited source repository URL, not the harness URL. Exit 0 with
+`finding_id: null` means **no match**, not successful identity completion,
+admission or a clean audit. The current assessment-only audit handoff gap
+must be reported explicitly; do not invent an audit-intake CLI, convert
+the report into scanner input, rewrite it, or stamp a fabricated identity.
 
 **Step 3 — Run strict mode (recommended):**
 
@@ -1695,12 +1714,20 @@ python3 -m traust.cli reporting record <path-to-report.json> --kind secure_code 
 It records a secure-code assessment of that commit with the report as its
 artifact (schema-checked; the same report again is the same run, by
 `metadata.date`); `traust assessments coverage` reads the gaps it states.
-New-report remediation fields must also pass Core's scoped admission
-checks at this door; compatibility validation and rendering are not a
-substitute. Preserve historical reports and stored-run replay rather than
-rewriting them to satisfy new-authorship rules.
-(Legacy gap: traust-core doesn't yet enter the report's findings as
-findings.)
+New-report remediation fields must also pass Core's scoped assessment
+admission checks at this door; compatibility validation and rendering are
+not a substitute. Preserve historical reports and stored-run replay
+rather than rewriting them to satisfy new-authorship rules.
+
+**Current handoff gap:** this door does not call finding intake or admit
+the report's findings as native candidates. Retain its assessment receipt
+and the original artifact. If there is no trusted supported admission
+receipt, or artifact claims remain unadmitted, report their native
+adjudication/identity/precedent handoff as unavailable. Successful supported
+intake may instead establish a valid empty native batch; use its own
+assessment identity and triage's empty-batch contract, not this audit's
+assessment ID as proof of admission. Do not invent another audit-intake
+command or silently convert the artifact.
 
 **Step 5 — Declare per-repo spend (calibration tuple):**
 
@@ -1771,5 +1798,7 @@ report artifact — consumed by `/triage`, `/track-findings`,
 `/verify-remediation`, `/patch`, `/vuln-scan` (baseline dedup),
 `/threat-model` bootstrap, `/create-fuzzing` target selection,
 `/file-security-defect`, and every dashboard via python3 -m traust.cli dashboard view.
+These report-artifact consumers do not establish native finding
+admission; the assessment-only handoff gap in Step 4b still applies.
 The Markdown companion is rendered by python3 -m traust.cli reporting render,
 never hand-written.

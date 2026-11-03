@@ -51,6 +51,21 @@ python3 -m traust.cli check skill-alignment      # equivalent
 | `util` | Utility commands | `elf`, `redact`, `safe-exec` |
 | `validation` | Core-backed machine validation evidence | `prepare`, `plan`, `record` |
 
+### Audit publication versus finding admission
+
+`traust reporting record` stores an assessment and artifact; it does not admit the
+report's findings to the native finding store. Core computes finding identity on
+supported finding intake, not merely on audit recording. Until a trusted intake
+receipt supplies admitted candidates and their assessment binding, the canonical
+audit handoff gap must be reported rather than treated as an empty clean audit.
+`triage prepare` needs the admitted assessment/bindings to supply those candidates
+and any precedents; the original assessment-only audit does not gain them automatically.
+
+After admission, `traust findings find <report.json> --label <report-local-id>
+--repo-url <audited-source-https-url>` is an optional scoped diagnostic. Exit 0 with
+`finding_id: null` means no match, not an identity/admission receipt. Do not revive
+stamping or invent a canonical-audit intake command to hide that gap.
+
 ### Shareable-output redaction
 
 Run `python3 -m traust.cli util redact <output-directory>` in place, then
@@ -337,7 +352,7 @@ here so an old runbook cannot be mistaken for an executable fallback:
 | `check report-digests` | Verify report/artifact digest bindings | Core artifact publishing/index services; gate skill port unfinished |
 | Ledger triage / validation / verification emitters | Convert report verdicts into legacy layer events | `traust triage record`, `traust validation record`, and `traust remediation verify-record` persist through Core; use `remediation verifications` and `findings baseline` for recorded/current results |
 | `ledger pull` | Export a read-only snapshot of one legacy ledger layer | Legacy layer stores remain retired. Core `ledger.layer(layer_id)` and paged `ledger.events(layer_id, page)` read native layers; `findings import` is a distinct external-statement intake operation, not a snapshot-export replacement |
-| `corpus` group | Report discovery, identity, projections, summaries and precedents | Core assessment and finding services: `reporting record` computes finding identity, then `triage prepare` supplies recorded-item precedents for triage adjudication; audit reports do not pre-fire a precedent gate or backfill recorded audit metadata. `findings` reads the rest |
+| `corpus` group | Report discovery, identity, projections, summaries and precedents | Core owns assessment/artifact recording and separate native finding intake. `reporting record` alone does not admit findings; only admitted candidates/bindings support native triage and precedents. See “Audit publication versus finding admission” above; `findings find` can legitimately return no match |
 | `route` group | Admit impact findings and remediation regressions without changing baselines | Core finding intake; routing skill ports unfinished |
 
 There is no executable fallback for these retired workflows. Do not hand-write a

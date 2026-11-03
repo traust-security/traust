@@ -4,6 +4,9 @@ All notable changes to Traust are documented here.
 
 ## [0.40.0]
 
+- Distinguish audit assessment/artifact recording from native finding admission:
+  optional finding lookups and triage require admitted candidates, and a null match
+  or empty assessment-only batch is not an identity check or clean-audit proof.
 - Fail shareable-output redaction closed on unreadable, non-UTF-8, unwriteable or
   uninspectable deliverables; preserve readable-text processing and scan-only no-write behavior.
 - Keep shared-component precedent adjudication and provenance in post-record triage,

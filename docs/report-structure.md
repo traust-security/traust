@@ -44,7 +44,7 @@ No report or layer bytes are rewritten.
 | Key | Description |
 |---|---|
 | `title` | Report title. Must contain a security-related keyword: security, audit, assessment, review, finding, or analysis. |
-| `metadata` | Object with required `date` (YYYY-MM-DD, the **audit execution date** — never a commit or CVE date) and `scope` (≥10 chars). Optional: `repository`, `commit`, `ref` + `ref_kind` (`branch` \| `tag` \| `default` \| `stream` — explicit ref provenance; stamp both together on code/rpm profiles, omit on container and for detached-SHA inputs; `stream` is the rpm profile's dist-git release stream, a mainline deliverable that is never a branch re-audit), `framework`, `auditor`, `methodology`, `tools` (array), `loc_reviewed` (integer preferred), `loc_breakdown`, `audit_profile` (`code` \| `rpm` \| `container` — set it; see deltas), `additional` (object). **Must include** `additional.harness_version` — the semver from the harness `VERSION` file plus the short git SHA (e.g. `0.51.0-370e5a2`); its presence marks the report as modern-producer output, which requires stamped finding identity. `additional.contracts_version` records the contracts package version the report was validated against. The schema does not allow `harness_version` as a direct `metadata` key; it lives under `metadata.additional`, which is where the validator reads it for version-gated checks. Routed model decisions are stamped as `metadata.additional.model_routing` (`{role, model, registry_sha, floor}`, emitted via python3 -m traust.cli registry models stamp — alignment rule A12; see [model-routing.md](model-routing.md)). |
+| `metadata` | Object with required `date` (YYYY-MM-DD, the **audit execution date** — never a commit or CVE date) and `scope` (≥10 chars). Optional: `repository`, `commit`, `ref` + `ref_kind` (`branch` \| `tag` \| `default` \| `stream` — explicit ref provenance; stamp both together on code/rpm profiles, omit on container and for detached-SHA inputs; `stream` is the rpm profile's dist-git release stream, a mainline deliverable that is never a branch re-audit), `framework`, `auditor`, `methodology`, `tools` (array), `loc_reviewed` (integer preferred), `loc_breakdown`, `audit_profile` (`code` \| `rpm` \| `container` — set it; see deltas), `additional` (object). **Must include** `additional.harness_version` — the semver from the harness `VERSION` file plus the short git SHA (e.g., `0.51.0-370e5a2`); it records producer provenance, not finding admission or a requirement to stamp finding identity. `additional.contracts_version` records the contracts package version the report was validated against. The schema does not allow `harness_version` as a direct `metadata` key; it lives under `metadata.additional`, which is where the validator reads it for version-gated checks. Routed model decisions are stamped as `metadata.additional.model_routing` (`{role, model, registry_sha, floor}`, emitted via python3 -m traust.cli registry models stamp — alignment rule A12; see [model-routing.md](model-routing.md)). |
 | `executive_summary` | Object with `prose` (≥50 chars) and `severity_counts` (required `critical`, `high`, `medium`, `low`, `informational` integer counts). Optional: `key_risks`, `positive_observations`. |
 | `severity_criteria` | Array of ≥4 entries, each with `level` (critical/high/medium/low/informational) and `definition` (≥20 chars). Must include at least critical, high, medium, low. |
 | `findings` | Array of finding objects (below). |
@@ -56,7 +56,7 @@ No report or layer bytes are rewritten.
 | Field | Required | Description |
 |---|---|---|
 | `id` | Yes | Globally-unique **scan-scoped** ID `{REPO_SLUG}-{SHORTSHA}-{NNN}`. Provenance to an exact commit; unique across the corpus. Never reuse across scans. |
-| `fingerprint` | No (script-set) | **Cross-scan identity**: `sha256(canonical repo URL \| sorted lineless location paths \| primary CWE)`. Computed by traust-core's intake when the report is recorded (`traust reporting record`) — never authored by the model, and the only implementation. Correlates the same vulnerability across re-scans; the `rebaseline` command maps a superseded report's IDs to their successors via layer `metadata.finding_aliases`. A change to the recipe is a change to `ALGO_VERSION` paired with a re-stamp migration, never a silent regeneration. |
+| `fingerprint` | No (historical report field) | **Cross-scan identity** is computed by Core's supported finding intake from the canonical repo URL, sorted lineless location paths and primary CWE — never model-authored. `reporting record` stores an assessment/artifact only; it neither admits native findings nor stamps this field. A finding-store identity exists only after finding admission. Historical report fingerprints remain readable, but are not an admission receipt or a reason to revive report stamping or layer-based alias writers. |
 | `title` | Yes | Short description (≥5 chars). |
 | `kind` | No | Explicit finding classification from the installed [finding-kind vocabulary](https://github.com/traust-security/traust-contracts/blob/development/enums/v1/finding-kind.json). Use it to distinguish a vulnerability from a defense-in-depth weakness; omission remains unknown. Kind is not a validity answer or evidence grade. Core intake preserves it for a new finding without reclassifying an existing one. |
 | `severity` | Yes | `critical` \| `high` \| `medium` \| `low` \| `informational`. |
@@ -283,6 +283,16 @@ apply unrelated classifier policies, or recreate retired report writers.
    instructions (container source labels identify its source commit).
    A new report is not published until Core accepts the record. An
    admission error is not a reason to guess a size or priority.
+   The receipt identifies an assessment/artifact, **not finding admission**.
+   The current canonical-audit recording path does not automatically create native
+   findings or triage bindings. A trusted supported intake receipt and its admitted
+   assessment/candidates are prerequisites for native triage and precedent handling.
+   `findings find <report.json> --label <report-local-id> --repo-url <audited-source-url>`
+   is then an optional diagnostic: exit 0 with `finding_id: null` means no match,
+   not a completed identity check. Preparing the assessment-only audit can return
+   no native items even while its report contains findings; that is an admission
+   gap, not evidence of a clean audit. Do not invent an intake command, convert or
+   rewrite the audit to imply admission, or stamp a caller-generated identity.
 3. Preserve historical reports and raw notes. A re-audit is a new report
    and assessment, not a rewrite of the old report. Use the current Core
    finding doors for later decisions; the former layer emitters and

@@ -412,10 +412,19 @@ configuration**. Apply the audit-time gates and file using only evidence
 available before recording; another image's or repo's context does not
 establish this one's applicability.
 
-Precedent matching is supplied only after recording, through the native
-input from `traust triage prepare`. `/triage` Phase 2g owns the supplied
-`precedents`, their provenance, verification routing and subsequent
-adjudication. Do not require a pre-filing match, downgrade on an
+Precedent handling requires admitted native findings. `reporting record`
+stores the assessment/artifact only, not the report's native findings:
+this is the current assessment-only audit handoff gap. Only a trusted
+supported finding-intake/admission receipt establishes candidates for
+`traust triage prepare` and any precedent matches. Without trusted
+admission, or where image-audit claims remain unadmitted, their
+adjudication is unavailable, not a clean image audit or no-findings proof.
+A genuinely empty batch after successful supported finding intake is
+valid, with zero native counts under triage's existing contract, not proof
+the image is secure. Do not convert or rewrite the report to bypass the gap.
+For admitted candidates, `/triage` Phase 2g owns the supplied `precedents`,
+their provenance, verification routing and subsequent adjudication.
+Do not require a pre-filing match, downgrade on an
 unavailable match, or add an `"fp-precedent"` entry to
 `precision_gates.fired`. Human-countersigned matches reduce triage votes,
 never skip verification; machine matches are context only with full votes.
@@ -585,7 +594,7 @@ Key profile obligations for this skill:
 - `dependency_audit` populated from Phase 3; findings only for reachable/shipping vulnerabilities.
 - `peach_isolation_review` always emitted — normally `{"applicable": false, "rationale": …}` pointing at the source repo's code-profile report.
 - No `loc_breakdown`; record `metadata.additional.sbom_packages` instead.
-- After validation, `reporting record` (below) takes the report's findings in as findings of the assessment, each by its fingerprint; a finding located only at `.`, `./` or `/` refuses the whole record.
+- After validation, `reporting record` stores the assessment/artifact only; it does not admit native findings or complete their fingerprint identity. Preserve the receipt and report the finding-admission handoff gap, not native admission success.
 
 ### Report Validation
 
@@ -604,12 +613,21 @@ and Core accepts its record, including the new-report remediation fields.
 Compatibility validation and rendering alone are not publication; do not
 rewrite historical reports or stored runs to satisfy new-authorship rules.
 
+**Current handoff gap:** the accepted assessment/artifact is not a native
+finding-intake receipt. Without trusted supported admission, or for
+unadmitted artifact claims, native adjudication and precedents remain
+unavailable. A genuinely empty batch after successful supported intake
+instead follows triage's existing zero-count contract using the intake's
+assessment ID, not the assessment-only audit's ID. Keep the report
+unchanged; do not invent an audit-intake command or silently convert it.
+
 ### Disposition Flow (after the audit)
 
 The report is an **immutable baseline**, and this skill never writes
-disposition state — the same invariant as every audit profile. Post-audit
-truth flows through core findings
-([`docs/disposition-ledger.md`](../../../docs/disposition-ledger.md)).
+disposition state — the same invariant as every audit profile. For
+admitted native findings, post-audit truth flows through Core findings
+([`docs/disposition-ledger.md`](../../../docs/disposition-ledger.md));
+storing the report alone does not establish those findings.
 `traust triage record` records triage verdicts and queues human review;
 `/track-findings` reads derived state and records explicit human judgements
 through `traust findings`. The former layer emitters remain retired.
@@ -632,14 +650,18 @@ python3 -m traust.cli dashboard view container-findings \
   image provenance when recording; a source URL is not image provenance.
   JSON includes report provenance, scoped occurrences, canonical decisions
   and folded current state. `--as-of` bounds reports and decisions.
-- **Identity across rebuilds.** Finding IDs are digest-keyed; a fixed
-  image rebuild is a **new digest → new report → new finding IDs**.
-  Dispositions do not carry forward by editing the old report: re-audit
+  A rendered report projection is not a native finding-admission receipt
+  and does not close the assessment-only handoff gap.
+- **Identity across rebuilds.** Report-local finding labels are
+  digest-keyed; a fixed image rebuild is a **new digest → new report →
+  new report-local labels**, not proof of native finding admission.
+  Dispositions do not carry forward by editing the old report. Re-audit
   the new digest (the container analog of `/verify-remediation`) and
-  record it: core finding intake matches the same finding in the new report
-  (fingerprint) and joins its old dispositions — the same mechanism branch
-  re-audits use. Never claim automatic resolution merely because a CVE is
-  absent from a new report.
+  store its new assessment/artifact. Only supported native finding intake
+  can match admitted finding identities and associate prior decisions;
+  `reporting record` alone does not do so. Preserve that handoff gap.
+  Never claim automatic resolution merely because a CVE is absent from
+  a new report.
 - **Census cut.** Container reports are their own census block
   (`container_audit`, like `cloud_config`) and are **never blended
   into the distinct-vulnerability headline** — an image finding is

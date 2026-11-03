@@ -7,10 +7,10 @@ description: >-
   <repo>-vuln-findings.{json,md} with campaign finding IDs
   ({REPO_SLUG}-{SHORTSHA}-{NNN}) and the shared severity enum, for /triage
   to consume. When traust-core holds a baseline for the repository, the scan
-  supplements it: known findings are deduped against the baseline and new
-  reviewed findings enter traust-core directly (as findings of the scan's
-  assessment; the baseline is never written — gate A15) with no
-  authored validity answer (no triage precondition; triage adjudicates downstream) —
+  supplements it: known admitted findings are deduped against the baseline.
+  The report is stored as a scan assessment/artifact, not admitted native
+  findings; the current finding-admission handoff gap is reported explicitly.
+  No validity answer is authored; triage adjudicates available candidates —
   /secure-code-audit remains the preferred baseline and
   /verify-remediation the way to update it after fixes. Read-only — no
   building, running, or network. Use when asked to "scan for vulns",
@@ -91,15 +91,15 @@ ingests directly.
   writes one.** It is deliberately lighter and less comprehensive than
   `/secure-code-audit`: a fast sweep for **new** candidate findings (new
   code, new release, a focus area the audit under-covered). When a
-  baseline exists this skill **reads** it to dedupe, and its reviewed new
-  findings enter **traust-core** as findings of the scan's assessment
-  **directly, with no authored validity answer and no `/triage`
-  precondition** (the same entry convention as `/verify-remediation`
-  regression routing). The baseline itself is off limits: only the three
-  `secure*audit` skills may write one (alignment gate **A15**), and
-  traust-core's finding reads count the scan's findings beside the
-  audit's, so nothing is less visible for it. `/triage` remains the downstream
-  adjudicator via the ledger, never a gate on entry (see Step 5).
+  baseline exists this skill **reads** its admitted findings to dedupe.
+  `reporting record` stores the scan assessment and artifact only, not
+  native findings; do not claim direct ledger entry or equivalent
+  visibility in native finding reads. The current finding-admission
+  handoff gap is explicit in Step 5. The baseline itself is off limits:
+  only the three `secure*audit` skills may write one (alignment gate
+  **A15**). `/triage` remains the downstream adjudicator when native
+  findings actually exist; recording the artifact alone does not supply
+  candidates or precedents.
 
 **This skill does not execute code.** It reads source and reasons about it.
 For execution-verified findings (ASAN crashes, reproducing PoCs), point the
@@ -375,9 +375,12 @@ exactly as it does to files read from the checkout.
    completed code audit, or null). If there are any, Read them (id
    `finding.id`, title, locations, cwes, severity) into a **baseline
    table** for Step 3 dedupe, and record `baseline_assessment_id` + the
-   finding count for the output metadata. If there are none, note that
-   the target has no audit baseline and recommend `/secure-code-audit` for
-   campaign-grade coverage in the Step 5 hand-back.
+   finding count for the output metadata. If there are none, distinguish
+   absent admitted findings from an absent audit assessment: an
+   assessment-only audit can have reported candidates without native
+   baseline rows. State that limitation; an empty baseline is not clean
+   audit evidence. Recommend `/secure-code-audit` only when campaign-grade
+   audit coverage is actually missing.
 4. If no threat model and no `--focus`: do a **quick recon** — list the
    source tree, read entry points and dispatch code, and propose 3-10 focus
    areas using the pattern `<subsystem> (<function/file>) — <key operations>`.
@@ -738,8 +741,16 @@ For candidates in vendored/shared code (`vendor/`, `third_party/`,
 `node_modules/`, …), independently check **this repo's own wiring,
 configuration and trust boundaries** and record only the local evidence
 available before recording. Do not require a pre-filing precedent match
-or downgrade on one: matching is supplied only after recording, through
-the native input from `traust triage prepare`.
+or downgrade on one. `reporting record` stores the assessment/artifact
+only, not native findings: this is the current finding-admission handoff
+gap. Matching through `traust triage prepare` requires a trusted supported
+finding-intake/admission receipt; actual native candidates are needed for
+per-finding adjudication and matches. Without trusted admission, or where
+report claims remain unadmitted, their adjudication is unavailable, not a
+clean scan or no-findings proof. A genuinely empty batch after successful
+supported intake is valid, with zero native counts under triage's existing
+contract, not proof the repository is secure. Do not convert or rewrite
+this report to bypass the admission gap.
 
 `/triage` Phase 2g owns the supplied `precedents`, their provenance,
 verification routing and subsequent adjudication. Human-countersigned
@@ -934,18 +945,15 @@ Tell the user:
    K known findings deduped against the baseline, across F focus areas
    and M source files.
 2. Top 3 by confidence, one line each.
-3. Next steps — the update path for the **ledger**:
-   - Verify: `> /triage <target-dir>/<repo>-vuln-findings.json --repo <target-dir>`
-   - Record new findings **in traust-core — direct entry, no triage
-     precondition** (user directive 2026-07-27; parity with the other
-     scanning skills, whose findings enter the ledger at birth).
+3. Next steps — distinguish artifact storage from finding admission:
+   - Verify locally: `> /triage <target-dir>/<repo>-vuln-findings.json --repo <target-dir>`.
+     This is generic input (C), not native admission or recorded decisions.
+   - Store the scan assessment/artifact **without claiming ledger entry**.
      **NEVER write the baseline.** Only `/secure-code-audit`,
      `/secure-rpm-audit` and `/secure-container-audit` may write
      `*-{security,rpm,container}-audit.json` — enforced by alignment gate
-     **A15**. Appending to a baseline changes the claim set with no event
-     recording it, which breaks the ledger's core tenet (events, not
-     state) and bypasses the rescan router's authority over when a new
-     baseline is cut.
+     **A15**. Do not append candidates to an old baseline, invent an
+     audit-intake CLI, or convert this report into scanner input.
 
      Record the scan in traust-core once the validator passes:
 
@@ -955,24 +963,30 @@ Tell the user:
          --sha <the scanned commit>
      ```
 
-     It records a vuln-scan assessment of that commit with the report as
-     its artifact (schema-checked; a retried run adds nothing), enters
-     the report's `findings[]` as findings of that assessment
-     (`known_findings` are the baseline's and stay out), and
-     `traust findings surfaces` merges its `review_surface_coverage`
-     into the repository's record; re-recording the same report is the
-     same run (`scanned_at`) and adds no finding.
-     No validity answer is authored by this intake: do not add a
-     `validation_status` property to the scan artifact or infer a
-     confirmation from its confidence scores.
+     It stores a vuln-scan assessment of that commit and the report as
+     its artifact (schema-checked; re-recording the same `scanned_at` is
+     the same run). It does **not** call finding intake or admit the
+     report's `findings[]` as native findings. Its assessment receipt
+     proves storage only, not admission, identity completion or findings
+     visibility. Preserve the original report and receipt and state this
+     current assessment-only handoff gap explicitly.
 
-     `/triage` remains the **downstream adjudicator**: its verdicts, and
-     any refutations, flow through the disposition ledger
-     (`traust triage record` → `/track-findings`) —
-     **never hand-edit `validation_status` on existing baseline
-     findings.**
-   - No baseline? Recommend `/secure-code-audit <target>` to establish
-     one; this scan's report then serves as a leads file for it.
+     No validity answer is authored: do not add a `validation_status`
+     property or infer confirmation from confidence scores. Native
+     `/triage` requires trusted supported finding-intake/admission evidence.
+     Without it, or where scan claims remain unadmitted, their native
+     adjudication is unavailable, not a clean scan or no-findings proof.
+     A genuinely empty batch after successful supported intake is valid
+     under triage's existing zero-count artifact/recording contract. Use
+     the intake's assessment ID, not the assessment-only scan's ID.
+     For actual native findings, decisions flow through `traust triage
+     record` → `/track-findings`; never hand-edit an existing baseline or
+     silently rewrite the scan artifact.
+   - No audit assessment? Recommend `/secure-code-audit <target>` for
+     campaign-grade report coverage; this scan remains a leads artifact.
+     An existing audit assessment without trusted supported admission, or
+     with unadmitted claims, has the handoff gap above; do not call it a
+     missing or clean audit. A valid empty native intake is distinct.
    - Repository not registered (Step 1.2 exit 2)? Say so, and ask to
      register it (`/add-inputs <repo-url> --product <slug>`): until then
      traust-core holds no threat model or baseline for it.
@@ -992,11 +1006,11 @@ Tell the user:
   decline and point at the harness's `validate-findings` skill (live
   authorized targets) or the external `vuln-pipeline` CLI (offline ASAN
   reproduction).
-- **Never modify the baseline audit.** This skill reads
-  the repository's recorded findings for dedupe only. Appending verified
-  findings to it happens *after* `/triage`, and disposition changes go
-  through the append-only ledger — a scan must not rewrite the
-  portfolio's memory.
+- **Never modify the baseline audit.** This skill reads admitted native
+  findings for dedupe only. Neither scan recording nor later triage
+  appends to or rewrites the baseline artifact. Decisions for admitted
+  findings use the append-only ledger; assessment storage does not create
+  those findings.
 - **Don't fabricate line numbers.** Every `file:line` you emit must be
   something you Read or Grep'd. If unsure of the exact line, cite the
   function and say so in the description.
@@ -1029,18 +1043,20 @@ Consumed artifacts (producer named per artifact):
 - `<repo>-llm-app.json` from python3 -m traust.cli adapters llm-app — a
   fact that gates the LLM application focus area and its checklist
   (`/secure-code-audit`'s `llm-application-review.md`); never a finding.
-- Precedents — retired as a cache file; traust-core matches them on the
-  recorded findings and `/triage` applies them (Phase 2g) as citeable
-  evidence at human-countersigned strength, downgrade-not-drop.
+- Precedents — no cache file; Core matches admitted native findings and
+  `/triage` owns Phase 2g provenance and verification routing. A stored
+  assessment alone does not supply candidates or precedents; see Step 5.
 
 Emitted artifacts:
 
-- `<repo>-vuln-findings.json` — consumed by `/triage` (downstream
-  adjudication and ledger flow) and `/patch`; the scan's reviewed new
-  findings enter traust-core as findings of its vuln-scan assessment — the
-  baseline is never written (gate A15) — without an authored validity
-  answer or a triage precondition (Step 5). This artifact has no
-  `validation_status` field.
+- `<repo>-vuln-findings.json` — consumed by `/triage` as generic input (C)
+  and `/patch`; stored as the vuln-scan assessment's artifact, without
+  native finding admission or an authored validity answer. Without trusted
+  supported admission, or for unadmitted claims, native adjudication is
+  unavailable; a successful genuinely empty native intake remains valid
+  under triage's existing contract (Step 5). The baseline is never written
+  (gate A15), and this
+  artifact has no `validation_status` field.
 - `<repo>-vuln-findings.md` — human companion of the JSON.
 - `metadata.additional.coverage_diff` (diff mode) — consumed by the
   continuous-operations rescan telemetry: the refused/covered split feeds

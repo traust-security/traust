@@ -18,6 +18,7 @@ from traust_core.v1.models.vocabulary import ReviewReason, SourceType
 from traust_core.v1.providers.base import Acquisition, Result
 
 from tests.test_triage_doors import SARIF, SHA
+from tests.test_validate_report import _canonical_report
 from traust.cli import auth, findings, triage
 from traust.cli.__main__ import main
 from traust.context import load
@@ -664,3 +665,66 @@ def test_review_evidence_preserves_binary_bytes_losslessly() -> None:
     assert evidence["encoding"] == "base64"
     assert base64.b64decode(evidence["payload"], validate=True) == payload
     assert "document" not in evidence
+
+
+def test_audit_recording_is_not_native_finding_admission(home: Path, tmp_path: Path) -> None:
+    document = _canonical_report()
+    document["metadata"]["repository"] = REPO
+    report = tmp_path / "canary-security-audit.json"
+    report.write_text(json.dumps(document))
+    original = report.read_bytes()
+    entry = document["findings"][0]
+
+    rc, recorded = registered(
+        home,
+        "reporting",
+        "record",
+        str(report),
+        "--kind",
+        "secure_code",
+        "--repo-url",
+        REPO,
+        "--sha",
+        SHA,
+    )
+    assert rc == 0, recorded
+    lookup = (str(report), "--label", entry["id"], "--repo-url", REPO)
+    assert run(findings.find, home, *lookup) == (
+        0,
+        {"label": entry["id"], "finding_id": None},
+    )
+    rc, empty = run(triage.prepare, home, recorded["id"])
+    assert rc == 0 and empty["items"] == []
+    assert report.read_bytes() == original
+
+    scan = json.loads(json.dumps(SARIF))
+    rule = scan["runs"][0]["tool"]["driver"]["rules"][0]
+    rule["properties"]["tags"] = [f"external/cwe/{entry['cwes'][0].lower()}"]
+    scan["runs"][0]["results"][0]["locations"][0]["physicalLocation"]["artifactLocation"]["uri"] = (
+        entry["locations"][0]["path"]
+    )
+    source = tmp_path / "independent-scan.sarif"
+    source.write_text(json.dumps(scan))
+    rc, admitted = run(
+        triage.intake,
+        home,
+        str(source),
+        "--format",
+        "sarif",
+        "--repo-url",
+        REPO,
+        "--sha",
+        SHA,
+    )
+    assert rc == 0, admitted
+    assert admitted["assessment_id"] != recorded["id"]
+    rc, prepared = run(triage.prepare, home, admitted["assessment_id"])
+    assert rc == 0, prepared
+    [item] = prepared["items"]
+    assert run(findings.find, home, *lookup) == (
+        0,
+        {"label": entry["id"], "finding_id": item["finding"]["id"]},
+    )
+    rc, unchanged_audit = run(triage.prepare, home, recorded["id"])
+    assert rc == 0 and unchanged_audit["items"] == []
+    assert report.read_bytes() == original

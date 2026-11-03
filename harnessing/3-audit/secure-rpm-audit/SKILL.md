@@ -349,10 +349,19 @@ compiled components and configuration**. Apply the audit-time gates and
 file using only evidence available before recording; another repo's
 context does not prove this spec compiles the component the same way.
 
-Precedent matching is supplied only after recording, through the native
-input from `traust triage prepare`. `/triage` Phase 2g owns the supplied
-`precedents`, their provenance, verification routing and subsequent
-adjudication. Do not require a pre-filing match, downgrade on an
+Precedent handling requires admitted native findings. `reporting record`
+stores the assessment/artifact only, not the report's native findings:
+this is the current assessment-only audit handoff gap. Only a trusted
+supported finding-intake/admission receipt establishes candidates for
+`traust triage prepare` and any precedent matches. Without trusted
+admission, or where package-audit claims remain unadmitted, their
+adjudication is unavailable, not a clean package audit or no-findings proof.
+A genuinely empty batch after successful supported finding intake is
+valid, with zero native counts under triage's existing contract, not proof
+the package is secure. Do not convert or rewrite the report to bypass the gap.
+For admitted candidates, `/triage` Phase 2g owns the supplied `precedents`,
+their provenance, verification routing and subsequent adjudication.
+Do not require a pre-filing match, downgrade on an
 unavailable match, or add an `"fp-precedent"` entry to
 `precision_gates.fired`. Human-countersigned matches reduce triage votes,
 never skip verification; machine matches are context only with full votes.
@@ -584,7 +593,12 @@ Where:
 - `<stream>` is the dist-git branch analyzed (e.g. `c10s`, `c9s`, `c8s`) — it plays the role `<product-name>` plays for code audits.
 - `<component>` is the source package name (the `Name:` field from the spec, e.g. `389-ds-base`).
 
-Because the reports use the standard `-security-audit.json` naming inside the registered findings tree, they are discovered by the corpus resolver, enter the census and dashboards, and are disposition-ledger baselines for `/triage`, `/validate-findings`, and `/track-findings` with no extra wiring — `metadata.audit_profile: "rpm"` is what distinguishes them, not the filename. If a campaign's ownership differs from the findings tree default (Hybrid Platforms / owned), register a per-product override for the stream directory via `/corpus-intake` (it records the product in traust-core).
+The standard `-security-audit.json` filename and
+`metadata.audit_profile: "rpm"` identify the report artifact and profile,
+not native finding admission. File discovery, census/dashboard inclusion
+or assessment storage does not automatically create disposition-ledger
+findings for `/triage`, `/validate-findings` or `/track-findings`; the
+assessment-only handoff gap in Step 5 still applies.
 
 **Ref provenance.** Stamp `metadata.ref: "<stream>"` with `metadata.ref_kind: "stream"`. A dist-git stream is a **mainline deliverable audited in its own right** — `"stream"` keeps the report in the census HEAD cuts, whereas `"branch"` would misclassify it as a branch re-audit and drop it from every headline count. Never stamp `ref_kind: "branch"` for a stream checkout.
 
@@ -635,9 +649,10 @@ Reports are **JSON files** validated against `contracts/schemas/report.schema.js
 
 **The structure tables live in one place: [`docs/report-structure.md`](../../../docs/report-structure.md).**
 Read it before writing the report — it defines the required/optional
-top-level keys, the finding object fields (including the script-computed
-`fingerprint` cross-scan identity), and this skill's profile deltas
-(`metadata.audit_profile: "rpm"`). The schema
+top-level keys, the authored finding fields, and this skill's profile
+deltas (`metadata.audit_profile: "rpm"`). Core's cross-scan finding
+identity is computed on supported native finding intake, not stamped
+into the report or completed by assessment-only recording. The schema
 (`contracts/schemas/report.schema.json`) remains the authoritative source for types
 and constraints. Do not restate the tables here — duplicated copies drift.
 
@@ -660,7 +675,7 @@ Key profile obligations for this skill:
 - `metadata.repository` = dist-git URL; upstream Source0/Version/Release/patches under `metadata.additional`.
 - `category` uses the `RPM01`–`RPM10` packaging taxonomy; digit-leading slugs take the `RPM_` prefix.
 - Emit `review_surface_coverage`, one entry per review surface (see *Review surfaces* above). Required from traust 0.21.0; the validator checks every entry against the rest of the report.
-- After validation, `reporting record` (Step 5) takes the report's findings in as findings of the assessment, each by its fingerprint; a finding located only at `.`, `./` or `/` refuses the whole record.
+- After validation, `reporting record` (Step 5) stores the assessment/artifact only; it does not admit native findings or complete fingerprint identity. Preserve its receipt and report the finding-admission handoff gap.
 
 ### Report Validation
 
@@ -717,6 +732,16 @@ exits with 0 errors and Core accepts its record, including the new-report
 remediation fields.** Do not begin analysis of the next component before
 both succeed. Compatibility validation and rendering alone are not
 publication; historical reports and stored-run replay are not rewritten.
+
+**Current handoff gap:** this is assessment/artifact storage, not native
+finding intake. The assessment receipt does not establish candidates for
+recorded triage, precedent matching or finding identity. Without trusted
+supported admission, or for unadmitted source claims, that handoff remains
+unavailable. A genuinely empty batch after successful supported intake
+instead follows triage's existing zero-count contract using the intake's
+assessment ID, not the assessment-only audit's ID. Keep the original
+report; do not invent an audit-intake CLI or silently convert/rewrite it.
+Neither an admission gap nor valid zero native counts proves a clean audit.
 
 ## Spend declaration (calibration tuple)
 

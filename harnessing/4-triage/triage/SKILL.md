@@ -301,30 +301,50 @@ Retain the entire supplied object read-only in working state and the Phase-1
 checkpoint as `core_input`; carry its subject/assessor unchanged, and use
 `items[]` directly in 1b and 2g. If the staged document is unreadable or not
 this native shape, stop and report the input error; never fall back to
-scanner parsing or make up absent source fields. An empty `items[]` is an
-empty native batch, not a reason to scan the checkout for new findings.
-For that empty batch, skip work requiring candidates or source locations and
-continue to Phase 6 with no findings and zero summary counts.
+scanner parsing or make up absent source fields. An empty `items[]` is not
+a reason to scan the checkout for new findings. When the trusted caller's
+source binding establishes successful supported finding intake of a
+genuinely empty batch, it is valid: skip candidate-dependent work and
+continue to Phase 6 with zero native-batch counts under the existing
+artifact contract; recording remains the external caller's responsibility.
+If only assessment/artifact storage is established, or source claims
+remain unadmitted, report their adjudication unavailable instead. Never
+treat either case as proof the repository is secure or erase unadmitted
+source claims. Use existing trusted provenance, not new DTO fields.
 The trusted caller owns preparation and source binding. Do not query Core
 again, re-ingest the staged file, or record decisions from this mode.
 Continue with 1b, skipping all (A)/(B)/(C) detection below.
 
-**traust-core first: these inputs are recorded, so the verdicts can be (6e).**
+**traust-core first: recorded assessments and admitted findings are distinct.**
 
-- **(A) A traust-core assessment** (an audit or scan already recorded;
-  you're given its id): Bash
+- **(A) A traust-core assessment** (you're given its id): Bash
   `python3 -m traust.cli triage prepare <assessment-id> -o ./.triage-state/input.json`.
-  Its `items[]` are the findings to judge (1b maps them), each with its
-  `locations` and `precedents` (2g); `subject` names the repository URL
-  and commit (`sha`) to check out.
+  Only actual admitted native `items[]` are findings to judge (1b maps
+  them), with their supplied `locations` and any `precedents` (2g);
+  `subject` names the repository URL and commit (`sha`) to check out.
+  `traust reporting record` stores an audit/scan assessment and artifact
+  only, not admitted findings. Its receipt does not guarantee `items[]`
+  or precedents: this is the current assessment-only audit handoff gap.
+  Native recorded adjudication requires trusted supported
+  finding-intake/admission evidence. If that is absent, or source artifact
+  claims remain unadmitted, report their adjudication unavailable and skip
+  Phase 6e; empty prepared items are not proof of a clean audit. In
+  contrast, successful supported intake of a genuinely empty batch is valid:
+  skip candidate-dependent work, keep zero native counts, and follow the
+  existing Phase 6 artifact/recording contract. Use the assessment ID
+  returned by that intake, not the original assessment-only audit ID.
+  Retain the original source artifact and receipts. Do not invent an
+  audit-intake CLI, synthesize native IDs, silently convert an audit into
+  scanner input, or automatically fall back to (C) to imply admission.
 - **(B) Third-party scanner output** — SARIF 2.x (CodeQL, Semgrep, Snyk,
   Trivy, Bandit, Coverity 2023+, and the harness's own tools run with
   SARIF output: opengrep `--sarif`, gitleaks `-f sarif`, checkov
   `-o sarif`, grype `-o sarif`, govulncheck `-format sarif`), a
   Dependabot alerts JSON export, or a govulncheck `-json` stream (never
   run govulncheck from inside triage, Phase 2e; this only *reads* a
-  stream the user supplies). Record it, then continue as (A) with the
-  printed `assessment_id`:
+  stream the user supplies). Unlike assessment-only `reporting record`,
+  this supported scanner intake admits native findings. Continue as (A)
+  with its printed `assessment_id` and retain its admission receipt:
 
   ```bash
   python3 -m traust.cli triage intake <file> --format sarif|dependabot|govulncheck \
@@ -734,16 +754,23 @@ in the Phase 2 checkpoint delta.
 ### 2g. Shared-component FP-precedent annotation (deterministic, no subagent)
 
 Shared and vendored code gets the same false positive re-litigated in
-every repo that ships it. For input (A)/(B)/(D), each native prepared item
-already carries its `precedents`: prior verdicts on **the same function in the
+every repo that ships it. For input (A)/(B)/(D), **when admitted native
+items actually exist**, each item carries its supplied `precedents`:
+prior verdicts on **the same function in the
 same file** (vendor roots stripped, so `vendor/x/p.go` matches
 `third_party/x/p.go`), in any repository, with a shared CWE, strongest
 first.
 
 This is the post-record owner of precedent handling for all four audit
 skills (`/secure-code-audit`, `/vuln-scan`, `/secure-container-audit`,
-`/secure-rpm-audit`). Matching uses the native recorded input from
-`traust triage prepare`, never an audit-time lookup or a second matcher.
+`/secure-rpm-audit`) when native findings are admitted. `reporting record`
+alone stores the assessment/artifact and guarantees neither candidates
+nor matches. Without trusted supported admission, or where source claims
+remain unadmitted, their adjudication is unavailable, not a clean audit or
+no-findings proof. Successful intake of a genuinely empty batch is valid
+but has no per-finding precedent work; preserve its zero-count contract.
+Use only native prepared input tied to supported finding admission, never
+an audit-time lookup, second matcher, invented intake CLI or converted report.
 Preserve each supplied precedent and its provenance in working state;
 read its native `reason.strength` for routing:
 
@@ -1627,13 +1654,25 @@ findings and duplicates only). If the renderer errors, fix `<repo>-triage.json`
 and re-run 6c rather than writing the Markdown by hand — divergent
 hand-built reports are exactly what the renderer exists to prevent.
 
-### 6e. Record the verdicts (input A/B only)
+### 6e. Record the verdicts (input A/B with supported native finding intake)
 
 **For input (D), skip this entire section.** Do not call Core, create a
 replacement assessment or print a fabricated recording receipt. Report that
 canonical output is ready for the external SDK caller to record against the
 unchanged prepared source subject. All verification, canonical-write
 validation and deterministic rendering still run before completion.
+
+For input (A)/(B) with only assessment/artifact storage, no trusted
+supported admission evidence, or unadmitted source claims, do not claim
+recorded adjudication of those claims; report the handoff gap and preserve
+the source receipts/artifacts. Do not call `triage record` against the
+assessment-only audit ID to bridge that gap.
+
+A genuinely empty native batch after successful supported finding intake
+is valid and follows this existing recording contract with zero decisions.
+Do not blanket-skip recording merely because `items[]` is empty. Use the
+intake's assessment ID and preserve its successful receipt; zero native
+counts describe that batch, not proof the repository is secure.
 
 Bash:
 
@@ -1658,8 +1697,13 @@ New admission uses Core's canonical-write gate. Exact replay of an already
 stored triage stays idempotent, including historical hardening: never
 rewrite that artifact or create a replacement assessment to replay it.
 Re-running is idempotent. It refuses
-a triage whose verdicts don't match the assessment's findings (missing
-fingerprints): fix 1b / 6b and re-run.
+a triage whose verdicts don't match the assessment's admitted findings
+(missing fingerprints). Fix normalization/serialization mistakes in
+1b / 6b using actual native evidence only. Unadmitted source claims instead
+require the explicit handoff-gap report above, never invented fingerprints,
+replacement assessments or a retry presented as admission. A genuinely
+empty batch after successful supported intake is not a missing-fingerprint
+error and retains the normal zero-decision contract.
 
 Retain the JSON receipt when validation follows. `baseline_assessment_id` is
 the actual input; each `records[]` item exposes the native recorded decision,
@@ -1683,6 +1727,18 @@ fresh.
 ### 6f. Terminal summary
 
 Under ~14 lines:
+
+For an assessment-only source without trusted supported admission, or
+with unadmitted claims, replace the completion claim below with
+`Adjudication unavailable: source claims lack supported native admission`.
+Report storage separately from admission; do not claim those source
+claims were adjudicated, identity-matched or precedent-processed.
+
+A genuinely empty native batch after successful supported finding intake
+is valid: report completion with zero native-batch counts and the actual
+artifact/recording outcome (for D, output ready for the external caller).
+Do not label it unavailable merely because it is empty. Neither valid
+zero counts nor an admission gap proves the repository secure.
 
 ```
 Triage complete: {N} findings -> {T} non-weakness true positives, {G} confirmed weaknesses, {U} undetermined, {F} false positives, {D} duplicates.
@@ -1828,6 +1884,10 @@ for environment context; `*-impact-analysis.json` from
 `analysis-results/impact/` (Phase 2f); precedents from `traust triage prepare`
 (Phase 2g), or the same native `TriageInput` staged read-only by a trusted
 caller with `--prepared-input` (input D; no in-process intake/prepare/record).
+Assessment/artifact storage alone does not admit findings: recorded
+adjudication and Phase 2g require actual native candidates tied to
+supported admission. Generic artifact review remains input (C), without
+recorded decisions; do not silently convert it into a native batch.
 
 **Emits:** `<repo>-triage.{json,md}` next to the input report —
 consumed by `/patch` and as explicitly bound source evidence by
