@@ -36,11 +36,40 @@ _OS = frozenset(
         "spawnvpe",
     }
 )
+_EXECUTION_ORIGINS = (
+    frozenset({"subprocess", "os"})
+    | frozenset(f"subprocess.{name}" for name in _SUBPROCESS)
+    | frozenset(f"os.{name}" for name in _OS)
+)
 _SAFE = frozenset({"safe_exec.run", "traust_engine._util.safe_exec.run"})
 _MAX_VARIANTS = 64
 _MAX_TEXT = 4096
 _MAX_ITEMS = 64
 _MAX_DEPTH = 8
+
+
+@dataclass(frozen=True)
+class _Callable:
+    identity: str
+    receiver: _Value | None = None
+    descriptor: str = ""
+
+
+@dataclass(frozen=True)
+class _Suspended:
+    function: _Callable
+    args: tuple[_Value, ...]
+    kwargs: tuple[tuple[str | None, _Value], ...]
+    node: ast.AST
+
+
+@dataclass(frozen=True)
+class _ActiveCall:
+    function: _Callable
+    args: tuple[_Value, ...]
+    kwargs: tuple[tuple[str | None, _Value], ...]
+    closure: frozenset[tuple[str, _Value]]
+    attributes: frozenset[tuple[tuple[str, str], _Value]]
 
 
 @dataclass(frozen=True)
@@ -54,10 +83,27 @@ class _Value:
     elements: tuple[_Value, ...] | None = None
     literals: frozenset[bool | int | None] = frozenset()
     sources: frozenset[int] = frozenset()
+    callables: frozenset[_Callable] = frozenset()
+    pending: frozenset[_Suspended] = frozenset()
+    mapping: tuple[tuple[str, _Value], ...] | None = None
+    execution_origins: frozenset[str] = frozenset()
+    callable_top: bool = False
+    starred: bool = False
 
 
 def _depth(value: _Value) -> int:
-    return 0 if value.elements is None else 1 + max((_depth(v) for v in value.elements), default=0)
+    children = list(value.elements or ())
+    children.extend(fn.receiver for fn in value.callables if fn.receiver is not None)
+    for pending in value.pending:
+        children.extend(pending.args)
+        children.extend(value for _, value in pending.kwargs)
+        if pending.function.receiver is not None:
+            children.append(pending.function.receiver)
+    if value.mapping is not None:
+        children.extend(value for _, value in value.mapping)
+    if value.elements is None and not children:
+        return 0
+    return 1 + max((_depth(child) for child in children), default=0)
 
 
 def _join(values: Iterable[_Value]) -> _Value:
@@ -66,13 +112,26 @@ def _join(values: Iterable[_Value]) -> _Value:
     strings = frozenset().union(*(v.strings for v in values))
     argvs = frozenset().union(*(v.argvs for v in values))
     literals = frozenset().union(*(v.literals for v in values))
+    callables = frozenset().union(*(v.callables for v in values))
+    pending = frozenset().union(*(v.pending for v in values))
+    mappings = [dict(v.mapping) for v in values if v.mapping is not None]
+    mapping_keys = set().union(*(item.keys() for item in mappings))
+    mapping = (
+        tuple(
+            (key, _join(item.get(key, _UNKNOWN) for item in mappings))
+            for key in sorted(mapping_keys)
+        )
+        if mappings
+        else None
+    )
     sequences = [v.elements for v in values if v.elements is not None]
     elements = None
     if sequences and len({len(v) for v in sequences}) == 1:
         elements = tuple(_join(parts) for parts in zip(*sequences, strict=True))
     capped = (
         any(v.capped for v in values)
-        or max(len(origins), len(strings), len(argvs), len(literals)) > _MAX_VARIANTS
+        or max(len(origins), len(strings), len(argvs), len(literals), len(callables), len(pending))
+        > _MAX_VARIANTS
         or any(len(s) > _MAX_TEXT for s in strings)
         or any(
             len(a) > _MAX_ITEMS or any(s is not None and len(s) > _MAX_TEXT for s in a)
@@ -82,6 +141,19 @@ def _join(values: Iterable[_Value]) -> _Value:
         or (
             elements is not None
             and (len(elements) > _MAX_ITEMS or any(_depth(v) >= _MAX_DEPTH for v in elements))
+        )
+        or any(fn.receiver is not None and _depth(fn.receiver) >= _MAX_DEPTH for fn in callables)
+        or any(
+            _depth(value) >= _MAX_DEPTH
+            for item in pending
+            for value in (*item.args, *(value for _, value in item.kwargs))
+        )
+        or (
+            mapping is not None
+            and (
+                len(mapping) > _MAX_ITEMS
+                or any(_depth(value) >= _MAX_DEPTH for _, value in mapping)
+            )
         )
     )
     # Once widened, data stays at top. Keeping a changing sample would prevent convergence.
@@ -94,6 +166,13 @@ def _join(values: Iterable[_Value]) -> _Value:
         elements=None if capped else elements,
         literals=frozenset() if capped else literals,
         sources=frozenset().union(*(v.sources for v in values)),
+        callables=frozenset() if capped else callables,
+        pending=frozenset() if capped else pending,
+        mapping=None if capped else mapping,
+        execution_origins=frozenset().union(*(v.execution_origins for v in values))
+        | (origins & _EXECUTION_ORIGINS),
+        callable_top=any(v.callable_top for v in values)
+        or (capped and (bool(callables) or any(name.startswith("class:") for name in origins))),
     )
 
 
@@ -101,32 +180,66 @@ _UNKNOWN = _Value(unknown=True)
 
 
 def _origin(name: str) -> _Value:
-    return _Value(origins=frozenset({name}))
+    return _Value(
+        origins=frozenset({name}),
+        execution_origins=frozenset({name}) if name in _EXECUTION_ORIGINS else frozenset(),
+    )
 
 
 def _unbound(name: str) -> _Value:
-    implicit = {"subprocess", "os", "shlex", "safe_exec", "print", "argparse"}
-    return _Value(origins=frozenset({name}), unknown=name not in implicit)
+    implicit = {
+        "subprocess",
+        "os",
+        "shlex",
+        "safe_exec",
+        "print",
+        "argparse",
+        "staticmethod",
+        "classmethod",
+    }
+    return replace(_origin(name), unknown=name not in implicit)
 
 
 @dataclass
 class _State:
     bindings: dict[str, _Value] = field(default_factory=dict)
     writes: dict[tuple[int, str], _Value] = field(default_factory=dict)
+    returned: _Value | None = None
+    attributes: dict[tuple[str, str], _Value] = field(default_factory=dict)
 
     def copy(self) -> _State:
-        return _State(dict(self.bindings), dict(self.writes))
+        return _State(dict(self.bindings), dict(self.writes), self.returned, dict(self.attributes))
+
+
+def _merge_values(values: Iterable[_Value]) -> _Value:
+    values = tuple(values)
+    # Bound immutable values need no widening when every path carries the same value.
+    if all(value is values[0] or value == values[0] for value in values):
+        return values[0]
+    return _join(values)
 
 
 def _merge(states: Iterable[_State | None]) -> _State | None:
     states = tuple(state for state in states if state is not None)
     if not states:
         return None
+    if len(states) == 1:
+        return states[0].copy()
     names = set().union(*(state.bindings for state in states))
     writes = set().union(*(state.writes for state in states))
+    attributes = set().union(*(state.attributes for state in states))
+    returned = [state.returned for state in states if state.returned is not None]
     return _State(
-        {name: _join(state.bindings.get(name, _UNKNOWN) for state in states) for name in names},
-        {key: _join(state.writes.get(key, _UNKNOWN) for state in states) for key in writes},
+        {
+            name: _merge_values(state.bindings.get(name, _UNKNOWN) for state in states)
+            for name in names
+        },
+        {key: _merge_values(state.writes.get(key, _UNKNOWN) for state in states) for key in writes},
+        _merge_values(returned) if returned else None,
+        {
+            key: _merge_values(state.attributes.get(key, _UNKNOWN) for state in states)
+            for key in attributes
+        },
     )
 
 
@@ -172,6 +285,7 @@ class _Deferred:
     scope: _Scope | None = None
     signature: object = None
     iterable: _Value = _UNKNOWN
+    kind: str = "function"
 
 
 def _declarations(body: list[ast.stmt]) -> tuple[set[str], set[str], set[str]]:
@@ -228,7 +342,9 @@ def unrouted_python_build(
     analyzer = _Analyzer(build_rx, shell_check)
     module = analyzer.scope("module", None, {}, tree.body)
     analyzer.module = module
-    analyzer.block(tree.body, _State(), module)
+    flow = analyzer.block(tree.body, _State(), module)
+    if flow.normal is not None:
+        analyzer.final_bindings[id(module)] = analyzer.visible(flow.normal, module)
     analyzer.deferred_bodies()
     analyzer.fallbacks()
     return analyzer.blocked
@@ -245,6 +361,14 @@ class _Analyzer:
         self.sources: dict[int, _Value] = {}
         self.inert_sources: set[int] = set()
         self.source_dependencies: dict[int, set[int]] = {}
+        self.source_keys: dict[tuple[int, int], int] = {}
+        self.final_bindings: dict[int, dict[str, _Value]] = {}
+        self.functions: dict[str, _Deferred] = {}
+        self.classes: dict[str, dict[str, _Value]] = {}
+        self.class_mro: dict[str, tuple[str, ...]] = {}
+        self.instances: dict[str, str] = {}
+        self.invocations: dict[tuple[str, int, int], _Scope] = {}
+        self.active_calls: dict[_ActiveCall, _Scope] = {}
 
     def argv(self, argv: tuple[str | None, ...]) -> bool:
         return unrouted_argv(
@@ -256,12 +380,46 @@ class _Analyzer:
             ),
         )
 
-    def source(self, node: ast.AST, value: _Value) -> _Value:
-        key = id(node)
+    def source_key(self, node: ast.AST, scope: _Scope) -> int:
+        return self.source_keys.setdefault((id(node), id(scope)), len(self.source_keys))
+
+    def source(self, node: ast.AST, value: _Value, scope: _Scope) -> _Value:
+        value = _join((value,))
+        key = self.source_key(node, scope)
         self.source_dependencies.setdefault(key, set()).update(value.sources - {key})
         plain = replace(value, sources=frozenset())
         self.sources[key] = _join((self.sources[key], plain)) if key in self.sources else plain
         return replace(value, sources=frozenset({key}))
+
+    def local_function(
+        self,
+        node: ast.FunctionDef | ast.AsyncFunctionDef | ast.Lambda,
+        parent: _Scope | None,
+        defaults: dict[str, _Value],
+    ) -> _Value:
+        deferred = self.defer(node, parent, defaults)
+        if deferred is None:
+            return _UNKNOWN
+        identity = f"local:{id(node)}:{id(parent)}"
+        pending = [node.body] if isinstance(node, ast.Lambda) else list(node.body)
+        generator = False
+        while pending:
+            child = pending.pop()
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)):
+                continue
+            if isinstance(child, (ast.Yield, ast.YieldFrom)):
+                generator = True
+                break
+            pending.extend(ast.iter_child_nodes(child))
+        deferred.kind = (
+            "generator"
+            if generator
+            else "coroutine"
+            if isinstance(node, ast.AsyncFunctionDef)
+            else "function"
+        )
+        self.functions[identity] = deferred
+        return _Value(callables=frozenset({_Callable(identity)}))
 
     def mark_inert(self, sources: Iterable[int]) -> None:
         pending = list(sources)
@@ -307,7 +465,8 @@ class _Analyzer:
             return state.bindings[name]
         owner = self.owner(name, scope)
         if owner is not None:
-            return state.writes.get((id(owner), name), owner.history.get(name, _unbound(name)))
+            current = self.final_bindings.get(id(owner), owner.history)
+            return state.writes.get((id(owner), name), current.get(name, _unbound(name)))
         if self.module is not None and (id(self.module), name) in state.writes:
             return state.writes[(id(self.module), name)]
         if scope.kind in {"function", "comprehension"} and name in scope.locals:
@@ -320,6 +479,9 @@ class _Analyzer:
         )
 
     def bind(self, name: str, value: _Value, state: _State, scope: _Scope) -> None:
+        if state.bindings.get(name) is value:
+            return
+        value = _join((value,))
         state.bindings[name] = value
         self.remember(name, value, scope)
         owner = self.owner(name, scope)
@@ -338,9 +500,84 @@ class _Analyzer:
                 result[name] = value
         return result
 
+    def lexical(self, parent: _Scope, state: _State, scope: _Scope) -> dict[str, _Value]:
+        closure = (
+            self.visible(state, scope)
+            if parent is scope
+            else dict(self.final_bindings.get(id(parent), self.history(parent)))
+        )
+        for (owner, name), value in state.writes.items():
+            if owner == id(parent):
+                closure[name] = value
+        return closure
+
+    def linearize(self, identity: str, parents: tuple[str, ...]) -> tuple[str, ...] | None:
+        sequences = [list(self.class_mro.get(parent, (parent,))) for parent in parents]
+        sequences.append(list(parents))
+        result = [identity]
+        while any(sequences):
+            sequences = [sequence for sequence in sequences if sequence]
+            head = next(
+                (
+                    sequence[0]
+                    for sequence in sequences
+                    if not any(sequence[0] in other[1:] for other in sequences)
+                ),
+                None,
+            )
+            if head is None:
+                return None
+            result.append(head)
+            for sequence in sequences:
+                if sequence[0] == head:
+                    sequence.pop(0)
+        return tuple(result)
+
+    def attribute(self, base: _Value, name: str, state: _State) -> _Value:
+        values = []
+        identities = (
+            base.origins | base.execution_origins | frozenset(fn.identity for fn in base.callables)
+        )
+        for identity in identities:
+            explicit = state.attributes.get((identity, name))
+            if explicit is not None and identity not in self.classes:
+                values.append(explicit)
+                if not explicit.unknown:
+                    continue
+            owner = self.instances.get(identity, identity)
+            value = None
+            for parent in self.class_mro.get(owner, (owner,)):
+                if (parent, name) in state.attributes:
+                    value = state.attributes[(parent, name)]
+                    break
+                if name in self.classes.get(parent, {}):
+                    value = self.classes[parent][name]
+                    break
+            if value is not None:
+                functions = []
+                for function in value.callables:
+                    receiver = (
+                        _origin(owner)
+                        if function.descriptor == "classmethod"
+                        else _origin(identity)
+                        if identity in self.instances and function.descriptor != "staticmethod"
+                        else None
+                    )
+                    functions.append(replace(function, receiver=receiver, descriptor=""))
+                values.append(replace(value, callables=frozenset(functions)))
+            else:
+                values.append(
+                    replace(_origin(f"{identity}.{name}"), unknown=base.unknown, capped=base.capped)
+                )
+        return _join(values) if values else _Value(unknown=True, capped=base.capped)
+
     def target(self, node: ast.AST, value: _Value, state: _State, scope: _Scope) -> None:
         if isinstance(node, ast.Name):
             self.bind(node.id, value, state, scope)
+        elif isinstance(node, ast.Attribute):
+            base = self.expr(node.value, state, scope)
+            for identity in base.origins | frozenset(fn.identity for fn in base.callables):
+                state.attributes[(identity, node.attr)] = value
         elif isinstance(node, (ast.Tuple, ast.List)):
             star = next(
                 (i for i, child in enumerate(node.elts) if isinstance(child, ast.Starred)), None
@@ -420,7 +657,7 @@ class _Analyzer:
         elif isinstance(node, ast.AugAssign):
             left, right = self.expr(node.target, state, scope), self.expr(node.value, state, scope)
             value = (
-                self.source(node, self.add(left, right))
+                self.source(node, self.add(left, right), scope)
                 if isinstance(node.op, ast.Add)
                 else _UNKNOWN
             )
@@ -430,21 +667,26 @@ class _Analyzer:
             for target in node.targets:
                 self.target(target, _UNKNOWN, state, scope)
         elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            for value in node.decorator_list:
-                self.expr(value, state, scope)
+            decorators = [self.expr(value, state, scope) for value in node.decorator_list]
             defaults = self.defaults(node.args, state, scope)
             for arg in [*node.args.posonlyargs, *node.args.args, *node.args.kwonlyargs]:
                 self.expr(arg.annotation, state, scope)
             self.expr(node.returns, state, scope)
-            self.bind(node.name, _origin(f"local:{node.name}"), state, scope)
-            self.defer(node, scope.parent if scope.kind == "class" else scope, defaults)
+            value = self.local_function(
+                node, scope.parent if scope.kind == "class" else scope, defaults
+            )
+            for decorator in reversed(decorators):
+                value = self.apply(decorator, [value], {}, node, state, scope)
+            self.bind(node.name, value, state, scope)
         elif isinstance(node, ast.ClassDef):
-            for value in [*node.decorator_list, *node.bases, *(kw.value for kw in node.keywords)]:
-                self.expr(value, state, scope)
+            decorators = [self.expr(value, state, scope) for value in node.decorator_list]
+            bases = [self.expr(value, state, scope) for value in node.bases]
+            for keyword in node.keywords:
+                self.expr(keyword.value, state, scope)
             closure = dict(scope.closure) if scope.kind == "class" else self.visible(state, scope)
             parent = scope.parent if scope.kind == "class" else scope
             child = self.scope("class", parent, closure, node.body)
-            entry = _State(writes=dict(state.writes))
+            entry = _State(writes=dict(state.writes), attributes=dict(state.attributes))
             for name in child.globals | child.nonlocals:
                 owner = self.owner(name, child)
                 value = (
@@ -462,6 +704,7 @@ class _Analyzer:
                     entry.writes[(id(owner), name)] = value
             result = self.block(node.body, entry, child)
             if result.normal is not None:
+                state.attributes.update(result.normal.attributes)
                 for (owner, name), value in result.normal.writes.items():
                     if owner == id(scope):
                         self.bind(name, value, state, scope)
@@ -469,7 +712,27 @@ class _Analyzer:
                         state.writes[(owner, name)] = value
             else:
                 return _Flow(raises=result.raises, returns=result.returns)
-            self.bind(node.name, _origin(f"local:{node.name}"), state, scope)
+            variants = itertools.product(*(base.origins for base in bases))
+            values = []
+            for index, parents in enumerate(variants):
+                if index >= _MAX_VARIANTS:
+                    values.append(_Value(capped=True))
+                    break
+                identity = f"class:{id(node)}:{id(scope)}:{index}"
+                mro = self.linearize(identity, parents)
+                if mro is None:
+                    continue
+                self.classes[identity] = dict(result.normal.bindings)
+                self.class_mro[identity] = mro
+                values.append(_origin(identity))
+            if any(base.unknown or not base.origins for base in bases):
+                values.append(_UNKNOWN)
+            if not values:
+                return _Flow(raises=state)
+            value = _join(values)
+            for decorator in reversed(decorators):
+                value = self.apply(decorator, [value], {}, node, state, scope)
+            self.bind(node.name, value, state, scope)
         elif isinstance(node, ast.If):
             test = self.expr(node.test, state, scope)
             truth = self.truth(test)
@@ -531,14 +794,19 @@ class _Analyzer:
             if not exhaustive:
                 paths.append(_Flow(normal=state))
             return _flows(paths)
-        elif isinstance(node, (ast.Return, ast.Raise, ast.Break, ast.Continue)):
+        elif isinstance(node, ast.Return):
+            state.returned = (
+                self.expr(node.value, state, scope)
+                if node.value is not None
+                else _Value(literals=frozenset({None}))
+            )
+            return _Flow(returns=state)
+        elif isinstance(node, (ast.Raise, ast.Break, ast.Continue)):
             for child in ast.iter_child_nodes(node):
                 if isinstance(child, ast.expr):
                     self.expr(child, state, scope)
             kind = (
-                "returns"
-                if isinstance(node, ast.Return)
-                else "raises"
+                "raises"
                 if isinstance(node, ast.Raise)
                 else "breaks"
                 if isinstance(node, ast.Break)
@@ -613,6 +881,7 @@ class _Analyzer:
                 branches.append(branch)
             merged = _merge(branches)
             state.bindings, state.writes = merged.bindings, merged.writes
+            state.attributes = merged.attributes
             return irrefutable
         if isinstance(node, ast.MatchSequence):
             for index, pattern in enumerate(node.patterns):
@@ -657,9 +926,9 @@ class _Analyzer:
         defaults: dict[str, _Value] | None = None,
         *,
         iterable: _Value = _UNKNOWN,
-    ) -> None:
+    ) -> _Deferred | None:
         if parent is None:
-            return
+            return None
         key = (id(node), id(parent))
         if key not in self.deferred:
             self.deferred[key] = _Deferred(node, parent, defaults or {}, iterable=iterable)
@@ -668,12 +937,15 @@ class _Analyzer:
             deferred.iterable = _join((deferred.iterable, iterable))
             for name, value in (defaults or {}).items():
                 deferred.defaults[name] = _join((deferred.defaults.get(name, value), value))
+        return self.deferred[key]
 
     def deferred_bodies(self) -> None:
         while True:
             changed = False
             for deferred in tuple(self.deferred.values()):
-                closure = self.history(deferred.parent)
+                closure = dict(
+                    self.final_bindings.get(id(deferred.parent), self.history(deferred.parent))
+                )
                 signature = (closure, dict(deferred.defaults), deferred.iterable)
                 if deferred.signature == signature:
                     continue
@@ -711,9 +983,15 @@ class _Analyzer:
                 for name, value in state.bindings.items():
                     self.remember(name, value, scope)
                 if isinstance(node, ast.Lambda):
-                    self.expr(node.body, state, scope)
+                    self.source(node, self.expr(node.body, state, scope), scope)
+                    self.final_bindings[id(scope)] = self.visible(state, scope)
                 else:
-                    self.block(body, state, scope)
+                    flow = self.block(body, state, scope)
+                    if flow.returns is not None and flow.returns.returned is not None:
+                        self.source(node, flow.returns.returned, scope)
+                    exited = _merge((flow.normal, flow.returns, flow.raises))
+                    if exited is not None:
+                        self.final_bindings[id(scope)] = self.visible(exited, scope)
             if not changed:
                 break
 
@@ -813,7 +1091,7 @@ class _Analyzer:
         if value.unknown or value.capped:
             return None
         possibilities = {bool(v) for v in value.strings | value.literals | value.argvs}
-        if value.origins:
+        if value.origins or value.callables or value.pending:
             possibilities.add(True)
         return next(iter(possibilities)) if len(possibilities) == 1 else None
 
@@ -876,23 +1154,14 @@ class _Analyzer:
             return _UNKNOWN
         if isinstance(node, ast.Constant):
             if isinstance(node.value, str):
-                return self.source(node, _Value(strings=frozenset({node.value})))
+                return self.source(node, _Value(strings=frozenset({node.value})), scope)
             if node.value is None or isinstance(node.value, (bool, int)):
                 return _Value(literals=frozenset({node.value}))
             return _UNKNOWN
         if isinstance(node, ast.Name):
             return self.lookup(node.id, state, scope)
         if isinstance(node, ast.Attribute):
-            base = self.expr(node.value, state, scope)
-            return _join(
-                (
-                    _Value(
-                        origins=frozenset(f"{name}.{node.attr}" for name in base.origins),
-                        unknown=base.unknown,
-                        capped=base.capped,
-                    ),
-                )
-            )
+            return self.attribute(self.expr(node.value, state, scope), node.attr, state)
         if isinstance(node, ast.NamedExpr):
             value = self.expr(node.value, state, scope)
             scope.candidates.update(value.sources)
@@ -909,6 +1178,38 @@ class _Analyzer:
             else:
                 self.target(node.target, value, state, scope)
             return value
+        if isinstance(node, ast.Dict):
+            mapping = {}
+            sources = set()
+            unknown = False
+            for key, item in zip(node.keys, node.values, strict=True):
+                value = self.expr(item, state, scope)
+                sources.update(value.sources)
+                if key is None:
+                    if value.mapping is not None:
+                        mapping.update(value.mapping)
+                    unknown |= value.mapping is None or value.unknown
+                else:
+                    key_value = self.expr(key, state, scope)
+                    sources.update(key_value.sources)
+                    literal = self.literal(key_value)
+                    if isinstance(literal, str):
+                        mapping[literal] = value
+                    else:
+                        unknown = True
+            return self.source(
+                node,
+                _join(
+                    (
+                        _Value(
+                            mapping=tuple(mapping.items()),
+                            unknown=unknown,
+                            sources=frozenset(sources),
+                        ),
+                    )
+                ),
+                scope,
+            )
         if isinstance(node, (ast.List, ast.Tuple, ast.Set)):
             result = self.sequence(())
             for item in node.elts:
@@ -918,11 +1219,11 @@ class _Analyzer:
                     else self.sequence((self.expr(item, state, scope),))
                 )
                 result = self.add(result, part)
-            return self.source(node, result)
+            return self.source(node, result, scope)
         if isinstance(node, ast.BinOp):
             left, right = self.expr(node.left, state, scope), self.expr(node.right, state, scope)
             return (
-                self.source(node, self.add(left, right))
+                self.source(node, self.add(left, right), scope)
                 if isinstance(node.op, ast.Add)
                 else _Value(unknown=True, sources=left.sources | right.sources)
             )
@@ -934,7 +1235,7 @@ class _Analyzer:
                 )
                 strings = value.strings or frozenset({"__dynamic__"})
                 result = self.add(result, _Value(strings=strings, capped=value.capped))
-            return self.source(node, result)
+            return self.source(node, result, scope)
         if isinstance(node, ast.BoolOp):
             branches, values = [], []
             for index, operand in enumerate(node.values):
@@ -950,6 +1251,7 @@ class _Analyzer:
                     values.append(value)
             merged = _merge(branches)
             state.bindings, state.writes = merged.bindings, merged.writes
+            state.attributes = merged.attributes
             return _join(values)
         if isinstance(node, ast.IfExp):
             test = self.expr(node.test, state, scope)
@@ -960,14 +1262,41 @@ class _Analyzer:
             values = (self.expr(node.body, left, scope), self.expr(node.orelse, right, scope))
             merged = _merge((left, right))
             state.bindings, state.writes = merged.bindings, merged.writes
+            state.attributes = merged.attributes
             return _join(values)
         if isinstance(node, ast.Lambda):
-            self.defer(
+            return self.local_function(
                 node,
                 scope.parent if scope.kind == "class" else scope,
                 self.defaults(node.args, state, scope),
             )
-            return _origin("local:lambda")
+        if isinstance(node, ast.Await):
+            value = self.expr(node.value, state, scope)
+            if value.capped:
+                return _Value(capped=True)
+            results = []
+            branches = []
+            for pending in value.pending:
+                branch = state.copy()
+                results.append(
+                    self.invoke(
+                        pending.function,
+                        list(pending.args),
+                        dict(pending.kwargs),
+                        pending.node,
+                        branch,
+                        scope,
+                        resume=True,
+                    )
+                )
+                branches.append(branch)
+            if value.unknown or not results:
+                results.append(_Value(unknown=True, sources=value.sources))
+                branches.append(state.copy())
+            merged = _merge(branches)
+            state.bindings, state.writes = merged.bindings, merged.writes
+            state.attributes = merged.attributes
+            return self.source(node, _join(results), scope)
         if isinstance(node, (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)):
             iterable = self.expr(node.generators[0].iter, state, scope)
             value = self.comprehension(node, state, scope, iterable=iterable)
@@ -988,6 +1317,7 @@ class _Analyzer:
             if branches:
                 merged = _merge((*branches, state))
                 state.bindings, state.writes = merged.bindings, merged.writes
+                state.attributes = merged.attributes
             return _UNKNOWN
         sources = set()
         for child in ast.iter_child_nodes(node):
@@ -1021,6 +1351,13 @@ class _Analyzer:
             if string
             else _UNKNOWN
         )
+        if any(value.starred for value in args):
+            return _Value(
+                unknown=True,
+                capped=source.capped or any(value.capped for value in args),
+                sources=source.sources
+                | frozenset().union(*(value.sources for value in [*args, *kwargs.values()])),
+            )
         options = args[1:] if shell else args
         names = ("comments", "posix") if shell else ("sep", "maxsplit")
         defaults = (False, True) if shell else (None, -1)
@@ -1054,7 +1391,7 @@ class _Analyzer:
                 ),
             )
         )
-        return self.source(node, value) if argvs or value.capped else value
+        return self.source(node, value, scope) if argvs or value.capped else value
 
     def execute(self, command: _Value, scope: _Scope, *, shell: bool | None = False) -> None:
         if command.capped:
@@ -1083,22 +1420,307 @@ class _Analyzer:
             # A proven argv execution does not make its data arguments shell candidates.
             self.mark_inert(command.sources)
 
+    def call_fingerprint(self, value: _Value, state: _State) -> _Value:
+        if (
+            value.unknown
+            and value.origins
+            and all(origin.startswith("object:") for origin in value.origins)
+            and not any(owner in value.origins for owner, _ in state.attributes)
+        ):
+            return replace(value, origins=frozenset(), sources=frozenset())
+        return replace(value, sources=frozenset())
+
+    def spread(self, node: ast.Starred, value: _Value, scope: _Scope) -> _Value:
+        items = list(value.elements or ())
+        pending = list(value.sources)
+        visited = set()
+        capped = value.capped
+        while pending:
+            key = pending.pop()
+            if key in visited:
+                continue
+            visited.add(key)
+            if len(visited) > _MAX_VARIANTS * _MAX_DEPTH or len(items) > _MAX_ITEMS:
+                capped = True
+                break
+            source = self.sources.get(key, _UNKNOWN)
+            if source.elements is not None:
+                items.extend(source.elements)
+            elif source.argvs:
+                items.append(
+                    _Value(
+                        strings=frozenset(
+                            word for argv in source.argvs for word in argv if word is not None
+                        ),
+                        unknown=any(word is None for argv in source.argvs for word in argv),
+                    )
+                )
+            elif source.mapping is not None:
+                items.append(_Value(strings=frozenset(name for name, _ in source.mapping)))
+                items.extend(item for _, item in source.mapping)
+            elif source.unknown:
+                pending.extend(self.source_dependencies.get(key, ()))
+            else:
+                items.append(source)
+        item = _join((*items, _Value(unknown=True, capped=capped, sources=value.sources)))
+        return replace(self.source(node, item, scope), starred=True)
+
+    def argument(
+        self,
+        args: list[_Value],
+        index: int,
+        default: _Value = _UNKNOWN,
+        *,
+        limit: int | None = None,
+    ) -> _Value:
+        if not any(value.starred for value in args):
+            return args[index] if index < len(args) else default
+        fixed = sum(not value.starred for value in args)
+        before = 0
+        spread_before = False
+        values = []
+        for value in args:
+            after = fixed - before - (not value.starred)
+            reachable = index >= before and (limit is None or index < limit - after)
+            if value.starred:
+                if reachable:
+                    values.append(replace(value, starred=False))
+                spread_before = True
+            else:
+                if reachable and (spread_before or index == before):
+                    values.append(value)
+                before += 1
+        if fixed <= index:
+            values.append(default)
+        return _join(values) if values else _UNKNOWN
+
+    def invoke(
+        self,
+        function: _Callable,
+        args: list[_Value],
+        kwargs: dict[str | None, _Value],
+        node: ast.AST,
+        state: _State,
+        scope: _Scope,
+        *,
+        resume: bool = False,
+    ) -> _Value:
+        definition = self.functions[function.identity]
+        if definition.kind == "generator":
+            return _origin(f"generator:{function.identity}")
+        if definition.kind == "coroutine" and not resume:
+            return _Value(
+                pending=frozenset({_Suspended(function, tuple(args), tuple(kwargs.items()), node)})
+            )
+        closure = self.lexical(definition.parent, state, scope)
+        active = _ActiveCall(
+            function,
+            tuple(self.call_fingerprint(value, state) for value in args),
+            tuple((name, self.call_fingerprint(value, state)) for name, value in kwargs.items()),
+            frozenset(
+                (name, self.call_fingerprint(value, state)) for name, value in closure.items()
+            ),
+            frozenset(state.attributes.items()),
+        )
+        if active in self.active_calls:
+            sources = frozenset().union(*(value.sources for value in [*args, *kwargs.values()]))
+            return _Value(
+                unknown=True,
+                sources=sources | {self.source_key(definition.node, self.active_calls[active])},
+            )
+        key = (function.identity, id(node), id(scope))
+        if len(self.active_calls) >= _MAX_DEPTH or (
+            key not in self.invocations and len(self.invocations) >= _MAX_VARIANTS * _MAX_DEPTH
+        ):
+            return _Value(capped=True)
+        body = (
+            definition.node.body
+            if not isinstance(definition.node, ast.Lambda)
+            else [ast.Expr(value=definition.node.body)]
+        )
+        if key not in self.invocations:
+            self.invocations[key] = self.scope("function", definition.parent, closure, body)
+        child = self.invocations[key]
+        child.closure = closure
+        supplied = [function.receiver, *args] if function.receiver is not None else args
+        parameters = definition.node.args
+        positional = [*parameters.posonlyargs, *parameters.args]
+        named = dict(kwargs)
+        unpacked = named.pop(None, None)
+        first_star = next((index for index, value in enumerate(supplied) if value.starred), None)
+        limit = None if parameters.vararg else len(positional)
+        if first_star is not None:
+            keyword_positions = [
+                index
+                for index, parameter in enumerate(positional)
+                if index >= len(parameters.posonlyargs) and parameter.arg in named
+            ]
+            if keyword_positions:
+                limit = min(*keyword_positions, len(positional))
+        bindings = {}
+        for index, parameter in enumerate(positional):
+            default = named.pop(parameter.arg, definition.defaults.get(parameter.arg, _UNKNOWN))
+            value = self.argument(supplied, index, default, limit=limit)
+            if unpacked is not None:
+                value = _join((value, _Value(unknown=True, sources=unpacked.sources)))
+            bindings[parameter.arg] = value
+        for parameter in parameters.kwonlyargs:
+            value = named.pop(parameter.arg, definition.defaults.get(parameter.arg, _UNKNOWN))
+            if unpacked is not None:
+                value = _join((value, _Value(unknown=True, sources=unpacked.sources)))
+            bindings[parameter.arg] = value
+        if parameters.vararg:
+            if first_star is None:
+                bindings[parameters.vararg.arg] = self.sequence(supplied[len(positional) :])
+            elif limit is not None and limit <= len(positional):
+                bindings[parameters.vararg.arg] = self.sequence(())
+            else:
+                tail = supplied[min(len(positional), first_star) :]
+                bindings[parameters.vararg.arg] = _Value(
+                    unknown=True,
+                    capped=any(value.capped for value in tail),
+                    sources=frozenset().union(*(value.sources for value in tail)),
+                )
+        if parameters.kwarg:
+            bindings[parameters.kwarg.arg] = _Value(
+                mapping=tuple(named.items()),
+                unknown=unpacked is not None,
+                sources=unpacked.sources if unpacked is not None else frozenset(),
+            )
+        bindings = {name: _join((value,)) for name, value in bindings.items()}
+        child.locals.update(bindings)
+        for name, value in bindings.items():
+            self.remember(name, value, child)
+        entry = _State(bindings, dict(state.writes), attributes=dict(state.attributes))
+        if scope is self.module:
+            entry.writes.update(
+                ((id(scope), name), value) for name, value in state.bindings.items()
+            )
+        self.active_calls[active] = child
+        try:
+            if isinstance(definition.node, ast.Lambda):
+                returned = self.expr(definition.node.body, entry, child)
+                exited = entry
+            else:
+                flow = self.block(body, entry, child)
+                returned = (
+                    flow.returns.returned
+                    if flow.returns is not None and flow.returns.returned is not None
+                    else _Value(literals=frozenset({None}))
+                )
+                if flow.normal is not None:
+                    returned = _join((returned, _Value(literals=frozenset({None}))))
+                exited = _merge((flow.normal, flow.returns, flow.raises))
+            if exited is not None:
+                self.final_bindings[id(child)] = self.visible(exited, child)
+                state.attributes.update(exited.attributes)
+                for (owner, name), value in exited.writes.items():
+                    if owner == id(scope):
+                        self.bind(name, value, state, scope)
+                    else:
+                        state.writes[(owner, name)] = value
+        finally:
+            del self.active_calls[active]
+        return self.source(definition.node, returned, child)
+
     def call(self, node: ast.Call, state: _State, scope: _Scope) -> _Value:
         function = self.expr(node.func, state, scope)
-        args = [self.expr(arg, state, scope) for arg in node.args]
-        kwargs = {kw.arg: self.expr(kw.value, state, scope) for kw in node.keywords}
+        args = []
+        for argument in node.args:
+            value = self.expr(
+                argument.value if isinstance(argument, ast.Starred) else argument, state, scope
+            )
+            if isinstance(argument, ast.Starred):
+                if value.elements is not None and not value.unknown and not value.capped:
+                    args.extend(value.elements)
+                else:
+                    args.append(self.spread(argument, value, scope))
+            else:
+                args.append(value)
+        kwargs = {}
+        for keyword in node.keywords:
+            value = self.expr(keyword.value, state, scope)
+            if keyword.arg is not None:
+                kwargs[keyword.arg] = value
+            else:
+                if value.mapping is not None:
+                    kwargs.update(value.mapping)
+                if value.unknown or (value.mapping is None and value.elements != ()):
+                    kwargs[None] = _join((kwargs.get(None, _UNKNOWN), value))
         split = self.split(node, function, args, kwargs, state, scope)
         if split is not None:
             return split
-        if function.capped:
-            self.execute(
-                args[0] if args else kwargs.get("args", kwargs.get("cmd", _UNKNOWN)), scope
+        return self.apply(function, args, kwargs, node, state, scope)
+
+    def apply(
+        self,
+        function: _Value,
+        args: list[_Value],
+        kwargs: dict[str | None, _Value],
+        node: ast.AST,
+        state: _State,
+        scope: _Scope,
+    ) -> _Value:
+        results = []
+        branches = []
+        if (
+            function.origins in (frozenset({"staticmethod"}), frozenset({"classmethod"}))
+            and not function.unknown
+            and args
+        ):
+            descriptor = next(iter(function.origins))
+            supplied = self.argument(args, 0)
+            return replace(
+                supplied,
+                callables=frozenset(
+                    replace(fn, descriptor=descriptor) for fn in supplied.callables
+                ),
             )
-            return _UNKNOWN
+        for local in function.callables:
+            branch = state.copy()
+            results.append(self.invoke(local, args, kwargs, node, branch, scope))
+            branches.append(branch)
+        for identity in function.origins:
+            if identity in self.classes:
+                branch = state.copy()
+                instance = f"instance:{identity}:{id(node)}:{id(scope)}"
+                self.instances[instance] = identity
+                value = _origin(instance)
+                initializer = self.attribute(value, "__init__", branch)
+                if initializer.callables:
+                    self.apply(initializer, args, kwargs, node, branch, scope)
+                results.append(value)
+                branches.append(branch)
+        if branches:
+            if function.unknown or function.origins - self.classes.keys():
+                branches.append(state.copy())
+            merged = _merge(branches)
+            state.bindings, state.writes = merged.bindings, merged.writes
+            state.attributes = merged.attributes
+        if (
+            results
+            and not function.unknown
+            and (not function.origins or function.origins <= self.classes.keys())
+        ):
+            return _join(results)
+        if function.capped and not function.execution_origins:
+            if function.callable_top:
+                self.execute(
+                    self.argument(args, 0, kwargs.get("args", kwargs.get("cmd", _UNKNOWN))), scope
+                )
+            return _Value(
+                capped=True,
+                sources=function.sources
+                | frozenset().union(*(value.sources for value in [*args, *kwargs.values()])),
+            )
         safe = bool(function.origins) and function.origins <= _SAFE and not function.unknown
         printed = function.origins == frozenset({"print"}) and not function.unknown
         argparse = any(name.startswith("argparse.") for name in function.origins)
-        add_argument = isinstance(node.func, ast.Attribute) and node.func.attr == "add_argument"
+        add_argument = (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "add_argument"
+        )
         if safe or printed:
             for value in [*args, *kwargs.values()]:
                 self.mark_inert(value.sources)
@@ -1107,29 +1729,35 @@ class _Analyzer:
                 if name in kwargs:
                     self.mark_inert(kwargs[name].sources)
         executed = False
-        for name in function.origins:
+        for name in function.origins | function.execution_origins:
             module, _, operation = name.rpartition(".")
             command = None
             shell: bool | None = False
             if module == "subprocess" and operation in _SUBPROCESS:
-                command = args[0] if args else kwargs.get("args", kwargs.get("cmd"))
+                command = (
+                    self.argument(args, 0, kwargs.get("args", kwargs.get("cmd", _UNKNOWN)))
+                    if args
+                    else kwargs.get("args", kwargs.get("cmd"))
+                )
                 if "shell" in kwargs:
                     missing = object()
                     mode = self.literal(kwargs["shell"], missing)
                     shell = None if mode is missing else bool(mode)
             elif module == "os" and operation in {"system", "popen"}:
-                command = args[0] if args else kwargs.get("command", kwargs.get("cmd"))
+                command = (
+                    self.argument(args, 0, kwargs.get("command", kwargs.get("cmd", _UNKNOWN)))
+                    if args
+                    else kwargs.get("command", kwargs.get("cmd"))
+                )
                 shell = True
             elif module == "os" and operation in _OS:
                 offset = 2 if operation.startswith("spawn") else 1
-                path = (
-                    args[offset - 1]
-                    if len(args) >= offset
-                    else kwargs.get("path", kwargs.get("file", _UNKNOWN))
+                path = self.argument(
+                    args, offset - 1, kwargs.get("path", kwargs.get("file", _UNKNOWN))
                 )
                 vector = "v" in operation.removeprefix("spawn").removeprefix("exec")
                 if vector:
-                    supplied = args[offset] if len(args) > offset else kwargs.get("args", _UNKNOWN)
+                    supplied = self.argument(args, offset, kwargs.get("args", _UNKNOWN))
                     tails = {argv[1:] for argv in supplied.argvs}
                     command = _Value(
                         argvs=frozenset(
@@ -1154,5 +1782,12 @@ class _Analyzer:
                 self.execute(command, scope, shell=shell)
         if executed or safe or printed:
             return _UNKNOWN
-        sources = frozenset().union(*(value.sources for value in [*args, *kwargs.values()]))
-        return _Value(unknown=True, sources=sources)
+        sources = set().union(*(value.sources for value in [*args, *kwargs.values()]))
+        if function.unknown:
+            sources.update(function.sources)
+        unknown = _Value(
+            origins=frozenset({f"object:{id(node)}:{id(scope)}"}),
+            unknown=True,
+            sources=frozenset(sources),
+        )
+        return _join((*results, unknown)) if results else unknown

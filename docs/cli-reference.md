@@ -56,7 +56,8 @@ assignments, and `split()` / `shlex.split()` values. Conditional and loop joins
 retain possible unsafe origins; a later import or a mutually exclusive branch
 cannot retroactively route an earlier call.
 
-Local imports respect module, function, class and closure boundaries. Explicit
+Import bindings within the analyzed file respect module, function, class and closure
+boundaries. Explicit
 global/nonlocal writes, callable defaults and deferred generators retain their
 evaluation scope. Docstrings, printed examples, argument-parser help and proven
 argument data are not commands or file-wide routing exemptions.
@@ -65,6 +66,23 @@ Literal argv is checked by the actual executable, including explicit OS
 exec/spawn paths; build words passed to `echo` are data. Actual shell/Python
 wrapper payloads are checked as code with their quoting and option semantics.
 An unresolved execution command uses non-inert source provenance conservatively.
+Same-file function/lambda returns follow the effective callable, including supported
+local replacement/forwarding decorators and known instance, static and class methods.
+Aliases, argument binding, live closure cells and class attribute lookup retain their
+definition/invocation context; unrelated or overwritten returns are not swept into sinks.
+Known-length starred arguments retain their exact positions. An unresolved `*args`
+is an unknown-length positional span, not one argument: every parameter it can fill
+retains possible element provenance instead of silently selecting a harmless default.
+Fixed prefixes, keyword-only bindings and keyword/arity constraints remain distinct;
+variadic forwarding and awaited calls retain that uncertainty.
+Calling an async function produces a coroutine, not its body value or side effects;
+those become available only when awaited. Generator objects likewise do not expose
+their explicit return value as a command.
+
+This is bounded static analysis, not whole-program evaluation. Imported user-helper
+definitions, opaque decorators, reflective descriptors and externally unknown method
+receivers remain unresolved; follow-up is tracked in
+[S10 callable-resolution issue #360](https://github.com/traust-security/traust/issues/360).
 Shell-file checks retain their conservative per-command routing policy.
 
 `traust check docs-consistency --root <path>` uses the selected checkout's skills
