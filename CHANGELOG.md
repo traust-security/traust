@@ -163,6 +163,14 @@ All notable changes to Traust are documented here.
 
 ## [Unreleased]
 
+- Add a separate native Konflux scanner-test proposal for development PRs/pushes.
+  It provisions only pinned opengrep, gitleaks and optional Universal Ctags
+  (with checksum-verified static Jansson), without root or publishing credentials.
+  An exact-version/recursive-JSON preflight and pytest skip gate require actual
+  default-rule, regression-draft and symbol-index scanner coverage; only the
+  existing inverse missing-ctags skip is allowed. The optional CI profile is not
+  installed by production `--all`, and built-in symbol extraction is unchanged.
+
 - Restore compliance calibration's full OSCAL structure and UUID comparison, with explicit
   non-spine coverage reporting and only run-local timestamps excluded.
 - Write per-control Markdown beside every evaluated compliance draft, including coverage,
