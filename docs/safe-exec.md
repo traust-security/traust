@@ -10,6 +10,16 @@ through safe_exec. A prose or comment mention, an import alone, or an unrelated
 sandboxed build does not exempt direct builds elsewhere. `safe-exec check` validates
 argv but does not execute a build, so it is not routing evidence.
 
+For Python, S10 tracks execution-function aliases and static command values in
+statement order, merges possible control-flow bindings conservatively, and
+distinguishes actual argv executables from output data. It recognizes command
+variables and split operations without trusting a later import, wildcard name,
+unrelated safe-exec call or printed example as routing evidence.
+
+S10 is a static admission guard, not a replacement for the execution-time
+validator. Target-derived commands must still run under the selected safe-exec
+profile; static uncertainty never grants additional runtime privileges.
+
 The design keeps the containment that matters for an auditing harness — argv
 allowlisting, env scrubbing, and shell-free execution — and deliberately does
 not deny scripting engines or `git clone` outright, because cloning and

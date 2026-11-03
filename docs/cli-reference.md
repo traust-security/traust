@@ -50,14 +50,22 @@ hide a missing portability marker.
 Both `traust util safe-exec run` and `python3 -m traust.cli util safe-exec run`
 are accepted. Prose, comments, imports, an unrelated wrapped build, or
 `safe-exec check` do not route a direct build.
-Python command inspection is limited to execution-call arguments; module/function
-docstrings, printed examples and argument-parser descriptions/help are not
-execution. Import aliases are recognized, but importing safe-exec never exempts
-an unrelated subprocess build.
-Import aliases are resolved within each call's lexical scope: imports inside a
-function, async function or class do not alter enclosing or sibling calls.
-Methods and expression closures do not capture class-body imports; function
-defaults and decorators are checked in their defining namespace.
+Python analysis follows execution-call bindings and command values in statement
+order: imports (including relevant wildcard exports), callable/string/argv
+assignments, and `split()` / `shlex.split()` values. Conditional and loop joins
+retain possible unsafe origins; a later import or a mutually exclusive branch
+cannot retroactively route an earlier call.
+
+Local imports respect module, function, class and closure boundaries. Explicit
+global/nonlocal writes, callable defaults and deferred generators retain their
+evaluation scope. Docstrings, printed examples, argument-parser help and proven
+argument data are not commands or file-wide routing exemptions.
+
+Literal argv is checked by the actual executable, including explicit OS
+exec/spawn paths; build words passed to `echo` are data. Actual shell/Python
+wrapper payloads are checked as code with their quoting and option semantics.
+An unresolved execution command uses non-inert source provenance conservatively.
+Shell-file checks retain their conservative per-command routing policy.
 
 `traust check docs-consistency --root <path>` uses the selected checkout's skills
 for the model-class index. Its config/docs estate checks skip deployment vocabulary

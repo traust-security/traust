@@ -361,7 +361,7 @@ FIXTURE_PREFIXES = ("tests/",)
 
 
 def _s10_unrouted_shell_build(text: str) -> bool:
-    """Check each shell command, not a marker elsewhere in the file."""
+    """Conservative per-command routing policy for shell files and blocks."""
     for line in re.sub(r"\\\r?\n", " ", text).splitlines():
         if not S10_BUILD_RX.search(line):
             continue
@@ -377,7 +377,6 @@ def _s10_unrouted_shell_build(text: str) -> bool:
                 command.append(token)
                 continue
             if S10_BUILD_RX.search(" ".join(command)):
-                # Expansions run in the caller before safe-exec sees its argv.
                 if any("$(" in word or "`" in word for word in command):
                     return True
                 argv = command
@@ -398,169 +397,19 @@ def _s10_unrouted_shell_build(text: str) -> bool:
 
 
 def _s10_unrouted_build(text: str) -> bool:
-    """Inspect literal commands at Python execution calls, or shell commands."""
-    import ast
+    """Inspect Python binding flow without evaluating the submitted program."""
+    from traust.cli._s10_commands import unrouted_shell
+    from traust.cli._s10_python import unrouted_python_build
 
-    try:
-        tree = ast.parse(text)
-    except SyntaxError:
-        return _s10_unrouted_shell_build(text)
+    def command_check(command: str) -> bool:
+        return unrouted_shell(command, build_rx=S10_BUILD_RX, python_check=_s10_unrouted_build)
 
-    def scope_imports(body: list[ast.stmt]) -> dict[str, str]:
-        bindings: dict[str, str] = {}
-        pending: list[ast.AST] = list(reversed(body))
-        boundaries = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)
-        while pending:
-            node = pending.pop()
-            if isinstance(node, ast.Import):
-                for alias in node.names:
-                    name = alias.asname or alias.name.split(".")[0]
-                    bindings[name] = alias.name if alias.asname else name
-            elif isinstance(node, ast.ImportFrom) and node.module:
-                for alias in node.names:
-                    bindings[alias.asname or alias.name] = f"{node.module}.{alias.name}"
-            elif not isinstance(node, boundaries):
-                pending.extend(reversed(list(ast.iter_child_nodes(node))))
-        return bindings
-
-    def call_name(node: ast.expr, imports: dict[str, str]) -> str:
-        if isinstance(node, ast.Name):
-            return imports.get(node.id, node.id)
-        if isinstance(node, ast.Attribute):
-            return f"{call_name(node.value, imports)}.{node.attr}"
-        return ""
-
-    def command_text(node: ast.expr) -> str:
-        if isinstance(node, ast.Constant) and isinstance(node.value, str):
-            return node.value
-        if isinstance(node, ast.JoinedStr):
-            return "".join(command_text(part) for part in node.values)
-        if isinstance(node, (ast.List, ast.Tuple)):
-            return " ".join(command_text(part) for part in node.elts)
-        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
-            if isinstance(node.left, (ast.List, ast.Tuple)) or isinstance(
-                node.right, (ast.List, ast.Tuple)
-            ):
-                return f"{command_text(node.left)} {command_text(node.right)}"
-            return command_text(node.left) + command_text(node.right)
-        # Keep unknown values between known tokens; do not invent adjacent argv.
-        return "__dynamic__"
-
-    subprocess_calls = {
-        "run",
-        "Popen",
-        "call",
-        "check_call",
-        "check_output",
-        "getoutput",
-        "getstatusoutput",
-    }
-
-    def unrouted_call(node: ast.Call, imports: dict[str, str]) -> bool:
-        name = call_name(node.func, imports)
-        if name in {"safe_exec.run", "traust_engine._util.safe_exec.run"}:
-            return False
-        module, _, operation = name.rpartition(".")
-        command = None
-        if module == "subprocess" and operation in subprocess_calls:
-            command = (
-                node.args[0]
-                if node.args
-                else next((kw.value for kw in node.keywords if kw.arg in {"args", "cmd"}), None)
-            )
-        elif module == "os" and operation in {"system", "popen"}:
-            command = (
-                node.args[0]
-                if node.args
-                else next((kw.value for kw in node.keywords if kw.arg in {"command", "cmd"}), None)
-            )
-        elif module == "os" and operation.startswith(("exec", "spawn")):
-            offset = 2 if operation.startswith("spawn") else 1
-            if len(node.args) > offset:
-                if operation in {
-                    "execv",
-                    "execve",
-                    "execvp",
-                    "execvpe",
-                    "spawnv",
-                    "spawnve",
-                    "spawnvp",
-                    "spawnvpe",
-                }:
-                    command = node.args[offset]
-                else:
-                    command = ast.List(elts=node.args[offset:])
-        return command is not None and _s10_unrouted_shell_build(command_text(command))
-
-    class BuildCalls(ast.NodeVisitor):
-        def __init__(self) -> None:
-            self.imports: dict[str, str] = {}
-            self.enclosing: dict[str, str] = {}
-            self.blocked = False
-
-        def body(self, body: list[ast.stmt], *, class_scope: bool = False) -> None:
-            previous = self.imports, self.enclosing
-            # Class namespaces serve their body, but are not method closures.
-            self.imports = {**self.enclosing, **scope_imports(body)}
-            if not class_scope:
-                self.enclosing = self.imports
-            for statement in body:
-                self.visit(statement)
-            self.imports, self.enclosing = previous
-
-        def visit_FunctionDef(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
-            for decorator in node.decorator_list:
-                self.visit(decorator)
-            self.visit(node.args)
-            if node.returns is not None:
-                self.visit(node.returns)
-            self.body(node.body)
-
-        visit_AsyncFunctionDef = visit_FunctionDef
-
-        def visit_ClassDef(self, node: ast.ClassDef) -> None:
-            for expression in [*node.decorator_list, *node.bases, *node.keywords]:
-                self.visit(expression)
-            self.body(node.body, class_scope=True)
-
-        def visit_Lambda(self, node: ast.Lambda) -> None:
-            self.visit(node.args)
-            previous = self.imports
-            self.imports = self.enclosing
-            self.visit(node.body)
-            self.imports = previous
-
-        def visit_ListComp(
-            self, node: ast.ListComp | ast.SetComp | ast.DictComp | ast.GeneratorExp
-        ) -> None:
-            # Only the first iterable is evaluated in the enclosing namespace.
-            self.visit(node.generators[0].iter)
-            previous = self.imports
-            self.imports = self.enclosing
-            for index, generator in enumerate(node.generators):
-                if index:
-                    self.visit(generator.iter)
-                for condition in generator.ifs:
-                    self.visit(condition)
-            if isinstance(node, ast.DictComp):
-                self.visit(node.key)
-                self.visit(node.value)
-            else:
-                self.visit(node.elt)
-            self.imports = previous
-
-        visit_SetComp = visit_ListComp
-        visit_DictComp = visit_ListComp
-        visit_GeneratorExp = visit_ListComp
-
-        def visit_Call(self, node: ast.Call) -> None:
-            if unrouted_call(node, self.imports):
-                self.blocked = True
-            self.generic_visit(node)
-
-    visitor = BuildCalls()
-    visitor.body(tree.body)
-    return visitor.blocked
+    return unrouted_python_build(
+        text,
+        build_rx=S10_BUILD_RX,
+        shell_check=command_check,
+        script_shell_check=_s10_unrouted_shell_build,
+    )
 
 
 def _s3_failures(text: str) -> list[str]:

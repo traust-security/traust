@@ -4,6 +4,15 @@ All notable changes to Traust are documented here.
 
 ## [Unreleased]
 
+- Complete S10 review handling with execution-ordered imports and assignments,
+  conservative branch/loop joins, execution-function aliases, wildcard exports,
+  command variables and split operations. Later bindings cannot approve earlier
+  calls, and argument data is not mistaken for an executed build.
+- Preserve control-transfer, closure/default, class global/nonlocal and generator
+  behavior; inspect actual shell/interpreter payloads and OS execution paths.
+  Keep inert examples and proven argv data out of dynamic-command fallback.
+- Bound static value growth and preserve stable deferred-scope inputs, retaining
+  production report-builder termination without exemptions or file skips.
 - Resolve S10 import aliases per lexical scope, so a nested safe-exec alias cannot
   exempt an enclosing or sibling subprocess build. Preserve legitimate local
   routes, class-versus-closure lookup, and default/decorator evaluation scopes.
