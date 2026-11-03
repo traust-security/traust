@@ -889,3 +889,31 @@ def test_an_unrelated_finding_does_not_close_the_entry(tmp_path, monkeypatch):
         root=tmp_path,
     )
     assert json.loads(p.read_text())["needs_review"][0]["status"] == "pending"
+
+
+class TestCardAttestation(unittest.TestCase):
+    def test_card_attestation_resolved_from_results_root(self):
+        """The refutation's source ref is results-root-relative (see
+        emit_validation_ledger_events: report_rel), so the attestation must
+        resolve by walking up from the layer — not from --base, which
+        defaults to cwd and is a display concern."""
+        with tempfile.TemporaryDirectory() as tmp:
+            _repo_dir(Path(tmp))
+            vdir = Path(tmp) / "validations" / "prodA"
+            vdir.mkdir(parents=True)
+            (vdir / "v-validation.json").write_text(json.dumps({"validated_findings": []}))
+            (vdir / "target-attestation.json").write_text(
+                json.dumps(
+                    {"attested": True, "checks": [{"ok": True}, {"ok": False}], "fingerprint": {}}
+                )
+            )
+            item = discover_pending([Path(tmp) / "findings"])[0]
+            item["refutation"]["source"] = {
+                "type": "validation_report",
+                "ref": "validations/prodA/v-validation.json",
+                "actor": {"kind": "machine", "identity": "validate-findings/0.6.5"},
+            }
+            card = render_card(item, 1, 1, Path(tmp) / "unrelated-cwd")
+        self.assertIn("TARGET ATTESTATION", card)
+        self.assertIn("ATTESTED", card)
+        self.assertIn("(1/2 checks", card)

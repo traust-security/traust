@@ -501,7 +501,13 @@ def render_card(item: dict, idx: int, total: int, base: Path) -> str:
     src_ref = (ref.get("source") or {}).get("ref") or ""
     if "validation" in src_ref:
         att = None
-        att_path = Path(base) / Path(src_ref).parent / "target-attestation.json"
+        # The source ref is results-root-relative (emit_validation_ledger_events
+        # records report_rel that way), so resolve the attestation by walking up
+        # from the layer — the same way raw_probe_observed does. --base defaults
+        # to cwd and is a display concern, not a file-resolution one.
+        root = _results_root_for(item.get("layer", ""), src_ref)
+        att_dir = root / Path(src_ref).parent if root else Path(base) / Path(src_ref).parent
+        att_path = att_dir / "target-attestation.json"
         with contextlib.suppress(OSError, ValueError):
             att = json.loads(att_path.read_text(encoding="utf-8"))
         if att is not None:
