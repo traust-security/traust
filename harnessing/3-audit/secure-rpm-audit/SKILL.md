@@ -45,6 +45,11 @@ Perform a comprehensive security assessment of one or more RPM dist-git packagin
    - Use the **Branch** column as the ref to analyze. If the value starts with `commit:`, treat the remainder as a commit SHA.
    - Use the **Category** and **Image Count** columns for prioritization (see below).
 
+   `traust portfolio release-discover` watches the HTTPS repositories declared in
+   `rpm-distgit-watch.yaml`. A moved HEAD reaches this skill through the
+   `release-passthrough` materializer as a batch with **Branch** pinned to `commit:<sha>`.
+   A dist-git commit has no release version and never triggers a version-gated threat review.
+
 ---
 
 ## Repository Access

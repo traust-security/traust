@@ -107,14 +107,19 @@ python3 -m traust.cli portfolio liveness \
     > <workspace-root>/progress-tracker/metrics/repo-liveness.json
 ```
 
-traust-core's liveness for every registered repository, as of its last
-`traust portfolio observe` — no forge call, so it is as fresh as the
-observations. `status` per repo is `active | archived | unknown`; an
-`unknown` repo carries `unobserved` (`unsupported-host`; `never-audited` —
-observation covers audited repositories only; `network-skipped` — observe
-it) and a `reason`. `dormant` marks no default-branch push in
-365 days and `observed_at` dates the row. Moved and deleted repositories are
-not detected. A stale liveness artifact means downstream
+traust-core's liveness covers every registered repository as of its latest
+`traust portfolio observe` attempt — no forge call here. The forge observation
+owner stores availability reference facts through the existing artifact publisher;
+see `traust portfolio liveness --help` and the SDK's `LivenessStatus` for statuses.
+`status_since` retains the first observation of the current status and advances
+only when that status changes. `observed_at` dates the latest attempt, including
+failed attempts; an unqueried repository has neither timestamp. Renames report
+`canonical_url` while retaining the registered URL and stable repository identity.
+Repository lookup absence is `missing`, including deletion after a successful
+observation; a disabled repository is reported separately from an archived one.
+Authentication, throttling and network failures are `unknown`, with `unobserved`
+and a `reason`, never evidence of deletion. `dormant` marks no reported push in
+365 days and is unknown without a push date. A stale repo-liveness artifact means downstream
 consumers (audit stamps, verify-remediation sweep flags, graph attrs,
 dashboard segments) are reading old status. Include the non-`active`
 counts in the report-back — archived-but-shipping components are a

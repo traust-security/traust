@@ -44,6 +44,7 @@ from traust_core.v1.models.artifacts import (
     VerificationArtifact,
 )
 from traust_core.v1.models.common import Provenance, every_item
+from traust_core.v1.models.dependencies import ImpactExport
 from traust_core.v1.models.inventory import Repository, RepositoryFilter
 from traust_core.v1.models.operations import WorkerId
 from traust_core.v1.models.remediation import (
@@ -57,7 +58,12 @@ from traust_core.v1.models.remediation import (
     property_evidence,
 )
 from traust_core.v1.models.values import GitSha, ProductSlug
-from traust_core.v1.models.vocabulary import Ecosystem, RemediationStatus, SourceType
+from traust_core.v1.models.vocabulary import (
+    Ecosystem,
+    ImpactClassification,
+    RemediationStatus,
+    SourceType,
+)
 
 from traust.cli._doors import add_branch_arg, parser, products, register_commit, run
 from traust.cli._doors import package_id as find_package_id
@@ -112,11 +118,24 @@ def work_items(argv: list[str] | None = None) -> int:
 
 def fork(argv: list[str] | None = None) -> int:
     ap = _parser("fork", "Print the private fork a repository's fixes are pushed to.")
-    ap.add_argument("--repo-url", required=True)
+    scope = ap.add_mutually_exclusive_group(required=True)
+    scope.add_argument("--repo-url")
+    scope.add_argument("--list", action="store_true", help="enumerate inventory fork mappings")
     args = ap.parse_args(argv)
 
-    def call() -> dict:
+    def call() -> dict | list:
         core = load(args.config_home)
+        if args.list:
+            mappings = every_item(
+                lambda p: core.services().remediation.list_forks(RepositoryFilter(), p)
+            )
+            result = []
+            for mapping in mappings:
+                doc = mapping.model_dump(mode="json")
+                if mapping.fork is not None:
+                    doc["fork"]["url"] = str(mapping.fork.url)
+                result.append(doc)
+            return result
         repo = _repository(core, args.repo_url)
         found = core.services().remediation.resolve_fork(repo.id)  # type: ignore[arg-type]
         return {**found.model_dump(mode="json"), "url": str(found.url)}
@@ -371,15 +390,24 @@ def fleet_targets(argv: list[str] | None = None) -> int:
     scope.add_argument("--package-id", type=uuid.UUID, help="repositories depending on it")
     scope.add_argument("--module", help="repositories depending on this package (--ecosystem)")
     scope.add_argument("--repo-url", action="append", help="named repositories, repeatable")
+    scope.add_argument("--rollup", help="regex matching explicit target rows in --progress")
+    ap.add_argument("--progress", type=Path, help="the caller's PROGRESS.md, with --rollup")
     ap.add_argument("--ecosystem", choices=[e.value for e in Ecosystem], help="with --module")
     ap.add_argument("-o", "--out", type=Path, help="write the JSON here instead of stdout")
     args = ap.parse_args(argv)
     if (args.module is None) != (args.ecosystem is None):
         ap.error("--module and --ecosystem go together")
+    if (args.rollup is None) != (args.progress is None):
+        ap.error("--rollup and --progress go together")
 
     def call() -> str | None:
         core = load(args.config_home)
         services = core.services()
+        if args.rollup is not None:
+            found = services.remediation.fleet_targets_from_rollup(
+                args.progress.read_text(encoding="utf-8"), args.rollup
+            )
+            return _emit(json.dumps([t.model_dump(mode="json") for t in found], indent=2), args.out)
         package_id = args.package_id
         if args.module is not None:
             package_id = find_package_id(services, args.ecosystem, args.module)
@@ -422,8 +450,20 @@ def verify_sweep(argv: list[str] | None = None) -> int:
     ap = _parser("verify-sweep", "Which repositories are worth re-verifying, and why not the rest.")
     ap.add_argument("--repo-url", action="append", default=[], help="repeatable; default: all")
     ap.add_argument("--product", action="append", default=[], help="a product slug, repeatable")
+    ap.add_argument(
+        "--include-branches",
+        action="store_true",
+        help="also sweep observed or explicitly registered non-default branch tips",
+    )
+    ap.add_argument(
+        "--impact-filter",
+        type=Path,
+        help="scope to affected/likely_affected repos in impact export",
+    )
     ap.add_argument("-o", "--out", type=Path, help="write the JSON here instead of stdout")
     args = ap.parse_args(argv)
+    if args.out is not None and args.out.suffix == ".md":
+        ap.error("--out is the JSON path; its .md companion must have a distinct path")
 
     def call() -> str | None:
         core = load(args.config_home)
@@ -447,10 +487,23 @@ def verify_sweep(argv: list[str] | None = None) -> int:
                     lambda p: services.portfolio.list_repositories(RepositoryFilter(), p)
                 )
             }
-        sweep = services.verification.sweep(list(repos))
+        if args.impact_filter is not None:
+            impact = ImpactExport.model_validate_json(args.impact_filter.read_bytes())
+            wanted = {
+                row.repository_url
+                for row in impact.repos
+                if row.classification
+                in (ImpactClassification.AFFECTED, ImpactClassification.LIKELY_AFFECTED)
+            }
+            repos = {id_: repo for id_, repo in repos.items() if repo.url in wanted}
+        sweep = services.verification.sweep(list(repos), args.include_branches)
         doc: dict[str, Any] = sweep.model_dump(mode="json")
         for entry in (*doc["queued"], *doc["skipped"]):
             entry["repository"] = repos[uuid.UUID(entry["repository_id"])].url
+        if args.out is not None:
+            args.out.with_suffix(".md").write_text(
+                services.verification.sweep_markdown(sweep), encoding="utf-8"
+            )
         return _emit(json.dumps(doc, indent=2), args.out)
 
     return run(call)

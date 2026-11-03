@@ -7,6 +7,7 @@ from pathlib import Path
 
 import execute
 from adapters import kubeargv
+from adapters.credentials import redact_credentials
 from adapters.k8s import K8sAdapter
 from scope import Action, ClusterScope, OffLimit, Scope
 
@@ -199,9 +200,7 @@ SECRET_DUMP = json.dumps(
 
 
 def test_secret_maps_redacted_wholesale():
-    from adapters.base import AdapterBase
-
-    out = AdapterBase._redact_credentials(SECRET_DUMP)
+    out = redact_credentials(SECRET_DUMP)
     for leaked in (
         "LS0tLS1CRUdJTi",
         "eyJhdXRocyI6",
@@ -216,15 +215,13 @@ def test_secret_maps_redacted_wholesale():
 
 
 def test_snake_case_keys_redacted_in_plain_text():
-    from adapters.base import AdapterBase
-
     text = (
         "bind_password: hunter2hunter2\n"
         "MY_PASSWORD: correcthorsebattery\n"
         "ldap_bind_password: swordfish12345\n"
         f"admin_token: {_ADMIN_TOKEN}\n"
     )
-    out = AdapterBase._redact_credentials(text)
+    out = redact_credentials(text)
     for leaked in (
         "hunter2hunter2",
         "correcthorsebattery",
@@ -235,17 +232,13 @@ def test_snake_case_keys_redacted_in_plain_text():
 
 
 def test_b64_pem_redacted_outside_json():
-    from adapters.base import AdapterBase
-
     text = f"tls.key: {_PEM_B64}"
-    assert "LS0tLS1CRUdJTi" not in AdapterBase._redact_credentials(text)
+    assert "LS0tLS1CRUdJTi" not in redact_credentials(text)
 
 
 def test_forge_tokens_redacted():
-    from adapters.base import AdapterBase
-
     text = "x ghp_abcdefghijklmnopqrstuv123456 glpat-aaaabbbbccccdddd"
-    out = AdapterBase._redact_credentials(text)
+    out = redact_credentials(text)
     assert "ghp_abcdefghijklmnopqrstuv123456" not in out
     assert "glpat-aaaabbbbccccdddd" not in out
 

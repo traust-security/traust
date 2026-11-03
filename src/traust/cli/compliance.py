@@ -5,13 +5,14 @@ declare   record one boundary declaration (a compliance-scope document); signed 
 scopes    the current declaration of each boundary, newest first
 resolve   a boundary's repositories now, under its current declaration
 policy    record the next version of the control mapping, the ADR registers or the org parameters
-evaluate  the deterministic runner over a boundary: writes the draft assessment, lists the
-          evidence_review controls awaiting artifacts; exit 1 when the citation gate fails
+evaluate  the deterministic runner over a boundary: writes draft JSON and per-control Markdown,
+          lists evidence_review controls awaiting artifacts; exit 1 when the citation gate fails
 evidence  hash one JSON artifact the agent pass judged into the evidence bundle; cite the result
 check     the citation gate over an (edited) assessment; exit 1 on any violation
 record    record a gated assessment against each in-scope commit
 latest    a boundary's newest recorded assessment of a framework, with its posture
 adrs      the decisions of the pinned registers governing a product
+docs      fetch the registered product's official guides using configured or explicit targets
 calibrate evaluate twice: identical inputs must give identical verdicts; given an answer key,
           score the run on it; exit 1 on any divergence or failure
 """
@@ -27,7 +28,7 @@ from typing import Any, TypeVar
 from uuid import UUID
 
 import yaml
-from traust_core.v1.context import Services
+from traust_core.v1.context import DocsTarget, Services
 from traust_core.v1.errors import NotFoundError, ValidationError
 from traust_core.v1.models.artifacts import (
     AdrRegistryArtifact,
@@ -232,17 +233,25 @@ def evaluate(argv: list[str] | None = None) -> int:
     ap = parser("compliance", "evaluate", "The deterministic runner over a boundary.")
     _evaluation_args(ap)
     ap.add_argument("--out", type=Path, required=True, help="where the draft assessment goes")
+    ap.add_argument("--markdown", type=Path, help="per-run report (default: --out with .md suffix)")
     args = ap.parse_args(argv)
     found: dict = {}
 
     def call() -> None:
+        markdown = args.markdown or args.out.with_suffix(".md")
+        if markdown.resolve() == args.out.resolve():
+            raise ValidationError("assessment JSON and Markdown must have different output paths")
         services = load(args.config_home).services()
         evaluated = services.compliance.evaluate(_request(services, args))
         prepared = services.compliance.prepare(evaluated)
+        rendered = services.compliance.render_assessment(evaluated.document)
         args.out.parent.mkdir(parents=True, exist_ok=True)
         args.out.write_bytes(evaluated.document.payload)
+        markdown.parent.mkdir(parents=True, exist_ok=True)
+        markdown.write_bytes(rendered)
         found.update(
             wrote=str(args.out),
+            markdown=str(markdown),
             skipped=prepared.assessment["metadata"]["skipped_frameworks"],
             coverage=prepared.assessment["coverage"],
             evidence=len(evaluated.evidence),
@@ -333,6 +342,40 @@ def adrs(argv: list[str] | None = None) -> int:
         services = load(args.config_home).services()
         (product,) = _doors.products(services, [args.product])
         return [a.model_dump(mode="json") for a in services.compliance.adrs(product.id)]
+
+    return run(call)
+
+
+def docs(argv: list[str] | None = None) -> int:
+    ap = parser("compliance", "docs", "Fetch official documentation for a registered product.")
+    ap.add_argument("product", help="the registered product slug")
+    ap.add_argument("--product-slug", help="the official docs.redhat.com product slug")
+    ap.add_argument("--version", help="the official documentation version")
+    guides = ap.add_mutually_exclusive_group()
+    guides.add_argument("--guide", action="append", help="an official guide slug (repeatable)")
+    guides.add_argument(
+        "--all-guides", action="store_true", help="discover guides on the product page"
+    )
+    args = ap.parse_args(argv)
+
+    def call() -> list:
+        core = load(args.config_home)
+        services = core.services()
+        (product,) = _doors.products(services, [args.product])
+        explicit = args.product_slug or args.version or args.guide or args.all_guides
+        if explicit:
+            if not args.product_slug or not args.version:
+                raise ValidationError(
+                    "explicit documentation targets require --product-slug and --version"
+                )
+            core.register_compliance_sources(
+                {product.id: DocsTarget(args.product_slug, args.version, tuple(args.guide or ()))}
+            )
+            services = core.services()
+        return [
+            guide.model_dump(mode="json")
+            for guide in services.compliance.collect_product_docs(product.id)
+        ]
 
     return run(call)
 

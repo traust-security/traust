@@ -31,6 +31,7 @@ from traust_core.v1.models.compliance import (
     ScopeFilter,
 )
 from traust_core.v1.models.vocabulary import ComplianceFramework
+from traust_core.v1.services.compliance import ComplianceService
 from traust_core.v1.services.lint import LintAction, LintReport, LintRuleId, Violation
 
 from tests.compliance_paths import compliance_registry
@@ -246,6 +247,7 @@ def runner(doors: SimpleNamespace) -> SimpleNamespace:
     )
     doors.evaluate = Door(evaluated)
     doors.prepare = Door(SimpleNamespace(assessment=ASSESSMENT, awaiting=(awaiting,)))
+    doors.render_assessment = Door(ComplianceService.render_assessment)
     doors.check = Door(LintReport())
     doors.record = Door(Dumps({"recorded": True}))
     doors.calibrate = Door(RunCalibration(controls=1))
@@ -355,6 +357,17 @@ def test_evaluate_writes_the_draft_and_lists_what_awaits_the_agent_pass(
         body["awaiting"][0]["control_id"] == "sc-8" and body["gate"] == [] and body["evidence"] == 1
     )
     assert out.read_bytes() == DRAFT.payload
+    markdown = out.with_suffix(".md")
+    assert Path(body["markdown"]) == markdown
+    assert markdown.read_bytes() == ComplianceService.render_assessment(DRAFT)
+    document = ComplianceAssessmentArtifact.from_document(json.loads(out.read_bytes()))
+    assessment = json.loads(document.payload)
+    (result,) = assessment["results"]
+    assert result["classification"] == "organizational"
+    assert result["verdict"] == "not_assessed" and result["verdict_source"] == "check"
+    coverage = assessment["coverage"]["nist-800-53-rev5"]
+    assert coverage["not_assessed"] == 1
+    assert coverage["satisfied"] == coverage["not_satisfied"] == 0
     ((request,),) = runner.evaluate.calls
     assert request.scope_id == WIDGET.scope_id
     assert request.frameworks == ("nist-800-53-rev5", "soc2-tsc")
@@ -376,6 +389,7 @@ def test_evaluate_all_frameworks_and_a_failed_gate_is_exit_1(
     assert rc == 1 and body["gate"] == ["results[0]: narrative verdict"]
     ((request,),) = runner.evaluate.calls
     assert set(request.frameworks) == set(ComplianceFramework)
+    assert (tmp_path / "d.md").read_bytes() == ComplianceService.render_assessment(DRAFT)
 
 
 def test_evaluate_refuses_a_malformed_snapshot(
@@ -386,6 +400,33 @@ def test_evaluate_refuses_a_malformed_snapshot(
         "evaluate", home, "widget-prod", "--inventory", str(bad), "--out", str(tmp_path / "d.json")
     )
     assert rc == 2 and "metadata" in err
+    assert not runner.evaluate.calls
+
+
+def test_evaluate_can_choose_the_markdown_path_without_overwriting_the_json(
+    runner: SimpleNamespace, home: Path, tmp_path: Path
+) -> None:
+    document = tmp_path / "draft.json"
+    markdown = tmp_path / "reports" / "controls.md"
+    rc, result = call(
+        "evaluate", home, "widget-prod", "--out", str(document), "--markdown", str(markdown)
+    )
+    assert rc == 0
+    assert document.read_bytes() == DRAFT.payload
+    assert markdown.read_bytes() == ComplianceService.render_assessment(DRAFT)
+    assert Path(result["markdown"]) == markdown
+
+
+def test_evaluate_refuses_colliding_json_and_markdown_before_writing(
+    runner: SimpleNamespace, home: Path, tmp_path: Path
+) -> None:
+    document = tmp_path / "draft.json"
+    document.write_text("existing")
+    rc, _ = call(
+        "evaluate", home, "widget-prod", "--out", str(document), "--markdown", str(document)
+    )
+    assert rc == 2
+    assert document.read_text() == "existing"
     assert not runner.evaluate.calls
 
 

@@ -14,6 +14,8 @@ The schemas below (from the installed `traust-contracts` package) are the comple
 | `schemas/v1/vuln-findings.schema.json` | JSON Schema for vuln-scan candidate reports (`<repo>-vuln-findings.json`) |
 | `schemas/v1/adapter-result.schema.json` | JSON Schema for traust-engine scanner adapter `scan()` return values (distinct from skill-level vuln-findings output) |
 | `traust-contracts/artifacts_schema/v1/code-facts.schema.json` | Recorded symbols and measured language statistics on a `tool_scan` assessment; read through core's artifact and code-facts services |
+| `traust-contracts/artifacts_schema/v1/fuzz-campaign.schema.json` | Supplied historical fuzz-campaign aggregates and raw narratives, distinct from measured per-target execution evidence |
+| `traust-contracts/artifacts_schema/v1/repo-liveness.schema.json` | Repository liveness references with supported status, observation provenance and explicit unknowns |
 | `schemas/v1/validation.schema.json` | JSON Schema for live-validation reports |
 | `schemas/v1/remediation.schema.json` | JSON Schema for remediation patches |
 | `schemas/v1/verification.schema.json` | JSON Schema for remediation-verification reports |
@@ -66,6 +68,7 @@ The schemas below (from the installed `traust-contracts` package) are the comple
 | `traust auth` | Core-owned stored login, local/device-code/token-file authentication, machine service accounts, status, refresh and logout |
 | `traust findings` | Core finding reads, forge/Jira import, full review cards/evidence, review requests, direct human judgements, typed Markdown/JSON batch apply and confirm/reject, refuted findings, review surfaces, SARIF and ticket links; both review outcomes require a judged decision and own rationale |
 | python3 -m traust.cli check docs-consistency | Doc-drift detection for harness docs |
+| `python tools/classify_script_placement.py` | Checkout-only repository-hygiene audit of static CLI importers, registration entries and skill references; emits CSV, never moves files, and is not installed as a runtime command |
 | python3 -m traust.cli impact cluster-state-diff | P5 discovery sweep 1 — before/after security-state snapshots (RBAC, SCCs, webhooks, NetworkPolicies, Services/Routes) diffed into validation-discovery candidates for /triage |
 | python3 -m traust.cli sweep benchmark | P7 validation-lane benchmark — vulnerable/safe-twin fixtures, confirm-recall + refute-precision + severity-accuracy floors, hybrid release-cut/monthly cadence (check-trigger + drift-watch) |
 | python3 -m traust.cli admin attest-target | P2 pre-flight target attestation for validation lanes — fail-closed environment gate (cluster fingerprint, CSV/pod readiness, version-in-range, URL reachability) emitting target-attestation.json |

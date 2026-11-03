@@ -148,9 +148,14 @@ ledger, SLA clocks, and dashboards as every other finding.
        --out <out>/compliance-assessment.json [declared-input flags]
    ```
 
-   It lists the evidence_review controls awaiting artifacts. OSCAL
-   export (800-53 spine) is `traust dashboard view oscal --artifact-id <id>
-   --out <out>`, `<id>` being the `artifact.id` step 9's `record` prints.
+   The runner writes `<out>/compliance-assessment.md` beside the JSON: target, coverage,
+   skipped frameworks, every control verdict/reason and its evidence citations.
+   `--markdown <path>` chooses another report location. It also lists evidence_review
+   controls awaiting artifacts. OSCAL export (800-53 spine) is
+   `traust dashboard view oscal --artifact-id <id> --out <out>`, `<id>` being the
+   `artifact.id` step 9's `record` prints. `traust compliance calibrate <boundary>`
+   compares two evaluations and their normalized OSCAL structures/UUIDs; its
+   `oscal_compared` field explicitly labels unsupported non-spine selections.
 
 5. **Agent pass — evidence_review controls ONLY.** For each
    `not_assessed (evidence_review — awaiting artifact …)` result where
@@ -186,6 +191,12 @@ ledger, SLA clocks, and dashboards as every other finding.
    `control_refs` entry (`<framework>:<control_id>`) so the disposition
    ledger, SLA clocks, and findings DB track remediation — compliance
    gaps never get a parallel tracking system.
+   For a crypto-related gap, delegate to `/crypto-analysis` with
+   `<out>/compliance-assessment.json`, `<out>/compliance-assessment.md`, the
+   exact `--crypto` snapshot used by this run, and the target checkout/ref.
+   Name the failing framework/control and its evidence citations. The returned
+   governance chain and remediation owner become evidence for the cross-filed
+   finding; they do not replace the runner's deterministic verdict.
 9. **Refresh the posture dashboard.** Record the gated assessment in
    traust-core (`python3 -m traust.cli compliance record
    <out>/compliance-assessment.json`; the evidence bundle is in
@@ -195,9 +206,30 @@ ledger, SLA clocks, and dashboards as every other finding.
    python3 -m traust.cli dashboard view compliance --out <metrics-root>/dashboards
    ```
 
-   traust-core's compliance view: declared vs assessed pairs and
-   coverage per framework and per boundary, read live from the
-   recorded assessments (nothing stored, no snapshot history).
+   The live compliance view carries the standard repository population, declared vs
+   assessed pairs and coverage per framework/boundary, and per-team explicit
+   finding `control_refs`. Product/team filters scope the same sources. Once two
+   distinct recorded assessment times exist, the history table shows posture as of
+   those times against current boundary declarations; it is not invented snapshot
+   history or a reconstruction of past ownership.
+
+## Integrations
+
+- **Upstream:** `/crypto-analysis` and the crypto adapter commands supply the
+  crypto facts passed through `--crypto`; the KHS and cloud-inventory collectors
+  supply their respective snapshots. The findings collector reads the boundary's
+  recorded, disposition-adjusted findings from traust-core.
+- **Assessment handoff:** `compliance-assessment.json` is the schema-validated
+  control/evidence contract; `compliance-assessment.md` is its per-run readable
+  companion. `/crypto-analysis` consumes both with the cited crypto snapshot
+  when a failing crypto control needs governance tracing (step 8). It returns
+  evidence-backed ownership context for the normal findings flow, never a
+  replacement compliance verdict.
+- **Posture:** `traust compliance record` consumes the gated JSON and records
+  the assessment and its evidence in traust-core. `/refresh-dashboards` renders
+  the compliance view from those records and boundary declarations, not by
+  parsing either report file. The Markdown also serves as the owner/reviewer
+  report, with coverage gaps and mandatory framework caveats intact.
 
 ## Interview mode (self-service intake — Phase 7)
 

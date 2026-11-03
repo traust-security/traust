@@ -156,11 +156,14 @@ def check_defaults(results, core) -> None:
     except DeploymentConfigMissing as e:
         results.append((WARN, f"feeds cache: unresolved — {e}"))
     else:
+        # load() materializes the effective cache into core.config; it is not file provenance.
+        home = core.config.config_home
+        configured = Config.from_home(home).locations if home is not None else core.config.locations
         source = (
             "env FEEDS_CACHE_DIR"
-            if os.environ.get("FEEDS_CACHE_DIR")
+            if os.environ.get("FEEDS_CACHE_DIR", "").strip()
             else "traust.yaml locations.feeds_cache"
-            if core.config.locations.feeds_cache
+            if configured.feeds_cache_dir() is not None
             else "default <progress_tracker>/feeds"
         )
         results.append((OK, f"feeds cache: {cache} ({source})"))

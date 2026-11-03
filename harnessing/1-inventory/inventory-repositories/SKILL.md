@@ -119,12 +119,11 @@ sources in order:
    Record each team it yields under `assignments: [{repo, teams}]` in
    `<inputs>/inventory.yaml`, the declared ownership source.
 2. **`OWNERS` / `approvers` / `CODEOWNERS` files in the repository** —
-   `traust portfolio owner-hints --repo <URL>` fetches them
-   through the forge CLI (`gh api` / `glab api`; the token never touches
-   argv) and prints the approvers parsed from the file (`origin: owners-file`).
-   Hints: report them, they are not stored.
+   `traust portfolio owner-hints --repo <URL> --save` fetches them
+   through the source provider and retains handles/file provenance in the inventory reference.
+   These remain hints, not team-ownership assignments.
 3. **Forge top contributors** — the same command's `origin: contributor` hints
-   (bots removed); take the top one or two as a fallback (reported, not stored).
+   (bots removed); `--save` retains their source for the durable owner handoff.
 4. **Organisation-level mapping** — `org_teams:` in the inventory descriptor
    maps a forge organisation to a team name for repos where nothing
    per-repo is available:
@@ -136,19 +135,28 @@ sources in order:
    it (and source 1's `assignments:`) in traust-core for every registered
    repository; a team the source stops naming is closed, so the descriptor
    is the whole ownership source.
-5. **Manager fallback** — *retired*: traust-core stores the owner team only
-   (no manager or individual-owner column).
+5. **Manager fallback** — retain the externally known manager in the declared reference.
+   The export uses that person only when no individual owners were supplied.
 6. **Unknown** — if nothing answers, record no team for the repository. Never
    guess.
-7. **Escalation contact** — *retired*: traust-core has no escalation-contact
-   column.
+7. **Escalation contact** — retain only the deployment registry's supplied address.
+   An absent address remains absent; product-definitions candidates are corroborating contacts,
+   not an invented escalation route.
 
-### owners.csv schema
+### Joined ownership inventory export
 
-*Retired*: no `owners.csv`. traust-core stores the owning team (`ownership`
-rows); `Manager`, `Individual Owners`, `Ownership Source`, `Jira Project`,
-`Jira Component`, `Payload Versions` / `Operator Versions` and
-`Escalation Contact` have no column.
+`traust portfolio inventory-export --format csv` replaces the old multi-column handoff;
+JSON is the default. It joins core team ownership and shipped product/version labels,
+corpus business units, declared service/manager/individual/source/tracker/escalation facts,
+and trusted product-definitions contacts. Contact provenance and embargo eligibility remain
+visible. It does not write or require a legacy `owners.csv`.
+
+Adopter providers can hand in `repositories: [{repo_url, manager, individual_owners,
+ownership_source, business_unit, jira_project, jira_component, escalation_contact}]` YAML
+with `traust portfolio import-reference --source <declared.yaml>`. Only registered repositories
+are accepted; URLs are canonicalized. Facts are retained in
+`<traust.yaml home>/inventory-reference.yaml` using an atomic merge. Do not fabricate values.
+See `docs/cli-reference.md` for the full reference shape.
 
 ---
 
@@ -159,8 +167,10 @@ An adopter's private extension directory (`<extension>`, beside its
 
 - **Ownership source 1** — an organisation registry or IaC service catalogue
   that yields the owner team (recorded as `assignments:`).
-- **Tracker resolution** — *retired with `owners.csv`*: traust-core has no
-  `Jira Project` / `Jira Component` column.
+- **Tracker resolution** — the adopter's authoritative resolver supplies `jira_project` /
+  `jira_component` in the declared reference, then imports it with `portfolio import-reference`.
+  The joined export is the filing handoff; it grants no authority to send a finding or bypass
+  embargo checks. Without that source, leave routing empty.
 
 If `<extension>/harnessing/1-inventory/inventory-repositories/procedures/`
 exists, read its `README.md` and follow the procedures it lists **after** the

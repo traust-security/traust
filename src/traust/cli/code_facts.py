@@ -18,12 +18,14 @@ from __future__ import annotations
 
 import argparse
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 
 from traust_core.v1.models.code_facts import CodeFactKind
 from traust_core.v1.models.common import ToolRequest
 
 from traust.cli._doors import parser, run
+from traust.cli.impact import harness_version
 from traust.context import load
 
 
@@ -98,15 +100,35 @@ def llm_app(argv: list[str] | None = None) -> int:
 
 
 def config_matrix(argv: list[str] | None = None) -> int:
-    args = _parser("config-matrix", "A checkout's effective deployed defaults.").parse_args(argv)
+    ap = _parser("config-matrix", "A checkout's effective deployed defaults.")
+    ap.add_argument(
+        "--max-triples", type=int, help="retain at most this many triples, judged first"
+    )
+    args = ap.parse_args(argv)
 
     def call() -> dict:
         [matrix] = (
             load(args.config_home)
             .services()
-            .code_facts.enumerate(CodeFactKind.CONFIG, ToolRequest(workspace=args.checkout))
+            .code_facts.enumerate(
+                CodeFactKind.CONFIG,
+                ToolRequest(
+                    workspace=args.checkout,
+                    params={} if args.max_triples is None else {"max_triples": args.max_triples},
+                ),
+            )
         )
-        return _emit(matrix.model_dump(mode="json", by_alias=True), args.out)
+        return _emit(
+            {
+                "artifact": "config-matrix",
+                "repo": args.checkout.resolve().name,
+                "generated_at": datetime.now(UTC).isoformat(timespec="seconds"),
+                "harness_version": harness_version(),
+                "yaml_parser": "available",
+                **matrix.model_dump(mode="json", by_alias=True),
+            },
+            args.out,
+        )
 
     return run(call)
 

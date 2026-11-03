@@ -773,9 +773,9 @@ def phantom_skill_failures(repo: Path = REPO) -> list[str]:
 
 
 # --- config/ hygiene ---------------------------------------------------------
-# config/ ships the traust.yaml template, the model registry, the template for the one override
-# (rule_pack_allowlist) and its README (config/README.md). Anything else in config/ is
-# deployment data that leaked back in — the failure shape this repo had before 2026-09-03,
+# config/ ships traust.yaml, the model registry, the rule-pack override and dated
+# reachability-review reference templates, and their README (config/README.md).
+# Anything else is deployment data that leaked back in — the failure shape before 2026-09-03,
 # when corpus-config, product map, budget policy, signing key and safe-exec profiles all sat
 # here — or a template that belongs with its reader.
 CONFIG_SHIPPED = {
@@ -783,6 +783,7 @@ CONFIG_SHIPPED = {
     "traust.example.yaml",
     "model-registry.yaml",
     "rule-pack-allowlist.example.yaml",
+    "reachability-watch.example.yaml",
 }
 
 

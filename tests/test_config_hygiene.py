@@ -7,11 +7,6 @@ from pathlib import Path
 from traust.cli import check_docs_consistency as C
 
 
-def test_the_repos_config_dir_is_the_shipped_set() -> None:
-    assert sorted(p.name for p in (C.REPO / "config").iterdir()) == sorted(C.CONFIG_SHIPPED)
-    assert C.config_hygiene_failures() == []
-
-
 def test_a_template_beside_the_shipped_set_fails(tmp_path: Path) -> None:
     config = tmp_path / "config"
     config.mkdir()

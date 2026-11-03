@@ -37,7 +37,6 @@ allowed-tools:
   - Bash(python3 *traust* -m traust.cli triage intake:*)
   - Bash(python3 *traust* -m traust.cli findings baseline:*)
   - Bash(python3 *traust* -m traust.cli findings find:*)
-  - Bash(python3 *traust* -m traust.cli.emit_triage_ledger_events:*)
   # Confinement added 2026-07-31 (P1-W4): S1 exemption retired. Never
   # widen to a bare interpreter — scope scripts individually.
 ---
@@ -245,13 +244,14 @@ Examples:
    (full audits / diff scans), while this skill remains the only lane
    that resolves existing findings; the two consult the same
    `metadata.commit` anchors but never substitute for each other. Remaining tokens pass through to
-   `traust remediation verify-sweep` (`--repo-url …`, `--product …`;
+   `traust remediation verify-sweep` (`--repo-url …`, `--product …`, `--include-branches`;
    default every registered repository), plus two sweep-loop controls handled by the
    skill itself: `--tier T1[,T2…]` limits execution to the named tiers,
    `--limit N` caps the number of repos verified this run,
-   `--impact-filter <path>` scopes the sweep to repos classified
-   `affected` or `likely_affected` in a `*-impact-analysis.json`
-   artifact (from `/impact-analysis`).
+   `--impact-filter <path>` is passed through to `traust remediation
+   verify-sweep` and scopes the sweep to repositories with an `affected`
+   or `likely_affected` row in an `ImpactExport` JSON view from
+   `traust impact export` (see `/impact-analysis`).
 
 ```
 /verify-remediation full-sweep
@@ -272,10 +272,10 @@ untouched has still completed its scope:
 | Class | Default behavior | Rationale |
 |---|---|---|
 | **Unchanged HEAD** | Skipped in sweep mode (`skip:head_unchanged`); single-repo runs short-circuit in Phase 2b | If the repo HEAD still equals the audited SHA, not a single commit has landed since the audit — nothing can have been fixed, and every verdict would trivially be `unresolved` at the same pin. The repo re-enters scope automatically on the next worklist rebuild after its HEAD drifts. |
-| **Release-branch re-audits** (`<repo>__release-*` reports) | *Retired:* the sweep reads each repository's observed default-branch head; release branches are refs of the same repository | Verification targets the repo's canonical HEAD filing; the HEAD sweep covers the repo. Branch-pinned audit dirs never get their own report unless explicitly requested. |
-| **Sibling filings** (same repo audited under several product dirs) | *Retired:* a repository is one record however many products ship it, so it gets one verification | One repo state warrants one verification; per-sibling reports would re-derive identical verdicts. Sibling trees share the canonical result. |
+| **Release-branch re-audits** | Default sweeps cover only the observed default line. `--include-branches` adds each registered non-default branch as its own repository/ref target. | Use that entry's `repository_ref_id`, `ref_name`, `pinned_sha` and `head_sha`; verifying the default line never substitutes for verifying a distinct release commit. |
+| **Sibling filings** (same repository/ref audited under several product dirs) | *Retired:* products share the same canonical repository/ref verification. | Deduplicate identical repository/ref targets, never distinct branch commits. |
 | **Unobserved heads** | Skipped (`skip: unobserved`) but **listed** in the worklist so they aren't silently lost | No default-branch head has been observed for the repository (`traust portfolio observe`): repo gone, renamed, or permission-gated — e.g. VPN-only GitLab. Retry when access changes. |
-| **Covered elsewhere** (sibling filing of a repo already verified at the current HEAD) | *Retired:* one record per repository, so a verification at the head is `skip: already_verified` | A sibling product filing whose repo has a same-URL verification report pinning the live HEAD is already adjudicated — it needs ledger fan-out at most, never a fresh run. Without this class, the sweep's own fan-out ledger events re-queue verified siblings as T1 on every rebuild (treadmill feedback loop). |
+| **Covered elsewhere** | A completed recorded verification of the current head on this line is `skip: already_verified`. | Product filings share that result; a verification on another named line or at an older head does not cover it. No ledger-file fan-out is needed. |
 
 Already-verified repos (`skip: already_verified`, a verification of the
 current head is recorded) are also skipped — this is what makes an
@@ -1133,13 +1133,12 @@ Present a summary table to the user:
 - REG-001: <title> (Medium)
 ```
 
-**RETIRED — verdict ingestion and cumulative rebuild.** The former
-verification-ledger emitter is **not executable**. Core
-`VerificationService.record` owns the intended ingestion door, but that
-record service is unfinished; `FindingService` owns derived finding state
-and its cumulative output port is also unfinished. Deliver the validated
-verification report and evidence, explicitly report that disposition
-ingestion/rebuild did not run, and do not hand-write ledger events.
+**Record through Core, not the retired file-ledger emitter.**
+`VerificationService.record` persists the validated report, records its
+verdict decisions and takes in new regressions once. Re-recording the same
+report resumes interrupted recording without duplicate findings or decisions.
+It does not advance a work item's forward-only status or manufacture execution
+evidence. Native-input runs still leave recording to their trusted caller.
 
 ```bash
 python3 -m traust.cli remediation verify-record \
@@ -1151,6 +1150,20 @@ event (`resolved`, `partially_resolved`, `fix_in_progress`, `open`,
 `regression_introduced`, `risk_accepted`) or a `disposition.validity`
 event (`false_positive`, waiting for a person's countersign). Regressions
 are taken in once (Phase 7a2).
+
+Read the actual recorded results, not a report-file existence marker:
+
+```bash
+python3 -m traust.cli remediation verifications --repo-url <url>
+python3 -m traust.cli findings baseline --repo-url <url>
+```
+
+The first lists report/assessment IDs and per-finding verdicts; the second
+queries current derived finding state on the default line. Branch-aware sweep
+counts use `FindingService.on_ref(repository_ref_id)`, folding resolution on
+that branch while retaining shared validity/severity judgments. Rendering a
+worklist never records a verdict, and dashboard output is current only after
+its normal refresh.
 
 #### 7c. Clean up
 
@@ -1173,26 +1186,26 @@ re-audit; the sweep spends it only where a fix can possibly exist.
 
 ```bash
 python3 -m traust.cli remediation verify-sweep \
-    [--repo-url <url>]… [--product <slug>]… [-o <worklist.json>]
+    [--repo-url <url>]… [--product <slug>]… [--include-branches] \
+    [--impact-filter <advisory-impact-analysis.json>] [-o <worklist.json>]
 ```
 
-> **Optional accelerator — findings-db candidate listing.** For quick
-> scoping questions before (or instead of) a full worklist rebuild —
-> "how many repos have open CWE-78?", "which repos claim resolutions
-> this month?" — query the C9 projection
-> (`sqlite3 analysis-results/graph/findings.db`, see `/findings-db`).
-> Two hard rules: check `meta.built_at` staleness first, and **never
-> act on a DB row without confirming it against the live ledger file**
-> — the DB can be one census behind, and this sweep's own event
-> emissions won't appear in it until a rebuild. The DB lists
-> candidates; the ledger decides.
+For candidate scoping, use Core finding queries (`traust findings baseline
+--repo-url <url>`), then pass the registered repositories to this sweep.
+Do not query a retired projection database or treat a filesystem ledger as
+the authority for current finding state.
 
-(The door reads each registered repository in traust-core: the last
-commit its findings were judged on against its observed default-branch
-head, the claimed fixes — a finding whose latest resolution is
-`fix_in_progress`/`resolved`/`partially_resolved` from anything but a
-verification — and whether a verification of that head is recorded.) It
-prints a tiered queue:
+The door compares the last finding-bearing assessment or verification on
+each selected line to its head, its current claimed fixes, and completed
+recorded verification results at that head. Default heads come from stored
+forge observations, not a live network probe. With `--include-branches`,
+the latest completed branch observation wins, including a return to an older
+SHA. A branch with no observation uses its latest registered commit and is
+explicitly labeled `head_source: registered_branch`; it is not a claim about
+the forge's live head. Refresh/register the desired ref before executing it.
+The command prints a tiered queue; `--out worklist.json` also writes
+`worklist.md` with tier totals, source, branch, SHAs, severities, claims,
+archive annotation, and every skip reason:
 
 | Tier | Meaning | Why this order |
 |---|---|---|
@@ -1224,6 +1237,9 @@ The door routes only — it never authors a verification verdict.
     {
       "repository_id": "<uuid>",
       "repository": "<repo URL>",
+      "repository_ref_id": "<registered ref UUID, or null when unobserved>",
+      "ref_name": "<branch name, or null>",
+      "head_source": "observed_default",
       "head_sha": "<observed default-branch head>",
       "pinned_sha": "<last commit its findings were judged on, or null>",
       "verified_at_head": false,
@@ -1241,22 +1257,26 @@ The door routes only — it never authors a verification verdict.
 }
 ```
 
-`queued[]` holds only queued repos (tier set, `skip: null`), by tier then
-criticals and highs; `skipped[]` holds one row per excluded repository so
-its absence is explainable from the artifact alone. `archived` annotates
-the queue, it never skips a repo.
+`queued[]` holds only queued targets (tier set, `skip: null`), by tier then
+criticals and highs; `skipped[]` explains each excluded target. A branch-aware
+sweep may have several rows for a repository: key work by repository/ref, not
+repository alone. A verification at the same SHA on another named line does
+not adjudicate this line. `archived` annotates the queue, never skips it.
 
 ### Step 1b — Apply impact-analysis filter (optional)
 
-When `--impact-filter <path>` is passed, read the
-`*-impact-analysis.json` artifact (produced by `/impact-analysis`). Build
-a set of repo IDs classified `affected` or `likely_affected`. Build the
-worklist from only those repos: pass each as
-`--repo-url https://github.com/<org>/<repo>` to Step 1. Skip repos classified `not_observed`,
-`version_not_in_range`, or `not_imported` — they are not worth the
-verification cost for this CVE. Log the filter summary:
-`"Impact filter: {N}/{M} worklist repos retained (CVE {cve}, {affected}
-affected + {likely} likely_affected out of {total} in blast radius)"`.
+When `--impact-filter <path>` is passed, give it directly to the Step 1
+`traust remediation verify-sweep` command. Produce the input first with
+`traust impact export <advisory-id> --out <path>`; do not pass a single
+native commit artifact or the counts-only `analyze` response.
+
+The adapter reads the exported `.repos` classifications and keeps only
+`affected`/`likely_affected` repository URLs, once each. Distinct modules,
+versions and commits retain their evidence in the export; any qualifying
+row includes its repository. This filter intersects any explicit
+`--repo-url`/`--product` scope. An empty intersection is an empty worklist,
+never an instruction to fall back to every repository. Other
+classifications remain in the export for review, not verification scope.
 
 ### Step 2 — Confirm scope before spending tokens
 
@@ -1266,15 +1286,22 @@ pre-answer this). Each queued repo costs roughly one targeted re-audit
 of its findings — quote the queue's total findings count as the scope
 estimate.
 
-### Step 3 — Verify, ingest, checkpoint — one repo at a time
+### Step 3 — Verify, ingest, checkpoint — one repository/ref at a time
 
 For each worklist entry, in order:
 
-1. Run the standard procedure (Phases 1–7) with the original report =
-   the entry's recorded findings (`traust findings baseline --repo-url
-   <entry.repository>`) and the patched repository =
-   `entry.repository@entry.head_sha` (pin the HEAD the sweep observed,
-   so results stay reproducible even if the repo moves again mid-sweep).
+1. Run the standard procedure (Phases 1–7) with the entry's line-specific
+   findings (`traust findings baseline --repo-url <entry.repository>
+   --ref-id <entry.repository_ref_id>`), original commit `entry.pinned_sha`,
+   and patched repository `entry.repository@entry.head_sha`. Preserve
+   `entry.ref_name` as the branch when registering/differential-scanning
+   the patched commit and as `metadata.patched_ref` in the report.
+   Never replace a release target with the default checkout or deduplicate
+   another ref of the same repository. Use a distinct caller-owned output
+   name per repository/ref/head; pin the exact SHA even if the forge moves.
+   If the original SHA belongs to several audited lines, Core requires the
+   registered `metadata.patched_ref` to name the verified branch; never guess
+   a baseline from a sibling branch or rewrite a recorded report's identity.
    The 4-pre deterministic re-scan is cheap per repo (seconds) — run it
    for every sweep entry rather than only on demand; at fleet scale it
    is the difference between differential evidence and re-reading.
@@ -1285,19 +1312,21 @@ For each worklist entry, in order:
    Verification reports are class-1 evidence, the only sanctioned path
    to `resolution: resolved`. Phase 7a2 regression routing happens in the
    same call, once.
-3. *Retired:* `duplicate_report_dirs` — a repository is one record, so
-   every product that ships it reads the same verification.
+3. *Retired:* `duplicate_report_dirs` — products sharing the same
+   repository/ref read the same canonical result, without duplicate filings.
 4. Continue to the next entry. The recorded verification IS the
    checkpoint — an interrupted sweep resumes by re-running Step 1.
 
 ### Step 4 — Sweep summary
 
-After the run (or the `--limit` cap), report: repos verified this run,
-findings resolved / partially resolved / unresolved / regressions,
-tiers remaining. These are **verification-report verdict counts**, not
-proof of persisted disposition updates. Dashboard remediation sections
-cannot reflect new ledger state through this retired ingestion/rebuild
-path until the core record/output ports land.
+After the run (or the `--limit` cap), report targets verified this run,
+findings resolved / partially resolved / unresolved / regressions, and tiers
+remaining. Distinguish report-authored verdict counts from persisted results:
+confirm each recording receipt through `traust remediation verifications`
+and derived state through `traust findings baseline`. Native-input runs
+without a recording receipt must say recording belongs to the external caller.
+Dashboards consume Core finding state on their next normal refresh; no legacy
+ledger ingestion or cumulative rebuild is needed or executable.
 
 ---
 
@@ -1462,8 +1491,9 @@ Consumed artifacts (producer named per artifact):
   consumed inside this skill (traust-core `VerificationService.sweep` → Step 3).
 - Recorded decisions on findings — produced by `/track-findings` and the
   other skills; read by `verify-sweep` for claimed fixes (T1 tiering).
-- `*-impact-analysis.json` — produced by `/impact-analysis`; optional
-  sweep filter (`--impact-filter`).
+- `*-impact-analysis.json` — advisory-wide `ImpactExport` view produced by
+  `traust impact export` in `/impact-analysis`; optional sweep filter
+  (`--impact-filter`), with full native evidence retained per row.
 - Repository `archived` flag — recorded by `/census`;
   annotates the worklist (`archived`), never skips a repo.
 - Deterministic re-scan facts from python3 -m traust.cli adapters checkov,

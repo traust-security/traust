@@ -4,9 +4,10 @@ Home: traust-pack-security pack-config validation, interim in traust (plan: trau
 importing traust-engine, step 3). Rule-pack pins (YARA, argus) and ADR register pins vs their
 upstream HEAD, the vendored framework spine vs its oscal-content pin, and dated policy values
 past their review window, and the doc-variance lane's declared doc versions vs the live
-landing pages. Everything else drift-watch read is traust-core's freshness view
-(`traust dashboard view freshness`). Routes attention, never concludes: a pin or date advances
-only by a deliberate config change.
+landing pages. The surviving rescan worklist retains its age backstop here; inventory
+bootstrap reads current native inputs without a derived graph cache. Other freshness reads
+use `traust dashboard view freshness`. Routes attention, never concludes: a pin or date
+advances only by a deliberate config change.
 """
 
 from __future__ import annotations
@@ -31,11 +32,12 @@ from traust_core.v1.models.artifacts import (
     SlaPolicyArtifact,
 )
 
-from traust.context import SLA_POLICY, inputs_dir, load
+from traust.context import SLA_POLICY, add_config_home_arg, analysis_results_dir, inputs_dir, load
 from traust.paths import SECURITY_PACK_DIR
 
 PROVENANCE_REVIEW_DAYS = 180
 DOCS_MAP_STALE_DAYS = 30
+RESCAN_WORKLIST_STALE_DAYS = 3
 _HTTPS_ONLY = {**os.environ, "GIT_ALLOW_PROTOCOL": "https"}
 MISSING = object()
 
@@ -80,6 +82,31 @@ def _module_text(module: str) -> str | None:
 def _recorded(services: Services, kind: type[ArtifactDocument]) -> dict | None:
     doc = services.artifacts.latest(kind)
     return None if doc is None else json.loads(doc.payload)
+
+
+def check_rescan_worklist(path: Path) -> list[dict]:
+    """The daily router's output, including a missing worklist, against its three-day window."""
+    refresh = f"traust build rescan-worklist --out {path}"
+    try:
+        doc = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return [item("rescan-worklist", "stale", f"worklist missing: {path}", refresh)]
+    except (OSError, UnicodeError, json.JSONDecodeError) as e:
+        return [item("rescan-worklist", "unavailable", f"cannot read {path}: {e}")]
+    stamp = _parse_iso(doc.get("generated_at")) if isinstance(doc, dict) else None
+    if stamp is None:
+        return [item("rescan-worklist", "unavailable", f"no usable generated_at in {path}")]
+    days = (_now() - stamp).total_seconds() / 86400
+    stale = days > RESCAN_WORKLIST_STALE_DAYS
+    return [
+        item(
+            "rescan-worklist",
+            "stale" if stale else "fresh",
+            f"{path} generated {stamp.isoformat()} ({days:.1f}d ago; "
+            f"threshold {RESCAN_WORKLIST_STALE_DAYS}d)",
+            refresh if stale else None,
+        )
+    ]
 
 
 def check_adr_registry(services: Services) -> list[dict]:
@@ -370,9 +397,15 @@ def compliance_data_dir() -> Path:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.parse_args(argv)
+    add_config_home_arg(ap)
+    ap.add_argument("--worklist", type=Path, help="worklist override (the builder's --out)")
+    args = ap.parse_args(argv)
     compliance = compliance_data_dir()
-    core = load()
+    core = load(args.config_home)
+    inputs = inputs_dir(core)
+    worklist = args.worklist or (
+        analysis_results_dir(core) / "findings" / "_manifest" / "rescan-worklist.json"
+    )
     services = core.services()
     items = [
         *check_framework_upstream(compliance),
@@ -380,7 +413,8 @@ def main(argv: list[str] | None = None) -> int:
         *check_adr_registry(services),
         *check_yara_rules_pin(),
         *check_argus_rules_pin(),
-        *check_docs_product_map(inputs_dir(core)),
+        *check_docs_product_map(inputs),
+        *check_rescan_worklist(worklist),
     ]
     print(json.dumps({"items": items}, indent=2))
     return 0

@@ -152,6 +152,39 @@ def test_a_remote_inputs_location_is_refused(tmp_path, monkeypatch):
         context.inputs_dir(load(home))
 
 
+@pytest.mark.parametrize(
+    ("workspace", "inputs", "registered"),
+    [
+        ("s3://example/workspace", None, False),
+        ("/workspace", "s3://example/inputs", False),
+        ("s3://example/workspace", "./inputs", True),
+        ("s3://example/workspace", "file:///inventory", True),
+        ("/workspace", None, True),
+        ("file:///workspace", None, True),
+    ],
+)
+def test_loading_registers_release_inventory_only_for_the_selected_local_source(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    workspace: str,
+    inputs: str | None,
+    registered: bool,
+) -> None:
+    """Remote locations remain configured; only local inventory has a release provider."""
+    locations = {"workspace": workspace}
+    if inputs is not None:
+        locations["inputs"] = inputs
+    home = _home(tmp_path, locations)
+    monkeypatch.setenv("TRAUST_CONFIG_HOME", str(home))
+    core = load(home)
+    assert ("release-inventory" in core.feeds.names()) is registered
+    if not registered:
+        with pytest.raises(DeploymentConfigMissing):
+            context.inputs_dir(core)
+        assert core.config.locations.workspace == workspace
+        assert core.config.locations.inputs == inputs
+
+
 @pytest.mark.parametrize("key", ["workspace", "analysis_results", "findings"])
 def test_traust_paths_sh_prints_the_configured_path(tmp_path, key):
     home = _home(tmp_path, {"workspace": "/w", "analysis_results": "./ar"})

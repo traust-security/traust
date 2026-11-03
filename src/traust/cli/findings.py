@@ -1,6 +1,9 @@
 """``traust findings …``: track-findings' doors on traust-core.
 
 find      the finding a report entry is (its label, e.g. OPERATOR-abcdef0-001), by fingerprint
+correction-request  retain an immutable corrected claim on its original assessment for review
+rebaseline  accept and apply that stored correction with a human ticket and rationale
+claim     the accepted corrected claim, optionally as of a historical time
 status    one finding now: disposition (evidence precedence), effective severity, SLA due
 history   every decision on a finding, in judgement order
 baseline  a repository's findings as they stood at a time
@@ -44,11 +47,14 @@ from traust_core.v1.errors import (
     TraustError,
     ValidationError,
 )
+from traust_core.v1.models.artifacts import ReportArtifact
 from traust_core.v1.models.attestation import AttestationDecision
 from traust_core.v1.models.common import Cursor, PageRequest, TimeBucket
 from traust_core.v1.models.findings import (
+    ClaimCorrection,
     FindingDimension,
     FindingFilter,
+    Label,
     RecordDecision,
     ReviewFilter,
 )
@@ -68,7 +74,6 @@ from traust_core.v1.models.vocabulary import (
     Validity,
 )
 from traust_core.v1.providers.comments import FORGE, JIRA
-from traust_core.v1.services.insight import SarifExport
 
 from traust.cli._doors import parser, run, when
 from traust.context import load, load_caller
@@ -408,6 +413,75 @@ def apply(argv: list[str] | None = None) -> int:
     return _human_review(ap.parse_args(argv))
 
 
+def correction_request(argv: list[str] | None = None) -> int:
+    ap = parser(
+        "findings", "correction-request", "Queue an immutable corrected claim for human review."
+    )
+    ap.add_argument("report", type=Path, help="a corrected copy of the original contract report")
+    ap.add_argument("--finding", type=UUID, required=True)
+    ap.add_argument(
+        "--assessment", type=UUID, required=True, help="the original reporting assessment"
+    )
+    ap.add_argument("--label", required=True, help="the corrected entry's report label")
+    ap.add_argument("--ticket", required=True)
+    ap.add_argument("--rationale", required=True)
+    args = ap.parse_args(argv)
+
+    def call() -> dict:
+        core = load(args.config_home)
+        command = ClaimCorrection(
+            finding_id=args.finding,
+            assessment_id=args.assessment,
+            label=Label(args.label),
+            ticket=args.ticket,
+            rationale=args.rationale,
+        )
+        saved = core.services().findings.request_claim_correction(
+            command, ReportArtifact.parse(args.report.read_bytes()), load_caller(core)
+        )
+        return saved.model_dump(mode="json")
+
+    return run(call)
+
+
+def rebaseline(argv: list[str] | None = None) -> int:
+    ap = parser("findings", "rebaseline", "Accept and apply the exact stored corrected claim.")
+    ap.add_argument("review_item_id", type=UUID)
+    ap.add_argument("--ticket", required=True)
+    ap.add_argument("--rationale", required=True, help="the authenticated human's review rationale")
+    args = ap.parse_args(argv)
+
+    def call() -> dict:
+        core = load(args.config_home)
+        return (
+            core.services()
+            .findings.correct_claim(
+                args.review_item_id,
+                load_caller(core),
+                ticket=args.ticket,
+                rationale=args.rationale,
+            )
+            .model_dump(mode="json")
+        )
+
+    return run(call)
+
+
+def claim(argv: list[str] | None = None) -> int:
+    ap = parser("findings", "claim", "Read an accepted corrected claim, if there is one.")
+    ap.add_argument("finding_id", type=UUID)
+    ap.add_argument("--as-of", type=when)
+    args = ap.parse_args(argv)
+
+    def call() -> dict | None:
+        corrected = (
+            load(args.config_home).services().findings.claim(args.finding_id, as_of=args.as_of)
+        )
+        return None if corrected is None else corrected.model_dump(mode="json")
+
+    return run(call)
+
+
 def find(argv: list[str] | None = None) -> int:
     ap = parser("findings", "find", "Find the recorded finding a report entry is.")
     ap.add_argument("report", type=Path, help="the report JSON the label comes from")
@@ -453,13 +527,21 @@ def history(argv: list[str] | None = None) -> int:
 def baseline(argv: list[str] | None = None) -> int:
     ap = parser("findings", "baseline", "List a repository's findings as they stood at a time.")
     ap.add_argument("--repo-url", required=True)
-    ap.add_argument("--as-of", help="ISO time with a zone (default: now)")
+    scope = ap.add_mutually_exclusive_group()
+    scope.add_argument("--as-of", help="ISO time with a zone (default: now)")
+    scope.add_argument("--ref-id", type=uuid.UUID, help="current findings on this registered line")
     args = ap.parse_args(argv)
 
     def call() -> list[Any]:
         core = load(args.config_home)
         repo = _repository(core, args.repo_url)
         assert repo.id is not None
+        if args.ref_id is not None:
+            services = core.services()
+            ref = services.portfolio.inventory.get_ref(args.ref_id)
+            if ref.repository_id != repo.id:
+                raise ValidationError(f"ref {args.ref_id} is not in repository {repo.id}")
+            return [_json(v) for v in services.findings.on_ref(args.ref_id)]
         as_of = when(args.as_of) or datetime.now(UTC)
         return [_json(v) for v in core.services().findings.baseline(repo.id, as_of)]
 
@@ -775,7 +857,7 @@ def sarif(argv: list[str] | None = None) -> int:
         repo = _repository(core, args.repo_url)
         assert repo.id is not None
         views = core.services().findings.baseline(repo.id, when(args.as_of) or datetime.now(UTC))
-        doc = SarifExport().document(views, repo.url)
+        doc = core.services().reporting.sarif_findings(views, repo.url)
         if args.out is None:
             return doc
         args.out.write_text(json.dumps(doc, indent=2) + "\n", encoding="utf-8")
@@ -845,5 +927,19 @@ def timeline(argv: list[str] | None = None) -> int:
         core = load(args.config_home)
         bucket = TimeBucket(args.bucket)
         return [_json(p) for p in core.services().findings.timeline(_filter(core, args), bucket)]
+
+    return run(call)
+
+
+def verified_fix_mtta(argv: list[str] | None = None) -> int:
+    ap = parser("findings", "verified-fix-mtta", "Verified-fix mean time by effective severity.")
+    _filter_args(ap)
+    args = ap.parse_args(argv)
+
+    def call() -> list[Any]:
+        core = load(args.config_home)
+        return [
+            _json(row) for row in core.services().findings.verified_fix_mtta(_filter(core, args))
+        ]
 
     return run(call)

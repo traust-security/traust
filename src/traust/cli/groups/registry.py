@@ -4,27 +4,33 @@ from __future__ import annotations
 
 import json
 import sys
-from datetime import UTC, datetime
 from pathlib import Path
+from uuid import UUID
 
 import yaml
 from traust_core.v1.errors import ConfigError, NotFoundError, ValidationError
 from traust_core.v1.models.artifacts import ProductDefinitionsMapArtifact
-from traust_core.v1.models.operations import ModelName, SpendEvent, TokenUsage
+from traust_core.v1.models.operations import (
+    ModelName,
+    ModelUsage,
+    SpendCalibration,
+    SpendEvent,
+    TokenUsage,
+)
 
 from traust.cli import _doors
 from traust.cli.groups._registry import OpSpec
 from traust.context import MODEL_REGISTRY, load, load_spend_core
 
 NO_MAP = "no product map recorded; record one with `traust registry product-map <file>`"
-# NEED(data-model: spend calibration tuple repo/loc/batch/note)
-UNSTORED = "not stored: spend_event has no column for it"
 
 
 def add_models_args(ap) -> None:
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("validate")
     sub.add_parser("list")
+    p = sub.add_parser("calibration")
+    p.add_argument("event_id", type=UUID, help="the spend event returned by spend --json")
     p = sub.add_parser("resolve")
     p.add_argument("role")
     p.add_argument("--tier", default=None)
@@ -38,19 +44,25 @@ def add_models_args(ap) -> None:
     p.add_argument("--tokens-out", type=int, default=0, help="best-effort; omit when unknown")
     p.add_argument("--cache-read", type=int, default=0)
     p.add_argument("--cache-creation", type=int, default=0)
-    p.add_argument("--batch", default=None, help=f"batch id ({UNSTORED})")
+    p.add_argument("--batch", default=None, help="batch id in the recorded calibration tuple")
+    p.add_argument("--repo", default=None, help="repo slug this spend audited")
+    p.add_argument("--loc", type=int, default=None, help="target size in LoC/bytes at audit time")
+    p.add_argument("--note", default=None, help="free-text calibration note")
     p.add_argument(
-        "--repo", default=None, help=f"repo slug this spend audited, calibration tuple ({UNSTORED})"
+        "--json", action="store_true", help="return the recorded event, including its ID"
     )
-    p.add_argument(
-        "--loc", type=int, default=None, help=f"target size in LoC/bytes at audit time ({UNSTORED})"
-    )
-    p.add_argument("--note", default=None, help=f"free text ({UNSTORED})")
 
 
 def call_models(args) -> int:
     if args.cmd == "spend":
         return _declare_spend(args)
+    if args.cmd == "calibration":
+        evidence = load(args.config_home).services().spend.evidence(args.event_id)
+        if evidence is None:
+            print(f"spend evidence unavailable for event {args.event_id}", file=sys.stderr)
+            return 1
+        print(evidence.model_dump_json())
+        return 0
     catalog = load_spend_core(args.config_home).model_catalog
     if args.cmd == "validate":
         errors = catalog.validate()
@@ -85,9 +97,6 @@ def _declare_spend(args) -> int:
             file=sys.stderr,
         )
         return 1
-    for flag in ("repo", "loc", "batch", "note"):
-        if getattr(args, flag) is not None:
-            print(f"spend: --{flag} {UNSTORED}", file=sys.stderr)
     model = ModelName(args.model)
     try:
         provider = core.model_catalog.resolve(model).provider
@@ -105,7 +114,19 @@ def _declare_spend(args) -> int:
         return 1
     # NEED(spend: declared vs measured): a declaration adds to the totals `metrics collect-spend
     # --append` records from transcripts, so non-zero declared tokens count twice.
-    core.services().spend.record(
+    usage = ModelUsage(
+        provider=provider,
+        model=model,
+        skill=args.skill,
+        occurred_at=core.clock.now(),
+        tokens_in=args.tokens_in,
+        tokens_out=args.tokens_out,
+        cache_read=args.cache_read,
+        cache_creation=args.cache_creation,
+    )
+    calibration = SpendCalibration(repo=args.repo, loc=args.loc, batch=args.batch, note=args.note)
+    service = core.services().spend
+    event = service.record(
         SpendEvent(
             provider=provider,
             model=model,
@@ -113,9 +134,13 @@ def _declare_spend(args) -> int:
             tokens_in=args.tokens_in,
             tokens_out=args.tokens_out,
             cost_usd=cost,
-            occurred_at=datetime.now(UTC),
-        )
+            occurred_at=usage.occurred_at,
+        ),
+        usage=(usage,),
+        calibration=calibration,
     )
+    if args.json:
+        print(json.dumps({"event": event.model_dump(mode="json")}))
     return 0
 
 

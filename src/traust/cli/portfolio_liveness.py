@@ -1,9 +1,4 @@
-"""``traust portfolio liveness``: census's repo-liveness artifact on traust-core.
-
-Every registered repository's archived flag and default-branch push as last observed by
-``traust portfolio observe`` (no forge call here). ``status`` keeps the artifact's words:
-``archived``, ``active``, or ``unknown`` when never observed (``reason`` says why).
-"""
+"""``traust portfolio liveness``: the census artifact from recorded forge availability."""
 
 from __future__ import annotations
 
@@ -18,16 +13,15 @@ from traust.context import load
 
 
 def main(argv: list[str] | None = None) -> int:
-    ap = parser("portfolio", "liveness", "Each registered repository's archived flag and push.")
+    ap = parser("portfolio", "liveness", "Each repository's last observed forge availability.")
     args = ap.parse_args(argv)
 
     def call() -> Any:
         services = load(args.config_home).services()
         repos = {
-            row.url: {
-                "status": "archived" if row.archived else "unknown" if row.unobserved else "active"
-            }
-            | row.model_dump(mode="json", exclude={"url", "repository_id"}, exclude_none=True)
+            row.url: row.model_dump(
+                mode="json", exclude={"url", "repository_id"}, exclude_none=True
+            )
             for row in every_item(
                 lambda page: services.portfolio.liveness(RepositoryFilter(), page)
             )

@@ -11,14 +11,16 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from traust_core.v1.context import Config, Context
 from traust_core.v1.errors import ServiceError
+from traust_core.v1.models.input_segments import InputSegment, InputSegmentInventory
 from traust_core.v1.models.operations import Budget
 
 from traust.cli import build_rescan_worklist as rw
 
 
 @pytest.fixture(autouse=True)
-def _register_private_forge(monkeypatch):
+def _register_private_forge(monkeypatch, tmp_path):
     """Register the fixture forge for the duration of each test.
 
     No private forge ships as a default any more — GIT_HOSTS is deployment
@@ -26,6 +28,16 @@ def _register_private_forge(monkeypatch):
     host it is testing, exactly as a real deployment would.
     """
     monkeypatch.setitem(rw.GIT_HOSTS, "gitlab.example.com", "gitlab")
+    inventory = tmp_path / "isolated-inputs"
+    inventory.mkdir()
+    original_load = rw.load
+
+    def load(config_home=None):
+        core = original_load(config_home)
+        core.register_input_segments(inventory)
+        return core
+
+    monkeypatch.setattr(rw, "load", load)
 
 
 # ---------------------------------------------------------------------------
@@ -1652,92 +1664,153 @@ class TestTripwireByteSafety:
 
 
 class TestNeverAuditedBootstrap:
-    """Lever 1d: cadence rule 1 implemented — inventory repos without
-    baselines become full-audit+bootstrap rows (operator directive
-    2026-07-28)."""
-
-    def _graph(self, tmp_path, repo_ids):
-        g = tmp_path / "portfolio-graph.db"
-        con = sqlite3.connect(g)
-        con.execute("CREATE TABLE nodes (id TEXT, kind TEXT, label TEXT, attrs TEXT)")
-        con.executemany(
-            "INSERT INTO nodes VALUES (?,?,?,?)",
-            [(r, "repo", r, "{}") for r in repo_ids],
+    def _inventory(self, *urls):
+        return InputSegmentInventory(
+            segments=(InputSegment(name="division", repository_urls=tuple(urls)),)
         )
-        con.commit()
-        con.close()
-        return g
 
-    def test_missing_baseline_emits_rule1_row(self, tmp_path):
-        g = self._graph(tmp_path, ["repo:github.com/org/newrepo", "repo:github.com/org/audited"])
-        rows = rw.never_audited_rows(g, {"https://github.com/org/audited"}, [])
-        assert len(rows) == 1
-        r = rows[0]
-        assert r["rule"] == "rule-1-bootstrap"
-        assert r["lane"] == "full-audit"
-        assert r["status"] == "never-audited"
-        assert r["repo_url"] == "https://github.com/org/newrepo"
-        assert r["exposure"] == "private-internal"  # no API call: default
+    def _source(self, tmp_path, urls):
+        root = tmp_path / "inputs"
+        division = root / "division"
+        division.mkdir(parents=True)
+        csv = division / "product-repos.csv"
+        csv.write_text("GitHub URL\n" + "".join(f"{url}\n" for url in urls))
+        return root, csv
 
-    def test_designation_elevates_exposure(self, tmp_path):
-        g = self._graph(tmp_path, ["repo:github.com/org/svc-backend"])
-        rows = rw.never_audited_rows(g, set(), [("https://github.com/org/svc-backend", "external")])
+    def _core(self, tmp_path, inputs):
+        return Context(
+            Config(
+                home=tmp_path / "store",
+                locations={
+                    "analysis_results": str(tmp_path / "results"),
+                    "inputs": str(inputs),
+                },
+            )
+        )
+
+    def _run(self, tmp_path, monkeypatch, core, *flags):
+        db, events = TestMainEndToEnd()._setup(tmp_path)
+        monkeypatch.setattr(rw, "load", lambda config_home: core)
+        out = tmp_path / "out" / "rescan-worklist.json"
+        rc = rw.main(
+            [
+                "--db",
+                str(db),
+                "--events",
+                str(events),
+                "--out",
+                str(out),
+                "--no-network",
+                "--no-tripwire",
+                "--no-threat-model",
+                *flags,
+            ]
+        )
+        return rc, out
+
+    def test_missing_baseline_emits_rule1_row(self):
+        inventory = self._inventory(
+            "https://github.com/org/newrepo", "https://github.com/org/audited"
+        )
+        rows = rw.never_audited_rows(inventory, {"https://github.com/org/audited"}, [])
+        assert [
+            (r["repo_url"], r["rule"], r["lane"], r["status"], r["exposure"]) for r in rows
+        ] == [
+            (
+                "https://github.com/org/newrepo",
+                "rule-1-bootstrap",
+                "full-audit",
+                "never-audited",
+                "private-internal",
+            )
+        ]
+
+    def test_designation_elevates_exposure(self):
+        inventory = self._inventory("https://github.com/org/svc-backend")
+        rows = rw.never_audited_rows(
+            inventory, set(), [("https://github.com/org/svc-backend", "external")]
+        )
         assert rows[0]["exposure"] == "private-external"
 
-    def test_missing_graph_db_is_empty(self, tmp_path):
-        assert rw.never_audited_rows(tmp_path / "nope.db", set(), []) == []
-
-    def test_end_to_end_row_and_md(self, tmp_path, monkeypatch):
-        # reuse the e2e fixture; add a graph with one unaudited repo
-        helper = TestMainEndToEnd()
-        db, events = helper._setup(tmp_path)
-        helper._patch_network(monkeypatch)
-        g = self._graph(tmp_path, ["repo:github.com/org/brand-new"])
-        out = tmp_path / "out" / "rescan-worklist.json"
-        rc = rw.main(
-            [
-                "--db",
-                str(db),
-                "--events",
-                str(events),
-                "--out",
-                str(out),
-                "--graph-db",
-                str(g),
-                "--no-tripwire",
-            ]
+    def test_duplicate_segment_memberships_route_once(self):
+        inventory = InputSegmentInventory(
+            segments=(
+                InputSegment(name="one", repository_urls=("https://github.com/org/newrepo",)),
+                InputSegment(name="two", repository_urls=("https://github.com/org/newrepo.git",)),
+            )
         )
+        assert len(rw.never_audited_rows(inventory, set(), [])) == 1
+
+    def test_empty_inventory_has_no_bootstrap_obligations(self):
+        assert rw.never_audited_rows(InputSegmentInventory(segments=()), set(), []) == []
+
+    def test_current_unregistered_inventory_routes_without_any_graph(self, tmp_path, monkeypatch):
+        inputs, csv = self._source(tmp_path, ["https://github.com/org/brand-new"])
+        core = self._core(tmp_path, inputs)
+        rc, out = self._run(tmp_path, monkeypatch, core)
         assert rc == 0
         doc = json.loads(out.read_text())
-        boot = [d for d in doc["decisions"] if d["rule"] == "rule-1-bootstrap"]
-        assert len(boot) == 1
         assert doc["population"]["never_audited"] == 1
-        assert "never-audited inventory repo" in out.with_suffix(".md").read_text()
-
-    def test_no_bootstrap_flag(self, tmp_path, monkeypatch):
-        helper = TestMainEndToEnd()
-        db, events = helper._setup(tmp_path)
-        helper._patch_network(monkeypatch)
-        g = self._graph(tmp_path, ["repo:github.com/org/brand-new"])
-        out = tmp_path / "out" / "rescan-worklist.json"
-        rc = rw.main(
-            [
-                "--db",
-                str(db),
-                "--events",
-                str(events),
-                "--out",
-                str(out),
-                "--graph-db",
-                str(g),
-                "--no-tripwire",
-                "--no-bootstrap",
-            ]
+        assert [
+            row["repo_url"] for row in doc["decisions"] if row["rule"] == "rule-1-bootstrap"
+        ] == ["https://github.com/org/brand-new"]
+        csv.write_text(
+            "GitHub URL\nhttps://github.com/org/brand-new\nhttps://github.com/org/added\n"
         )
+        assert (
+            rw.main(
+                [
+                    "--db",
+                    str(tmp_path / "findings.db"),
+                    "--events",
+                    str(tmp_path / "rescan-events.jsonl"),
+                    "--out",
+                    str(out),
+                    "--no-network",
+                    "--no-tripwire",
+                    "--no-threat-model",
+                ]
+            )
+            == 0
+        )
+        assert {
+            row["repo_url"]
+            for row in json.loads(out.read_text())["decisions"]
+            if row["rule"] == "rule-1-bootstrap"
+        } == {"https://github.com/org/brand-new", "https://github.com/org/added"}
+
+    def test_no_bootstrap_explicitly_skips_unavailable_inventory(self, tmp_path, monkeypatch):
+        core = self._core(tmp_path, tmp_path / "missing-inputs")
+        rc, out = self._run(tmp_path, monkeypatch, core, "--no-bootstrap")
         assert rc == 0
         doc = json.loads(out.read_text())
         assert doc["population"]["never_audited"] == 0
-        assert not [d for d in doc["decisions"] if d["rule"] == "rule-1-bootstrap"]
+        assert not [row for row in doc["decisions"] if row["rule"] == "rule-1-bootstrap"]
+
+    def test_unavailable_inventory_is_not_an_empty_success(self, tmp_path, monkeypatch):
+        core = self._core(tmp_path, tmp_path / "missing-inputs")
+        rc, out = self._run(tmp_path, monkeypatch, core)
+        assert rc == 2
+        assert not out.exists()
+
+    def test_malformed_inventory_cannot_silently_omit_bootstrap(self, tmp_path, monkeypatch):
+        inputs, _csv = self._source(tmp_path, ["not-a-repository-url"])
+        core = self._core(tmp_path, inputs)
+        rc, out = self._run(tmp_path, monkeypatch, core)
+        assert rc == 2
+        assert not out.exists()
+
+    def test_obsolete_graph_cannot_override_native_inventory(self, tmp_path, monkeypatch):
+        inputs, _ = self._source(tmp_path, ["https://github.com/org/current"])
+        (tmp_path / "portfolio-graph.db").write_bytes(b"obsolete graph must not be read")
+        core = self._core(tmp_path, inputs)
+        rc, out = self._run(tmp_path, monkeypatch, core)
+        assert rc == 0
+        assert [
+            row["repo_url"]
+            for row in json.loads(out.read_text())["decisions"]
+            if row["rule"] == "rule-1-bootstrap"
+        ] == ["https://github.com/org/current"]
 
 
 class TestBanBreaker:

@@ -198,3 +198,50 @@ def test_the_cli_routes_the_group(home: Path) -> None:
     with contextlib.redirect_stdout(out):
         rc = main(["products", "list", "--config-home", str(home)])
     assert (rc, json.loads(out.getvalue())) == (0, [])
+
+
+def test_boundary_caveats_round_trip_and_merge_with_other_product_edits(home: Path) -> None:
+    caveat = (
+        "Shared tree: owned backlog and external-BU scan work.\nDo not relabel the entire tree."
+    )
+    code, row = run(
+        products.add,
+        home,
+        "shared",
+        "--label",
+        "Shared",
+        "--ownership",
+        "owned",
+        "--business-unit",
+        "Commerce",
+        "--note",
+        caveat,
+    )
+    assert code == 0, row
+    assert row["note"] == caveat
+    assert listed(home)["shared"]["note"] == caveat
+    code, changed = run(products.update, home, "shared", "--business-unit", "Platform")
+    assert code == 0, changed
+    assert changed["note"] == caveat and changed["business_unit"] == "Platform"
+    code, _ = run(
+        products.add,
+        home,
+        "other",
+        "--label",
+        "Other",
+        "--ownership",
+        "upstream",
+        "--business-unit",
+        "External",
+        "--note",
+        "Mirror boundary.",
+    )
+    assert code == 0
+    code, changed = run(products.update, home, "shared", "--note", "Reviewed partial ownership.")
+    assert code == 0, changed
+    assert listed(home)["shared"]["note"] == "Reviewed partial ownership."
+    code, cleared = run(products.update, home, "shared", "--note", "")
+    assert code == 0, cleared
+    rows = listed(home)
+    assert rows["shared"]["note"] is None
+    assert rows["other"]["note"] == "Mirror boundary."

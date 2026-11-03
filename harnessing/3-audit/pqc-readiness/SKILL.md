@@ -393,9 +393,9 @@ distilled `how` under Action — never a harness Playbook path.
 <the standard domain legend, verbatim from
  [notes/domain-legend.md](notes/domain-legend.md) — question each domain answers, its
  0–100 scale, the Overall weighting (VULN 40% / AGIL 25% / PQCA 20% /
- HNDL 15%), and the bucket thresholds. Mandatory on every report that
- shows scores; omit only on minimal ready/not-applicable pages with no
- scores displayed.>
+HNDL 15%), and the bucket thresholds. Mandatory on every report, including
+minimal ready/not-applicable pages. The minimal status-line examples below still
+carry this legend as a subsequent section.>
 ```
 
 **Minimal examples** (ready / not-applicable repos):
@@ -478,11 +478,17 @@ Capability / ownership notes (`notes/capabilities/`, [`notes/who-sets-tls.yaml`]
 
 ### Worklist (sweep mode)
 
-Re-running Layer 1 across the corpus after a rules/adapter change is a
-continuous-ops lane of the security pack (`bulk_prescan.py`, *retired*): per
-commit, `PqcService.prescan` is stamp-aware (re-scans only facts whose
-adapter_version/rules_sha256 differ from the current pack) and idempotent. `traust pqc prepare` (per commit, once its facts are
-recorded) then routes the Layer-2
+Re-run Layer 1 after a rules/adapter change with
+`traust pqc sweep --refresh --limit 20 [--product <slug>]`. The pack's concrete
+selector and executor use registered inventory, findings, forge observations and
+Core's stamp-aware `PqcService.prescan`; current stamps are skipped. Re-run without
+`--after` to resume from recorded successes, or pass the returned `next_cursor`
+with `--after` for explicit paging. Failures and access requests are reported
+separately and make the command nonzero; they never become clean readiness.
+Without `--refresh`, only missing facts (or a changed source/SBOM basis) are scanned.
+Source scans use the pinned checksum-checked binary built by `build_pqc_scan.sh`;
+the deployment must allow `pqc-scan` and checkout tools in `process.allowed_binaries`.
+`traust pqc prepare` (per commit, once its facts are recorded) then routes the Layer-2
 re-score deterministically — `route` `full` (governance/DB/FIPS facts
 fired, or 2030-clock/HNDL/not-ready stakes), `light` (governance labels +
 PQCA-3 ceiling check only), `skip` (zero-hit n/a or vendor/test-only
@@ -500,10 +506,34 @@ with their locations; `traust dashboard view pqc [--product <slug>] --out <dir>`
 writes the rendered `pqc-readiness.{md,html,json}`. (The ranked lists stay in
 the roll-up below.)
 
-Building the sweep worklist (`build_pqc_worklist.py`, *retired*: one entry
-per unique repository URL, priority-tiered chokepoint → crypto-CWE ground
-truth → tail, with the unreachable-triage residual routed `sbom-only` /
-`access-request`) is the security pack's continuous-ops lane selection.
+`traust pqc worklist [--product <slug>] [--markdown]` emits one entry per
+registered repository: chokepoint → crypto-CWE ground truth → tail, including
+repositories with no readiness assessment. The latest completed `repo_state`
+order's no-credentials outcome routes to `access-request`, and an unreachable
+outcome to `sbom-only`; worklist entries retain the evidence order ID.
+Failed observations are never invented as head documents. Missing manifest SBOMs
+remain explicit scan failures. Repositories without a registered
+commit require access/intake before a pinned scan. An unknown observation is not
+proof of reachability: the source checkout is attempted and failures are reported.
+
+Both `pqc` and `pqc-portfolio` dashboards include registered scope/pack-refresh
+progress, observed accessibility and general-audit PQC-classified findings and
+verification regressions. Signals are deduplicated report evidence, not readiness
+scores or distinct open vulnerabilities. Crypto dependency discovery visits all
+scoped manifest SBOMs, independently of whether readiness has been recorded.
+
+Repair historical reports with
+`traust pqc repair --report <report.json> [--report <another.json>] --out-dir <new-dir>`.
+Missing actions are derived from each same-name Markdown companion's fix-now,
+upgrade and upstream sections plus uncovered transition-clock primitives.
+`--force` explicitly replaces existing actions; `--refresh-md` only refreshes
+companions, stripping Facts columns, rendering owner actions without recipe paths
+and installing the domain legend. `--dry-run` validates without writing. All batch
+members validate before output is written, and existing inputs/outputs are never
+overwritten. Historical effort labels are preserved on reads, never mapped to
+new sizes; author canonical effort explicitly if new-write admission refuses a
+derivation. Review and `traust pqc record --report <new-report.json>` the result;
+recording retains earlier artifact evidence and does not infer any readiness.
 
 `traust dashboard view pqc-portfolio --out <dir>` synthesizes the completed sweep
 into the portfolio migration plan:

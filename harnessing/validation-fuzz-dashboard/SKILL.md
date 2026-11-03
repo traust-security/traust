@@ -52,16 +52,25 @@ refresh` rebuilds this view alongside every other deterministic dashboard.
 
 What the view shows (core computes these from recorded state):
 
-1. The verdict × claimed-severity matrix over every recorded validation
-   (`verdict` ∈ confirmed / refuted / inconclusive / blocked-by-scope /
-   not-attempted).
-2. Per-target confirmed counts and the confirmed-Critical finding list.
-3. Attack chains with ≥ 1 confirmed step — never the raw mapped-chain count
-   (most steps are not-attempted and the raw number misleads).
-4. Validation coverage (attempted / total checks), shown as a coverage meter
-   so validated and unvalidated populations are never conflated.
-5. Each target's latest recorded fuzz run: crashers ranked by CVSS then
-   proposed severity, pattern hit-rates, and the surfaces left unfuzzed.
+1. Claimed-severity × verified-outcome matrix over every bound recorded validation
+   finding-check, using recording-policy outcomes rather than severity as proof.
+   Original declared verdicts, soundness flags, evidence grades and artifact IDs
+   remain available in the JSON/check-detail table.
+2. Per-repository/target-environment attempted, total and confirmed checks, plus
+   the confirmed checks claiming Critical (not a declaration of verified severity).
+3. Every mapped attack chain and its steps, narrative, entry point, terminal asset,
+   ATT&CK references and report references. Confirmed-step counts do not imply that
+   the complete chain is confirmed; invalid target environments are excluded from
+   observed exploitation evidence.
+4. Attempted / total finding-check coverage and a population block. Repeated runs
+   are work observations, distinct from the latest-verdict-per-finding summary.
+5. Each target's latest recorded fuzz run: ranked crashers with CVSS vectors,
+   declared analyst narrative/fix/priority and negative-control references,
+   reproducer locations, explicit batch and tested-pattern counts, and gaps.
+   Prior executions and supplied historical campaign snapshots are separate
+   tables; missing pattern outcomes do not become negative results. Import
+   supplied historical summaries with `traust reporting import-fuzz-campaign`
+   (see [create-fuzzing](../6-fuzz/create-fuzzing/SKILL.md#6-report-batch-mode)).
 
 ### Step 2 — Report back
 
@@ -81,8 +90,8 @@ If `open` was requested, open the HTML in the default browser.
 
 | File | Purpose |
 |---|---|
-| `validation-fuzz/<stem>.html` | Self-contained dashboard: hero (confirmed-exploitable), KPI tiles, verdict-by-severity stacked bars, coverage meter, top-targets bars, fuzz pattern hit-rates, confirmed fuzz-bug and confirmed-Critical tables. |
-| `validation-fuzz/<stem>.md` | Markdown one-pager with the same numbers — headline, verdict×severity table, top targets, fuzz hit-rates/bugs, confirmed-Critical list. Paste-ready for docs or Slack. |
+| `validation-fuzz/<stem>.html` | Self-contained report: population, claimed-severity/outcome matrix, check coverage, target checks, confirmed-Critical checks, chain steps and fuzz evidence tables. |
+| `validation-fuzz/<stem>.md` | Markdown report with the same model-backed tables and provenance. |
 | `validation-fuzz/<stem>.json` | The view model (machine-readable). |
 
 The render is deterministic and reads only traust-core's recorded state — re-run
