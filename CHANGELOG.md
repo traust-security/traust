@@ -4,9 +4,12 @@ All notable changes to Traust are documented here.
 
 ## [Unreleased]
 
-- Link local callable return sources to S10 execution sinks, including zero-argument
-  helpers, aliases and helper/lambda chains. Preserve returned argv data, routed
-  commands and effective finally returns without sweeping unrelated child scopes.
+- Follow effective local decorator replacements and known instance/static/class-method
+  returns in S10, preserving callable aliases, argument binding, live closure cells,
+  inherited attribute updates and per-invocation command provenance.
+- Separate coroutine and generator objects from returned command values; only awaiting
+  a coroutine applies its deferred results/effects. Preserve benign/routed controls,
+  effective finally returns and existing analysis bounds without new exemptions.
 - Complete S10 review handling with execution-ordered imports and assignments,
   conservative branch/loop joins, execution-function aliases, wildcard exports,
   command variables and split operations. Later bindings cannot approve earlier
