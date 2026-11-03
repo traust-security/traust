@@ -29,6 +29,15 @@ _JWT = "eyJ" + "a" * 12 + "." + "b" * 14 + "." + "c" * 14
 _GITHUB = "gh" + "p_" + "d" * 24
 _GITLAB = "glpat" + "-" + "e" * 16
 _PASSWORD = "synthetic-password-value"
+_FORGED_MARKERS = [
+    pytest.param(f"[REDACTED:{_GITHUB}]", id="token-as-body"),
+    pytest.param(f"[REDACTED:{_GITHUB}:28b:sha256:0123456789ab]", id="token-as-tag"),
+    pytest.param(f"[REDACTED:github-token:{_GITHUB}b:sha256:0123456789ab]", id="token-as-length"),
+    pytest.param(f"[REDACTED:github-token:28b:sha256:{_GITHUB}]", id="token-as-digest"),
+    pytest.param(f"[REDACTED:secret-data:{_GITHUB}b]", id="token-as-secret-length"),
+    pytest.param(f"[REDACTED:github-token:28b:sha256:0123456789ab:{_GITHUB}]", id="trailing-token"),
+    pytest.param(f"[REDACTED:[REDACTED:secret-data:4b]{_GITHUB}]", id="nested-legitimate-marker"),
+]
 
 
 def _marker(tag, value):
@@ -171,6 +180,78 @@ def test_redacted_assignment_markers_are_stable(tmp_path, as_json):
     meta = AdapterBase._save_artifact(tmp_path / "artifacts", "marked", "stdout", original)
     assert (tmp_path / meta["path"]).read_text() == original
     assert "redacted" not in meta
+
+
+@pytest.mark.parametrize("forged", _FORGED_MARKERS)
+def test_forged_markers_do_not_hide_plaintext_credentials_in_saved_artifacts(tmp_path, forged):
+    meta = AdapterBase._save_artifact(tmp_path / "artifacts", "forged", "stdout", forged)
+    stored = (tmp_path / meta["path"]).read_text()
+
+    assert _GITHUB not in stored
+    assert meta["redacted"] is True
+    assert meta["sha256"] == hashlib.sha256(forged.encode()).hexdigest()
+    assert redact_credentials(stored) == stored
+
+
+@pytest.mark.parametrize("map_key", ["data", "stringData"])
+@pytest.mark.parametrize(
+    "forged",
+    [
+        *_FORGED_MARKERS,
+        pytest.param("[REDACTED:unknown:28b:sha256:0123456789ab]", id="unknown-tag"),
+        pytest.param("[REDACTED:github-token:0b:sha256:0123456789ab]", id="zero-token-length"),
+        pytest.param("[REDACTED:github-token:028b:sha256:0123456789ab]", id="leading-zero"),
+        pytest.param("[REDACTED:github-token:-28b:sha256:0123456789ab]", id="negative-length"),
+        pytest.param(
+            "[REDACTED:github-token:\u0662\u0668b:sha256:0123456789ab]", id="unicode-length"
+        ),
+        pytest.param("[REDACTED:github-token:28b:sha256:0123456789a]", id="short-digest"),
+        pytest.param("[REDACTED:github-token:28b:sha256:0123456789abc]", id="long-digest"),
+        pytest.param("[REDACTED:github-token:28b:sha256:0123456789AB]", id="uppercase-digest"),
+        pytest.param("[REDACTED:secret-data:00b]", id="noncanonical-secret-length"),
+        pytest.param("[REDACTED:secret-data:28b:sha256:0123456789ab]", id="digest-on-secret-data"),
+    ],
+)
+def test_forged_secret_map_markers_are_scrubbed_under_custom_keys(tmp_path, map_key, forged):
+    original = json.dumps({"kind": "Secret", map_key: {"custom.entry": forged}})
+    meta = AdapterBase._save_artifact(
+        tmp_path / "artifacts", "forged-secret", "stdout", original, ext="json"
+    )
+    stored = (tmp_path / meta["path"]).read_text()
+
+    assert json.loads(stored) == {
+        "kind": "Secret",
+        map_key: {"custom.entry": f"[REDACTED:secret-data:{len(forged)}b]"},
+    }
+    assert _GITHUB not in stored
+    assert meta["redacted"] is True
+    assert meta["sha256"] == hashlib.sha256(original.encode()).hexdigest()
+    assert redact_credentials(stored) == stored
+
+
+@pytest.mark.parametrize("map_key", ["data", "stringData"])
+@pytest.mark.parametrize(
+    "marker",
+    [
+        _marker("github-token", _GITHUB),
+        _marker("generic-secret", _PASSWORD),
+        "[REDACTED:secret-data:0b]",
+        "[REDACTED:secret-data:28b]",
+    ],
+)
+def test_canonical_secret_map_markers_survive_repeated_artifact_saves(tmp_path, map_key, marker):
+    original = json.dumps(
+        {"kind": "Secret", map_key: {"custom.entry": marker, "token": marker}}, indent=1
+    )
+    for step in ("first", "second"):
+        meta = AdapterBase._save_artifact(
+            tmp_path / "artifacts", step, "stdout", original, ext="json"
+        )
+        stored = (tmp_path / meta["path"]).read_text()
+        assert stored == original
+        assert "redacted" not in meta
+        assert meta["sha256"] == hashlib.sha256(original.encode()).hexdigest()
+        original = stored
 
 
 def test_json_pem_jwt_and_dsn_values_remain_parseable(tmp_path):
