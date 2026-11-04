@@ -607,7 +607,10 @@ PYEOF
     # a worktree removal holds rows pointing at artifacts that no longer exist
     # (orders refuse not_found; claims can crash on unregistered degraded keys).
     if container_running && [ -e "$OPS_DIR/run/.artifacts-created" ]; then
-        OPS_DB_CREATED=$("$CT" volume inspect "$OPS_VOLUME" --format '{{.CreatedAt}}' 2>/dev/null | cut -d" " -f1)
+        # Podman prints "2026-11-04 12:00:00 +00:00 UTC", Docker RFC3339 "2026-11-04T12:00:00Z":
+        # the first ten characters are the date either way (a space cut would keep Docker's
+        # whole timestamp and warn on every healthy Docker rig).
+        OPS_DB_CREATED=$("$CT" volume inspect "$OPS_VOLUME" --format '{{.CreatedAt}}' 2>/dev/null | cut -c1-10)
         OPS_ARTIFACTS_CREATED=$(uv run --no-sync python -c \
             'import datetime, os, sys; print(datetime.datetime.fromtimestamp(os.path.getmtime(sys.argv[1]), datetime.UTC).strftime("%Y-%m-%d"))' \
             "$OPS_DIR/run/.artifacts-created" 2>/dev/null)

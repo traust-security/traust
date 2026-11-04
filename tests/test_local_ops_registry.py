@@ -198,7 +198,9 @@ def test_the_doctor_compares_the_volume_with_the_rigs_birth_not_its_activity(
     os.utime(artifacts, (born - 90 * 86400, born - 90 * 86400))  # a landing 90 days later
 
     today = datetime.now(UTC).strftime("%Y-%m-%d")
-    agree = rig.run("doctor", env={"OPS_FAKE_VOLUME_CREATED": f"{today} 00:00:00 +00:00 UTC"})
-    assert "disagree in age" not in agree.stderr
-    stale = rig.run("doctor", env={"OPS_FAKE_VOLUME_CREATED": "2019-01-01 00:00:00 +00:00 UTC"})
+    # Podman prints "YYYY-MM-DD HH:MM:SS +00:00 UTC"; Docker prints RFC3339 with no space.
+    for created in (f"{today} 00:00:00 +00:00 UTC", f"{today}T12:00:00Z"):
+        agree = rig.run("doctor", env={"OPS_FAKE_VOLUME_CREATED": created})
+        assert "disagree in age" not in agree.stderr, created
+    stale = rig.run("doctor", env={"OPS_FAKE_VOLUME_CREATED": "2019-01-01T00:00:00Z"})
     assert "disagree in age" in stale.stderr
