@@ -10,6 +10,11 @@ from uuid import UUID
 
 import pytest
 
+from traust.lib.pending_decisions import Decision, skip_reason
+
+pytest.skip(skip_reason(Decision.CLAIM_CORRECTION), allow_module_level=True)
+
+
 from tests.test_findings_doors import REPO, run, scanned
 from tests.test_findings_doors import home as home
 from tests.test_triage_doors import SHA

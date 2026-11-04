@@ -151,7 +151,9 @@ def test_the_cli_records_the_observed_heads_sbom_once(
 
     def acquire(self: Any, request: Any) -> Result[bytes]:
         raw = sbom(tmp_path, "4.17.20").read_bytes()
-        return Result(raw, Acquisition(provider="syft", acquired_at=datetime.now(UTC)))
+        return Result(
+            raw, Acquisition(provider="syft", acquired_at=datetime.now(UTC), version="1.0.0")
+        )
 
     monkeypatch.setattr(SyftSbom, "check", lambda self: Readiness(ready=True))
     monkeypatch.setattr(SyftSbom, "acquire", acquire)

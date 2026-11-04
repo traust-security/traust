@@ -252,10 +252,6 @@ def write_view(view: RenderedView, base: Path, model: bool = False) -> tuple[Pat
         out[base.with_name(f"{base.name}.json")] = view.model.model_dump_json(indent=2)
     if view.csv is not None:
         out[base.with_name(f"{base.name}.csv")] = view.csv
-    if view.graphviz is not None:
-        out[base.with_name(f"{base.name}.dot")] = view.graphviz
-    if view.gexf is not None:
-        out[base.with_name(f"{base.name}.gexf")] = view.gexf
     for path, text in out.items():
         path.write_text(text, encoding="utf-8")
     return tuple(out)

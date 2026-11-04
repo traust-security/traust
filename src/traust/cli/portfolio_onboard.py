@@ -4,10 +4,11 @@ inventory-repositories' doors on traust-core (onboarding and portfolio sync).
 plan           what onboard would register and order, writing nothing (the dry run)
 onboard        register the product (when --label names a new one), the repositories and an
                organisation's non-archived, non-fork repositories; re-runs are no-ops
-owner-hints    OWNERS / CODEOWNERS approvers, then top contributors; --save retains the hints
+owner-hints    OWNERS / CODEOWNERS approvers, then top contributors: hints, never stored
 file           one file's text at a pinned commit, read at the forge: untrusted, never stored
 import-owners  mirror the declared ownership source onto every registered repository
 import-release a product version and the commits it ships (a payload's commit URLs)
+inventory-export every registered repository with its owning teams, products and contacts
 release-changes a recorded version against the highest one recorded before it (or --previous):
                its bump, whether it re-models the threat surface (major/minor), the commits moved
 """
@@ -18,28 +19,28 @@ import argparse
 import re
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 import pydantic
 import yaml
 from traust_core.v1.context import Context
 from traust_core.v1.errors import NotFoundError, ValidationError
 from traust_core.v1.models.base import Dto, Model
+from traust_core.v1.models.common import every_item
 from traust_core.v1.models.inventory import (
     OrgName,
     OwnerAssignment,
     OwnershipSource,
     RefName,
     ReleaseCommit,
+    RepositoryFilter,
     TeamName,
     VersionLabel,
 )
-from traust_core.v1.models.inventory_reference import (
-    IntakeKind,
-    InventoryDeclaration,
-    InventoryReference,
-)
 from traust_core.v1.models.onboarding import OnboardingRequest, RepositorySpec
 from traust_core.v1.models.values import GitSha, HttpsRepoUrl, ProductSlug, RepoPath
+from traust_core.v1.rendering.csv import csv_table
+from traust_core.v1.rendering.markdown import Table
 
 from traust.cli import _doors
 from traust.cli._doors import parser, run
@@ -65,20 +66,6 @@ def _request_args(ap: argparse.ArgumentParser) -> None:
     )
     ap.add_argument("--org", help="a GitHub organisation or GitLab group to list")
     ap.add_argument("--host", default="github.com", help="the forge host --org lists on")
-    ap.add_argument("--reference", type=Path, help="declared inventory YAML with repositories")
-    ap.add_argument("--sub-service", help="declared service label; org intake defaults to org")
-    ap.add_argument("--individual-owner", action="append", default=None)
-    ap.add_argument("--payload-version", action="append", default=None)
-    ap.add_argument("--operator-version", action="append", default=None)
-    for field in (
-        "ownership-source",
-        "manager",
-        "business-unit",
-        "jira-project",
-        "jira-component",
-        "escalation-contact",
-    ):
-        ap.add_argument(f"--{field}")
 
 
 def _url(core: Context, raw: str) -> HttpsRepoUrl:
@@ -86,56 +73,12 @@ def _url(core: Context, raw: str) -> HttpsRepoUrl:
 
 
 def _request(core: Context, args: argparse.Namespace) -> OnboardingRequest:
-    supplied = InventoryReference()
-    if args.reference is not None:
-        try:
-            supplied = InventoryReference.model_validate(
-                yaml.safe_load(args.reference.read_text(encoding="utf-8"))
-            )
-            if supplied.version != 1:
-                raise ValidationError(f"unsupported inventory reference version {supplied.version}")
-        except (yaml.YAMLError, pydantic.ValidationError) as e:
-            raise ValidationError(f"{args.reference}: not an inventory reference: {e}") from e
-    if not (args.repo or args.org or supplied.repositories):
-        raise ValidationError("name something to add: --repo or --org (or --reference)")
-    values = {
-        field: getattr(args, field)
-        for field in (
-            "ownership_source",
-            "manager",
-            "business_unit",
-            "jira_project",
-            "jira_component",
-            "escalation_contact",
-        )
-        if getattr(args, field) is not None
-    }
-    if args.sub_service is not None:
-        values["service"] = args.sub_service
-    if args.individual_owner is not None:
-        values["individual_owners"] = tuple(args.individual_owner)
-    if args.payload_version is not None:
-        values["payload_versions"] = tuple(args.payload_version)
-    if args.operator_version is not None:
-        values["operator_versions"] = tuple(args.operator_version)
-    declaration = InventoryDeclaration(resource_type=IntakeKind.ADHOC, **values)
-    specs = {
-        str(_url(core, row.repo_url)): RepositorySpec(
-            url=_url(core, row.repo_url),
-            declaration=InventoryDeclaration(
-                **row.model_dump(exclude={"repo_url"}, exclude_unset=True)
-            ),
-        )
-        for row in supplied.repositories
-    }
-    for raw in args.repo:
-        url = _url(core, raw)
-        specs.setdefault(str(url), RepositorySpec(url=url))
+    if not (args.repo or args.org):
+        raise ValidationError("name something to add: --repo or --org")
     return OnboardingRequest(
         product=ProductSlug.parse(args.product),
         label=args.label,
-        repositories=tuple(specs.values()),
-        declaration=declaration,
+        repositories=tuple(RepositorySpec(url=_url(core, r)) for r in args.repo),
         org=None if args.org is None else OrgName(args.org),
         host=args.host,
     )
@@ -169,19 +112,11 @@ def onboard(argv: list[str] | None = None) -> int:
 def owner_hints(argv: list[str] | None = None) -> int:
     ap = parser("portfolio", "owner-hints", "Who may own a repository, from its forge.")
     ap.add_argument("--repo", required=True, help="an https repository URL")
-    ap.add_argument("--save", action="store_true", help="retain hints and provenance in reference")
     args = ap.parse_args(argv)
 
     def call() -> Any:
         core = load(args.config_home)
-        url = _url(core, args.repo)
-        services = core.services()
-        hints = (
-            services.sync.owner_hints(url, retain=True)
-            if args.save
-            else services.sync.owner_hints(url)
-        )
-        return [_json(hint) for hint in hints]
+        return [_json(h) for h in core.services().sync.owner_hints(_url(core, args.repo))]
 
     return run(call)
 
@@ -311,88 +246,78 @@ def release_changes(argv: list[str] | None = None) -> int:
     return run(call)
 
 
+INVENTORY_COLUMNS = (
+    "Repository",
+    "URL",
+    "Host",
+    "Organization/Group",
+    "Repo Name",
+    "Owner Team",
+    "Products",
+    "Accountable Contacts",
+)
+
+
 def inventory_export(argv: list[str] | None = None) -> int:
-    ap = parser("portfolio", "inventory-export", "Joined inventory, contacts and tracker routing.")
+    ap = parser("portfolio", "inventory-export", "Joined inventory, owners and contacts.")
     ap.add_argument("--format", choices=("json", "csv"), default="json")
+    ap.add_argument(
+        "--pd-cache-dir",
+        type=Path,
+        help="product-definitions snapshot for contacts (default: locations.feeds_cache)",
+    )
     args = ap.parse_args(argv)
 
     def call() -> Any:
-        services = load(args.config_home).services()
-        rows = services.portfolio.inventory_export()
+        core = load(args.config_home)
+        rows = _inventory_rows(core, args.pd_cache_dir)
         if args.format == "json":
-            return [_json(row) for row in rows]
-        columns = (
-            "Repository",
-            "URL",
-            "Host",
-            "Organization/Group",
-            "Repo Name",
-            "App/Sub-Service",
-            "Resource Type",
-            "Owner Team",
-            "Manager",
-            "Individual Owners",
-            "Ownership Source",
-            "Business Unit",
-            "Jira Project",
-            "Jira Component",
-            "Payload Versions",
-            "Operator Versions",
-            "Recorded Product Versions",
-            "Escalation Contact",
-            "Accountable Contacts",
+            return [dict(zip(INVENTORY_COLUMNS, row, strict=True)) for row in rows]
+        table = Table(columns=INVENTORY_COLUMNS, rows=tuple(tuple(map(_cell, r)) for r in rows))
+        return csv_table(table).rstrip("\n")
+
+    return run(call)
+
+
+def _cell(value: object) -> str:
+    return "; ".join(value) if isinstance(value, list) else str(value)
+
+
+def _inventory_rows(core: Context, cache_dir: Path | None) -> list[tuple[object, ...]]:
+    """Every registered repository with its current owning teams, the products shipping it and
+    the product-definitions contacts for its URL: composed from the portfolio's own lists."""
+    portfolio = core.services().portfolio
+    repositories = list(
+        every_item(lambda page: portfolio.list_repositories(RepositoryFilter(), page))
+    )
+    resolution = portfolio.resolve_products(
+        core.product_definitions(cache_dir).read(),
+        portfolio.product_mappings(),
+        repo_urls=[repo.url for repo in repositories],
+    )
+    contacts = {
+        match.query.value: [
+            f"{c.kerberos_id} ({c.field}; embargo_cleared={c.embargo_cleared})"
+            for c in match.contacts
+        ]
+        for match in resolution.results
+        if match.query is not None
+    }
+    rows = []
+    for repo in repositories:
+        assert repo.id is not None
+        parts = urlsplit(repo.url)
+        organization, _, name = parts.path.strip("/").rpartition("/")
+        rows.append(
+            (
+                f"{organization}/{name}" if organization else name,
+                repo.url,
+                parts.hostname or "",
+                organization,
+                name,
+                [team.name for team in portfolio.list_owners(repo.id)],
+                [str(product.slug) for product in portfolio.list_products_of(repo.id)],
+                contacts.get(repo.url, []),
+            )
         )
-        values = []
-        for row in rows:
-            declaration = row.declaration
-            values.append(
-                (
-                    row.repository,
-                    row.url,
-                    row.host,
-                    row.organization,
-                    row.repo_name,
-                    declaration.service or "",
-                    declaration.resource_type or "",
-                    "; ".join(row.owner_teams),
-                    declaration.manager or "",
-                    "; ".join(row.individual_owners),
-                    row.ownership_source or "",
-                    "; ".join(row.business_units),
-                    declaration.jira_project or "",
-                    declaration.jira_component or "",
-                    "; ".join(declaration.payload_versions),
-                    "; ".join(declaration.operator_versions),
-                    "; ".join(row.versions),
-                    declaration.escalation_contact or "",
-                    "; ".join(
-                        f"{contact.kerberos_id} ({contact.field}; "
-                        f"embargo_cleared={contact.embargo_cleared})"
-                        for contact in row.accountable_contacts
-                    ),
-                )
-            )
-        return services.reporting.export_csv(columns, values).rstrip("\r\n")
-
-    return run(call)
-
-
-def import_reference(argv: list[str] | None = None) -> int:
-    ap = parser("portfolio", "import-reference", "Retain adopter-declared inventory metadata.")
-    ap.add_argument("--source", type=Path, required=True)
-    args = ap.parse_args(argv)
-
-    def call() -> Any:
-        try:
-            reference = InventoryReference.model_validate(
-                yaml.safe_load(args.source.read_text(encoding="utf-8"))
-            )
-        except (yaml.YAMLError, pydantic.ValidationError) as e:
-            raise ValidationError(f"{args.source}: not an inventory reference: {e}") from e
-        if reference.version != 1:
-            raise ValidationError(f"unsupported inventory reference version {reference.version}")
-        portfolio = load(args.config_home).services().portfolio
-        portfolio.declare_inventory(reference.repositories)
-        return [_json(row) for row in portfolio.inventory_declarations()]
-
-    return run(call)
+    return rows

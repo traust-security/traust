@@ -10,7 +10,7 @@ _ENTRIES: tuple[tuple[str, str, str], ...] = (
     (
         "reconcile-cve-provenance",
         "reconcile_cve_provenance",
-        "Match recorded code audits to later CVEs (dry-run unless --apply).",
+        "Match recorded findings to later CVEs and link them (--apply).",
     ),
 )
 

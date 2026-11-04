@@ -10,7 +10,8 @@ from traust_core.v1.errors import ConfigError, NotFoundError, ValidationError
 from traust_core.v1.models.operations import AssetRequest, JobResult, OrderReason
 
 from traust.cli._doors import answer, parser
-from traust.context import findings_tree_dir, load, load_caller
+from traust.context import findings_tree_dir, inputs_dir, load, load_caller
+from traust.inventory import repository_inventory
 from traust.ops.intake import (
     InventoryDiscoveryMaterializer,
     RescanEventIntakeMaterializer,
@@ -45,7 +46,7 @@ def inventory_discover(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
     core = load(args.config_home)
     try:
-        inventory = core.repository_inventory()
+        inventory = repository_inventory(inputs_dir(core))
     except ConfigError as error:
         log.warning("run %s: inventory loading refused (%s)", args.run_id, type(error).__name__)
         return answer(JobResult.failed(OrderReason.BAD_REQUEST))

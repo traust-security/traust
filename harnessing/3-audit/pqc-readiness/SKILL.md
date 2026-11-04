@@ -479,7 +479,10 @@ Capability / ownership notes (`notes/capabilities/`, [`notes/who-sets-tls.yaml`]
 ### Worklist (sweep mode)
 
 Re-run Layer 1 after a rules/adapter change with
-`traust pqc sweep --refresh --limit 20 [--product <slug>]`. The pack's concrete
+`traust pqc sweep --refresh --limit 20 [--product <slug>]`. **Pending:** traust registers
+no pqc-scan scanner until plan 15's decision 4 (traust-engine or traust-core), so a batch
+that would scan refuses with "The pqc-scan scanner needs a traust-core decision (plan 15,
+decision 4)"; only access-request entries complete. Once a scanner is registered, the pack's concrete
 selector and executor use registered inventory, findings, forge observations and
 Core's stamp-aware `PqcService.prescan`; current stamps are skipped. Re-run without
 `--after` to resume from recorded successes, or pass the returned `next_cursor`
@@ -508,9 +511,12 @@ the roll-up below.)
 
 `traust pqc worklist [--product <slug>] [--markdown]` emits one entry per
 registered repository: chokepoint → crypto-CWE ground truth → tail, including
-repositories with no readiness assessment. The latest completed `repo_state`
-order's no-credentials outcome routes to `access-request`, and an unreachable
-outcome to `sbom-only`; worklist entries retain the evidence order ID.
+repositories with no readiness assessment. Chokepoints are the deployment's own list:
+repository URL fragments under `chokepoints` in the config home's `pqc-priority.yaml`
+(template `config/pqc-priority.example.yaml`); with no file there is no chokepoint tier.
+A repository with no registered commit routes to `access-request`. Access routing from
+observation outcomes (no-credentials → `access-request`, unreachable → `sbom-only`) needs
+the typed liveness status that waits on plan 15's decision 3.
 Failed observations are never invented as head documents. Missing manifest SBOMs
 remain explicit scan failures. Repositories without a registered
 commit require access/intake before a pinned scan. An unknown observation is not
@@ -522,18 +528,10 @@ verification regressions. Signals are deduplicated report evidence, not readines
 scores or distinct open vulnerabilities. Crypto dependency discovery visits all
 scoped manifest SBOMs, independently of whether readiness has been recorded.
 
-Repair historical reports with
-`traust pqc repair --report <report.json> [--report <another.json>] --out-dir <new-dir>`.
-Missing actions are derived from each same-name Markdown companion's fix-now,
-upgrade and upstream sections plus uncovered transition-clock primitives.
-`--force` explicitly replaces existing actions; `--refresh-md` only refreshes
-companions, stripping Facts columns, rendering owner actions without recipe paths
-and installing the domain legend. `--dry-run` validates without writing. All batch
-members validate before output is written, and existing inputs/outputs are never
-overwritten. Historical effort labels are preserved on reads, never mapped to
-new sizes; author canonical effort explicitly if new-write admission refuses a
-derivation. Review and `traust pqc record --report <new-report.json>` the result;
-recording retains earlier artifact evidence and does not infer any readiness.
+Historical report repair (`pqc repair`) is retired: it rewrote legacy reports by parsing
+their Markdown. Author missing remediations explicitly and `traust pqc record --report
+<new-report.json>`; recording retains earlier artifact evidence and does not infer any
+readiness.
 
 `traust dashboard view pqc-portfolio --out <dir>` synthesizes the completed sweep
 into the portfolio migration plan:

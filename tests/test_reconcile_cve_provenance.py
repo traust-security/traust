@@ -105,67 +105,30 @@ def reconcile(home: Path, *argv: str) -> tuple[int, dict[str, object]]:
     return rc, json.loads(text) if text.strip() else {}
 
 
-def test_grouped_command_defaults_to_dry_run_reports_branch_leads_and_applies_once(
+def test_grouped_command_links_each_named_finding_to_its_best_cve(
     home: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     finding_id = seed(home)
     fetch(home, monkeypatch)
     report = tmp_path / "reports" / "provenance.json"
-    rc, result = reconcile(home, "--report", str(report))
+    rc, result = reconcile(home, "--finding", str(finding_id), "--apply", "--report", str(report))
     assert rc == 0
     assert result == json.loads(report.read_text())
-    assert (result["apply"], result["distinct_cves"], result["links_planned"]) == (False, 1, 1)
-    assert sorted(row["lead_days"] for row in result["matches"]) == [12, 17]
-    assert (
-        result["confirmed_lead_min"],
-        result["confirmed_lead_median"],
-        result["confirmed_lead_max"],
-    ) == (12, 17, 17)
-    core = load(home)
-    with SqlTraustUnitOfWork(core.database) as uow:
-        assert uow.findings.get(finding_id).advisory_id is None
-        assert uow.advisories.find_by_identifier(CVE) is None
-        assert uow.finding_external_refs.list_for_finding(finding_id) == []
-    rc, applied = reconcile(home, "--apply")
-    assert (rc, applied["links_written"], applied["findings_linked"]) == (0, 1, 1)
-    with SqlTraustUnitOfWork(core.database) as uow:
+    [check] = result["checks"]
+    assert (check["finding_id"], check["recorded"], check["linked"]) == (str(finding_id), CVE, True)
+    with SqlTraustUnitOfWork(load(home).database) as uow:
         finding = uow.findings.get(finding_id)
         assert finding.advisory_id is not None
         assert uow.advisories.get(finding.advisory_id).identifier == CVE
-        assert finding.advisory_match == "confirmed"
-        refs = uow.finding_external_refs.list_for_finding(finding_id)
-        assert [(r.system, r.ref) for r in refs] == [("cve", CVE)]
-        assert uow.decisions.list_for_finding(finding_id) == []
-    rc, again = reconcile(home, "--apply")
-    assert (
-        rc,
-        again["links_planned"],
-        again["links_written"],
-        again["findings_linked"],
-    ) == (0, 0, 0, 0)
-    with SqlTraustUnitOfWork(core.database) as uow:
-        assert uow.findings.get(finding_id) == finding
-        assert uow.finding_external_refs.list_for_finding(finding_id) == refs
 
 
-def test_cli_threshold_rejects_a_weaker_match_before_any_apply(
-    home: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("argv", [(), ("--apply",), ("--finding", "{finding}")])
+def test_reconcile_without_findings_or_apply_is_refused_before_recording(
+    home: Path, monkeypatch: pytest.MonkeyPatch, argv: tuple[str, ...]
 ) -> None:
-    finding_id = seed(home, "Tenant isolation bypass through admin console routes")
-    fetch(home, monkeypatch, "Tenant isolation bypass in API")
-    rc, strict = reconcile(home, "--min-score", "0.75", "--apply")
-    assert (rc, strict["matches"], strict["links_written"]) == (0, [], 0)
-    rc, probable = reconcile(home)
-    assert (rc, probable["distinct_probable_only"], probable["links_planned"]) == (0, 1, 1)
-    assert {row["match"] for row in probable["matches"]} == {"probable"}
-    with SqlTraustUnitOfWork(load(home).database) as uow:
-        assert uow.findings.get(finding_id).advisory_id is None
-
-
-@pytest.mark.parametrize("value", ["-0.1", "1.1", "nan", "inf"])
-def test_cli_rejects_invalid_threshold_without_mutating_findings(home: Path, value: str) -> None:
     finding_id = seed(home)
-    rc, result = reconcile(home, "--min-score", value, "--apply")
+    fetch(home, monkeypatch)
+    rc, result = reconcile(home, *(a.format(finding=finding_id) for a in argv))
     assert (rc, result) == (2, {})
     with SqlTraustUnitOfWork(load(home).database) as uow:
         assert uow.findings.get(finding_id).advisory_id is None
@@ -173,7 +136,7 @@ def test_cli_rejects_invalid_threshold_without_mutating_findings(home: Path, val
 
 def test_missing_feed_is_a_real_refusal_not_an_empty_success(home: Path) -> None:
     finding_id = seed(home)
-    rc, result = reconcile(home, "--apply")
+    rc, result = reconcile(home, "--finding", str(finding_id), "--apply")
     assert (rc, result) == (2, {})
     with SqlTraustUnitOfWork(load(home).database) as uow:
         assert uow.findings.get(finding_id).advisory_id is None

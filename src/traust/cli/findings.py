@@ -1,9 +1,9 @@
 """``traust findings …``: track-findings' doors on traust-core.
 
 find      the finding a report entry is (its label, e.g. OPERATOR-abcdef0-001), by fingerprint
-correction-request  retain an immutable corrected claim on its original assessment for review
-rebaseline  accept and apply that stored correction with a human ticket and rationale
-claim     the accepted corrected claim, optionally as of a historical time
+correction-request  refused: claim correction waits on a traust-core decision (plan 15, decision 1)
+rebaseline  refused: claim correction waits on a traust-core decision (plan 15, decision 1)
+claim     refused: claim correction waits on a traust-core decision (plan 15, decision 1)
 status    one finding now: disposition (evidence precedence), effective severity, SLA due
 history   every decision on a finding, in judgement order
 baseline  a repository's findings as they stood at a time
@@ -47,14 +47,11 @@ from traust_core.v1.errors import (
     TraustError,
     ValidationError,
 )
-from traust_core.v1.models.artifacts import ReportArtifact
 from traust_core.v1.models.attestation import AttestationDecision
 from traust_core.v1.models.common import Cursor, PageRequest, TimeBucket
 from traust_core.v1.models.findings import (
-    ClaimCorrection,
     FindingDimension,
     FindingFilter,
-    Label,
     RecordDecision,
     ReviewFilter,
 )
@@ -74,9 +71,11 @@ from traust_core.v1.models.vocabulary import (
     Validity,
 )
 from traust_core.v1.providers.comments import FORGE, JIRA
+from traust_core.v1.services.insight import SarifExport
 
 from traust.cli._doors import parser, run, when
 from traust.context import load, load_caller
+from traust.lib.pending_decisions import Decision, PendingCoreDecision
 
 _JIRA_KEY = re.compile(r"^[A-Z][A-Z0-9]+-\d+$")
 _BROWSE = re.compile(r"/browse/([A-Z][A-Z0-9]+-\d+)")
@@ -425,21 +424,10 @@ def correction_request(argv: list[str] | None = None) -> int:
     ap.add_argument("--label", required=True, help="the corrected entry's report label")
     ap.add_argument("--ticket", required=True)
     ap.add_argument("--rationale", required=True)
-    args = ap.parse_args(argv)
+    ap.parse_args(argv)
 
     def call() -> dict:
-        core = load(args.config_home)
-        command = ClaimCorrection(
-            finding_id=args.finding,
-            assessment_id=args.assessment,
-            label=Label(args.label),
-            ticket=args.ticket,
-            rationale=args.rationale,
-        )
-        saved = core.services().findings.request_claim_correction(
-            command, ReportArtifact.parse(args.report.read_bytes()), load_caller(core)
-        )
-        return saved.model_dump(mode="json")
+        raise PendingCoreDecision(Decision.CLAIM_CORRECTION)
 
     return run(call)
 
@@ -449,20 +437,10 @@ def rebaseline(argv: list[str] | None = None) -> int:
     ap.add_argument("review_item_id", type=UUID)
     ap.add_argument("--ticket", required=True)
     ap.add_argument("--rationale", required=True, help="the authenticated human's review rationale")
-    args = ap.parse_args(argv)
+    ap.parse_args(argv)
 
     def call() -> dict:
-        core = load(args.config_home)
-        return (
-            core.services()
-            .findings.correct_claim(
-                args.review_item_id,
-                load_caller(core),
-                ticket=args.ticket,
-                rationale=args.rationale,
-            )
-            .model_dump(mode="json")
-        )
+        raise PendingCoreDecision(Decision.CLAIM_CORRECTION)
 
     return run(call)
 
@@ -471,13 +449,10 @@ def claim(argv: list[str] | None = None) -> int:
     ap = parser("findings", "claim", "Read an accepted corrected claim, if there is one.")
     ap.add_argument("finding_id", type=UUID)
     ap.add_argument("--as-of", type=when)
-    args = ap.parse_args(argv)
+    ap.parse_args(argv)
 
     def call() -> dict | None:
-        corrected = (
-            load(args.config_home).services().findings.claim(args.finding_id, as_of=args.as_of)
-        )
-        return None if corrected is None else corrected.model_dump(mode="json")
+        raise PendingCoreDecision(Decision.CLAIM_CORRECTION)
 
     return run(call)
 
@@ -857,7 +832,7 @@ def sarif(argv: list[str] | None = None) -> int:
         repo = _repository(core, args.repo_url)
         assert repo.id is not None
         views = core.services().findings.baseline(repo.id, when(args.as_of) or datetime.now(UTC))
-        doc = core.services().reporting.sarif_findings(views, repo.url)
+        doc = SarifExport().document(views, repo.url)
         if args.out is None:
             return doc
         args.out.write_text(json.dumps(doc, indent=2) + "\n", encoding="utf-8")

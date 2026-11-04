@@ -44,7 +44,7 @@ def record_fleet(home: Path, tmp_path: Path) -> dict[str, dict]:
         exposure = impact._core(home).services().exposure
         known = exposure.find_advisory(LODASH.identifier)
         assert known is not None and known.advisory_id is not None
-        [prepared] = exposure.prepare(known.advisory_id, ref_id)
+        prepared = exposure.prepare(known.advisory_id, ref_id)
         if url == AFFECTED:
             prepared = prepared.model_copy(
                 update={

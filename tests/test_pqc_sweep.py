@@ -7,6 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from uuid import UUID, uuid4
 
+import pytest
 from traust_core.v1.context import Config, Context, Services
 from traust_core.v1.models.common import Provenance
 from traust_core.v1.models.findings import CandidateFormat
@@ -18,6 +19,7 @@ from traust_core.v1.models.values import GitSha, HttpsRepoUrl
 from traust_core.v1.models.vocabulary import ActorKind, SourceType
 from traust_core.v1.providers.base import Acquisition, Readiness, Result
 
+from traust.lib.pending_decisions import Decision, PendingCoreDecision, skip_reason
 from traust.ops.pqc import PqcSweep, SweepRoute
 
 AT = datetime(2026, 10, 24, tzinfo=UTC)
@@ -107,6 +109,7 @@ def observation(services: Services, repository_id: UUID, result: JobResult) -> U
     return order.id
 
 
+@pytest.mark.skip(reason=skip_reason(Decision.LIVENESS_STATUS))
 def test_ranked_worklist_deduplicates_repositories_and_routes_evidenced_residuals(
     tmp_path: Path,
 ) -> None:
@@ -160,7 +163,7 @@ def test_ranked_worklist_deduplicates_repositories_and_routes_evidenced_residual
     unreachable_order = observation(
         services, unreachable.repository_id, JobResult.partly({ComparisonStatus.UNREACHABLE: 1})
     )
-    sweep = PqcSweep(services, ("github.com",))
+    sweep = PqcSweep(services, ("github.com",), chokepoints=("oauth-gateway",))
     entries = sweep.worklist(PqcFilter())
     assert len(entries) == 5
     assert [e.priority_tier for e in entries] == [
@@ -180,8 +183,13 @@ def test_ranked_worklist_deduplicates_repositories_and_routes_evidenced_residual
     assert by_repo[denied.repository_id].access.observed_at is not None
     assert services.ops.manifest(denied_order).degraded == {"no-credentials": 1}
     assert services.ops.manifest(unreachable_order).degraded == {"unreachable": 1}
-    progress = services.pqc.campaign(PqcFilter()).sweep
-    assert (progress.access_requests, progress.unreachable, progress.assessed) == (1, 1, 0)
+    routes = [e.route for e in entries]
+    progress = (
+        routes.count(SweepRoute.ACCESS_REQUEST),
+        routes.count(SweepRoute.SBOM_ONLY),
+        len(services.pqc.list_readiness(PqcFilter())),
+    )
+    assert progress == (1, 1, 0)
     assert len(sweep.worklist(PqcFilter(repository_ref_ids=(tail.id,)))) == 1
     assert sweep.worklist(PqcFilter(repository_ref_ids=())) == ()
 
@@ -192,7 +200,7 @@ def test_bounded_refresh_resumes_from_recorded_pack_stamps_and_releases_checkout
     core, scanner, checkouts = registry(tmp_path)
     first, second = ref(core, "a"), ref(core, "b")
     services = replace(core.services(), checkouts=checkouts)
-    sweep = PqcSweep(services, ("github.com",))
+    sweep = PqcSweep(services, ("github.com",), scanner=core.pqc_scanner)
     batch = sweep.refresh(PqcFilter(), limit=1, refresh=True)
     assert (len(batch.results), batch.remaining) == (1, 1)
     assert batch.results[0].entry.repository_ref_id == first.id
@@ -210,6 +218,7 @@ def test_bounded_refresh_resumes_from_recorded_pack_stamps_and_releases_checkout
     assert services.pqc.list_readiness(PqcFilter()) == []
 
 
+@pytest.mark.skip(reason=skip_reason(Decision.LIVENESS_STATUS))
 def test_missing_sbom_is_a_reported_failure_not_clean_readiness(
     tmp_path: Path,
 ) -> None:
@@ -217,13 +226,16 @@ def test_missing_sbom_is_a_reported_failure_not_clean_readiness(
     target = ref(core, "offline", sbom=False)
     services = replace(core.services(), checkouts=checkouts)
     observation(services, target.repository_id, JobResult.partly({"unreachable": 1}))
-    batch = PqcSweep(services, ("github.com",)).refresh(PqcFilter(), refresh=True)
+    batch = PqcSweep(services, ("github.com",), scanner=core.pqc_scanner).refresh(
+        PqcFilter(), refresh=True
+    )
     assert [r.status for r in batch.results] == ["failed"]
     assert batch.results[0].assessment_id is None
     assert scanner.calls == 0 and checkouts.calls == []
     assert services.pqc.find(target.id) is None
 
 
+@pytest.mark.skip(reason=skip_reason(Decision.LIVENESS_STATUS))
 def test_success_without_availability_does_not_clear_access_failure(
     tmp_path: Path,
 ) -> None:
@@ -239,3 +251,13 @@ def test_success_without_availability_does_not_clear_access_failure(
     [entry] = PqcSweep(services, ("github.com",)).worklist(PqcFilter())
     assert entry.route == SweepRoute.ACCESS_REQUEST
     assert services.pqc.find(target.id) is None
+
+
+def test_a_batch_that_would_scan_without_a_scanner_names_the_pending_decision(
+    tmp_path: Path,
+) -> None:
+    core = Context(Config(home=tmp_path / "home"))
+    ref(core, "widget")
+    sweep = PqcSweep(core.services(), ("github.com",))
+    with pytest.raises(PendingCoreDecision, match=r"plan 15, decision 4"):
+        sweep.refresh(PqcFilter())

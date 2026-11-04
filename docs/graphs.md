@@ -5,11 +5,11 @@ the wrong one is the usual mistake, so each entry below states the question it
 answers and who consumes it.
 
 Sizes and node counts depend entirely on your inventory. `repo-graph-stats.md`
-and the native `dependency-reach` view report yours after a build.
+and `portfolio-graph-summary.json` report yours after a build.
 
 | Graph | Artifact | Question it answers | Built by |
 |---|---|---|---|
-| **repo-graph** | `repo-graph.{json,dot,gexf,html}` + `repo-graph-stats.md` | repository relationships, ownership, assessment coverage and highest-degree hubs | `traust portfolio graph`, over native portfolio/assessment/finding services and optional input hierarchy |
+| **repo-graph** | `repo-graph.{json,dot,gexf,html}` + `repo-graph-stats.md` | which repos exist, who owns them, what has been audited | *retired*: traust-core's portfolio (`repository`, `product`, `release`, `component`, `ownership`) and assessment coverage answer it; nothing builds the file |
 | **portfolio-graph** | `portfolio-graph.db` (SQLite) + `portfolio-graph-summary.json` | what the code depends on, and what a change reaches | *retired*: traust-core records each commit's and image's SBOM ([`/portfolio-graph`](../harnessing/portfolio-graph/SKILL.md)); nothing builds the file |
 | **ATT&CK coverage layer** | `attack-coverage.json` `navigator_layer` (Navigator format 4.5) | which adversary techniques the portfolio's findings and validated chains cover | [`/attack-coverage`](../harnessing/attack-coverage/SKILL.md) |
 | **attack chains** | `attack_chains[]` inside validation reports | how a confirmed finding chains from entry point to terminal asset | [`/validate-findings`](../harnessing/5-validate/validate-findings/SKILL.md) |
@@ -30,68 +30,75 @@ census is the denominator authority
 
 ## repo-graph — coverage and ownership
 
-The retired graph database and builder are not restored. `traust portfolio graph --out <dir>`
-derives presentation artifacts from `PortfolioService` products,
-releases, components, repositories, refs, upstreams and temporal owners;
-`AssessmentService.population` supplies latest default-line assessment coverage,
-and `FindingService` supplies disposition-aware open severity and counts.
+*Retired*: the `/repo-graph` skill is gone. traust-core holds the same facts as
+tables (products, releases, components, repositories, owner teams) and reads
+them through `PortfolioService` (`list_products_shipping`,
+`list_owned_repositories`) and `AssessmentService.coverage` (traust-core#123). The readers below
+still name `repo-graph.json` until their own ports.
 
-```bash
-traust portfolio graph --out <analysis-results>/graph
-# Optional hierarchy source and scope:
-traust portfolio graph --inputs <inputs> --product <slug> --out <dir>
-# The same view through the generic dashboard door:
-traust dashboard view repository-graph --out <dir>
-```
+It was built from the inputs inventory (segment CSVs + `owners.csv`) cross-referenced
+against the findings tree.
 
-The optional `InputSegments` source preserves declared segment, release, product,
-version, category and branch relationships without persisting graph rows.
-Inventory-only repositories stay visible as unassessed; a tool scan or repo-state
-observation alone is not audit coverage. Inventory labels describe the current
-source snapshot even when `--as-of` limits recorded facts. The default segment
-exclusion follows the dashboard scope; repeat `--exclude-segment` to choose it.
+Hierarchy: `segment` → `release`/`product` → `product-version` → `category` →
+`repo` → `findings`, plus `owner-team` → `repo` and `repo` → `repo-ref` for
+the branch-awareness layer.
 
-JSON contains every typed node/edge and `stats`, including node/relation counts,
-coverage, and deterministic top-20 hubs. `has_ref` / `ships_ref` preserve branch
-queries without inflating repository hub degrees. The CLI writes DOT for
-GraphViz, GEXF for Gephi, an offline self-contained HTML explorer, and
-`repo-graph-stats.md`; the generic dashboard uses `repo-graph.md` for its report.
+Edges: `contains` (hierarchy), `ships` (an inventory row ships this repo),
+`owned-by` (from `owners.csv`), `has-findings` (a findings directory exists),
+and `has_ref` / `ships_ref` for the ref layer.
 
-The HTML view inherits the native report's restrained light visual system.
-Search and segment focus reduce the map, pointer dragging and keyboard arrows
-pan, zoom controls/scroll/+/- scale, and Home fits. Select a repository in the
-keyboard-accessible list for relationships; double-click opens a safe source
-URL. Version/category/ref/artifact nodes remain in the full export and node
-details while the overview contracts them. No remote script, font or network
-dependency is needed.
+Repo nodes are coloured by max triaged severity across linked findings
+directories and carry `attrs.tp_total`, `attrs.findings_dirs` and
+`attrs.findings`. That is what makes it the coverage answer: *which repos have
+no audit at all* is a query over these nodes.
 
-Exports are human/machine-terminal snapshots, never input to routing, ingestion
-or dispatch. Native services remain the authoritative relationship and coverage
-queries; the retired `/repo-graph` skill need not be revived.
+Four outputs for four audiences: `.json` is canonical and machine-readable,
+`.dot` for GraphViz, `.gexf` for Gephi, `.html` a self-contained pan/zoom page.
+
+**Read by:** `/census` (report population, and repo liveness),
+`/portfolio-graph` (as its L0 spine), `/secure-code-audit` (CVE enrichment),
+`/fleet-fix` (target selection), `/drift-watch` (staleness), plus
+`migrations/resolve_docs_version_refs` (doc-version resolution).
 
 ## portfolio-graph — the code-level layers
 
-The SQLite `portfolio-graph.db` remains retired. Dependencies come from each
-commit's manifest SBOM (`impact sbom`) and each image's SBOM
-(`adapters image-sbom`). Package import/export and interface scans are recorded
-as typed code-facts assessments by `portfolio facts-collect`.
+*Retired*: nothing builds `portfolio-graph.db`. traust-core records each commit's
+manifest SBOM (`impact sbom`) and each image's SBOM (`adapters image-sbom`);
+`portfolio dependencies` / `dependents`, `portfolio ships-module` (the images
+shipping a package) and the `dependency-reach` view read them, and `adapters
+checkov` reads a checkout's Kubernetes interfaces. The readers below still name
+`portfolio-graph.db` until their own ports.
 
 `drift-watch` names `portfolio-graph.db` only in its retired `pqc-backfeed`
 history. It does not reopen that database: native PQC reads use recorded facts,
 so there is no graph-enrichment copy for a rebuild to clobber.
 
-| Layer | Native question |
+| Layer | Holds |
 |---|---|
-| L0 | `portfolio graph`: inventory/release/ref/owner/coverage relationships |
-| L1 | `portfolio dependencies` / `dependents`: recorded SBOM blast radius |
-| L2 | `portfolio crd-consumers`: API-group owners, consumers, RBAC and webhooks |
-| L3 | `portfolio ships-module`: images shipping a module in their recorded SBOM |
-| L4 | `portfolio imports-package` / `exports-of`: cited package and symbol facts |
+| **L0** | the repo-graph spine |
+| **L1** | module dependencies — Go (`go.mod`) plus npm, PyPI, Maven, Cargo, RubyGems, NuGet |
+| **L2** | Kubernetes interfaces (CRDs, API groups) |
+| **L3** | artifacts / SBOM, built during a shallow clone→extract→delete sweep, cached per repo |
+| **L4** | symbols, via tree-sitter extraction |
 
-`portfolio internal-coupling` ranks packages with declared producing-repository
-provenance by distinct dependent repositories, not dependency rows. Missing
-scans remain unmeasured. `dependency-reach` retains the SBOM coverage denominator.
-Presence or an import is never exploitability; `/impact-analysis` owns affectedness.
+All four are implemented. L1's non-Go half is tree-driven and
+resumable from a disk cache, which matters because a full rebuild is not cheap.
+
+**`repo-graph.json` is the L0 layer this builds on**, so repo-graph is a
+prerequisite rather than an alternative — a stale spine yields a
+portfolio-graph over the wrong repo set.
+
+This is the graph behind blast-radius questions: *which products depend on
+module X*, *what does this CVE reach*, *top shared libraries*, *internal
+library coupling*.
+
+**Read by:** `/impact-analysis` (advisory blast radius, before per-language
+reachability), `/pqc-readiness` (product rollups, vendor tracker,
+crypto-dependency scans), `/isolation-review` (resolving a service's repo
+set), `/fleet-fix` (every repo affected by one systemic pattern),
+`/dependency-watch` (fleet advisory sweep), `/refresh-dashboards` (dependency
+exposure), `/drift-watch` (staleness), plus `cli/build_rescan_worklist`
+(rescan routing).
 
 ## Not a graph: `findings.db`
 
@@ -185,12 +192,18 @@ there is no stored graph to open.
 
 ## Freshness
 
-Native graph views read current owners on demand. Exported files are dated
-snapshots: regenerate them after inventory, ownership, assessments or findings
-change. A stale export may mislead a reader, but is never a routing or dependency
-authority. The retired portfolio SQLite graph is not revived as a freshness gate.
+*Retired*: nothing builds repo-graph or portfolio-graph any more (traust#303), so
+neither file can go stale.
 
-A stale relationship export misstates coverage and ownership. A stale manifest
-SBOM understates dependency reach, which can read as good news. Regenerate the
-presentation and refresh source facts through their respective owners; never
-repair an export by editing graph rows.
+`/drift-watch` watches repo-graph and portfolio-graph, reporting `stale` when
+a graph predates the inputs inventory's HEAD, because inventory or ownership
+may have changed underneath it. Neither is rebuilt automatically — drift
+routes attention and a human decides.
+
+Staleness costs differ by graph, and one of them is dangerous:
+
+- **A stale repo-graph** misstates coverage and ownership. Findings route to
+  the wrong team, and "repos with no audit" omits repos added since the build.
+- **A stale portfolio-graph** *understates* blast radius. An advisory sweep
+  against an old dependency layer reports fewer affected repos than exist,
+  which reads as good news.

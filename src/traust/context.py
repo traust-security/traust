@@ -13,6 +13,7 @@ from importlib.metadata import version
 from pathlib import Path
 from typing import TypeVar
 
+import yaml
 from traust_core.v1.context import (
     TRAUST_CONFIG_HOME_DEFAULT,
     Config,
@@ -24,21 +25,13 @@ from traust_core.v1.context.config import CONFIG_FILE
 from traust_core.v1.errors import AuthenticationError, ConfigError, DeploymentConfigMissing
 from traust_core.v1.models.identity import Credential, Principal
 
-from traust.paths import (
-    GITLEAKS_CONFIG,
-    HARNESS_ROOT,
-    HARNESSING_DIR,
-    OPENGREP_RULES_DIR,
-    SECURITY_PACK_DIR,
-    skill_dir,
-)
-from traust.release_config import register_release_inventory
+from traust.paths import GITLEAKS_CONFIG, HARNESSING_DIR, OPENGREP_RULES_DIR, SECURITY_PACK_DIR
 
 T = TypeVar("T")
 
 SLA_POLICY = SECURITY_PACK_DIR / "sla-policy.yaml"  # the default until one is recorded
 MODEL_REGISTRY = "model-registry.yaml"
-REACHABILITY_WATCH = "reachability-watch.yaml"
+PQC_PRIORITY = "pqc-priority.yaml"  # optional: the PQC sweep's priority repositories
 # Security-pack content (home: traust-pack-security): the pinned ATT&CK release and its mapping.
 _ATTACK = HARNESSING_DIR / "attack-coverage" / "tables"
 ATTACK_TABLES = (_ATTACK / "attack-techniques.json", _ATTACK / "attack-mapping.json")
@@ -132,9 +125,8 @@ def load(
     the pins and safe-exec profiles traust-core ships; detection quality scores the rule pack
     (``rule_pack``, else :func:`_rule_pack`, with ``overrides.rule_pack_allowlist``) against
     canaries from ``recall-benchmark/<canaries>`` and stages rule drafts in ``rule_drafts``, else
-    ``locations.rule_drafts`` when one resolves. Release inventory is registered only when the
-    selected inputs source has a local form; remote locations remain available to URI-aware
-    consumers, while local path helpers still refuse them.
+    ``locations.rule_drafts`` when one resolves. Compliance docs targets are explicit per call
+    (``traust compliance docs``); no pqc-scan scanner is registered (plan 15, decision 4).
     """
     home = resolve_config_home(config_home)
     core = _guarded(CONFIG_FILE, lambda: Context(_with_bundled_rules(Config.from_home(home))))
@@ -147,12 +139,9 @@ def load(
             update={"feeds_cache": str(feeds_cache_dir(core))}
         )
         core.config = core.config.model_copy(update={"locations": effective})
-    if home is not None:
-        core.register_reachability_review(home / REACHABILITY_WATCH)
     _guarded("ATT&CK catalog", lambda: core.register_attack_catalog(*ATTACK_TABLES))
     _guarded("ATLAS catalog", lambda: core.register_atlas_catalog(ATLAS_TABLE))
     _guarded("SLA policy", lambda: core.register_default_sla_policy(SLA_POLICY))
-    core.register_harness_metadata(HARNESS_ROOT)
     if sla_policy is not None:
         _guarded("SLA policy", lambda: core.register_sla_policy(sla_policy))
     if home is not None and (home / MODEL_REGISTRY).is_file():
@@ -161,13 +150,8 @@ def load(
         print(f"invoices need the spend view: no {MODEL_REGISTRY} in {home}", file=sys.stderr)
         raise SystemExit(2)
     core.register_toolchain()
-    pqc = skill_dir("pqc-readiness")
-    core.register_pqc_scanner(
-        pqc / "bin" / "pqc-scan",
-        pqc / "rules",
-        adapter_version="1.4.0",
-        scan_commit="be5c760adb7d1d4d99e39d35d87d2956079db76e",
-    )
+    # No pqc-scan scanner is registered: where its adapter lives waits on a traust-core decision
+    # (plan 15, decision 4); `core.pqc_scanner` stays None and the pqc doors that need it refuse.
     pack, pack_version = (
         (rule_pack, f"local:{rule_pack}") if rule_pack else _rule_pack(core.config.locations)
     )
@@ -181,11 +165,6 @@ def load(
         core.register_rule_drafts(drafts)
     core.register_fleet_fix()
     _guarded("compliance sources", core.register_compliance_sources)
-    inventory_location = core.config.locations.inputs or core.config.locations.workspace
-    if inventory_location and (
-        "://" not in inventory_location or inventory_location.startswith("file://")
-    ):
-        register_release_inventory(core, files)
     return core
 
 
@@ -223,6 +202,29 @@ def _register_spend(core: Context, registry: Path, invoices: Path | None) -> Non
     except ConfigError as e:
         print(f"spend not resolvable: {e}", file=sys.stderr)
         raise SystemExit(2) from e
+
+
+def pqc_priority(config_home: Path | None = None) -> tuple[str, ...]:
+    """The deployment's PQC chokepoint repositories: ``chokepoints`` in
+    ``<config home>/pqc-priority.yaml`` (template: config/pqc-priority.example.yaml), repository
+    URL fragments matched case-insensitively. No file, or no config home, is no chokepoint; a
+    file that is not a list of nonblank strings exits 2."""
+    home = resolve_config_home(config_home)
+    path = None if home is None else home / PQC_PRIORITY
+    if path is None or not path.is_file():
+        return ()
+
+    def read() -> tuple[str, ...]:
+        try:
+            document = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        except (OSError, UnicodeError, yaml.YAMLError) as e:
+            raise ConfigError(f"{path}: {e}") from e
+        found = document.get("chokepoints", []) if isinstance(document, dict) else None
+        if not isinstance(found, list) or not all(isinstance(c, str) and c.strip() for c in found):
+            raise ConfigError(f"{path}: chokepoints must be a list of nonblank strings")
+        return tuple(dict.fromkeys(c.strip() for c in found))
+
+    return _guarded(PQC_PRIORITY, read)
 
 
 def load_caller(core: Context) -> Principal:

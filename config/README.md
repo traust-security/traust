@@ -35,7 +35,7 @@ keys before changing the config; the configuration switch does not migrate them.
 | `traust.example.yaml` | the template for `traust.yaml`: every section, documented, commented out except the defaults. As copied it is the zero-config install |
 | `model-registry.yaml` | model tier classes, routing roles and prices; read from the config home, where `install_traust` copies it ([procedure](../docs/model-classes.md#configuring-your-own-models)) |
 | `rule-pack-allowlist.example.yaml` | the calibrated supplemental rule allowlist; enable it with `overrides.rule_pack_allowlist` (shipped default: no supplements) |
-| `reachability-watch.example.yaml` | optional human-reviewed reachability watch reference; copy to the config home as `reachability-watch.yaml`, then review the watch questions before setting `reviewed` |
+| `pqc-priority.example.yaml` | optional: the PQC sweep's priority ("chokepoint") repositories as URL fragments; copy to the config home as `pqc-priority.yaml`. Absent: no chokepoint tier |
 
 ## Adopter facts: record them
 
@@ -54,11 +54,10 @@ newest one is used.
 The public-export inputs (the scrub's organization vocabulary) are not runtime config either:
 see [tools/public-export/](../tools/public-export/README.md).
 
-The reachability watch is a dated reference, not tool configuration or a claim that an
-engine is wired. The freshness view's capability roster comes from Core's actual analyzers
-and dependency ingestion. Its independent review clock reads the config home's
-`reachability-watch.yaml` through a provider; absent or unreviewed is pending, invalid is
-unavailable, and overdue is stale. Copying the template does not mark a review complete.
+Which repositories are the estate's PQC chokepoints is the deployment's own list, never this
+tree's: `traust.context.pqc_priority` reads `chokepoints` from the config home's
+`pqc-priority.yaml` (a list of nonblank strings; anything else exits 2), and `traust pqc
+worklist|sweep` ranks a repository whose URL contains one first. No file means no chokepoint.
 
 ## What ships with traust-core instead (not configurable)
 
