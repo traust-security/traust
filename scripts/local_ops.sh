@@ -514,6 +514,84 @@ cmd_doctor() {
     else
         echo "traust-engine: NOT importable (make ops-up reinstalls it)" >&2; bad=1
     fi
+    # The venv is the rig's truth: a `uv sync` between commands can silently
+    # swap traust-core (and strip the engine) to whatever that checkout's lock
+    # held — the 2026-11-02 fleet run observed a pre-fix core this way and its
+    # orders wrote nothing. The doctor asserts what is installed matches what
+    # THIS checkout's lock resolves, the only code the rig claims to run.
+    OPS_EXPECTED_ENGINE="$OPS_ENGINE_SRC" uv run --no-sync python - <<'PYEOF'
+import json
+import os
+import sys
+import tomllib
+from importlib.metadata import distribution
+from pathlib import Path
+
+bad = 0
+lock = Path("uv.lock")
+expected = {}
+if lock.is_file():
+    doc = tomllib.loads(lock.read_text())
+    for pkg in doc.get("package", []):
+        if pkg["name"] in ("traust-core", "traust-engine"):
+            source = pkg.get("source") or {}
+            rev = source.get("rev") or source.get("git") or ""
+            if "#" in rev:
+                rev = rev.split("#")[-1]
+            elif "?rev=" in rev:
+                rev = rev.split("?rev=")[-1]
+            if rev:
+                expected[pkg["name"]] = rev[:40]
+for name in ("traust-core", "traust-engine"):
+    try:
+        installed = distribution(name)
+    except Exception:
+        print(f"{name}: NOT installed (make ops-up)", file=sys.stderr)
+        bad = 1
+        continue
+    direct = json.loads((Path(installed._path) / "direct_url.json").read_text())
+    commit = (direct.get("vcs_info") or {}).get("commit_id")
+    want = expected.get(name)
+    if want and commit and not commit.startswith(want):
+        print(
+            f"{name}: STALE — venv has {commit[:12]}, this checkout's lock wants {want[:12]};"
+            " a uv sync swapped it (make ops-up restores)",
+            file=sys.stderr,
+        )
+        bad = 1
+    else:
+        print(f"{name}: {commit[:12] if commit else 'installed (no vcs info)'}")
+engine_src = os.environ.get("OPS_EXPECTED_ENGINE", "")
+if engine_src and "@" in engine_src:
+    want = engine_src.split("@", 1)[1][:12]
+    try:
+        installed = distribution("traust-engine")
+        direct = json.loads((Path(installed._path) / "direct_url.json").read_text())
+        commit = (direct.get("vcs_info") or {}).get("commit_id") or ""
+        if not commit.startswith(want):
+            print(
+                f"traust-engine: PIN MISMATCH — venv has {commit[:12]}, the rig pins {want};"
+                " make ops-up reinstalls",
+                file=sys.stderr,
+            )
+            bad = 1
+    except Exception:
+        pass
+sys.exit(bad)
+PYEOF
+    [ $? -ne 0 ] && bad=1
+    # The DB volume and the artifacts dir age together: a volume that survives
+    # a worktree removal holds rows pointing at artifacts that no longer exist
+    # (orders refuse not_found; claims can crash on unregistered degraded keys).
+    if container_running && [ -d "$OPS_DIR/run/artifacts" ]; then
+        OPS_DB_CREATED=$(podman volume inspect "$OPS_VOLUME" --format '{{.CreatedAt}}' 2>/dev/null | cut -d" " -f1)
+        OPS_ARTIFACTS_CREATED=$(stat -f "%Sm" -t "%Y-%m-%d" "$OPS_DIR/run/artifacts" 2>/dev/null)
+        if [ -n "$OPS_DB_CREATED" ] && [ -n "$OPS_ARTIFACTS_CREATED" ] \
+            && [ "$OPS_DB_CREATED" != "$OPS_ARTIFACTS_CREATED" ]; then
+            echo "warning: DB volume ($OPS_DB_CREATED) and artifacts ($OPS_ARTIFACTS_CREATED) disagree in age —" >&2
+            echo "         one survived a reset the other did not; make ops-reset realigns them" >&2
+        fi
+    fi
     if [ -f "$CONFIG_HOME/traust.yaml" ]; then
         echo "config home: $OPS_DIR/config"
     else
