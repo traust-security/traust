@@ -88,6 +88,7 @@ traust-core's shipped `external-tools.yaml`; `scripts/install-toolchain.sh` inst
 | `universal-ctags` | `build_symbol_index.py` ctags engine (optional; built-in extractors otherwise) | **GPL-2.0-or-later** | [source headers](https://github.com/universal-ctags/ctags/blob/master/main/entry.c) |
 | `ast-grep` | fleet-fix structural transforms (`traust remediation fleet-record` golden tests, `fleet-claim`; matcher kind `ast_grep`) | MIT | [LICENSE](https://github.com/ast-grep/ast-grep/blob/main/LICENSE) |
 | `gh` | remediate-finding, secure-code-audit (API lookups), the rescan router (`github`-kind hosts) | MIT | [LICENSE](https://github.com/cli/cli/blob/trunk/LICENSE) |
+| `rsync` | remediate-finding `push_fix.sh` — the file-level worktree snapshot behind the deterministic fix commit (worktree files only, never `.git`) | **GPL-3.0-or-later** | [COPYING](https://github.com/WayneD/rsync/blob/master/COPYING) — invoked as a subprocess CLI, never linked or redistributed |
 | `glab` | fleet-fix and remediate-finding MR automation (human-gated) | MIT | [LICENSE](https://gitlab.com/gitlab-org/cli/-/blob/main/LICENSE) |
 | `jq` | shell snippets across several skills | MIT (code) + CC-BY-3.0 (docs) | [COPYING](https://github.com/jqlang/jq/blob/master/COPYING) |
 | `sqlite3` (CLI + Python stdlib module) | findings.db projection | Public Domain (SQLite); PSF-2.0 for the stdlib wrapper | [SQLite copyright](https://sqlite.org/copyright.html) |
