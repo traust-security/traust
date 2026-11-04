@@ -364,3 +364,44 @@ def test_a_session_runs_with_the_runners_own_claude_config_dir(
     _, kw = processes.agent_call()
     assert kw["env"]["CLAUDE_CONFIG_DIR"] == str(tmp_path / "claude-runner")
     assert not Path(kw["env"]["CLAUDE_CONFIG_DIR"]).is_relative_to(Path.home() / ".claude")
+
+
+ORDER = "8f7d5e2a-1c3b-4d5e-9f60-7a8b9c0d1e2f"
+
+
+@pytest.mark.parametrize(
+    ("recorded", "outcome", "reason"),
+    [([], "failed", "session-output-invalid"), (["a-1"], "succeeded", None)],
+)
+def test_an_ordered_audit_succeeds_only_if_it_recorded_for_its_order(
+    processes: Processes,
+    monkeypatch: pytest.MonkeyPatch,
+    recorded: list[str],
+    outcome: str,
+    reason: str | None,
+) -> None:
+    asked: list[object] = []
+
+    def assessments(order_id: object, config_home: object) -> list[SimpleNamespace]:
+        asked.append(order_id)
+        return [SimpleNamespace(id=i) for i in recorded]
+
+    monkeypatch.setattr(session, "order_assessments", assessments)
+    _, result = run(
+        "--skill", "secure-code-audit", "--role", "deep-audit", "--repo", REPO, "--run-id", ORDER
+    )
+    assert (result["outcome"], result.get("reason")) == (outcome, reason)
+    assert result["written"] == recorded
+    assert [str(o) for o in asked] == [ORDER]
+    assert processes.agent_call()[1]["env"]["TRAUST_RUN_ID"] == ORDER
+
+
+def test_a_manual_or_non_recording_session_is_not_checked(
+    processes: Processes, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(session, "order_assessments", lambda *_: pytest.fail("checked"))
+    _, result = run("--skill", "secure-code-audit", "--role", "deep-audit", "--repo", REPO)
+    assert result["outcome"] == "succeeded"
+    assert "TRAUST_RUN_ID" not in processes.agent_call()[1]["env"]
+    _, result = run("--skill", "threat-model", "--role", "threat-model", "--run-id", ORDER)
+    assert result["outcome"] == "succeeded"

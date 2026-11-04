@@ -45,10 +45,12 @@ PRIV_PROFILE = {"repo": "widget-operator", "summary": {"workloads": 1, "rbac_rul
 class Door:
     def __init__(self, result: Any) -> None:
         self.calls: list[tuple[Any, ...]] = []
+        self.keywords: list[dict[str, Any]] = []
         self.result = result
 
-    def __call__(self, *args: Any) -> Any:
+    def __call__(self, *args: Any, **keywords: Any) -> Any:
         self.calls.append(args)
+        self.keywords.append(keywords)
         if isinstance(self.result, Exception):
             raise self.result
         return self.result
@@ -578,3 +580,16 @@ def test_legacy_campaign_import_requires_explicit_identity_and_population(
     assert (
         Context.from_file(core_home / "traust.yaml").services().assessment.fuzz_campaign() is None
     )
+
+
+def test_record_binds_the_assessment_to_its_order(doors, home, tmp_path, monkeypatch):
+    path = document(tmp_path, security_audit())
+    order = uuid.uuid4()
+    argv = (str(path), "--kind", "secure_code", "--repo-url", URL, "--sha", SHA)
+    assert run(home, *argv, "--run-id", str(order))[0] == 0
+    monkeypatch.setenv("TRAUST_RUN_ID", str(order))
+    assert run(home, *argv)[0] == 0
+    monkeypatch.delenv("TRAUST_RUN_ID")
+    assert run(home, *argv)[0] == 0
+    assert [k["run_order_id"] for k in doors.record.keywords] == [order, order, None]
+    assert [c[-1].run_id for c in doors.record.calls][:2] == [order, order]

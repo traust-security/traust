@@ -68,6 +68,13 @@ An empty report can legitimately prepare no items. An empty assessment-only
 secure-code batch is not proof that a report containing findings is clean;
 later intake does not automatically attach its findings to that original audit.
 
+`reporting record` and `cloud-config record` take `--run-id <order-uuid>` (default:
+`$TRAUST_RUN_ID`, which `traust session run` sets for the agent it starts). The assessment
+is then that leased order's result: core refuses an order that isn't leased or ran on another
+repository. An ordered `secure-code-audit`, `vuln-scan` or `cloud-config-audit` session
+succeeds only if its order recorded an assessment; otherwise it fails with
+`session-output-invalid`, so a session that never recorded can't pass as done.
+
 After admission, `traust findings find <report.json> --label <report-local-id>
 --repo-url <audited-source-https-url>` is an optional scoped diagnostic. Exit 0 with
 `finding_id: null` means no match, not an identity/admission receipt. Do not revive
