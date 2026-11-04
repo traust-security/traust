@@ -323,7 +323,7 @@ PYEOF
     mkdir -p "$RUN_DIR/home" "$RUN_DIR/workspace" "$RUN_DIR/analysis-results" "$RUN_DIR/progress-tracker" "$OPS_DIR/pack"
     # The rig takes no rescan events: an empty file says so (a missing one is refused).
     mkdir -p "$RUN_DIR/analysis-results/findings/_manifest"
-    touch "$RUN_DIR/analysis-results/findings/_manifest/rescan-events.jsonl"
+    : >>"$RUN_DIR/analysis-results/findings/_manifest/rescan-events.jsonl"
     pack_overlay > "$OPS_DIR/pack/assets.yaml"
 
     # Repo-config isolation keeps checkout hooks/config out of headless sessions.
