@@ -75,11 +75,15 @@ def flags(task: Path, skills: Path, output: Path) -> list[str]:
         },
     }
     return [
-        "--restricted",
         "--permission-mode",
         "dontAsk",
+        # The user source is the session's own CLAUDE_CONFIG_DIR (a skills-only dir the
+        # runner builds): `--restricted` and a blank `--setting-sources` strip Claude's
+        # skills entirely, so a session told to run `/dependency-watch` could not resolve
+        # it and every artifact-only order died as session-output-invalid. The guard hook
+        # stays the single authority on what a call may touch.
         "--setting-sources",
-        "",
+        "user",
         "--strict-mcp-config",
         "--mcp-config",
         '{"mcpServers":{}}',

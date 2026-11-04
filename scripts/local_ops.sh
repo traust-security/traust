@@ -320,7 +320,8 @@ if ledger in (None, {}) or rig_configured:
 with open(path, "w") as f:
     yaml.safe_dump(cfg, f, sort_keys=False)
 PYEOF
-    mkdir -p "$RUN_DIR/home" "$RUN_DIR/workspace" "$RUN_DIR/analysis-results" "$RUN_DIR/progress-tracker" "$OPS_DIR/pack"
+    mkdir -p "$RUN_DIR/home" "$RUN_DIR/workspace/inputs" "$RUN_DIR/analysis-results" \
+        "$RUN_DIR/progress-tracker" "$OPS_DIR/pack"
     pack_overlay > "$OPS_DIR/pack/assets.yaml"
 
     # Repo-config isolation keeps checkout hooks/config out of headless sessions.

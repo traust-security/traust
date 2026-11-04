@@ -58,7 +58,7 @@ from traust.ops.materializers import _order_id
 from traust.ops.router import THREAT_MODEL_PR
 from traust.ops.session_guard import flags as confinement_flags
 from traust.ops.sessions import SESSIONS, SessionRunner
-from traust.paths import HARNESS_ROOT, HARNESSING_DIR, skill_dir
+from traust.paths import HARNESS_ROOT, HARNESSING_DIR, skill_dir, skill_dirs
 
 # PENDING(agents): Claude Code is the agent sessions start in; Crush is the other implementation.
 AGENT = ("claude", "-p", "--output-format", "json")
@@ -100,6 +100,27 @@ class AgentResult(Dto):
 def claude_dir(config_home: Path | None) -> Path:
     """The Claude config dir runner sessions use, apart from the workstation's `~/.claude`."""
     return (resolve_config_home(config_home) or TRAUST_CONFIG_HOME_DEFAULT) / "claude-runner"
+
+
+def artifact_claude_dir(config_home: Path | None) -> Path:
+    """The artifact-only sessions' Claude config dir: the harness skills and nothing else.
+
+    The audit runner's dir carries credentials and permission grants for unconfined
+    sessions; an artifact-only session is confined (the guard hook gates every call) and
+    needs only its skills resolvable — `--setting-sources user` against this dir loads
+    them while CLAUDE_CONFIG_DIR keeps the workstation's config out. Symlinks are
+    refreshed idempotently, so a payload update reaches the next session."""
+    root = (resolve_config_home(config_home) or TRAUST_CONFIG_HOME_DEFAULT) / "claude-artifact"
+    skills = root / "skills"
+    skills.mkdir(parents=True, exist_ok=True)
+    for directory in skill_dirs():
+        link = skills / directory.name
+        if link.is_symlink() and link.resolve() == directory.resolve():
+            continue
+        if link.is_symlink() or link.exists():
+            link.unlink()
+        link.symlink_to(directory, target_is_directory=True)
+    return root
 
 
 def session(
@@ -280,7 +301,7 @@ def _spent(result: JobResult, usage: tuple[ModelUsage, ...]) -> JobResult:
 def _runner(config_home: Path | None) -> tuple[Context, SessionRunner]:
     from traust.cli.impact import _core
 
-    core = _core(config_home)
+    core = _core(config_home)  # feeds registered there: below-range reads OSV through them
     if core.model_catalog is None:
         raise ValidationError("artifact-only sessions require the model registry")
     return core, SessionRunner(
@@ -389,7 +410,7 @@ def artifact_run(
                 "CLAUDE_CODE_OAUTH_TOKEN",
             }
         }
-        env["CLAUDE_CONFIG_DIR"] = str(claude_dir(config_home))
+        env["CLAUDE_CONFIG_DIR"] = str(artifact_claude_dir(config_home))
         command = [
             *AGENT,
             *confinement_flags(root, HARNESSING_DIR.resolve(), root / staged[0].output.path),
