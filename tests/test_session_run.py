@@ -386,7 +386,10 @@ class Recorded:
     [
         ([], [], "failed", []),
         ([], [("a-1", "secure_code")], "succeeded", ["a-1"]),
-        ([("a-0", "secure_code")], [("a-0", "secure_code")], "failed", []),
+        # A retry that re-records an unchanged report is handed the earlier assessment
+        # back, indistinguishable from a retry that recorded nothing: the order holding
+        # its assessment of the kind is the contract, so this succeeds with the order's own.
+        ([("a-0", "secure_code")], [("a-0", "secure_code")], "succeeded", ["a-0"]),
         (
             [("a-0", "secure_code")],
             [("a-0", "secure_code"), ("a-1", "secure_code")],
@@ -395,7 +398,7 @@ class Recorded:
         ),
         ([], [("t-1", "threat_model")], "failed", []),
     ],
-    ids=["nothing", "recorded", "an earlier attempt's", "a retry's own", "another kind"],
+    ids=["nothing", "recorded", "an idempotent retry", "a retry's own", "another kind"],
 )
 def test_an_ordered_audit_succeeds_only_if_this_attempt_recorded_its_kind_for_the_order(
     processes: Processes,
@@ -434,6 +437,28 @@ def test_a_failed_lookup_after_the_session_still_carries_what_it_spent(
     )
     assert (rc, result["outcome"], result["reason"]) == (1, "failed", "runner-crashed")
     assert len(result["usage"]) == 2
+
+
+def test_a_configuration_that_exits_rather_than_raising_answers_bad_request(
+    processes: Processes, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`load` exits on an unusable configuration instead of raising; the caller still gets a
+    structured result, and the post-session lookup carries what the run spent."""
+    answers = iter([[], SystemExit(2)])
+
+    def lookup(*_: object) -> list[SimpleNamespace]:
+        answer = next(answers)
+        if isinstance(answer, BaseException):
+            raise answer
+        return answer
+
+    monkeypatch.setattr(session, "order_assessments", lookup)
+    rc, result = run(
+        "--skill", "secure-code-audit", "--role", "deep-audit", "--repo", REPO, "--run-id", ORDER
+    )
+    assert (rc, result["outcome"], result["reason"]) == (1, "failed", "bad_request")
+    assert len(result["usage"]) == 2
+    assert processes.agent_calls()
 
 
 def test_a_malformed_run_id_is_a_bad_request_before_the_agent_starts(

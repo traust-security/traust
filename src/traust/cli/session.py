@@ -257,10 +257,14 @@ def run(argv: list[str] | None = None) -> int:
     kind = RECORDING_SKILLS.get(args.skill)
     try:
         order_id = _order_id(args.run_id)
-        # an earlier attempt's assessments are not this one's
+        # what the order had before this attempt, to prefer this attempt's own below
         before = set() if order_id is None or kind is None else _recorded(order_id, kind, args)
     except ValueError:
         print(f"run {args.run_id}: {OrderReason.BAD_REQUEST}: not a run order id", file=sys.stderr)
+        return answer(JobResult.failed(OrderReason.BAD_REQUEST))
+    except SystemExit:
+        # `load` exits on an unusable configuration rather than raising
+        print(f"run {args.run_id}: {OrderReason.BAD_REQUEST}: configuration", file=sys.stderr)
         return answer(JobResult.failed(OrderReason.BAD_REQUEST))
     except (TraustError, OSError) as e:
         print(f"run {args.run_id}: {OrderReason.BAD_REQUEST}: {type(e).__name__}", file=sys.stderr)
@@ -299,18 +303,26 @@ def run(argv: list[str] | None = None) -> int:
         return answer(_spent(JobResult.failed(OrderReason.RUNNER_CRASHED), usage))
     if order_id is not None and kind is not None:
         try:
-            written = sorted(_recorded(order_id, kind, args) - before)
+            recorded = _recorded(order_id, kind, args)
+        except SystemExit:
+            print(f"run {args.run_id}: {OrderReason.BAD_REQUEST}: configuration", file=sys.stderr)
+            return answer(_spent(JobResult.failed(OrderReason.BAD_REQUEST), usage))
         except (TraustError, OSError) as e:
             print(
                 f"run {args.run_id}: recorded-assessment lookup: {type(e).__name__}",
                 file=sys.stderr,
             )
             return answer(_spent(JobResult.failed(OrderReason.RUNNER_CRASHED), usage))
-        if not written:
+        if not recorded:
             print(
                 f"run {args.run_id}: /{args.skill} recorded no {kind} assessment", file=sys.stderr
             )
             return answer(_spent(JobResult.failed(OrderReason.SESSION_OUTPUT_INVALID), usage))
+        # This attempt's when it recorded new; otherwise the order's own. A retry that re-records
+        # an unchanged report is handed the earlier assessment back (re-recording adds nothing),
+        # which no row distinguishes from a retry that recorded nothing — so the order holding
+        # its assessment of this kind is the contract this gate can enforce.
+        written = sorted(recorded - before) or sorted(recorded)
         return answer(_spent(JobResult.succeeded(written=tuple(written)), usage))
     return answer(_spent(JobResult.succeeded(), usage))
 
