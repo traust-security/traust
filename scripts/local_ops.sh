@@ -324,20 +324,16 @@ PYEOF
     # The events file must exist (a missing one is refused). Created empty, never truncated:
     # events an operator appends to the rig survive the next up — under the analysis-results
     # the rig's traust.yaml configures, which an operator may have pointed elsewhere.
-    EVENTS_DIR=$(uv run --no-sync python - "$CONFIG_HOME/traust.yaml" "$RUN_DIR/analysis-results" <<'PY'
-import sys, yaml
-from pathlib import Path
+    # The same resolver the intake uses (core's locations, not a raw YAML read that could
+    # diverge from it), failing loudly on a config that cannot be read or resolved.
+    EVENTS_DIR=$(TRAUST_CONFIG_HOME="$CONFIG_HOME" uv run --no-sync python - <<'PY'
+from traust.context import findings_tree_dir, load
 
-config, default = sys.argv[1], sys.argv[2]
-try:
-    document = yaml.safe_load(Path(config).read_text()) or {}
-    print((document.get("locations") or {}).get("analysis_results") or default)
-except (FileNotFoundError, yaml.YAMLError):
-    print(default)
+print(findings_tree_dir(load()))
 PY
 )
-    mkdir -p "$EVENTS_DIR/findings/_manifest"
-    : >>"$EVENTS_DIR/findings/_manifest/rescan-events.jsonl"
+    mkdir -p "$EVENTS_DIR/_manifest"
+    : >>"$EVENTS_DIR/_manifest/rescan-events.jsonl"
     pack_overlay > "$OPS_DIR/pack/assets.yaml"
 
     # Repo-config isolation keeps checkout hooks/config out of headless sessions.

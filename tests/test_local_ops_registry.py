@@ -164,3 +164,16 @@ def test_up_creates_the_events_file_where_the_rig_configures_its_results(
 
     assert result.returncode == 0, result.stdout + result.stderr
     assert events.is_file()
+
+
+def test_up_fails_loudly_on_a_config_that_cannot_be_read(tmp_path: Path) -> None:
+    """A corrupt traust.yaml must not produce a silent success with the events file created
+    under some default tree (the resolver the intake uses fails, and so does up)."""
+    rig = LocalOpsRig(tmp_path)
+    assert rig.run("up").returncode == 0
+    installed = rig.config_home / "traust.yaml"
+    installed.write_text("locations: [not, a, mapping")
+
+    result = rig.run("up")
+
+    assert result.returncode != 0
