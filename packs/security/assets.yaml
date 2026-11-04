@@ -24,7 +24,7 @@ assets:
     freshness: {fail: 48h}
     runner: {labels: [deterministic]}
 
-  rescan_event_intake:  # operator events -> direct engine orders ahead of table routing
+  rescan_event_intake:  # direct event orders; priority preference, not an observation barrier
     run: [python3, -m, traust.cli, portfolio, event-intake, --run-id, "{run_id}"]
     deps: [inventory_discovery]
     trigger: {every: 24h}

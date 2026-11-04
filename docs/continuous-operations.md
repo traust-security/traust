@@ -73,8 +73,9 @@ coverage diff rather than the ledger. They never file a finding.
 The router routes only — it never authors a finding, verdict, or audit. Its
 output is the engine's orders, one per routed lane. `inventory_discovery`
 registers configured input URLs and plans their `repo_state` partitions before
-those routes run. `rescan_event_intake` plans unconsumed external-report,
-methodology and CVE rows directly, ahead of the decision table.
+those routes run. `rescan_event_intake` directly plans unconsumed external-report,
+methodology and CVE rows. Its higher scheduling priority is a preference, not a
+completion barrier: event intake and ordinary observations can overlap.
 
 The former daily worklist builder (`traust build rescan-worklist` and its
 `rescan-worklist.json`) is retired: it read a `findings.db` projection nothing
@@ -135,7 +136,7 @@ rows named in the last column are the backstop that makes a dead timer visible.
 | Job | Cadence | Trigger | Runner | Output gate / staleness backstop |
 |---|---|---|---|---|
 | Input inventory discovery | daily, before repository observation | timer (`inventory_discovery`) | `traust portfolio inventory-discover` | Registers every typed `locations.inputs` URL as private by default and plans its first observation plus bootstrap audit. Existing orders coalesce idempotently. |
-| Operator event intake | daily, before table routing | timer (`rescan_event_intake`) | `traust portfolio event-intake` | Plans unconsumed methodology and CVE work directly. An external-report row plans separate approved audit and live-validation orders; invalid, unscoped or unregistered rows are visible, never silently dropped. |
+| Operator event intake | daily; higher scheduling priority than observation | timer (`rescan_event_intake`) | `traust portfolio event-intake` | Plans unconsumed methodology and CVE work directly. An external-report row plans separate approved audit and live-validation orders; invalid, unscoped or unregistered rows are visible, never silently dropped. |
 | Repository observation + router | per `repo_state` observation | engine tick | `traust portfolio observe`, then `traust.ops.router` | routes only, never authors findings; the engine tick is the cadence |
 | **Feed-source liveness** | *retired* with `check drift`; returns as traust-core provider readiness once the live sources are core providers | probe | — | Probes every source in traust-core's shipped `feeds.yaml` carrying a `probe` — both tiers — so a live-tier source that answers with an error is visible. A definitive HTTP error is `drift`; a transport failure is `unavailable`, never `drift`, so an offline workstation does not report every source as broken |
 | Release/dist-git event feeder | daily (`release_discovery`, 24h) | inventory digest/tag/local-key or watched dist-git HEAD change | `traust portfolio release-discover` | Native `release-inventory` feed snapshots retain observation identities. Initial observation is baseline only; changed artifacts plan `release_passthrough`, then approved container/RPM batches. Explicit product bindings record versions; dist-git movement never becomes a version. |
@@ -468,14 +469,31 @@ rule-4 ceiling. CVE events queue an immediate `cve_impact` order running
 `/dependency-watch`. Release events use the native release-discovery feed below,
 not this file.
 
-`rescan_event_intake` plans before ordinary `repo_state` table routing. It binds
-each canonical row's digest into Core's order manifests and skips that event in
-every order state on later runs.
-When another event already owns an open order for the same asset and repository,
-intake degrades visibly and retries the waiting row on the next tick instead of
-coalescing their inputs. `consumed`
-remains an operator-controlled archival marker. Malformed, unsupported or
-unregistered records fail or degrade rather than disappear.
+`rescan_event_intake` has higher scheduling priority than `repo_state`, but both
+depend on inventory discovery; there is no completion dependency between them.
+Concurrent workers can start ordinary observation before event intake finishes.
+Each canonical row's digest is bound into Core's order manifests. Existing open
+work is not duplicated, and successful or degraded completion is not dispatched
+again. An unsuccessful terminal audit or validation remains visible: subsequent
+intake ticks return degraded and log its event digest, asset and order ID.
+There are no automatic paid-audit or live-validation retries.
+
+History and manifests are read once per repository/asset group in each tick;
+new bindings update that tick's index immediately. When another event owns an
+open order for the same group, intake degrades and revisits the waiting row on
+the next tick rather than coalescing its inputs.
+
+`consumed` remains an explicit operator archival marker. Review unsuccessful
+work before archiving it. An intentional retry can be requested by archiving
+the reviewed row and appending a new event with a distinct date/note that records
+the retry intent; the new row has its own canonical identity and approvals.
+Archiving does not rewrite the failed order as successful. Malformed, unsupported
+or unregistered records fail or degrade rather than disappear. Rejected inventory
+entries are logged by run ID, entry index and failure class, never raw URL or
+exception payload.
+If Core's inventory loader rejects a file before materialization, the CLI returns
+a failed bad-request result without its validation payload or traceback. Correct
+the inventory before retrying discovery; this is not partial success.
 
 ### Event feeders
 

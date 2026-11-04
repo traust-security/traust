@@ -46,7 +46,8 @@ queues as an order — `full-audit+validate`, `full-audit`, `impact-lane`,
 `iac-lane`, `iac-baseline`, `release-passthrough`, `threat-model-review`,
 `deps-lane`, `diff-scan`, `diff-scan-quarterly`, `threat-model-quarterly`,
 `none`. Methodology and CVE injection is planned directly by
-`rescan_event_intake` ahead of this table. External-report intake plans separate
+`rescan_event_intake`, with priority preference rather than a completion barrier
+ahead of ordinary observation. External-report intake plans separate
 approved audit and scoped live-validation orders; the validation waits for the
 audit and carries an immutable binding to its report and targets file.
 

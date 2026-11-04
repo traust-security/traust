@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import json
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, ClassVar
+from uuid import UUID
 
 from traust_core.v1.context import Services
 from traust_core.v1.errors import ConfigError, ValidationError
@@ -23,7 +24,9 @@ from traust_core.v1.models.operations import (
     OrderManifest,
     OrderReason,
     OrderRequest,
+    OrderState,
     RescanEventSource,
+    RunOrder,
 )
 from traust_core.v1.models.vocabulary import ComparisonStatus
 
@@ -49,6 +52,7 @@ class RescanEvent:
 
 _EVENT_CONFIG = "rescan-event:"
 _VALIDATION_CONFIG = "external-validation:"
+_HANDLED_EVENT_STATES = frozenset((*OPEN_ORDER_STATES, OrderState.SUCCEEDED, OrderState.DEGRADED))
 
 
 def _event_config(event: RescanEvent) -> tuple[ConfigDigest, ...]:
@@ -145,6 +149,22 @@ def _rescan_events(path: Path) -> tuple[RescanEvent, ...]:
     return tuple(events)
 
 
+@dataclass(slots=True)
+class _EventHistory:
+    unfinished: dict[str, UUID | None] = field(default_factory=dict)
+    active: bool = False
+
+    def add(self, order: RunOrder, manifest: OrderManifest) -> None:
+        assert order.id is not None
+        self.active |= order.state in OPEN_ORDER_STATES
+        unsuccessful = order.state not in _HANDLED_EVENT_STATES
+        for entry in manifest.config:
+            if entry.name == _EVENT_CONFIG + entry.digest and (
+                entry.digest not in self.unfinished or unsuccessful
+            ):
+                self.unfinished[entry.digest] = order.id if unsuccessful else None
+
+
 class InventoryDiscoveryMaterializer:
     """Register configured input repositories and plan their first observation and audit."""
 
@@ -167,10 +187,14 @@ class InventoryDiscoveryMaterializer:
                 {url for segment in self._inventory.segments for url in segment.repository_urls}
             )
         except ConfigError as error:
-            log.warning("run %s: inventory discovery refused: %s", request.run_id, error)
+            log.warning(
+                "run %s: inventory discovery refused (%s)",
+                request.run_id,
+                type(error).__name__,
+            )
             return JobResult.failed(OrderReason.BAD_REQUEST)
         failures = 0
-        for raw in urls:
+        for entry_index, raw in enumerate(urls, 1):
             try:
                 url = _repo_url(raw)
                 repository = self._portfolio.find_repository(url)
@@ -201,11 +225,10 @@ class InventoryDiscoveryMaterializer:
             except (ConfigError, ValidationError, ValueError) as error:
                 failures += 1
                 log.warning(
-                    "run %s: inventory URL %r refused (%s): %s",
+                    "run %s: inventory entry %d refused (%s)",
                     request.run_id,
-                    raw,
+                    entry_index,
                     type(error).__name__,
-                    error,
                 )
         unique = tuple(dict.fromkeys(written))
         if failures:
@@ -234,7 +257,7 @@ class RescanEventIntakeMaterializer:
         try:
             events = _rescan_events(self._events)
         except ConfigError as error:
-            log.warning("run %s: event intake refused: %s", request.run_id, error)
+            log.warning("run %s: event intake refused (%s)", request.run_id, type(error).__name__)
             return JobResult.failed(OrderReason.BAD_REQUEST)
         routed = []
         unavailable = 0
@@ -261,20 +284,34 @@ class RescanEventIntakeMaterializer:
             routed.append((event, repository.id, route))
         written = []
         blocked = 0
+        groups: dict[tuple[UUID, str], _EventHistory] = {}
         for event, repository_id, route in routed:
             for offset, asset in enumerate(self._assets[event.source]):
-                history = tuple(
-                    every_item(
+                key = repository_id, asset
+                group = groups.get(key)
+                if group is None:
+                    group = _EventHistory()
+                    for previous in every_item(
                         lambda page, asset=asset, repository_id=repository_id: self._ops.list(
                             OrderFilter(asset=asset, repository_id=repository_id), page
                         )
-                    )
-                )
-                if any(
-                    _has_event_identity(self._ops.manifest(order.id), event) for order in history
-                ):
+                    ):
+                        group.add(previous, self._ops.manifest(previous.id))
+                    groups[key] = group
+                if event.identity in group.unfinished:
+                    unfinished = group.unfinished[event.identity]
+                    if unfinished is not None:
+                        blocked += 1
+                        log.warning(
+                            "run %s: event %s has unsuccessful %s order %s; "
+                            "operator action required",
+                            request.run_id,
+                            event.identity,
+                            asset,
+                            unfinished,
+                        )
                     continue
-                if any(order.state in OPEN_ORDER_STATES for order in history):
+                if group.active:
                     blocked += 1
                     continue
                 order = self._ops.plan(
@@ -288,7 +325,9 @@ class RescanEventIntakeMaterializer:
                     self._principal,
                     config=_event_config(event),
                 )
-                if not _has_event_identity(self._ops.manifest(order.id), event):
+                manifest = self._ops.manifest(order.id)
+                group.add(order, manifest)
+                if not _has_event_identity(manifest, event):
                     blocked += 1
                     continue
                 written.append(str(order.id))

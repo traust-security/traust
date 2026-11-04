@@ -5,12 +5,21 @@ from datetime import timedelta
 from pathlib import Path
 from uuid import UUID
 
+import pytest
 import yaml
+from traust_core.v1.errors import ValidationError
 from traust_core.v1.models.identity import Principal
 from traust_core.v1.models.input_segments import InputSegment, InputSegmentInventory
-from traust_core.v1.models.operations import AssetRequest, JobResult, WorkerId
+from traust_core.v1.models.operations import (
+    AssetRequest,
+    JobResult,
+    OrderReason,
+    OrderState,
+    WorkerId,
+)
 from traust_core.v1.models.vocabulary import ActorKind
 
+from traust.cli import portfolio_observe
 from traust.context import load
 from traust.ops.intake import (
     ExternalValidationInput,
@@ -196,3 +205,187 @@ def test_completed_event_is_not_dispatched_again(tmp_path: Path) -> None:
             AssetRequest(asset="rescan_event_intake", run_id="repeat-run")
         )
     assert repeated == JobResult.succeeded()
+
+
+def test_rejected_inventory_entries_do_not_publish_private_urls(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    core = context(tmp_path)
+    services = core.services()
+    username, password = "private-person-canary", "private-password-canary"
+    rejected = f"https://{username}:{password}@github.com/example/repo"
+    inventory = InputSegmentInventory(
+        segments=(InputSegment(name="probe", repository_urls=(rejected, "https://[::1", REPO)),)
+    )
+    with core.repository_observation() as observation:
+        result = InventoryDiscoveryMaterializer(
+            services, observation.query, inventory, PRINCIPAL
+        ).materialize(AssetRequest(asset="inventory_discovery", run_id="privacy-run"))
+    assert result.outcome == "degraded" and result.degraded == {"error": 2}
+    assert {services.ops.get(UUID(value)).asset for value in result.written} == {
+        "repo_state",
+        "full_audit",
+    }
+    assert username not in caplog.text
+    assert password not in caplog.text
+    assert rejected not in caplog.text
+
+
+def test_inventory_failure_diagnostics_do_not_echo_provider_exception_payloads(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    core = context(tmp_path)
+    services = core.services()
+    private = "private-provider-canary:private-provider-password"
+
+    def refused(*args, **kwargs):
+        raise ValidationError(private)
+
+    monkeypatch.setattr(services.portfolio, "find_repository", refused)
+    with core.repository_observation() as observation:
+        result = InventoryDiscoveryMaterializer(
+            services, observation.query, core.repository_inventory(), PRINCIPAL
+        ).materialize(AssetRequest(asset="inventory_discovery", run_id="provider-failure"))
+    assert result.outcome == "degraded" and result.degraded == {"error": 1}
+    assert not result.written
+    assert private not in caplog.text
+
+
+@pytest.mark.parametrize("failed_asset", ["external_report_audit", "external_report_validation"])
+@pytest.mark.parametrize(
+    "outcome",
+    [
+        JobResult.failed(OrderReason.RUNNER_CRASHED),
+        JobResult.refused(OrderReason.SOURCE_UNAVAILABLE),
+    ],
+    ids=["failed", "refused"],
+)
+def test_unsuccessful_event_work_stays_visible_until_operator_archives_it(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+    failed_asset: str,
+    outcome: JobResult,
+) -> None:
+    core = context(tmp_path)
+    services = core.services()
+    row = {
+        "source": "external-report",
+        "repo": REPO,
+        "report": "incoming/report.md",
+        "targets": "scope/targets.yaml",
+    }
+    with core.repository_observation() as observation:
+        InventoryDiscoveryMaterializer(
+            services, observation.query, core.repository_inventory(), PRINCIPAL
+        ).materialize(AssetRequest(asset="inventory_discovery", run_id="inventory-run"))
+        events = event_file(tmp_path, row)
+        intake = RescanEventIntakeMaterializer(services, observation.query, PRINCIPAL, events)
+        first = intake.materialize(AssetRequest(asset="rescan_event_intake", run_id="first"))
+        worker = WorkerId("failure-worker")
+        unsuccessful = None
+        for value in first.written:
+            order = services.ops.get(UUID(value))
+            services.ops.admit(order.id)
+            assert services.ops.claim(worker, timedelta(minutes=5), order_id=order.id) is not None
+            result = outcome if order.asset == failed_asset else JobResult.succeeded()
+            services.ops.complete(order.id, worker, result)
+            if order.asset == failed_asset:
+                unsuccessful = order.id
+        assert unsuccessful is not None
+        for run_id in ("next-tick", "later-tick"):
+            repeated = intake.materialize(AssetRequest(asset="rescan_event_intake", run_id=run_id))
+            assert repeated.outcome == "degraded" and repeated.degraded == {"error": 1}
+            assert not repeated.written
+        assert str(unsuccessful) in caplog.text
+        event_file(tmp_path, {**row, "consumed": True})
+        archived = intake.materialize(AssetRequest(asset="rescan_event_intake", run_id="archived"))
+    assert archived == JobResult.succeeded()
+    assert services.ops.get(unsuccessful).state == OrderState(outcome.outcome)
+
+
+def test_many_events_read_each_groups_history_and_manifests_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    core = context(tmp_path)
+    services = core.services()
+    with core.repository_observation() as observation:
+        InventoryDiscoveryMaterializer(
+            services, observation.query, core.repository_inventory(), PRINCIPAL
+        ).materialize(AssetRequest(asset="inventory_discovery", run_id="inventory-run"))
+        for index in range(5):
+            events = event_file(tmp_path, {"source": "cve", "repo": REPO, "note": f"old-{index}"})
+            intake = RescanEventIntakeMaterializer(services, observation.query, PRINCIPAL, events)
+            seeded = intake.materialize(AssetRequest(asset="rescan_event_intake", run_id="seed"))
+            complete(services, seeded.written)
+        events = event_file(
+            tmp_path, *({"source": "cve", "repo": REPO, "note": f"new-{i}"} for i in range(20))
+        )
+        counts = {"history": 0, "manifests": 0}
+        original_list, original_manifest = services.ops.list, services.ops.manifest
+
+        def history(*args, **kwargs):
+            counts["history"] += 1
+            return original_list(*args, **kwargs)
+
+        def manifest(*args, **kwargs):
+            counts["manifests"] += 1
+            return original_manifest(*args, **kwargs)
+
+        monkeypatch.setattr(services.ops, "list", history)
+        monkeypatch.setattr(services.ops, "manifest", manifest)
+        result = RescanEventIntakeMaterializer(
+            services, observation.query, PRINCIPAL, events
+        ).materialize(AssetRequest(asset="rescan_event_intake", run_id="many"))
+    assert result.outcome == "degraded" and result.degraded == {"error": 19}
+    assert len(result.written) == 1
+    assert counts == {"history": 1, "manifests": 6}
+    assert services.ops.get(UUID(result.written[0])).state == OrderState.PLANNED
+
+
+def test_duplicate_feed_rows_share_the_same_in_tick_event_binding(tmp_path: Path) -> None:
+    core = context(tmp_path)
+    services = core.services()
+    row = {
+        "source": "external-report",
+        "repo": REPO,
+        "report": "incoming/one-report.md",
+        "targets": "scope/targets.yaml",
+    }
+    with core.repository_observation() as observation:
+        InventoryDiscoveryMaterializer(
+            services, observation.query, core.repository_inventory(), PRINCIPAL
+        ).materialize(AssetRequest(asset="inventory_discovery", run_id="inventory-run"))
+        events = event_file(tmp_path, row, row, row)
+        result = RescanEventIntakeMaterializer(
+            services, observation.query, PRINCIPAL, events
+        ).materialize(AssetRequest(asset="rescan_event_intake", run_id="duplicates"))
+    assert result.outcome == "succeeded"
+    assert {services.ops.get(UUID(value)).asset for value in result.written} == {
+        "external_report_audit",
+        "external_report_validation",
+    }
+    assert len(result.written) == 2
+
+
+def test_inventory_cli_rejects_provider_errors_without_private_tracebacks(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    context(tmp_path)
+    username, password = "private-cli-person", "private-cli-password"
+    rejected = f"https://{username}:{password}@github.com/example/rejected"
+    (tmp_path / "inputs" / "services" / "scope-repos.csv").write_text(
+        f"URL\n{rejected}\n{REPO}\n", encoding="utf-8"
+    )
+    code = portfolio_observe.inventory_discover(
+        ["--config-home", str(tmp_path / "config"), "--run-id", "cli-privacy"]
+    )
+    captured = capsys.readouterr()
+    result = json.loads(captured.out)
+    assert code != 0
+    assert result["outcome"] == "failed" and result["reason"] == "bad_request"
+    assert not result["written"]
+    diagnostics = captured.err + caplog.text
+    assert username not in diagnostics and password not in diagnostics
+    assert rejected not in diagnostics and "Traceback" not in diagnostics

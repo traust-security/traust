@@ -33,9 +33,9 @@ def _repo_url(raw: str) -> HttpsRepoUrl:
     """Structurally validate a repository URL without treating forge support as policy."""
     try:
         hostname = urlsplit(raw).hostname or ""
-    except ValueError as error:
-        raise ValidationError("invalid repository URL") from error
-    return HttpsRepoUrl.parse(raw, (hostname,))
+        return HttpsRepoUrl.parse(raw, (hostname,))
+    except (ValueError, ValidationError):
+        raise ValidationError("invalid repository URL") from None
 
 
 class RepoStateMaterializer:

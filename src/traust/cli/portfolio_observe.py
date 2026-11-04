@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from uuid import UUID
 
-from traust_core.v1.errors import NotFoundError, ValidationError
+from traust_core.v1.errors import ConfigError, NotFoundError, ValidationError
 from traust_core.v1.models.operations import AssetRequest, JobResult, OrderReason
 
 from traust.cli._doors import answer, parser
@@ -16,6 +17,8 @@ from traust.ops.intake import (
     external_validation_input,
 )
 from traust.ops.materializers import MANUAL, RepoStateMaterializer
+
+log = logging.getLogger(__name__)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -41,9 +44,14 @@ def inventory_discover(argv: list[str] | None = None) -> int:
     ap.add_argument("--run-id", default=MANUAL)
     args = ap.parse_args(argv)
     core = load(args.config_home)
+    try:
+        inventory = core.repository_inventory()
+    except ConfigError as error:
+        log.warning("run %s: inventory loading refused (%s)", args.run_id, type(error).__name__)
+        return answer(JobResult.failed(OrderReason.BAD_REQUEST))
     with core.repository_observation() as observation:
         materializer = InventoryDiscoveryMaterializer(
-            core.services(), observation.query, core.repository_inventory(), load_caller(core)
+            core.services(), observation.query, inventory, load_caller(core)
         )
         return answer(
             materializer.materialize(AssetRequest(asset=materializer.asset, run_id=args.run_id))
