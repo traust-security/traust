@@ -404,33 +404,31 @@ first-party shipped code, not a dependency — the Phase 5 drift check is
 where it surfaces); live functional credentials (path pre-filter
 below); and the severity floors below.
 
-### FP-precedent gate (shared components, optional-degrade)
+### Shared-component precedent handoff (post-record, not an audit-time gate)
 
-Base-image packages and shared vendored binaries (kube-rbac-proxy and
-the like) are the measured re-refutation treadmill — the same FP
-re-litigated per image that ships the component. Before filing a
-critical/high dependency/CVE candidate on a package that ships across
-many images (base-image layer, shared sidecar binary), consult the
-portfolio precedent cache exactly as `/secure-code-audit` does:
+For candidates in base-image packages or shared vendored binaries,
+independently check **this image's own reachability, entrypoints and
+configuration**. Apply the audit-time gates and file using only evidence
+available before recording; another image's or repo's context does not
+establish this one's applicability.
 
-```bash
-python3 -m traust.cli corpus precedent match \
-    --cache ../analysis-results/graph/fp-precedent-cache.json \
-    --findings <candidates.json>
-```
-
-A match at `max_strength: human_countersigned` is citeable prior
-adjudication: record it in `precision_gates.fired` (gate
-`"fp-precedent"`, plus the precedent's source repo + date in the entry)
-and apply the standard downgrade-not-drop posture — the observation
-moves to `dependency_audit`/lower severity with the precedent cited,
-never silently disappears, and **this image's own reachability is still
-checked** (a precedent from another image or repo does not prove this
-one's context matches). `machine_refuted_sound` matches are context
-only — never gate evidence at audit time; they surface again at
-/triage Phase 2g. A missing/empty cache skips this gate silently
-(clean no-op by contract); audit judgment stays independent — the
-precedent is evidence to cite, never a verdict to copy.
+Successful canonical `reporting record --kind container` stores the
+assessment/artifact and atomically admits its findings under Core's
+recorded schema. Pass the returned assessment ID directly to `traust
+triage prepare`; current-finding lookups can read the admitted findings
+without another intake or wait. Precedent matching is post-record only, for actual native
+items. A canonical report with zero findings is a valid empty native
+batch, not proof the image is secure. Do not rewrite or convert the report.
+For admitted candidates, `/triage` Phase 2g owns the supplied `precedents`,
+their provenance, verification routing and subsequent adjudication.
+Do not require a pre-filing match, downgrade on an
+unavailable match, or add an `"fp-precedent"` entry to
+`precision_gates.fired`. Human-countersigned matches reduce triage votes,
+never skip verification; machine matches are context only with full votes.
+Any supported downgrade-not-drop decision belongs in the new triage
+determination after independent verification, not in a retroactive edit
+to this audit's findings, `dependency_audit` or gate metadata. A match
+never supplies an automatic false-positive verdict.
 
 ### Crit/high reporting bar
 
@@ -593,7 +591,7 @@ Key profile obligations for this skill:
 - `dependency_audit` populated from Phase 3; findings only for reachable/shipping vulnerabilities.
 - `peach_isolation_review` always emitted — normally `{"applicable": false, "rationale": …}` pointing at the source repo's code-profile report.
 - No `loc_breakdown`; record `metadata.additional.sbom_packages` instead.
-- After validation, `reporting record` (below) takes the report's findings in as findings of the assessment, each by its fingerprint; a finding located only at `.`, `./` or `/` refuses the whole record.
+- Successful canonical `reporting record --kind container` atomically admits the report's findings by Core-computed identity. Preserve its receipt and use the returned assessment ID for native triage preparation; current-finding reads can use the admitted findings without separate intake.
 
 ### Report Validation
 
@@ -612,12 +610,20 @@ and Core accepts its record, including the new-report remediation fields.
 Compatibility validation and rendering alone are not publication; do not
 rewrite historical reports or stored runs to satisfy new-authorship rules.
 
+**Native finding handoff:** successful canonical container recording admits
+the report's findings under the returned assessment ID. Pass that ID
+directly to `traust triage prepare`; current-finding lookups can read the
+admitted findings without another intake. Genuine zero-finding canonical
+reports follow the valid empty-batch contract. Keep the report unchanged;
+admission does not author a validity verdict or guarantee a precedent match.
+
 ### Disposition Flow (after the audit)
 
 The report is an **immutable baseline**, and this skill never writes
-disposition state — the same invariant as every audit profile. Post-audit
-truth flows through core findings
+disposition state — the same invariant as every audit profile. For
+admitted native findings, post-audit truth flows through Core findings
 ([`docs/disposition-ledger.md`](../../../docs/disposition-ledger.md)).
+Successful canonical container recording supplies those native findings.
 `traust triage record` records triage verdicts and queues human review;
 `/track-findings` reads derived state and records explicit human judgements
 through `traust findings`. The former layer emitters remain retired.
@@ -640,13 +646,17 @@ python3 -m traust.cli dashboard view container-findings \
   image provenance when recording; a source URL is not image provenance.
   JSON includes report provenance, scoped occurrences, canonical decisions
   and folded current state. `--as-of` bounds reports and decisions.
-- **Identity across rebuilds.** Finding IDs are digest-keyed; a fixed
-  image rebuild is a **new digest → new report → new finding IDs**.
-  Dispositions do not carry forward by editing the old report: re-audit
+  A rendered projection is not the admission receipt; retain the successful
+  canonical container record receipt for native assessment binding.
+- **Identity across rebuilds.** Report-local finding labels are
+  digest-keyed; a fixed image rebuild is a **new digest → new report →
+  new report-local labels**, not proof of native finding admission.
+  Dispositions do not carry forward by editing the old report. Re-audit
   the new digest (the container analog of `/verify-remediation`) and
-  record it: core finding intake matches the same finding in the new report
-  (fingerprint) and joins its old dispositions — the same mechanism branch
-  re-audits use. Never claim automatic resolution merely because a CVE is
+  record its canonical report: container recording atomically admits the
+  new occurrences, allowing Core to match native identities and associate
+  prior decisions without rewriting the old report. No separate intake is
+  required. Never claim automatic resolution merely because a CVE is
   absent from a new report.
 - **Census cut.** Container reports are their own census block
   (`container_audit`, like `cloud_config`) and are **never blended

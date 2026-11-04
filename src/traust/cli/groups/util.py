@@ -6,6 +6,7 @@ import datetime
 import json
 import os
 import shlex
+import stat
 import sys
 from pathlib import Path
 
@@ -55,24 +56,63 @@ def call_redact(args) -> int:
         return 0
 
     total_hits = 0
+    failures = 0
+
+    def display_path(path: Path) -> str:
+        path_text = str(path).encode("utf-8", errors="backslashreplace").decode("utf-8")
+        cleaned, _ = redact(path_text)
+        return json.dumps(cleaned)[1:-1]
+
+    def fail(path: Path, reason: str) -> None:
+        nonlocal failures
+        failures += 1
+        print(f'redact: "{display_path(path)}": {reason}', file=sys.stderr)
+
     for raw in args.paths:
-        path = Path(raw)
-        if path.is_dir():
-            files = sorted(p for p in path.rglob("*") if p.is_file() and not p.is_symlink())
-        else:
-            files = [path]
-        for f in files:
+        pending = [Path(raw)]
+        while pending:
+            f = pending.pop()
+            try:
+                mode = f.lstat().st_mode
+            except OSError:
+                fail(f, "cannot inspect path")
+                continue
+            if stat.S_ISLNK(mode):
+                fail(f, "symbolic link is not inspected; replace or remove it")
+                continue
+            if stat.S_ISDIR(mode):
+                try:
+                    pending.extend(sorted(f.iterdir(), reverse=True))
+                except OSError:
+                    fail(f, "cannot inspect directory contents")
+                continue
+            if not stat.S_ISREG(mode):
+                fail(f, "not a regular text file; cannot inspect")
+                continue
             try:
                 text = f.read_text(encoding="utf-8")
-            except (OSError, UnicodeDecodeError) as e:
-                print(f"skip {f}: {e}", file=sys.stderr)
+            except UnicodeError:
+                fail(f, "not UTF-8 text; cannot inspect")
+                continue
+            except OSError:
+                fail(f, "cannot read file")
                 continue
             cleaned, hits = redact(text)
             if hits and not args.scan_only:
-                f.write_text(cleaned, encoding="utf-8")
+                try:
+                    f.write_text(cleaned, encoding="utf-8")
+                except (OSError, UnicodeError):
+                    fail(f, "cannot write redacted file")
             total_hits += len(hits)
             for h in hits:
-                print(f"{f}: {h['category']} ({h['match_prefix']}…)")
+                print(f"{display_path(f)}: {h['category']} ({h['match_prefix']}…)")
+    if failures:
+        print(
+            f"redact: incomplete; {failures} error(s), {total_hits} hit(s) "
+            f"across {len(args.paths)} path(s)",
+            file=sys.stderr,
+        )
+        return 2
     if args.scan_only and total_hits:
         return 1
     print(f"redact: {total_hits} hit(s) across {len(args.paths)} path(s)")

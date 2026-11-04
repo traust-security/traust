@@ -7,10 +7,10 @@ description: >-
   <repo>-vuln-findings.{json,md} with campaign finding IDs
   ({REPO_SLUG}-{SHORTSHA}-{NNN}) and the shared severity enum, for /triage
   to consume. When traust-core holds a baseline for the repository, the scan
-  supplements it: known findings are deduped against the baseline and new
-  reviewed findings enter traust-core directly (as findings of the scan's
-  assessment; the baseline is never written — gate A15) with no
-  authored validity answer (no triage precondition; triage adjudicates downstream) —
+  supplements it: known admitted findings are deduped against the baseline.
+  Successful canonical recording stores the scan assessment/artifact and
+  atomically admits its findings under the returned assessment ID.
+  No validity answer is authored; triage adjudicates downstream —
   /secure-code-audit remains the preferred baseline and
   /verify-remediation the way to update it after fixes. Read-only — no
   building, running, or network. Use when asked to "scan for vulns",
@@ -60,10 +60,6 @@ allowed-tools:
   - Bash(python3 *-m traust.cli assessments prepare:*)
   # Records the validated report in traust-core (Step 5); reads only the report file.
   - Bash(python3 *-m traust.cli reporting record:*)
-  # Precision Gate FP-precedent check (Step 3c): `match` mode only —
-  # reads the prebuilt cache JSON + a candidates file, no network, no
-  # cache writes. Never run `build` from this skill.
-  - Bash(python3 *-m traust.cli corpus precedent:*)
 ---
 
 # /vuln-scan
@@ -95,15 +91,14 @@ ingests directly.
   writes one.** It is deliberately lighter and less comprehensive than
   `/secure-code-audit`: a fast sweep for **new** candidate findings (new
   code, new release, a focus area the audit under-covered). When a
-  baseline exists this skill **reads** it to dedupe, and its reviewed new
-  findings enter **traust-core** as findings of the scan's assessment
-  **directly, with no authored validity answer and no `/triage`
-  precondition** (the same entry convention as `/verify-remediation`
-  regression routing). The baseline itself is off limits: only the three
-  `secure*audit` skills may write one (alignment gate **A15**), and
-  traust-core's finding reads count the scan's findings beside the
-  audit's, so nothing is less visible for it. `/triage` remains the downstream
-  adjudicator via the ledger, never a gate on entry (see Step 5).
+  baseline exists this skill **reads** its admitted findings to dedupe.
+  Successful canonical `reporting record --kind vuln_scan` stores the scan
+  assessment/artifact and atomically admits its new findings, with no
+  authored validity answer or triage precondition. Use that returned
+  assessment ID directly for native triage; no separate intake is needed.
+  The baseline itself is off limits: only the three `secure*audit` skills
+  may write one (alignment gate **A15**). `/triage` remains the downstream
+  adjudicator; precedent handling occurs only for actual native items.
 
 **This skill does not execute code.** It reads source and reasons about it.
 For execution-verified findings (ASAN crashes, reproducing PoCs), point the
@@ -379,9 +374,13 @@ exactly as it does to files read from the checkout.
    completed code audit, or null). If there are any, Read them (id
    `finding.id`, title, locations, cwes, severity) into a **baseline
    table** for Step 3 dedupe, and record `baseline_assessment_id` + the
-   finding count for the output metadata. If there are none, note that
-   the target has no audit baseline and recommend `/secure-code-audit` for
-   campaign-grade coverage in the Step 5 hand-back.
+   finding count for the output metadata. If there are none, distinguish
+   absent admitted findings from an absent code-audit assessment:
+   `secure_code` recording can store claims without native baseline rows,
+   unlike successful canonical `vuln_scan` recording. State that limitation;
+   an empty baseline is not clean
+   audit evidence. Recommend `/secure-code-audit` only when campaign-grade
+   audit coverage is actually missing.
 4. If no threat model and no `--focus`: do a **quick recon** — list the
    source tree, read entry points and dispatch code, and propose 3-10 focus
    areas using the pattern `<subsystem> (<function/file>) — <key operations>`.
@@ -736,25 +735,28 @@ Apply to every candidate still rated critical or high after Step 3:
    URLs, logs, or redirect targets) stay `high` at minimum regardless
    of chain completeness — the floor lifts only on affirmative gate
    evidence, documented in the finding.
-5. **FP-precedent check (vendored/shared components, optional-degrade)**
-   — for a crit/high candidate whose file sits under a vendor root
-   (`vendor/`, `third_party/`, `node_modules/`, …), consult the
-   portfolio precedent cache when the workspace carries one:
 
-   ```bash
-   python3 -m traust.cli corpus precedent match \
-       --cache <workspace>/analysis-results/graph/fp-precedent-cache.json \
-       --findings <candidates.json>
-   ```
+**Shared-component precedent handoff (post-record, not a scan-time gate).**
+For candidates in vendored/shared code (`vendor/`, `third_party/`,
+`node_modules/`, …), independently check **this repo's own wiring,
+configuration and trust boundaries** and record only the local evidence
+available before recording. Do not require a pre-filing precedent match
+or downgrade on one. Successful canonical `reporting record --kind
+vuln_scan` atomically admits the report's findings; its returned assessment
+ID can be passed directly to `traust triage prepare` to obtain native
+items and IDs; no second intake is needed. Precedent matching is post-record
+only, for actual native items. A canonical report with zero findings produces a valid empty
+batch under triage's existing contract, not proof the repository is secure.
+Do not rewrite the scan artifact or invent another intake command.
 
-   A match at `max_strength: human_countersigned` is citeable prior
-   adjudication: downgrade with the precedent (source repo + date)
-   cited — this repo's own wiring is still checked (a precedent from
-   another repo does not prove this repo's context matches).
-   `machine_refuted_sound` matches are context only — never gate
-   evidence at scan time; they surface again at `/triage` Phase 2g. A
-   missing/empty cache skips this check silently (clean no-op). Match
-   mode only — never `build`.
+`/triage` Phase 2g owns the supplied `precedents`, their provenance,
+verification routing and subsequent adjudication. Human-countersigned
+matches reduce votes but never skip verification; machine matches are
+context only with full votes. A match never supplies an automatic
+false-positive verdict. Any supported downgrade-not-drop decision is
+recorded in the new triage determination after independent verification,
+not by retroactively changing this scan's findings or gate metadata.
+Do not add an `"fp-precedent"` entry to `precision_gates.fired`.
 
 **Record the pass** in `metadata.additional.precision_gates` — the same
 contract as `/secure-code-audit`'s:
@@ -940,18 +942,12 @@ Tell the user:
    K known findings deduped against the baseline, across F focus areas
    and M source files.
 2. Top 3 by confidence, one line each.
-3. Next steps — the update path for the **ledger**:
-   - Verify: `> /triage <target-dir>/<repo>-vuln-findings.json --repo <target-dir>`
-   - Record new findings **in traust-core — direct entry, no triage
-     precondition** (user directive 2026-07-27; parity with the other
-     scanning skills, whose findings enter the ledger at birth).
-     **NEVER write the baseline.** Only `/secure-code-audit`,
+3. Next steps — record canonical candidates, then adjudicate:
+   - **NEVER write the baseline.** Only `/secure-code-audit`,
      `/secure-rpm-audit` and `/secure-container-audit` may write
      `*-{security,rpm,container}-audit.json` — enforced by alignment gate
-     **A15**. Appending to a baseline changes the claim set with no event
-     recording it, which breaks the ledger's core tenet (events, not
-     state) and bypasses the rescan router's authority over when a new
-     baseline is cut.
+     **A15**. Do not append candidates to an old baseline or convert this
+     report into scanner input; canonical recording already admits it.
 
      Record the scan in traust-core once the validator passes:
 
@@ -961,24 +957,30 @@ Tell the user:
          --sha <the scanned commit>
      ```
 
-     It records a vuln-scan assessment of that commit with the report as
-     its artifact (schema-checked; a retried run adds nothing), enters
-     the report's `findings[]` as findings of that assessment
-     (`known_findings` are the baseline's and stay out), and
-     `traust findings surfaces` merges its `review_surface_coverage`
-     into the repository's record; re-recording the same report is the
-     same run (`scanned_at`) and adds no finding.
-     No validity answer is authored by this intake: do not add a
-     `validation_status` property to the scan artifact or infer a
-     confirmation from its confidence scores.
-
-     `/triage` remains the **downstream adjudicator**: its verdicts, and
-     any refutations, flow through the disposition ledger
-     (`traust triage record` → `/track-findings`) —
-     **never hand-edit `validation_status` on existing baseline
-     findings.**
-   - No baseline? Recommend `/secure-code-audit <target>` to establish
-     one; this scan's report then serves as a leads file for it.
+     Successful canonical recording stores the vuln-scan assessment and
+     artifact and atomically admits its `findings[]` as native findings
+     under Core's recorded schema. Re-recording the same `scanned_at` is
+     the same run. Preserve the original report and returned receipt.
+     Hand the returned assessment ID directly to `/triage`'s existing
+     input (A) workflow, which runs `traust triage prepare` under triage's
+     own permissions, and consumes the returned native items and IDs.
+     Do not use `traust findings find` on `*-vuln-findings.json`: its
+     `file`/`cwe` shape is not that command's report `locations`/`cwes`
+     input. Do not convert or rewrite the report to make it fit.
+     No separate intake, waiting period or admission-gap warning is needed
+     for this successful canonical record. An empty canonical
+     report is a valid zero-native-findings batch, not proof of security.
+     No validity answer is authored: do not add `validation_status` or
+     infer confirmation from confidence scores. Phase 2g handles any
+     supplied precedents for actual items; decisions flow through
+     `traust triage record` → `/track-findings`. Never rewrite the baseline
+     or scan artifact. Direct review of the raw file remains generic input
+     (C), without native decision recording.
+   - No audit assessment? Recommend `/secure-code-audit <target>` for
+     campaign-grade report coverage; this scan remains a leads artifact.
+     An existing secure-code assessment without separately admitted claims
+     has that profile's distinct handoff gap; do not infer it applies to
+     this successfully recorded canonical scan.
    - Repository not registered (Step 1.2 exit 2)? Say so, and ask to
      register it (`/add-inputs <repo-url> --product <slug>`): until then
      traust-core holds no threat model or baseline for it.
@@ -998,11 +1000,10 @@ Tell the user:
   decline and point at the harness's `validate-findings` skill (live
   authorized targets) or the external `vuln-pipeline` CLI (offline ASAN
   reproduction).
-- **Never modify the baseline audit.** This skill reads
-  the repository's recorded findings for dedupe only. Appending verified
-  findings to it happens *after* `/triage`, and disposition changes go
-  through the append-only ledger — a scan must not rewrite the
-  portfolio's memory.
+- **Never modify the baseline audit.** This skill reads admitted native
+  findings for dedupe only. Neither scan recording nor later triage
+  appends to or rewrites the baseline artifact. Canonical scan recording
+  admits its findings; subsequent decisions use the append-only ledger.
 - **Don't fabricate line numbers.** Every `file:line` you emit must be
   something you Read or Grep'd. If unsure of the exact line, cite the
   function and say so in the description.
@@ -1035,18 +1036,20 @@ Consumed artifacts (producer named per artifact):
 - `<repo>-llm-app.json` from python3 -m traust.cli adapters llm-app — a
   fact that gates the LLM application focus area and its checklist
   (`/secure-code-audit`'s `llm-application-review.md`); never a finding.
-- `fp-precedent-cache.json` — produced by
-  python3 -m traust.cli corpus precedent build (Phase-4 fleet
-  mechanism); Step 3c consults it read-only (`match` mode) as citeable
-  gate evidence at human-countersigned strength, downgrade-not-drop.
+- Precedents — no cache file; Core matches admitted native findings and
+  `/triage` owns Phase 2g provenance and verification routing. Successful
+  canonical scan recording supplies native findings for preparation;
+  actual precedent matches are optional, never verdicts.
 
 Emitted artifacts:
 
-- `<repo>-vuln-findings.json` — consumed by `/triage` (downstream
-  adjudication and ledger flow) and `/patch`; the scan's reviewed new
-  findings enter traust-core as findings of its vuln-scan assessment — the
-  baseline is never written (gate A15) — without an authored validity
-  answer or a triage precondition (Step 5). This artifact has no
+- `<repo>-vuln-findings.json` — stored as the canonical scan assessment's
+  artifact, with its findings atomically admitted on successful canonical
+  `reporting record --kind vuln_scan`. `/triage` consumes the native
+  prepared assessment for recorded adjudication, or the raw file as
+  generic input (C); `/patch` also consumes the artifact. No separate
+  intake is required after successful canonical recording (Step 5).
+  The baseline is never written (gate A15), and this artifact has no
   `validation_status` field.
 - `<repo>-vuln-findings.md` — human companion of the JSON.
 - `metadata.additional.coverage_diff` (diff mode) — consumed by the

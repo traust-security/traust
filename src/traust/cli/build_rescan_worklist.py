@@ -2182,7 +2182,8 @@ def main(argv=None) -> int:
 
     if not args.db.is_file():
         print(
-            f"findings.db not found: {args.db} — run `traust corpus findings-db` first",
+            f"findings.db not found: {args.db} — nothing builds it any more (findings are "
+            "recorded in traust-core); this legacy router retires with the live-runs cutover",
             file=sys.stderr,
         )
         return 2

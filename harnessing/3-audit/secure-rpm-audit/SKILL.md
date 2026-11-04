@@ -341,30 +341,31 @@ below the floor.
    `negative_results` citing the evidence — **not** a low-severity
    finding.
 
-### FP-precedent gate (vendored bundles, optional-degrade)
+### Shared-component precedent handoff (post-record, not an audit-time gate)
 
-Vendored dependency bundles are this profile's shared-component
-re-refutation shape. Before filing a critical/high candidate located in
-a vendored bundle (`SourceN` vendor tarballs, bundled libraries),
-consult the portfolio precedent cache exactly as `/secure-code-audit`
-does:
+For candidates in vendored bundles (`SourceN` vendor tarballs, bundled
+libraries), independently check **this package's own build wiring,
+compiled components and configuration**. Apply the audit-time gates and
+file using only evidence available before recording; another repo's
+context does not prove this spec compiles the component the same way.
 
-```bash
-python3 -m traust.cli corpus precedent match \
-    --cache ../analysis-results/graph/fp-precedent-cache.json \
-    --findings <candidates.json>
-```
-
-A match at `max_strength: human_countersigned` is citeable prior
-adjudication: record it in `precision_gates.fired` (gate
-`"fp-precedent"`, plus the precedent's source repo + date in the entry)
-and apply the standard downgrade-not-drop posture — **this package's
-own build wiring is still checked** (a precedent from another repo does
-not prove this spec compiles the component the same way).
-`machine_refuted_sound` matches are context only — never gate evidence
-at audit time; they surface again at /triage Phase 2g. A missing/empty
-cache skips this gate silently (clean no-op by contract); the precedent
-is evidence to cite, never a verdict to copy.
+Successful canonical `reporting record --kind rpm` stores the
+assessment/artifact and atomically admits its findings under Core's
+recorded schema. Pass the returned assessment ID directly to `traust
+triage prepare`; current-finding lookups can read the admitted findings
+without another intake or wait. Precedent matching is post-record only, for actual native
+items. A canonical report with zero findings is a valid empty native
+batch, not proof the package is secure. Do not rewrite or convert the report.
+For admitted candidates, `/triage` Phase 2g owns the supplied `precedents`,
+their provenance, verification routing and subsequent adjudication.
+Do not require a pre-filing match, downgrade on an
+unavailable match, or add an `"fp-precedent"` entry to
+`precision_gates.fired`. Human-countersigned matches reduce triage votes,
+never skip verification; machine matches are context only with full votes.
+Any supported downgrade-not-drop decision belongs in the new triage
+determination after independent verification, not in a retroactive edit
+to this audit's findings, `dependency_audit` or gate metadata. A match
+never supplies an automatic false-positive verdict.
 
 ### Do-not-report classes
 
@@ -589,7 +590,12 @@ Where:
 - `<stream>` is the dist-git branch analyzed (e.g. `c10s`, `c9s`, `c8s`) — it plays the role `<product-name>` plays for code audits.
 - `<component>` is the source package name (the `Name:` field from the spec, e.g. `389-ds-base`).
 
-Because the reports use the standard `-security-audit.json` naming inside the registered findings tree, they are discovered by the corpus resolver, enter the census and dashboards, and are disposition-ledger baselines for `/triage`, `/validate-findings`, and `/track-findings` with no extra wiring — `metadata.audit_profile: "rpm"` is what distinguishes them, not the filename. If a campaign's ownership differs from the findings tree default (Hybrid Platforms / owned), register a per-product override for the stream directory via `/corpus-intake` (it records the product in traust-core).
+The standard `-security-audit.json` filename and
+`metadata.audit_profile: "rpm"` identify the report artifact/profile.
+File discovery or census/dashboard inclusion alone is not admission.
+Successful canonical `reporting record --kind rpm` does atomically admit
+the report's findings, making its returned assessment ID available
+directly for native triage and current-finding reads (Step 5).
 
 **Ref provenance.** Stamp `metadata.ref: "<stream>"` with `metadata.ref_kind: "stream"`. A dist-git stream is a **mainline deliverable audited in its own right** — `"stream"` keeps the report in the census HEAD cuts, whereas `"branch"` would misclassify it as a branch re-audit and drop it from every headline count. Never stamp `ref_kind: "branch"` for a stream checkout.
 
@@ -640,9 +646,10 @@ Reports are **JSON files** validated against `contracts/schemas/report.schema.js
 
 **The structure tables live in one place: [`docs/report-structure.md`](../../../docs/report-structure.md).**
 Read it before writing the report — it defines the required/optional
-top-level keys, the finding object fields (including the script-computed
-`fingerprint` cross-scan identity), and this skill's profile deltas
-(`metadata.audit_profile: "rpm"`). The schema
+top-level keys, the authored finding fields, and this skill's profile
+deltas (`metadata.audit_profile: "rpm"`). Core's cross-scan finding
+identity is computed on native finding admission, including successful
+canonical RPM recording, never model-stamped into the report. The schema
 (`contracts/schemas/report.schema.json`) remains the authoritative source for types
 and constraints. Do not restate the tables here — duplicated copies drift.
 
@@ -665,7 +672,7 @@ Key profile obligations for this skill:
 - `metadata.repository` = dist-git URL; upstream Source0/Version/Release/patches under `metadata.additional`.
 - `category` uses the `RPM01`–`RPM10` packaging taxonomy; digit-leading slugs take the `RPM_` prefix.
 - Emit `review_surface_coverage`, one entry per review surface (see *Review surfaces* above). Required from traust 0.21.0; the validator checks every entry against the rest of the report.
-- After validation, `reporting record` (Step 5) takes the report's findings in as findings of the assessment, each by its fingerprint; a finding located only at `.`, `./` or `/` refuses the whole record.
+- Successful canonical `reporting record --kind rpm` (Step 5) atomically admits the report's findings by Core-computed identity. Preserve its receipt and use the returned assessment ID for native triage preparation; current-finding reads can use the admitted findings without separate intake.
 
 ### Report Validation
 
@@ -722,6 +729,14 @@ exits with 0 errors and Core accepts its record, including the new-report
 remediation fields.** Do not begin analysis of the next component before
 both succeed. Compatibility validation and rendering alone are not
 publication; historical reports and stored-run replay are not rewritten.
+
+**Native finding handoff:** successful canonical RPM recording admits the
+report's findings under the returned assessment ID. Pass that ID directly
+to `traust triage prepare`; current-finding lookups can read the admitted
+findings without another intake. Genuine zero-finding canonical reports
+follow the valid empty-batch contract, not an unavailable-adjudication
+path. Preserve the original report; admission does not author a validity
+verdict or guarantee precedent matches.
 
 ## Spend declaration (calibration tuple)
 

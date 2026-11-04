@@ -17,6 +17,7 @@ allowed-tools:
   - Bash(file:*)
   - Bash(jq:*)
   - Bash(traust repo checkout:*)
+  - Bash(traust findings find:*)
   - Bash(git fetch:*)
   - Bash(git checkout:*)
   - Bash(git rev-parse:*)
@@ -57,10 +58,8 @@ allowed-tools:
   - Bash(python3 *harnessing/3-audit/secure-code-audit/scripts/probe_sanitizers.py:*)
   - Bash(python *harnessing/3-audit/secure-code-audit/scripts/probe_sanitizers.py:*)
   - Bash(python3 *-m traust.cli.check_citations:*)
-  - Bash(python3 *-m traust.cli corpus finding-identity:*)
   - Bash(python3 *-m traust.cli impact enrich:*)
   - Bash(python3 *-m traust.cli sweep mine:*)
-  - Bash(python3 *-m traust.cli corpus:*)
 ---
 
 # Secure Code Audit
@@ -358,31 +357,37 @@ disposition. An empty `fired` list is a legitimate value; a report that
 files crit/high findings with no `precision_gates` block is an
 incomplete audit — the same contract as `deterministic_steps`.
 
-**FP-precedent gate (shared components, optional-degrade).**
-Shared-component hits (vendored kube-rbac-proxy and the like) are the
-measured re-refutation treadmill: the same FP re-litigated per repo
-that ships the component. Before filing a critical/high candidate whose
-locations sit under a vendor root (`vendor/`, `third_party/`,
-`node_modules/`, ...), consult the portfolio precedent cache:
+**Shared-component precedent handoff (post-record, not an audit-time gate).**
+For candidates in vendored/shared code (`vendor/`, `third_party/`,
+`node_modules/`, ...), independently check **this repo's own wiring,
+configuration and trust boundaries**. File and apply the audit-time gates
+using only evidence available before recording; another repo's context
+does not establish this one's applicability.
 
-```bash
-python3 -m traust.cli corpus precedent match \
-    --cache <harness>/../analysis-results/graph/fp-precedent-cache.json \
-    --findings <candidates.json>
-```
-
-A match at `max_strength: human_countersigned` is citeable prior
-adjudication: record it in `precision_gates.fired` (gate
-`"fp-precedent"`, plus the precedent's source repo + date in the
-entry) and apply the standard downgrade-not-drop posture — the
-observation moves to `dependency_audit`/lower severity with the
-precedent cited, never silently disappears, and this repo's own wiring
-is still checked (a precedent from another repo does not prove this
-repo's context matches). `machine_refuted_sound` matches are context
-only — never gate evidence at audit time; they surface again at
-/triage Phase 2g. A missing/empty cache skips this gate silently
-(clean no-op by contract); audit judgment stays independent — the
-precedent is evidence to cite, never a verdict to copy.
+Precedent handling requires admitted native findings. For this skill's
+`--kind secure_code`, `traust reporting record` stores the canonical
+secure-code assessment/artifact only: `SECURE_CODE_CANONICAL` has no
+reported-findings admission mapping. This gap is specific to secure code,
+not canonical container/RPM/vuln-scan recording. Do not convert or rewrite
+the report to bypass it. Only separate actual supported admission of
+matching claims can supply a native assessment for `traust triage prepare`.
+Use that admitted assessment's identity, not the stored-only secure-code
+assessment ID. If only the
+assessment receipt exists or reported claims remain unadmitted,
+adjudication of those claims is unavailable, not a clean audit or proof
+of no findings. A genuinely empty batch after successful supported finding
+intake is valid, with zero native counts under triage's existing contract;
+it still does not prove the repository secure. For admitted candidates,
+`/triage` Phase 2g owns the
+supplied `precedents`, their provenance, verification routing and
+subsequent adjudication. Do not require a pre-filing match, downgrade on
+an unavailable match, or add an `"fp-precedent"` entry to
+`precision_gates.fired`. Human-countersigned matches reduce triage votes,
+never skip verification; machine matches are context only with full votes.
+Any supported downgrade-not-drop decision belongs in the new triage
+determination after independent verification, not in a retroactive edit
+to this audit's severity, evidence or gate metadata. A match never supplies
+an automatic false-positive verdict.
 
 ### Dependency and advisory gate
 
@@ -1521,9 +1526,9 @@ Reports are **JSON files** validated against `contracts/schemas/report.schema.js
 
 **The structure tables live in one place: [`docs/report-structure.md`](../../../docs/report-structure.md).**
 Read it before writing the report — it defines the required/optional
-top-level keys, the finding object fields (including the script-computed
-`fingerprint` cross-scan identity), and this skill's profile deltas
-(`metadata.audit_profile: "code"`). The schema
+top-level keys, the authored finding fields, and this skill's profile
+deltas (`metadata.audit_profile: "code"`). Core's native finding identity
+is separate from the report artifact (Step 2b). The schema
 (`contracts/schemas/report.schema.json`) remains the authoritative source for types
 and constraints. Do not restate the tables here — duplicated copies drift.
 
@@ -1540,7 +1545,7 @@ Key profile obligations for this skill:
 - Always emit `review_surface_coverage`: one entry per review surface ([`review-surfaces.md` → Recording coverage](review-surfaces.md#recording-coverage)). Required from traust 0.20.0; the validator checks every `finding_ids`, `negative` and `not_assessed` entry against the rest of the report.
 - Include `metadata.loc_breakdown` on all new reports.
 - Stamp `metadata.additional.repo_status` from `progress-tracker/metrics/repo-liveness.json` when present (`active | archived | moved | missing`, with `status_since`); absent from the artifact → `"unknown: not in liveness artifact"`. **Record only** — status never changes findings, severity, or scan depth: archived code that ships is exactly as exploitable as live code. Consumers read the artifact; do not re-query GitHub.
-- After validation, run python3 -m traust.cli corpus finding-identity fingerprint <report.json> --write.
+- Core computes cross-scan `fingerprint` on native finding admission, not this skill's assessment-only `reporting record --kind secure_code`; never stamp it into the report.
 
 ### Field Conventions
 
@@ -1637,23 +1642,29 @@ If errors appear, read each error message, fix the JSON, and re-run the validato
 - **Schema violations** — missing required fields, wrong types, values too short, pattern mismatches (e.g. CWE format)
 - **Cross-validation errors** — `findings_summary` counts don't match actual findings, `finding_ids` reference nonexistent IDs, `remediation_roadmap` addresses unknown findings, duplicate finding IDs, missing mandatory severity criteria levels
 
-**Step 2b — Stamp the cross-scan finding identity (required):**
+**Step 2b — Informational: Core finding identity, not an audit completion gate:**
+
+Core computes cross-scan identity on supported **finding intake** —
+never model-authored or stamped into this report. It uses the canonical
+repo URL, lineless location paths and primary CWE. Changing locations or
+CWEs can change that identity. This skill's `traust reporting record
+--kind secure_code` stores the assessment/artifact only; its receipt is not
+a finding-admission receipt and does not complete finding identity.
+
+Only after separate actual supported admission of matching claims, using
+the corresponding admitted native assessment for triage, is the following
+an **optional diagnostic lookup**, not a required post-record check:
 
 ```bash
-python3 -m traust.cli corpus finding-identity fingerprint <path-to-report.json> --write
+traust findings find <path-to-report.json> --label <report-local-finding-id> \
+    --repo-url <audited-source-https-url>
 ```
 
-Deterministic and script-computed — **never model-authored**. It writes
-`finding.fingerprint` = `sha256(canonical repo URL | sorted lineless location
-paths | primary CWE)` for every finding.
-
-This is not cosmetic. Cross-scan continuation, disposition carry-forward
-between scans, and the downstream platform's finding identity all key on this
-field; an unstamped report validates clean but is invisible to every one of
-them. It is schema-declared and pattern-constrained (`^[0-9a-f]{64}$`) but
-*optional*, so nothing else catches its absence — `validate_report.py` warns,
-and `--strict` makes it an error. Re-run this step after any edit that changes
-a finding's `locations` or `cwes`, since both feed the hash.
+Use the audited source repository URL, not the harness URL. Exit 0 with
+`finding_id: null` means **no match**, not successful identity completion,
+admission or a clean audit. The current assessment-only audit handoff gap
+must be reported explicitly; do not invent an audit-intake CLI, convert
+the report into scanner input, rewrite it, or stamp a fabricated identity.
 
 **Step 3 — Run strict mode (recommended):**
 
@@ -1706,12 +1717,22 @@ python3 -m traust.cli reporting record <path-to-report.json> --kind secure_code 
 It records a secure-code assessment of that commit with the report as its
 artifact (schema-checked; the same report again is the same run, by
 `metadata.date`); `traust assessments coverage` reads the gaps it states.
-New-report remediation fields must also pass Core's scoped admission
-checks at this door; compatibility validation and rendering are not a
-substitute. Preserve historical reports and stored-run replay rather than
-rewriting them to satisfy new-authorship rules.
-(Legacy gap: traust-core doesn't yet enter the report's findings as
-findings.)
+New-report remediation fields must also pass Core's scoped assessment
+admission checks at this door; compatibility validation and rendering are
+not a substitute. Preserve historical reports and stored-run replay
+rather than rewriting them to satisfy new-authorship rules.
+
+**Current secure-code handoff gap:** `SECURE_CODE_CANONICAL` recording
+does not admit this report's findings as native candidates. This is not
+the behavior of canonical container/RPM/vuln-scan recording. Retain this
+secure-code assessment receipt
+and the original artifact. If there is no trusted supported admission
+receipt, or artifact claims remain unadmitted, report their native
+adjudication/identity/precedent handoff as unavailable. Successful supported
+intake may instead establish a valid empty native batch; use its own
+assessment identity and triage's empty-batch contract, not this audit's
+assessment ID as proof of admission. Do not invent another audit-intake
+command or silently convert the artifact.
 
 **Step 5 — Declare per-repo spend (calibration tuple):**
 
@@ -1772,8 +1793,7 @@ Rules for batch prompts:
 
 **Consumes:** inventory/payload CSVs from `/inventory-repositories` and
 `/add-inputs` (§Input); `<repo>-threat-model.md` from `/threat-model`
-(coverage diff, findings-tree copy); the FP-precedent cache from
-python3 -m traust.cli corpus precedent; deterministic pre-scan outputs
+(coverage diff, findings-tree copy); deterministic pre-scan outputs
 (opengrep, gitleaks, osv, llm-app, syft/grype, k8s-hardening) recorded
 under `deterministic_steps`; `llm-application-review.md` (this skill's
 LLM, agent and MCP checklist, shared with `/vuln-scan`).
@@ -1782,6 +1802,8 @@ LLM, agent and MCP checklist, shared with `/vuln-scan`).
 report artifact — consumed by `/triage`, `/track-findings`,
 `/verify-remediation`, `/patch`, `/vuln-scan` (baseline dedup),
 `/threat-model` bootstrap, `/create-fuzzing` target selection,
-`/file-security-defect`, and every dashboard via python3 -m traust.cli corpus.
+`/file-security-defect`, and every dashboard via python3 -m traust.cli dashboard view.
+These report-artifact consumers do not establish native finding
+admission; the assessment-only handoff gap in Step 4b still applies.
 The Markdown companion is rendered by python3 -m traust.cli reporting render,
 never hand-written.

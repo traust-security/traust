@@ -551,7 +551,7 @@ it returns null when only the original assessment claim existed.
 |---|---|
 | `*-triage.json` | `traust triage record` (the triage skill) |
 | `*-validation.json` (+ `target-attestation.json`) | `traust validation record --report … --bindings … --provenance … --target-attestation …`; core owns machine soundness, decisions/review and evidence retention; no legacy emitter fallback |
-| `*-remediation-verification.json` (verdicts, `cross_repo` propagation, `regressions[]`) | Intended core verification/intake doors; skill ports unfinished, no legacy emitter or regression-router fallback |
+| `*-remediation-verification.json` (verdicts, `cross_repo` propagation, `regressions[]`) | `traust remediation verify-record` (the verify-remediation skill); no legacy emitter or regression-router fallback |
 | A claim edited after the audit | `traust findings correction-request` then `traust findings rebaseline`; canonical intake applies the accepted immutable proposal, without an independent assessment or an inferred verdict |
 
 Who reads what this skill keeps: create-fuzzing and validate-findings read

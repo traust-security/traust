@@ -4,6 +4,14 @@ All notable changes to Traust are documented here.
 
 ## [0.40.0]
 
+- Make audit admission guidance kind-specific: canonical container/RPM/vulnerability-scan
+  recording admits findings for immediate native triage; secure-code recording does not.
+  A null lookup or empty assessment-only batch is not an identity check or clean-audit proof.
+- Fail shareable-output redaction closed on unreadable, non-UTF-8, unwriteable or
+  uninspectable deliverables; preserve readable-text processing and scan-only no-write behavior.
+- Keep shared-component precedent adjudication and provenance in post-record triage,
+  without inventing unavailable audit-time matches or rewriting recorded audit reports.
+- Supply the audited repository URL and a narrow tool grant for finding-label lookups.
 - Provision Core-pinned Cosign in CI for real historical-signature tests and retire
   obsolete consumer ratchet exemptions without skipping tests or widening the fence.
 - Reject forged validation-evidence redaction markers in text and Kubernetes Secret maps.

@@ -1,6 +1,6 @@
 ---
 name: generate-team-report
-description: Use when the user asks to generate a shareable findings folder, executive summary, or team-specific security audit report for one or more products from traust-core's recorded findings.
+description: Use when the user asks to generate a shareable findings folder, executive summary, or team-specific security audit report for one or more products from traust-core's recorded findings. Requires complete successful redaction before sharing.
 user-invocable: true
 metadata:
   harness.tier: "secondary"
@@ -297,14 +297,17 @@ Include:
 
 > **Canonical patterns:** python3 -m traust.cli util redact is now the single
 > source for these patterns (plus Luhn-gated payment cards, SSNs, and
-> URL credentials it added — VVAH plan P2). Prefer
-> `python3 -c "from lib.redact import redact_text; ..."` over
+> URL credentials it added — VVAH plan P2). Use
+> python3 -m traust.cli util redact for the mandatory package gate rather than
 > re-implementing the table below; the table remains as the
 > human-readable contract.
 
 Applies to both modes (summaries can quote finding evidence; bundles copy
-whole reports). Scan every file in the output folder for secrets and partially redact them
-in-place. The original files in `analysis-results/` are never modified.
+whole reports). Inspect every deliverable in the output folder for secrets and
+partially redact readable UTF-8 text in place. The original files in
+`analysis-results/` are never modified. **Do not share a package until every
+deliverable has been successfully inspected and the final scan-only gate exits
+0.** Skipped or uninspected files are not evidence of a clean package.
 
 For each match, keep the **first 5 characters** and replace the remainder
 with `...REDACTED` (e.g., `AKIAI...REDACTED`, `xoxb-...REDACTED`).
@@ -355,12 +358,34 @@ This applies to all PEM private key variants (`PRIVATE KEY`,
 
 #### Procedure
 
-1. Use `grep -rn -P` with each pattern above against the output folder to
-   identify matches.
-2. For each match, apply the partial redaction using `sed -i` or the Edit
-   tool.
-3. After all redactions, report a summary: number of redactions, which files
-   were modified, and a sample of redacted stubs.
+1. Set `OUTPUT_DIR` to the output folder containing the complete package, then
+   run the canonical in-place redactor:
+
+   ```bash
+   python3 -m traust.cli util redact "$OUTPUT_DIR"
+   ```
+
+   Exit 0 means the traversal and readable-text redaction completed. Exit 2
+   means inspection or redaction was incomplete, even if other files were
+   successfully redacted. Unreadable or non-UTF-8 files, failed reads/writes,
+   inaccessible directories, symbolic links (including internal or dangling
+   links), and other unsupported deliverables block sharing. Remove or replace
+   those deliverables, or convert them to inspectable UTF-8 text, then rerun this
+   step. Do not ignore errors, follow links to outside source artifacts, treat
+   binaries as redacted, or share a partially inspected bundle.
+2. Require a successful complete scan-only pass over the final package:
+
+   ```bash
+   python3 -m traust.cli util redact --scan-only "$OUTPUT_DIR"
+   ```
+
+   This pass never writes deliverables. Exit 0 passes the gate; exit 1 means
+   secrets remain; exit 2 means inspection is incomplete and takes precedence
+   over detected secrets. Resolve every hit or operational error and rerun both
+   commands. Any package changes after the gate require rerunning it.
+3. Only after the gate passes, report the redaction count, which files were
+   modified, and samples of redacted stubs. Never include raw secrets or
+   unredacted file contents in the summary.
 
 ### Step 7a — Snapshot the Package Metrics (trends)
 

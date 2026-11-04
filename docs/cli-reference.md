@@ -51,6 +51,39 @@ python3 -m traust.cli check skill-alignment      # equivalent
 | `util` | Utility commands | `elf`, `redact`, `safe-exec` |
 | `validation` | Core-backed machine validation evidence | `prepare`, `plan`, `record` |
 
+### Audit publication versus finding admission
+
+`traust reporting record` stores an assessment and artifact. Native finding
+admission depends on the selected kind and its canonical document schema:
+
+| Kind | Finding admission on successful recording | Triage handoff |
+|---|---|---|
+| `container`, `rpm`, `vuln_scan` | Core admits the document's findings atomically with the assessment | Run `traust triage prepare <returned-assessment-id>` for its native items and any matching precedents |
+| `secure_code` | Assessment/artifact only; no native finding admission | Report the admission handoff gap; native triage requires a supported intake receipt and its admitted assessment/bindings |
+| `benchmark_audit` | No native finding admission; benchmark reports are scored | Keep the benchmark workflow, not native finding triage |
+
+Core computes finding identity when findings are admitted, including during
+recording for the supported kinds above; it does not stamp the report file.
+An empty report can legitimately prepare no items. An empty assessment-only
+secure-code batch is not proof that a report containing findings is clean;
+later intake does not automatically attach its findings to that original audit.
+
+After admission, `traust findings find <report.json> --label <report-local-id>
+--repo-url <audited-source-https-url>` is an optional scoped diagnostic. Exit 0 with
+`finding_id: null` means no match, not an identity/admission receipt. Do not revive
+stamping or invent a canonical-audit intake command to hide that gap.
+
+### Shareable-output redaction
+
+Run `python3 -m traust.cli util redact <output-directory>` in place, then
+`python3 -m traust.cli util redact --scan-only <output-directory>` on the final
+package. Share only after the final scan exits 0. Scan-only exits 1 when secrets
+remain and does not modify deliverables; either mode exits 2 if any file cannot
+be inspected or redacted. Read/decode/write errors, inaccessible directories,
+symlinks and unsupported files are incomplete inspection, never a clean result.
+Readable text still uses Core's established redaction policy. Remove, replace or
+convert uninspectable deliverables and rerun the gate; there is no binary fallback.
+
 ### Detection-quality operations
 
 - `traust sweep bootstrap-benchmark --out candidates.yaml [--limit 100]` harvests
@@ -326,7 +359,7 @@ here so an old runbook cannot be mistaken for an executable fallback:
 | `check report-digests` | Verify report/artifact digest bindings | Core artifact publishing/index services; gate skill port unfinished |
 | Ledger triage / validation / verification emitters | Convert report verdicts into legacy layer events | `traust triage record`, `traust validation record`, and `traust remediation verify-record` persist through Core; use `remediation verifications` and `findings baseline` for recorded/current results |
 | `ledger pull` | Export a read-only snapshot of one legacy ledger layer | Legacy layer stores remain retired. Core `ledger.layer(layer_id)` and paged `ledger.events(layer_id, page)` read native layers; `findings import` is a distinct external-statement intake operation, not a snapshot-export replacement |
-| `corpus` group | Report discovery, identity, projections, summaries and precedents | Core assessment and finding services; corpus skill ports unfinished |
+| `corpus` group | Report discovery, identity, projections, summaries and precedents | Core owns assessment/artifact recording and native finding intake. Recording admits canonical container/RPM/vulnerability-scan findings, but not secure-code findings; only admitted candidates/bindings support native triage and precedents. See “Audit publication versus finding admission” above; `findings find` can legitimately return no match |
 | `route` group | Admit impact findings and remediation regressions without changing baselines | Core finding intake; routing skill ports unfinished |
 
 There is no executable fallback for these retired workflows. Do not hand-write a
