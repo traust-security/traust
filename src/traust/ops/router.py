@@ -11,7 +11,7 @@ from dataclasses import dataclass
 
 from traust_core.v1.models.inventory import ExposureClass, RecordedRelease, RepoState, RiskTier
 from traust_core.v1.models.observation import MAX_CHANGED_FILE_RATIO
-from traust_core.v1.models.operations import LaneName, Refusal, Route
+from traust_core.v1.models.operations import LaneName, Refusal, RescanEventSource, Route
 from traust_core.v1.models.vocabulary import ComparisonStatus
 
 log = logging.getLogger(__name__)
@@ -204,6 +204,25 @@ def additive(state: RepoState) -> tuple[tuple[str, str], ...]:
     if audited and age is not None and age >= THREAT_MODEL_QUARTERLY_DAYS:
         rows.append(("threat-model-3", "threat-model-quarterly"))
     return tuple(rows)
+
+
+def event_route(state: RepoState, source: RescanEventSource) -> Route | None:
+    """An unconsumed operator event's route. Events run ahead of the table and use distinct
+    assets, so the table cannot overwrite them while they await admission."""
+    lane = (
+        "full-audit+validate"
+        if source is RescanEventSource.EXTERNAL_REPORT
+        else "full-audit"
+        if source is RescanEventSource.METHODOLOGY and state.risk_tier is RiskTier.P0
+        else "impact-lane"
+        if source is RescanEventSource.CVE
+        else None
+    )
+    if lane is None:
+        return None
+    event_priority = PRIORITY_BASE - len(EXPOSURE_ORDER) * len(TIER_ORDER)
+    event_priority += EXPOSURE_ORDER.index(state.exposure) * 4 + TIER_ORDER.index(state.risk_tier)
+    return Route(lane=LaneName(lane), priority=event_priority, reason=f"event:{source}")
 
 
 def released(events: Sequence[RecordedRelease]) -> tuple[tuple[str, str], ...]:

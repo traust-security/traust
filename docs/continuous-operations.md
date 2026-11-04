@@ -71,14 +71,16 @@ The threat-model lanes are the exception to that last arrow: they refresh the
 coverage diff rather than the ledger. They never file a finding.
 
 The router routes only — it never authors a finding, verdict, or audit. Its
-output is the engine's orders, one per routed lane.
+output is the engine's orders, one per routed lane. `inventory_discovery`
+registers configured input URLs and plans their `repo_state` partitions before
+those routes run. `rescan_event_intake` plans unconsumed external-report,
+methodology and CVE rows directly, ahead of the decision table.
 
 The former daily worklist builder (`traust build rescan-worklist` and its
 `rescan-worklist.json`) is retired: it read a `findings.db` projection nothing
-builds any more, so it could not run on a current deployment. Its decision table,
-tripwire, refusal pre-route, threat-model stamp and additive rows live in
-`traust.ops.router`, characterized against the legacy router's outputs
-(`tests/test_security_router.py`).
+builds any more. Its decision table, tripwire, refusal pre-route, threat-model
+stamp and additive rows live in `traust.ops.router`, characterized against the
+legacy router's outputs (`tests/test_security_router.py`).
 
 ## Hosts and credentials
 
@@ -110,7 +112,7 @@ dropped.
 
 | Cadence | What runs |
 |---|---|
-| Daily (automated, deterministic) | observation + router → routed orders (a recorded release's change is derived on demand: see *Event feeders*); `/dependency-watch` — the advisory-driven deps lane end to end (feeds → `/impact-analysis` → python3 -m traust.cli route impact-findings direct-entry filing) |
+| Daily (automated, deterministic) | input inventory discovery → observation + router → event and routed orders (a recorded release's change is derived on demand: see *Event feeders*); `/dependency-watch` — the advisory-driven deps lane end to end (feeds → `/impact-analysis` → python3 -m traust.cli route impact-findings direct-entry filing) |
 | Weekly session | dispatch the routed full-audit orders as a batch; `/verify-remediation` treadmill sweep (`traust remediation verify-sweep`); triage new findings |
 | Monthly | sensitive-change P2 diff scans; validation session (criticals validated-or-blocked inside the SLA window); spend reconcile against the budget policy |
 | Weekly (trickle) | the `diff-scan-quarterly` pool drains as a risk-ordered weekly trickle: dispatch rows with `drain_order < weekly rate` (default ceil(pool/13) — the same quarterly volume as a 90-day batch, but a short stable queue instead of a long tail; external-band rows first, target ≤14 days in-pool). Dispatching the drain is an operator decision informed by the deployment's measured per-run cost (see *The diff lane*); the drain ordering accumulates until scheduled |
@@ -132,6 +134,8 @@ rows named in the last column are the backstop that makes a dead timer visible.
 
 | Job | Cadence | Trigger | Runner | Output gate / staleness backstop |
 |---|---|---|---|---|
+| Input inventory discovery | daily, before repository observation | timer (`inventory_discovery`) | `traust portfolio inventory-discover` | Registers every typed `locations.inputs` URL as private by default and plans its first observation plus bootstrap audit. Existing orders coalesce idempotently. |
+| Operator event intake | daily, before table routing | timer (`rescan_event_intake`) | `traust portfolio event-intake` | Plans unconsumed external-report, methodology and CVE records as distinct orders; an invalid or unregistered row is visible, never silently dropped. |
 | Repository observation + router | per `repo_state` observation | engine tick | `traust portfolio observe`, then `traust.ops.router` | routes only, never authors findings; the engine tick is the cadence |
 | **Feed-source liveness** | *retired* with `check drift`; returns as traust-core provider readiness once the live sources are core providers | probe | — | Probes every source in traust-core's shipped `feeds.yaml` carrying a `probe` — both tiers — so a live-tier source that answers with an error is visible. A definitive HTTP error is `drift`; a transport failure is `unavailable`, never `drift`, so an offline workstation does not report every source as broken |
 | Release/dist-git event feeder | daily (`release_discovery`, 24h) | inventory digest/tag/local-key or watched dist-git HEAD change | `traust portfolio release-discover` | Native `release-inventory` feed snapshots retain observation identities. Initial observation is baseline only; changed artifacts plan `release_passthrough`, then approved container/RPM batches. Explicit product bindings record versions; dist-git movement never becomes a version. |
@@ -450,14 +454,14 @@ line:
  "date": "YYYY-MM-DD", "consumed": false}
 ```
 
-`source` is one of `external-report` (→ immediate `full-audit+validate` row),
+`source` is `external-report` (→ immediate `full-audit+validate`),
 `methodology` (→ full audit for P0-tier repos; P1+ catch up via the rule-4
-ceiling), `cve` (→ impact lane, consumed by the daily `/dependency-watch` run —
-analysis; the former filing step is retired), `release` (→ passthrough note to the branch/container/rpm
-audit lanes). Event rows queue AHEAD of the decision table and are never dropped
-by the budget guard. The router is read-only over the file: it lists what it
-honored in `events_honored` and marks nothing consumed — flip `consumed` to
-`true` after dispatching the row.
+ceiling), or `cve` (→ immediate `cve_impact` order running `/dependency-watch`).
+Release events use the native release-discovery feed below, not this file.
+`rescan_event_intake` plans the event-specific order before ordinary
+`repo_state` table routing. It is read-only over the file: flip `consumed` to
+`true` after dispatch. Malformed, unsupported or unregistered records make the
+intake fail or degrade rather than disappear.
 
 ### Event feeders
 

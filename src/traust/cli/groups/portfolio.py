@@ -7,6 +7,15 @@ from traust.cli.groups._registry import passthrough_op
 OBSERVE = passthrough_op(
     "portfolio_observe", "Observe one repository at its forge; keep what it answered.", "main"
 )
+INVENTORY_DISCOVER = passthrough_op(
+    "portfolio_observe",
+    "Register configured input repositories and plan their first observation and audit.",
+    "inventory_discover",
+)
+EVENT_INTAKE = passthrough_op(
+    "portfolio_observe", "Plan unconsumed operator routing events.", "event_intake"
+)
+
 
 PLAN = passthrough_op("portfolio_onboard", "What onboard would register, writing nothing.", "plan")
 ONBOARD = passthrough_op("portfolio_onboard", "Register a product's repositories.", "onboard")

@@ -101,6 +101,8 @@ GROUPS: dict[str, dict[str, object]] = {
         "dependencies": portfolio.DEPENDENCIES,
         "dependents": portfolio.DEPENDENTS,
         "observe": portfolio.OBSERVE,
+        "inventory-discover": portfolio.INVENTORY_DISCOVER,
+        "event-intake": portfolio.EVENT_INTAKE,
         "plan": portfolio.PLAN,
         "onboard": portfolio.ONBOARD,
         "owner-hints": portfolio.OWNER_HINTS,

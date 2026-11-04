@@ -39,14 +39,17 @@ work, and none of them authors a finding:
 
 ## 1. Work routing — the rescan router
 
-**Decides what work to do.** Reads a repository's change signals (its observed
-`repo_state`) and routes it to a lane, which traust-engine queues as an order —
-`full-audit+validate`, `full-audit`, `impact-lane`, `iac-lane`, `iac-baseline`,
-`release-passthrough`, `threat-model-review`, `deps-lane`, `diff-scan`,
-`diff-scan-quarterly`, `threat-model-quarterly`, `none`.
+**Decides what work to do.** The `inventory_discovery` intake registers every
+configured input URL before the per-repository observation. The router reads
+that repository's `repo_state` and routes it to a lane, which traust-engine
+queues as an order — `full-audit+validate`, `full-audit`, `impact-lane`,
+`iac-lane`, `iac-baseline`, `release-passthrough`, `threat-model-review`,
+`deps-lane`, `diff-scan`, `diff-scan-quarterly`, `threat-model-quarterly`,
+`none`. External-report, methodology and CVE injection is planned directly by
+`rescan_event_intake` ahead of this table.
 
-**Writes:** routes (engine orders), nothing else. Read-only over its inputs, it **never
-authors a finding, verdict, or audit**, and never self-tunes.
+**Writes:** routes (engine orders), nothing else. It **never authors a finding,
+verdict, or audit**, and never self-tunes.
 
 **Why it matters beyond scheduling:** it holds the authority over **when a new
 baseline is cut** — exactly what a producer appending findings straight into a
@@ -54,8 +57,7 @@ baseline used to bypass (§4).
 
 In continuous ops the same decision table runs per repository:
 `traust.ops.router` routes a repository each time its `repo_state` materializes,
-and the lane's asset in `packs/security/assets.yaml` gets the order. The worklist
-builder stays until the shadow run's cutover.
+and the lane's asset in `packs/security/assets.yaml` gets the order.
 
 → **[continuous-operations.md](continuous-operations.md)**
 

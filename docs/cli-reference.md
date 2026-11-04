@@ -37,7 +37,7 @@ python3 -m traust.cli check skill-alignment      # equivalent
 | `isolation` | Tenant-isolation review | `repos` |
 | `ledger` | Ledger audit (traust-core) and the doc-variance register | `audit`, `doc-variance` |
 | `metrics` | Metrics & spend | `attribute-spend`, `collect-spend`, `lane-costs` |
-| `portfolio` | Native inventory and declared owner/contact/tracker handoffs, forge liveness, recorded dependency/interface facts, unsigned analytical proposals, graph presentation and release discovery | `checkout-refresh`, `crd-consumers`, `crown-jewel-draft`, `dependencies`, `dependents`, `exports-of`, `facts-collect`, `file`, `graph`, `iac-census`, `import-owners`, `import-reference`, `import-release`, `imports-package`, `internal-coupling`, `inventory-export`, `liveness`, `mirror-evict`, `observe`, `onboard`, `org-index`, `owner-hints`, `plan`, `population`, `release-audit`, `release-changes`, `release-discover`, `release-passthrough`, `ships-module` |
+| `portfolio` | Native inventory and declared owner/contact/tracker handoffs, routing intake, forge liveness, recorded dependency/interface facts, unsigned analytical proposals, graph presentation and release discovery | `checkout-refresh`, `crd-consumers`, `crown-jewel-draft`, `dependencies`, `dependents`, `event-intake`, `exports-of`, `facts-collect`, `file`, `graph`, `iac-census`, `import-owners`, `import-reference`, `import-release`, `imports-package`, `internal-coupling`, `inventory-discover`, `inventory-export`, `liveness`, `mirror-evict`, `observe`, `onboard`, `org-index`, `owner-hints`, `plan`, `population`, `release-audit`, `release-changes`, `release-discover`, `release-passthrough`, `ships-module` |
 | `pqc` | The pqc-readiness skill's doors on traust-core; ranked worklists, bounded stamped refresh and non-destructive report repair | `blockers`, `check`, `prepare`, `record`, `repair`, `summary`, `sweep`, `vendor-claims`, `worklist` |
 | `products` | corpus-intake's doors on traust-core: products and their corpus ownership | `add`, `list`, `update` |
 | `registry` | Model/product registry and the recorded product map | `models`, `product-map`, `products` |
@@ -229,8 +229,12 @@ upstream releases, stored-PQC-schema compatibility and measured-language coverag
 in `traust dashboard view freshness --out <dir>`.
 
 `traust build rescan-worklist`, the former daily router, is retired: it read a
-`findings.db` projection nothing builds. Routing runs per repository in the engine
-through `traust.ops.router` ([continuous-operations.md](continuous-operations.md)).
+`findings.db` projection nothing builds. `traust portfolio inventory-discover`
+registers configured input repositories and plans their first observation and
+bootstrap audit. `traust portfolio event-intake` turns unconsumed
+`rescan-events.jsonl` rows into distinct engine orders. Ordinary routing runs per
+repository through `traust.ops.router`
+([continuous-operations.md](continuous-operations.md)).
 
 ### Artifact-only below-range sessions
 

@@ -17,11 +17,27 @@ assets:
     priority: 10
     freshness: {fail: 48h}
     runner: {labels: [deterministic]}
+  inventory_discovery:  # input inventory -> registered engine partitions and bootstrap orders
+    run: [python3, -m, traust.cli, portfolio, inventory-discover, --run-id, "{run_id}"]
+    trigger: {every: 24h}
+    priority: 15
+    freshness: {fail: 48h}
+    runner: {labels: [deterministic]}
+
+  rescan_event_intake:  # operator events -> direct engine orders ahead of table routing
+    run: [python3, -m, traust.cli, portfolio, event-intake, --run-id, "{run_id}"]
+    deps: [inventory_discovery]
+    trigger: {every: 24h}
+    priority: 18
+    freshness: {fail: 48h}
+    runner: {labels: [deterministic]}
+
 
   repo_state:  # PortfolioService.record_forge_facts through traust.ops.materializers
     run: [python3, -m, traust.cli, portfolio, observe, --repo, "{repo_url}", --run-id, "{run_id}"]
     params: {repo_url: HttpsRepoUrl}
     partitions: dynamic:repo
+    deps: [inventory_discovery]
     trigger: {every: 24h}
     priority: 20
     freshness: {fail: 72h}
@@ -36,13 +52,35 @@ assets:
     admission: {quota: {key: "forge:{host}", per_hour: 1000}}
     runner: {labels: [deterministic]}
 
+  # Event rows are direct-planned by rescan_event_intake. Separate assets keep their earlier
+  # priority and source from being overwritten by the table's order for the same repository.
+  external_report_audit:
+    model: {role: deep-audit}
+    run: [python3, -m, traust.cli, session, run, --skill, secure-code-audit, --role, "{role}", --repo, "{repo_url}", --run-id, "{run_id}"]
+    partitions: dynamic:repo
+    deps: [repo_state]
+    admission: {approval: operators, estimate_usd: "29.04"}
+    runner: {labels: [llm]}
+
+  methodology_audit:
+    model: {role: deep-audit}
+    run: [python3, -m, traust.cli, session, run, --skill, secure-code-audit, --role, "{role}", --repo, "{repo_url}", --run-id, "{run_id}"]
+    partitions: dynamic:repo
+    deps: [repo_state]
+    admission: {approval: operators, estimate_usd: "29.04"}
+    runner: {labels: [llm]}
+
+  cve_impact:
+    model: {role: fact-judge}
+    run: [python3, -m, traust.cli, session, run, --skill, dependency-watch, --role, "{role}", --run-id, "{run_id}"]
+    deps: [feeds_cache]
+    runner: {labels: [llm]}
+
   # Routed lanes: planned only when traust.ops.router routes a repository to one of their lanes;
   # no freshness, since a repository nothing routes needs no visit. Estimates are the legacy
   # budget shadow's measured per-run medians (its retired LANE_UNIT_COST); a lane budget binds
   # only on assets that declare one.
   full_audit:  # skill session: a full audit; rules 1-bootstrap, 2, 3 (P0/P1), 4 and no-pinned-sha
-    # full-audit+validate (rule 1, an external report) comes with the feed, and the pack schema's
-    # name pattern rejects its `+` (NEED(contracts: the work_lane value as a pack lane)).
     model: {role: deep-audit}
     run: [python3, -m, traust.cli, session, run, --skill, secure-code-audit, --role, "{role}", --repo, "{repo_url}", --run-id, "{run_id}"]
     partitions: dynamic:repo
@@ -154,8 +192,7 @@ assets:
 
   # Below-range verification: versions an advisory's stated range leaves out while the vulnerable
   # code is already there. Packets are deterministic facts; only the review decides (D1, D4).
-  # NEED(router): planned on cadence; routing when repo_state shows the dependencies changed
-  # needs a manifest-change signal in RepoState, and advisory events need the feed.
+  # NEED(router): routing when repo_state shows dependency changes needs a manifest-change signal.
   manifest_sbom:  # ExposureService.record_manifest_sbom through traust.ops.materializers
     # The observed default head's dependency SBOM, from its manifests (the forge archive, only
     # the files syft reads, capped). A head that already has one is a lookup, not a fetch, so the

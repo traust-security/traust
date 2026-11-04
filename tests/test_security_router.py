@@ -21,6 +21,7 @@ from traust_core.v1.models.inventory import (
     RepoState,
     RiskTier,
 )
+from traust_core.v1.models.operations import RescanEventSource
 from traust_core.v1.models.values import HttpsRepoUrl
 from traust_core.v1.models.vocabulary import ComparisonStatus
 from traust_core.v1.services.observation import PREROUTE_MIN_FILES
@@ -32,6 +33,7 @@ from traust.ops.router import (
     UNQUEUED,
     SecurityRouter,
     decide,
+    event_route,
     priority,
 )
 
@@ -189,6 +191,27 @@ def test_route_names_the_lane_and_the_rule(fields: dict[str, Any], lane: str) ->
 def test_classifications_without_a_queue_plan_nothing(fields: dict[str, Any]) -> None:
     (route,) = SecurityRouter().route(_state(**fields), (), ())
     assert route.lane is None and route.reason == decide(_state(**fields))[0].id
+
+
+@pytest.mark.parametrize(
+    ("source", "tier", "lane"),
+    [
+        (RescanEventSource.EXTERNAL_REPORT, RiskTier.P3, "full-audit+validate"),
+        (RescanEventSource.METHODOLOGY, RiskTier.P0, "full-audit"),
+        (RescanEventSource.METHODOLOGY, RiskTier.P1, None),
+        (RescanEventSource.CVE, RiskTier.P3, "impact-lane"),
+    ],
+)
+def test_operator_events_run_ahead_of_the_table(
+    source: RescanEventSource, tier: RiskTier, lane: str | None
+) -> None:
+    state = _state(risk_tier=tier, audit_age_days=9999)
+    route = event_route(state, source)
+    if lane is None:
+        assert route is None
+        return
+    assert (route.lane, route.reason) == (lane, f"event:{source}")
+    assert route.priority < SecurityRouter().route(state, (), ())[0].priority
 
 
 def test_priority_orders_by_lane_then_exposure_then_tier() -> None:
