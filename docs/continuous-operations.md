@@ -622,12 +622,38 @@ make ops-up          # Postgres on 127.0.0.1:5433 + config home + overlay pack
 make ops-doctor      # what is missing, if anything
 make ops-run         # pane 1: the tick loop (OPS_EVERY=1m by default)
 make ops-claim       # pane 2: claim-once loop, every 5s
-make ops-approve     # operator door: approve awaiting orders (all, or one by an unambiguous id prefix)
+make ops-approve ORDER=<id-prefix>  # approve exactly one awaiting order
+make ops-approve-all # explicitly approve every awaiting order
 make ops-sh          # a shell with the rig's env, for the commands below
 make ops-scan REPO=https://github.com/<you>/<small-repo>   # the workflow by hand
 make ops-smoke       # one bounded cycle with asserts (the CI entry)
 make ops-down        # stop Postgres, data kept; ops-reset drops it
 ```
+
+Omitting `ORDER`, supplying a blank value, or adding extra script arguments is
+an error before credentials or orders are loaded. A prefix matching multiple
+awaiting orders approves none. Bulk approval requires `ops-approve-all` or
+`scripts/local_ops.sh approve --all`; empty input never requests it. Selectors
+remain literal through Make and the shell, including Make-function syntax.
+
+Fresh setup creates the rig's model registry before the configuration installer
+can seed shipped routing. Mythos-class roles use a shipped, approved opus-class
+model for this pipeline rehearsal; this is not an audit-quality equivalence.
+Existing registries are kept byte-for-byte. To restore shipped routing, copy
+`config/model-registry.yaml` over `.local-ops/config/model-registry.yaml`.
+
+A new rig without cosign deliberately configures unsigned ledger operation.
+When cosign is installed, failed generation or missing/empty key halves stop
+startup before database/auth continuation. An incomplete existing pair is never
+overwritten: restore the matching public half, or derive it from the existing
+private key with `cosign public-key --key` into a separate file before installing
+it. Keep the private identity; do not regenerate over it. A later successful
+setup upgrades the rig's empty unsigned placeholder, not operator-owned signing.
+
+The runner's tool grants and Read denials are **not credential isolation**.
+Granted Python/Bash can read inherited environment variables and host files.
+Use disposable rig credentials only; a deployment must enforce its own execution
+boundary, scrubbed tool environment and network egress policy.
 
 The overlay pack compresses cadences to minutes (`24h → 2m`, `7d → 5m`,
 `3d → 3m`, `30d → 6m`, `90d → 9m`); freshness `fail:` windows are left
@@ -644,8 +670,8 @@ end over two engine passes: orders drain, `feeds_cache`, `repo_state` and
 nothing left running or queued.
 
 A deployment needs the same pieces the rig writes: `process.allowed_binaries`
-in `traust.yaml` lists `syft` (core's process runner runs nothing else, and
-`manifest_sbom` runs it); `ledger_audit` is refused as `ledger_unconfigured`
+in `traust.yaml` includes `syft` for manifest SBOMs and `gitleaks` for observation;
+the rig preserves additional operator grants. `ledger_audit` is refused as `ledger_unconfigured`
 until `traust.yaml` has a `ledger:` section; a runner from the runtime image
 reads the harness payload (`harnessing/`, `packs/`) from `HARNESS_ROOT`, which the
 image sets. A never-audited repository is observed too: `repo_state` keeps its

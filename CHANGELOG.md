@@ -95,6 +95,13 @@ All notable changes to Traust are documented here.
 
 ## [0.39.5]
 
+- Require an explicit local-rig approval selector or approve-all action; missing
+  and blank inputs never approve orders, and Make expressions stay literal.
+- Initialize the rig's approved opus-tier routing before template installation
+  while preserving operator registries and the shipped model source.
+- Fail rig startup on installed-but-broken cosign or incomplete dev key pairs,
+  preserving existing private identity and operator-owned ledger configuration.
+
 - Keep main/development browser preflight semantics aligned: answering HTTP 4xx,
   including 401/403/429, satisfies URL reachability only, not authorization or
   browser usability; transport, TLS and HTTP 5xx still invalidate the target.
