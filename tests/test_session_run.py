@@ -364,3 +364,128 @@ def test_a_session_runs_with_the_runners_own_claude_config_dir(
     _, kw = processes.agent_call()
     assert kw["env"]["CLAUDE_CONFIG_DIR"] == str(tmp_path / "claude-runner")
     assert not Path(kw["env"]["CLAUDE_CONFIG_DIR"]).is_relative_to(Path.home() / ".claude")
+
+
+ORDER = "8f7d5e2a-1c3b-4d5e-9f60-7a8b9c0d1e2f"
+
+
+class Recorded:
+    """The order's assessments before the agent runs, then after."""
+
+    def __init__(self, before: list[tuple[str, str]], after: list[tuple[str, str]]) -> None:
+        self.answers = [before, after]
+        self.asked: list[object] = []
+
+    def __call__(self, order_id: object, config_home: object) -> list[SimpleNamespace]:
+        self.asked.append(order_id)
+        return [SimpleNamespace(id=i, kind=k) for i, k in self.answers[len(self.asked) - 1]]
+
+
+@pytest.mark.parametrize(
+    ("before", "after", "outcome", "written"),
+    [
+        ([], [], "failed", []),
+        ([], [("a-1", "secure_code")], "succeeded", ["a-1"]),
+        # A retry that re-records an unchanged report is handed the earlier assessment
+        # back, indistinguishable from a retry that recorded nothing: the order holding
+        # its assessment of the kind is the contract, so this succeeds with the order's own.
+        ([("a-0", "secure_code")], [("a-0", "secure_code")], "succeeded", ["a-0"]),
+        (
+            [("a-0", "secure_code")],
+            [("a-0", "secure_code"), ("a-1", "secure_code")],
+            "succeeded",
+            ["a-1"],
+        ),
+        ([], [("t-1", "threat_model")], "failed", []),
+    ],
+    ids=["nothing", "recorded", "an idempotent retry", "a retry's own", "another kind"],
+)
+def test_an_ordered_audit_succeeds_only_if_this_attempt_recorded_its_kind_for_the_order(
+    processes: Processes,
+    monkeypatch: pytest.MonkeyPatch,
+    before: list[tuple[str, str]],
+    after: list[tuple[str, str]],
+    outcome: str,
+    written: list[str],
+) -> None:
+    recorded = Recorded(before, after)
+    monkeypatch.setattr(session, "order_assessments", recorded)
+    _, result = run(
+        "--skill", "secure-code-audit", "--role", "deep-audit", "--repo", REPO, "--run-id", ORDER
+    )
+    assert result["outcome"] == outcome
+    assert result.get("reason") == (None if written else "session-output-invalid")
+    assert result["written"] == written
+    assert [str(o) for o in recorded.asked] == [ORDER, ORDER]
+    assert processes.agent_call()[1]["env"]["TRAUST_RUN_ID"] == ORDER
+
+
+def test_a_failed_lookup_after_the_session_still_carries_what_it_spent(
+    processes: Processes, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    answers = iter([[]])
+
+    def lookup(*_: object) -> list[SimpleNamespace]:
+        try:
+            return next(answers)
+        except StopIteration:
+            raise ServiceError("core unavailable") from None
+
+    monkeypatch.setattr(session, "order_assessments", lookup)
+    rc, result = run(
+        "--skill", "secure-code-audit", "--role", "deep-audit", "--repo", REPO, "--run-id", ORDER
+    )
+    assert (rc, result["outcome"], result["reason"]) == (1, "failed", "runner-crashed")
+    assert len(result["usage"]) == 2
+
+
+def test_a_configuration_that_exits_rather_than_raising_answers_bad_request(
+    processes: Processes, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`load` exits on an unusable configuration instead of raising; the caller still gets a
+    structured result, and the post-session lookup carries what the run spent."""
+    answers = iter([[], SystemExit(2)])
+
+    def lookup(*_: object) -> list[SimpleNamespace]:
+        answer = next(answers)
+        if isinstance(answer, BaseException):
+            raise answer
+        return answer
+
+    monkeypatch.setattr(session, "order_assessments", lookup)
+    rc, result = run(
+        "--skill", "secure-code-audit", "--role", "deep-audit", "--repo", REPO, "--run-id", ORDER
+    )
+    assert (rc, result["outcome"], result["reason"]) == (1, "failed", "bad_request")
+    assert len(result["usage"]) == 2
+    assert processes.agent_calls()
+
+
+def test_a_malformed_run_id_is_a_bad_request_before_the_agent_starts(
+    processes: Processes,
+) -> None:
+    rc, result = run(
+        "--skill", "secure-code-audit", "--role", "deep-audit", "--repo", REPO, "--run-id", "x-1"
+    )
+    assert (rc, result["outcome"], result["reason"]) == (1, "failed", "bad_request")
+    assert processes.agent_calls() == []
+
+
+def test_the_agent_records_into_the_sessions_config_home(
+    processes: Processes, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("TRAUST_CONFIG_HOME", str(tmp_path / "ambient"))
+    run("--config-home", str(tmp_path), "--skill", "dependency-watch", "--role", "fact-judge")
+    assert processes.agent_call()[1]["env"]["TRAUST_CONFIG_HOME"] == str(tmp_path)
+
+
+def test_a_manual_or_non_recording_session_is_not_checked(
+    processes: Processes, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(session, "order_assessments", lambda *_: pytest.fail("checked"))
+    monkeypatch.setenv("TRAUST_RUN_ID", ORDER)  # inherited from an outer ordered session
+    _, result = run("--skill", "secure-code-audit", "--role", "deep-audit", "--repo", REPO)
+    assert result["outcome"] == "succeeded"
+    assert "TRAUST_RUN_ID" not in processes.agent_call()[1]["env"]
+    _, result = run("--skill", "threat-model", "--role", "threat-model", "--run-id", ORDER)
+    assert result["outcome"] == "succeeded"

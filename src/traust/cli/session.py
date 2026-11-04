@@ -21,6 +21,7 @@ nothing is counted twice.
 
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import shlex
@@ -31,12 +32,13 @@ from collections.abc import Iterator, Mapping
 from contextlib import contextmanager, nullcontext
 from datetime import UTC, datetime
 from pathlib import Path
+from uuid import UUID
 
 import pydantic
 from pydantic import Field
-from traust_core.v1.context import CheckoutRequest, Context, Workspace
+from traust_core.v1.context import TRAUST_CONFIG_HOME_ENV, CheckoutRequest, Context, Workspace
 from traust_core.v1.errors import NotFoundError, ServiceError, TraustError, ValidationError
-from traust_core.v1.models.assessment import DiffRefused
+from traust_core.v1.models.assessment import Assessment, AssessmentKind, DiffRefused
 from traust_core.v1.models.base import Dto
 from traust_core.v1.models.operations import (
     JobResult,
@@ -50,7 +52,7 @@ from traust_core.v1.models.operations import (
 )
 from traust_core.v1.models.values import GitSha, HttpsRepoUrl
 
-from traust.cli._doors import answer, parser
+from traust.cli._doors import RUN_ORDER_ENV, answer, parser
 from traust.cli._doors import run as door
 from traust.cli.assessments import REFUSED
 from traust.context import MODEL_REGISTRY, TRAUST_CONFIG_HOME_DEFAULT, load, resolve_config_home
@@ -66,6 +68,14 @@ AGENT = ("claude", "-p", "--output-format", "json")
 PROVIDER = ProviderName("anthropic")
 # PENDING(roles): the pack's threat-model role, as on its threat_model_quarterly asset.
 THREAT_MODEL_ROLE = "threat-model"
+# Skills whose ordered run is only done once it has recorded an assessment for the order (a
+# threat-model review may rightly change nothing, so it isn't one).
+# The skills whose ordered session must record an assessment of their kind for the order.
+RECORDING_SKILLS = {
+    "secure-code-audit": AssessmentKind.SECURE_CODE_CANONICAL,
+    "vuln-scan": AssessmentKind.VULN_SCAN_CANONICAL,
+    "cloud-config-audit": AssessmentKind.CLOUD_CONFIG_CANONICAL,
+}
 
 
 class _Tokens(Dto):
@@ -244,7 +254,28 @@ def run(argv: list[str] | None = None) -> int:
         print(f"run {args.run_id}: {OrderReason.BAD_REQUEST}: {e}", file=sys.stderr)
         return answer(JobResult.failed(OrderReason.BAD_REQUEST))
     mode = [args.mode] if args.mode else []
+    kind = RECORDING_SKILLS.get(args.skill)
+    try:
+        order_id = _order_id(args.run_id)
+        # what the order had before this attempt, to prefer this attempt's own below
+        before = set() if order_id is None or kind is None else _recorded(order_id, kind, args)
+    except ValueError:
+        print(f"run {args.run_id}: {OrderReason.BAD_REQUEST}: not a run order id", file=sys.stderr)
+        return answer(JobResult.failed(OrderReason.BAD_REQUEST))
+    except SystemExit:
+        # `load` exits on an unusable configuration rather than raising
+        print(f"run {args.run_id}: {OrderReason.BAD_REQUEST}: configuration", file=sys.stderr)
+        return answer(JobResult.failed(OrderReason.BAD_REQUEST))
+    except (TraustError, OSError) as e:
+        print(f"run {args.run_id}: {OrderReason.BAD_REQUEST}: {type(e).__name__}", file=sys.stderr)
+        return answer(JobResult.failed(OrderReason.BAD_REQUEST))
     env = {**os.environ, "CLAUDE_CONFIG_DIR": str(claude_dir(args.config_home))}
+    # The record doors default to this order and home: a manual session inherits neither.
+    env.pop(RUN_ORDER_ENV, None)
+    if order_id is not None:
+        env[RUN_ORDER_ENV] = str(order_id)
+    if args.config_home is not None:
+        env[TRAUST_CONFIG_HOME_ENV] = str(args.config_home)
     usage: tuple[ModelUsage, ...] = ()
     entered = checkout(args.repo, args.config_home) if args.checkout else nullcontext(None)
     try:
@@ -270,7 +301,40 @@ def run(argv: list[str] | None = None) -> int:
     if done.returncode != 0:
         print(f"run {args.run_id}: session exited {done.returncode}", file=sys.stderr)
         return answer(_spent(JobResult.failed(OrderReason.RUNNER_CRASHED), usage))
+    if order_id is not None and kind is not None:
+        try:
+            recorded = _recorded(order_id, kind, args)
+        except SystemExit:
+            print(f"run {args.run_id}: {OrderReason.BAD_REQUEST}: configuration", file=sys.stderr)
+            return answer(_spent(JobResult.failed(OrderReason.BAD_REQUEST), usage))
+        except (TraustError, OSError) as e:
+            print(
+                f"run {args.run_id}: recorded-assessment lookup: {type(e).__name__}",
+                file=sys.stderr,
+            )
+            return answer(_spent(JobResult.failed(OrderReason.RUNNER_CRASHED), usage))
+        if not recorded:
+            print(
+                f"run {args.run_id}: /{args.skill} recorded no {kind} assessment", file=sys.stderr
+            )
+            return answer(_spent(JobResult.failed(OrderReason.SESSION_OUTPUT_INVALID), usage))
+        # This attempt's when it recorded new; otherwise the order's own. A retry that re-records
+        # an unchanged report is handed the earlier assessment back (re-recording adds nothing),
+        # which no row distinguishes from a retry that recorded nothing — so the order holding
+        # its assessment of this kind is the contract this gate can enforce.
+        written = sorted(recorded - before) or sorted(recorded)
+        return answer(_spent(JobResult.succeeded(written=tuple(written)), usage))
     return answer(_spent(JobResult.succeeded(), usage))
+
+
+def order_assessments(order_id: UUID, config_home: Path | None) -> list[Assessment]:
+    """What the order recorded, as its record doors bound it (`--run-id`)."""
+    return load(config_home).services().assessment.list_for_order(order_id)
+
+
+def _recorded(order_id: UUID, kind: AssessmentKind, args: argparse.Namespace) -> set[str]:
+    """The ids of the order's assessments of `kind`."""
+    return {str(a.id) for a in order_assessments(order_id, args.config_home) if a.kind == kind}
 
 
 def _spent(result: JobResult, usage: tuple[ModelUsage, ...]) -> JobResult:

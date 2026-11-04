@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import uuid
 from collections.abc import Callable
@@ -33,6 +34,20 @@ def add_branch_arg(ap: argparse.ArgumentParser) -> None:
         help="the branch the commit was scanned on; named like the forge-observed default "
         "branch, the record is on the default line. Without it the commit is recorded bare "
         "(never guessed from the sha), on the default line only at the observed default head",
+    )
+
+
+# `traust session run` sets this for the agent it starts, so a record door the skill calls
+# binds what it records to the order that ran it.
+RUN_ORDER_ENV = "TRAUST_RUN_ID"
+
+
+def add_run_order_arg(ap: argparse.ArgumentParser) -> None:
+    ap.add_argument(
+        "--run-id",
+        type=uuid.UUID,
+        default=os.environ.get(RUN_ORDER_ENV) or None,
+        help=f"the leased order this records for (default: ${RUN_ORDER_ENV}, set by session run)",
     )
 
 
