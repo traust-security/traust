@@ -31,7 +31,11 @@ ANSWERED = frozenset(
 
 def _repo_url(raw: str) -> HttpsRepoUrl:
     """Structurally validate a repository URL without treating forge support as policy."""
-    return HttpsRepoUrl.parse(raw, (urlsplit(raw).hostname or "",))
+    try:
+        hostname = urlsplit(raw).hostname or ""
+    except ValueError as error:
+        raise ValidationError("invalid repository URL") from error
+    return HttpsRepoUrl.parse(raw, (hostname,))
 
 
 class RepoStateMaterializer:
@@ -39,7 +43,7 @@ class RepoStateMaterializer:
 
     asset = "repo_state"
 
-    def __init__(self, services: Services, hosts: Iterable[str]) -> None:
+    def __init__(self, services: Services) -> None:
         self._portfolio = services.portfolio
 
     def materialize(self, request: AssetRequest) -> JobResult:

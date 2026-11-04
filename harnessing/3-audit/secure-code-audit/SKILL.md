@@ -1770,9 +1770,9 @@ in docs/continuous-operations.md): heavy churn (≥8K first-party lines /
 session/RBAC-matching files), age ceilings (P0 180d / P1 270d / P2
 365d), and injected events (external report, methodology release) route
 to a full audit; smaller changes route to `/vuln-scan --diff`. Batch
-sessions should consume the worklist's `full-audit` rows rather than
-hand-picking repos — the router's reasons ride along for the report's
-audit-trail.
+sessions should claim engine-owned `full_audit` orders through
+`traust-engine claim $E`, rather than hand-picking repos. The engine expands
+each order's `{rule}` token with the router reason for the report's audit trail.
 
 When this skill is driven at scale — workflow scripts, loop templates (`_manifest/*_AGENT_TEMPLATE.md`), or hand-written subagent prompts — the batch prompt must **not** restate the report schema. Every documented consistency regression in the portfolio (legacy `FIND-NNN` IDs, `loc_reviewed` typed as "STRING", all-`confirmed` validation status, vanished `attack_pattern`, free-form categories) entered through a batch prompt that paraphrased this skill from memory and then drifted from it.
 

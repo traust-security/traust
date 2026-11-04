@@ -24,7 +24,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--run-id", default=MANUAL, help="the run order this observation is for")
     args = ap.parse_args(argv)
     core = load(args.config_home)
-    materializer = RepoStateMaterializer(core.services(), core.config.forge_hosts)
+    materializer = RepoStateMaterializer(core.services())
     return answer(
         materializer.materialize(
             AssetRequest(asset=materializer.asset, run_id=args.run_id, partition=args.repo)

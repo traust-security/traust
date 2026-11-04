@@ -458,19 +458,24 @@ line:
 
 `source` is `external-report`, `methodology`, or `cve`. External reports require
 both a whitespace-free `report` input reference and a mode-1 `targets.yaml`
-scope. Intake plans an operator-approved `external_report_audit` plus a distinct
+scope. Intake binds a canonical event digest into each immutable order manifest
+and plans an operator-approved `external_report_audit` plus a distinct
 operator-approved `external_report_validation` that waits for the audit, runs
 `/validate-findings <report> --targets <targets> --auto --replay-only`, and has
-its own outcome. The immutable order manifest binds both inputs. Methodology
-events queue a full audit only for P0-tier repos; P1+ catch up through the
+its own outcome. The manifest also binds both input references.
+Methodology events queue a full audit only for P0-tier repos; P1+ catch up through the
 rule-4 ceiling. CVE events queue an immediate `cve_impact` order running
 `/dependency-watch`. Release events use the native release-discovery feed below,
 not this file.
 
-`rescan_event_intake` plans before ordinary `repo_state` table routing. It is
-read-only over the file: flip `consumed` to `true` after dispatch. Malformed,
-unsupported or unregistered records make the intake fail or degrade rather
-than disappear.
+`rescan_event_intake` plans before ordinary `repo_state` table routing. It binds
+each canonical row's digest into Core's order manifests and skips that event in
+every order state on later runs.
+When another event already owns an open order for the same asset and repository,
+intake degrades visibly and retries the waiting row on the next tick instead of
+coalescing their inputs. `consumed`
+remains an operator-controlled archival marker. Malformed, unsupported or
+unregistered records fail or degrade rather than disappear.
 
 ### Event feeders
 

@@ -8,16 +8,18 @@ from typing import Any, ClassVar
 
 from traust_core.v1.context import Services
 from traust_core.v1.errors import ConfigError, ValidationError
-from traust_core.v1.models.common import PageRequest
+from traust_core.v1.models.common import PageRequest, every_item
 from traust_core.v1.models.identity import Principal
 from traust_core.v1.models.input_segments import InputSegmentInventory
 from traust_core.v1.models.integrity import sha256_hex
 from traust_core.v1.models.inventory import RepositoryFilter
 from traust_core.v1.models.operations import (
+    OPEN_ORDER_STATES,
     AssetRequest,
     ConfigDigest,
     DegradedKey,
     JobResult,
+    OrderFilter,
     OrderManifest,
     OrderReason,
     OrderRequest,
@@ -41,10 +43,24 @@ class ExternalValidationInput:
 class RescanEvent:
     source: RescanEventSource
     repo: str
+    identity: str
     validation: ExternalValidationInput | None = None
 
 
+_EVENT_CONFIG = "rescan-event:"
 _VALIDATION_CONFIG = "external-validation:"
+
+
+def _event_config(event: RescanEvent) -> tuple[ConfigDigest, ...]:
+    identity = ConfigDigest(name=_EVENT_CONFIG + event.identity, digest=event.identity)
+    return (identity, *_external_validation_config(event))
+
+
+def _has_event_identity(manifest: OrderManifest, event: RescanEvent) -> bool:
+    return any(
+        entry.name == _EVENT_CONFIG + event.identity and entry.digest == event.identity
+        for entry in manifest.config
+    )
 
 
 def _required(row: dict[str, object], field: str) -> str:
@@ -118,9 +134,14 @@ def _rescan_events(path: Path) -> tuple[RescanEvent, ...]:
                 if source is RescanEventSource.EXTERNAL_REPORT
                 else None
             )
+            canonical = {**row, "repo": repo, "source": source.value}
+            canonical.pop("consumed", None)
+            identity = sha256_hex(
+                json.dumps(canonical, sort_keys=True, separators=(",", ":")).encode()
+            )
         except (TypeError, ValueError, ValidationError) as error:
             raise ConfigError(f"{path}:{line_number}: invalid rescan event: {error}") from error
-        events.append(RescanEvent(source, repo, validation))
+        events.append(RescanEvent(source, repo, identity, validation))
     return tuple(events)
 
 
@@ -145,7 +166,12 @@ class InventoryDiscoveryMaterializer:
             urls = sorted(
                 {url for segment in self._inventory.segments for url in segment.repository_urls}
             )
-            for raw in urls:
+        except ConfigError as error:
+            log.warning("run %s: inventory discovery refused: %s", request.run_id, error)
+            return JobResult.failed(OrderReason.BAD_REQUEST)
+        failures = 0
+        for raw in urls:
+            try:
                 url = _repo_url(raw)
                 repository = self._portfolio.find_repository(url)
                 if repository is None:
@@ -172,10 +198,19 @@ class InventoryDiscoveryMaterializer:
                         self._principal,
                     )
                     written.append(str(bootstrap.id))
-        except (ConfigError, ValidationError, ValueError) as error:
-            log.warning("run %s: inventory discovery refused: %s", request.run_id, error)
-            return JobResult.failed(OrderReason.BAD_REQUEST)
-        return JobResult.succeeded(written=tuple(dict.fromkeys(written)))
+            except (ConfigError, ValidationError, ValueError) as error:
+                failures += 1
+                log.warning(
+                    "run %s: inventory URL %r refused (%s): %s",
+                    request.run_id,
+                    raw,
+                    type(error).__name__,
+                    error,
+                )
+        unique = tuple(dict.fromkeys(written))
+        if failures:
+            return JobResult.partly({DegradedKey.ERROR: failures}, written=unique)
+        return JobResult.succeeded(written=unique)
 
 
 class RescanEventIntakeMaterializer:
@@ -225,9 +260,23 @@ class RescanEventIntakeMaterializer:
                 continue
             routed.append((event, repository.id, route))
         written = []
+        blocked = 0
         for event, repository_id, route in routed:
-            config = _external_validation_config(event)
             for offset, asset in enumerate(self._assets[event.source]):
+                history = tuple(
+                    every_item(
+                        lambda page, asset=asset, repository_id=repository_id: self._ops.list(
+                            OrderFilter(asset=asset, repository_id=repository_id), page
+                        )
+                    )
+                )
+                if any(
+                    _has_event_identity(self._ops.manifest(order.id), event) for order in history
+                ):
+                    continue
+                if any(order.state in OPEN_ORDER_STATES for order in history):
+                    blocked += 1
+                    continue
                 order = self._ops.plan(
                     OrderRequest(
                         asset=asset,
@@ -237,11 +286,15 @@ class RescanEventIntakeMaterializer:
                         event_source=event.source,
                     ),
                     self._principal,
-                    config=config,
+                    config=_event_config(event),
                 )
+                if not _has_event_identity(self._ops.manifest(order.id), event):
+                    blocked += 1
+                    continue
                 written.append(str(order.id))
-        if unavailable:
+        degraded = unavailable + blocked
+        if degraded:
             return JobResult.partly(
-                {DegradedKey.ERROR: unavailable}, written=tuple(dict.fromkeys(written))
+                {DegradedKey.ERROR: degraded}, written=tuple(dict.fromkeys(written))
             )
         return JobResult.succeeded(written=tuple(dict.fromkeys(written)))

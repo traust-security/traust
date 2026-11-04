@@ -230,7 +230,7 @@ class Portfolio:
 
 @pytest.mark.parametrize("status", list(ComparisonStatus))
 def test_every_status_is_succeeded_or_a_named_gap(status: ComparisonStatus) -> None:
-    result = RepoStateMaterializer(Services(Portfolio(status)), HOSTS).materialize(  # type: ignore[arg-type]
+    result = RepoStateMaterializer(Services(Portfolio(status))).materialize(  # type: ignore[arg-type]
         AssetRequest(asset="repo_state", run_id="t", partition=REPO)
     )
     answered = status in ("ok", "no-pinned-sha", "never-audited")
@@ -239,7 +239,14 @@ def test_every_status_is_succeeded_or_a_named_gap(status: ComparisonStatus) -> N
 
 def test_a_repository_core_doesnt_know_is_refused_with_its_reason() -> None:
     portfolio = Portfolio(NotFoundError("repository not in inventory: x"))
-    result = RepoStateMaterializer(Services(portfolio), HOSTS).materialize(  # type: ignore[arg-type]
+    result = RepoStateMaterializer(Services(portfolio)).materialize(  # type: ignore[arg-type]
         AssetRequest(asset="repo_state", run_id="t", partition=REPO)
     )
     assert result == JobResult.refused(OrderReason.NOT_FOUND)
+
+
+def test_malformed_ipv6_repository_is_bad_request(home: Path) -> None:
+    assert observe(home, "https://[::1") == (
+        1,
+        JobResult.failed(OrderReason.BAD_REQUEST).model_dump(mode="json"),
+    )

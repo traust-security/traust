@@ -408,7 +408,7 @@ Use before committing any new or edited skill or script to the traust repo, or w
 
 ## drift-watch
 
-Use when the user asks whether inputs, supported consumers or paired sources are stale or drifting — "is anything stale", "check for drift", "did inputs change since the graph was built" — or on a regular cadence. Shows traust-core's freshness view over security feeds, reference-registry age, scanner readiness and upstream release age, stored PQC schema compatibility, dominant-language dependency/reachability coverage, review clocks, assessment cadence and reported audit gaps. The companion check drift command watches the surviving worklist and pack configuration; inventory bootstrap reads native inputs, never a stale graph export. Writes freshness.{md,html,json} where asked.
+Use when the user asks whether inputs, supported consumers or paired sources are stale or drifting — "is anything stale", "check for drift", "did inputs change since the graph was built" — or on a regular cadence. Shows traust-core's freshness view over security feeds, reference-registry age, scanner readiness and upstream release age, stored PQC schema compatibility, dominant-language dependency/reachability coverage, review clocks, assessment cadence and reported audit gaps. The engine feed exposes overdue `repo_state` orders; the companion check drift command covers the surviving pack configuration. Inventory bootstrap reads native inputs, never a stale graph export. Writes freshness.{md,html,json} where asked.
 
 - **Stage:** —
 - **Tier:** `secondary`
