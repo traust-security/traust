@@ -322,6 +322,11 @@ with open(path, "w") as f:
 PYEOF
     mkdir -p "$RUN_DIR/home" "$RUN_DIR/workspace/inputs" "$RUN_DIR/analysis-results" \
         "$RUN_DIR/progress-tracker" "$OPS_DIR/pack"
+    # The doctor compares the DB volume's age with the artifacts tree's; that tree's own
+    # mtime moves whenever an artifact lands, so the rig marks its birth once instead.
+    if [ ! -e "$RUN_DIR/.artifacts-created" ]; then
+        : >>"$RUN_DIR/.artifacts-created"
+    fi
     # The events file must exist (a missing one is refused). Created empty, never truncated:
     # events an operator appends to the rig survive the next up — under the analysis-results
     # the rig's traust.yaml configures, which an operator may have pointed elsewhere.
@@ -533,7 +538,9 @@ cmd_doctor() {
     # held — the 2026-11-02 fleet run observed a pre-fix core this way and its
     # orders wrote nothing. The doctor asserts what is installed matches what
     # THIS checkout's lock resolves, the only code the rig claims to run.
-    OPS_EXPECTED_ENGINE="$OPS_ENGINE_SRC" uv run --no-sync python - <<'PYEOF'
+    # The check itself is the `if` condition: a failed revision check sets bad and the
+    # doctor still reaches its remaining diagnostics (set -e would kill it otherwise).
+    if ! OPS_EXPECTED_ENGINE="$OPS_ENGINE_SRC" uv run --no-sync python - <<'PYEOF'
 import json
 import os
 import sys
@@ -593,19 +600,17 @@ if engine_src and "@" in engine_src:
         pass
 sys.exit(bad)
 PYEOF
-    # An `if`, not `[ $? -ne 0 ] && bad=1`: that compound returns 1 when the check
-    # passes, which `set -e` turns into the doctor failing a healthy rig.
-    if [ $? -ne 0 ]; then
+    then
         bad=1
     fi
     # The DB volume and the artifacts dir age together: a volume that survives
     # a worktree removal holds rows pointing at artifacts that no longer exist
     # (orders refuse not_found; claims can crash on unregistered degraded keys).
-    if container_running && [ -d "$OPS_DIR/run/artifacts" ]; then
+    if container_running && [ -e "$OPS_DIR/run/.artifacts-created" ]; then
         OPS_DB_CREATED=$("$CT" volume inspect "$OPS_VOLUME" --format '{{.CreatedAt}}' 2>/dev/null | cut -d" " -f1)
         OPS_ARTIFACTS_CREATED=$(uv run --no-sync python -c \
             'import datetime, os, sys; print(datetime.datetime.fromtimestamp(os.path.getmtime(sys.argv[1]), datetime.UTC).strftime("%Y-%m-%d"))' \
-            "$OPS_DIR/run/artifacts" 2>/dev/null)
+            "$OPS_DIR/run/.artifacts-created" 2>/dev/null)
         if [ -n "$OPS_DB_CREATED" ] && [ -n "$OPS_ARTIFACTS_CREATED" ] \
             && [ "$OPS_DB_CREATED" != "$OPS_ARTIFACTS_CREATED" ]; then
             echo "warning: DB volume ($OPS_DB_CREATED) and artifacts ($OPS_ARTIFACTS_CREATED) disagree in age —" >&2

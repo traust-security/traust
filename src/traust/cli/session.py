@@ -25,7 +25,6 @@ import argparse
 import json
 import os
 import shlex
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -124,14 +123,25 @@ def artifact_claude_dir(config_home: Path | None) -> Path:
     root = (resolve_config_home(config_home) or TRAUST_CONFIG_HOME_DEFAULT) / "claude-artifact"
     skills = root / "skills"
     skills.mkdir(parents=True, exist_ok=True)
+    # The confinement's settings travel on the command line; a stored settings file in this
+    # harness-owned directory can only weaken them (disableAllHooks would strip the guard
+    # hook), so none survives a session start. Nothing but the skill symlinks belongs here.
+    for stored in (root / "settings.json", root / "settings.local.json"):
+        if stored.is_symlink() or stored.is_file():
+            stored.unlink()
     for directory in skill_dirs():
         link = skills / directory.name
         if link.is_symlink() and link.resolve() == directory.resolve():
             continue
         if link.is_symlink() or link.is_file():
             link.unlink()
-        elif link.is_dir():  # an older layout, or a skill installed as a real directory
-            shutil.rmtree(link)
+        elif link.is_dir():
+            # Not deleted: an installed skill's files are the operator's. The slot is the
+            # harness's, so the session refuses until the install is moved aside.
+            raise ValidationError(
+                f"{link} is a real directory, not the harness's skill symlink; "
+                "move the installed skill aside"
+            )
         link.symlink_to(directory, target_is_directory=True)
     return root
 
@@ -477,7 +487,14 @@ def artifact_run(
                 "CLAUDE_CODE_OAUTH_TOKEN",
             }
         }
-        env["CLAUDE_CONFIG_DIR"] = str(artifact_claude_dir(config_home))
+        try:
+            env["CLAUDE_CONFIG_DIR"] = str(artifact_claude_dir(config_home))
+        except (TraustError, ValueError) as error:
+            print(f"session setup: {type(error).__name__}", file=sys.stderr)
+            return answer(JobResult.failed(OrderReason.BAD_REQUEST))
+        except OSError as error:
+            print(f"session setup: {type(error).__name__}", file=sys.stderr)
+            return answer(JobResult.failed(OrderReason.RUNNER_CRASHED))
         command = [
             *AGENT,
             *confinement_flags(root, HARNESSING_DIR.resolve(), root / staged[0].output.path),

@@ -177,3 +177,28 @@ def test_up_fails_loudly_on_a_config_that_cannot_be_read(tmp_path: Path) -> None
     result = rig.run("up")
 
     assert result.returncode != 0
+
+
+def test_the_doctor_compares_the_volume_with_the_rigs_birth_not_its_activity(
+    tmp_path: Path,
+) -> None:
+    """Artifact activity must not read as a reset: the volume's age is compared with the
+    rig's birth marker, not the artifacts directory's mtime (which every landing moves)."""
+    import os
+    from datetime import UTC, datetime
+
+    rig = LocalOpsRig(tmp_path)
+    assert rig.run("up").returncode == 0
+    marker = rig.root / ".local-ops" / "run" / ".artifacts-created"
+    assert marker.is_file()
+    born = marker.stat().st_mtime
+    artifacts = rig.root / ".local-ops" / "run" / "artifacts"
+    artifacts.mkdir()
+    (artifacts / "payload").write_bytes(b"x")
+    os.utime(artifacts, (born - 90 * 86400, born - 90 * 86400))  # a landing 90 days later
+
+    today = datetime.now(UTC).strftime("%Y-%m-%d")
+    agree = rig.run("doctor", env={"OPS_FAKE_VOLUME_CREATED": f"{today} 00:00:00 +00:00 UTC"})
+    assert "disagree in age" not in agree.stderr
+    stale = rig.run("doctor", env={"OPS_FAKE_VOLUME_CREATED": "2019-01-01 00:00:00 +00:00 UTC"})
+    assert "disagree in age" in stale.stderr

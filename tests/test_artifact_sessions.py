@@ -13,6 +13,7 @@ from uuid import UUID
 
 import pytest
 from traust_core.v1.context import Context
+from traust_core.v1.errors import ValidationError
 from traust_core.v1.models.artifacts import BelowRangeVerdictsArtifact
 from traust_core.v1.models.assessment import Assessment, AssessmentKind
 from traust_core.v1.models.below_range import (
@@ -200,21 +201,36 @@ def run(estate: Estate, *extra: str) -> tuple[int, dict]:
     return code, json.loads(printed.getvalue().splitlines()[-1])
 
 
-def test_a_stale_real_skill_directory_is_replaced_not_crashed(
-    estate: Estate, tmp_path: Path
+def test_a_real_skill_directory_refuses_the_session_and_keeps_the_files(
+    estate: Estate,
 ) -> None:
-    """An older layout (or a hand-installed skill) can leave a real directory where the
-    session wants its symlink; the order must still start, not die on unlink."""
-    stale = tmp_path / "claude-artifact" / "skills" / "dependency-watch"
-    stale.mkdir(parents=True)
-    (stale / "leftover.md").write_text("an old layout")
-
+    """An installed skill is the operator's files: the session refuses rather than delete
+    them, and the order answers bad_request instead of dying before its error handling."""
     from traust.cli.session import artifact_claude_dir
 
-    root = artifact_claude_dir(tmp_path)
+    installed = estate.config / "claude-artifact" / "skills" / "dependency-watch"
+    installed.mkdir(parents=True)
+    (installed / "hand-written.md").write_text("an operator's install")
 
-    link = root / "skills" / "dependency-watch"
-    assert link.is_symlink() and not (link / "leftover.md").exists()
+    with pytest.raises(ValidationError, match="real directory"):
+        artifact_claude_dir(estate.config)
+    assert (installed / "hand-written.md").read_text() == "an operator's install"
+
+    code, result = run(estate)
+    assert code == 1 and result["outcome"] == "failed" and result["reason"] == "bad_request"
+
+
+def test_stored_settings_cannot_disable_the_guard(estate: Estate) -> None:
+    """The confinement's settings travel on the command line; a settings file in the
+    harness-owned dir (e.g. disableAllHooks) is removed so it can never weaken them."""
+    from traust.cli.session import artifact_claude_dir
+
+    root = estate.config / "claude-artifact"
+    root.mkdir(parents=True)
+    (root / "settings.json").write_text('{"disableAllHooks": true}')
+
+    assert artifact_claude_dir(estate.config) == root
+    assert not (root / "settings.json").exists()
 
 
 def test_a_real_fixture_executor_records_findings_usage_and_audit(

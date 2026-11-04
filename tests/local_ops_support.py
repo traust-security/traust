@@ -50,6 +50,7 @@ _CONTAINER = """#!/bin/bash
 printf 'container:%s\\n' "$1" >> "$LOCAL_OPS_EVENTS"
 case "$1" in
     ps) printf '%s\\n' "${OPS_CONTAINER:-traust-ops-local}" ;;
+    volume) printf '%s\\n' "${OPS_FAKE_VOLUME_CREATED:-2026-11-04 00:00:00 +00:00 UTC}" ;;
 esac
 """
 
@@ -87,6 +88,7 @@ class LocalOpsRig:
             "basename",
             "cat",
             "cp",
+            "cut",
             "dirname",
             "grep",
             "id",
