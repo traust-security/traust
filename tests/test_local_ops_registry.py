@@ -130,3 +130,17 @@ def test_up_fails_without_an_approved_opus_model_instead_of_seeding_fallback(
     assert not (rig.config_home / "model-registry.yaml").exists()
     assert not (rig.config_home / "traust.yaml").exists()
     assert source.read_bytes() == modified_source
+
+
+def test_up_creates_the_events_file_empty_and_keeps_what_an_operator_appended(
+    tmp_path: Path,
+) -> None:
+    rig = LocalOpsRig(tmp_path)
+    assert rig.run("up").returncode == 0
+    events = rig.root / ".local-ops" / "run" / "analysis-results" / "findings" / "_manifest"
+    events /= "rescan-events.jsonl"
+    assert events.read_text() == ""
+    events.write_text('{"source": "cve", "repo": "https://github.com/org/repo"}\n')
+    result = rig.run("up")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert events.read_text() == '{"source": "cve", "repo": "https://github.com/org/repo"}\n'

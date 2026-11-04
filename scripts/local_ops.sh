@@ -321,7 +321,8 @@ with open(path, "w") as f:
     yaml.safe_dump(cfg, f, sort_keys=False)
 PYEOF
     mkdir -p "$RUN_DIR/home" "$RUN_DIR/workspace" "$RUN_DIR/analysis-results" "$RUN_DIR/progress-tracker" "$OPS_DIR/pack"
-    # The rig takes no rescan events: an empty file says so (a missing one is refused).
+    # The events file must exist (a missing one is refused). Created empty, never truncated:
+    # events an operator appends to the rig survive the next up.
     mkdir -p "$RUN_DIR/analysis-results/findings/_manifest"
     : >>"$RUN_DIR/analysis-results/findings/_manifest/rescan-events.jsonl"
     pack_overlay > "$OPS_DIR/pack/assets.yaml"

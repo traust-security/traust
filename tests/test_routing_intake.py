@@ -412,4 +412,5 @@ def test_a_missing_events_file_is_refused_and_an_empty_one_is_no_events(
         assert result == JobResult.succeeded()
     else:
         assert result == JobResult.failed(OrderReason.BAD_REQUEST)
-        assert "event intake refused (ConfigError)" in caplog.text
+        assert "no rescan-events file rescan-events.jsonl" in caplog.text
+        assert str(tmp_path) not in caplog.text

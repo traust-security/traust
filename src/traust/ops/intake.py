@@ -109,6 +109,10 @@ def external_validation_input(manifest: OrderManifest) -> ExternalValidationInpu
         raise ValidationError("invalid external validation input") from error
 
 
+class MissingEventsFile(ConfigError):
+    """The deployment's rescan-events file isn't there."""
+
+
 def _rescan_events(path: Path) -> tuple[RescanEvent, ...]:
     """The unconsumed events in `path`. A missing file is refused, not read as no events: a
     config that points at the wrong tree would otherwise drop every event silently. An empty
@@ -116,7 +120,7 @@ def _rescan_events(path: Path) -> tuple[RescanEvent, ...]:
     try:
         lines = path.read_text(encoding="utf-8").splitlines()
     except FileNotFoundError as error:
-        raise ConfigError(
+        raise MissingEventsFile(
             f"rescan events {path} does not exist; create it empty to declare no events"
         ) from error
     except (OSError, UnicodeError) as error:
@@ -261,6 +265,15 @@ class RescanEventIntakeMaterializer:
     def materialize(self, request: AssetRequest) -> JobResult:
         try:
             events = _rescan_events(self._events)
+        except MissingEventsFile:
+            log.warning(
+                "run %s: event intake refused: no rescan-events file %s under the configured "
+                "analysis-results findings/_manifest (or --events); create it empty to declare "
+                "no events",
+                request.run_id,
+                self._events.name,
+            )
+            return JobResult.failed(OrderReason.BAD_REQUEST)
         except ConfigError as error:
             log.warning("run %s: event intake refused (%s)", request.run_id, type(error).__name__)
             return JobResult.failed(OrderReason.BAD_REQUEST)
