@@ -5,6 +5,14 @@ name: ops-smoke
 # until the queue drains and asserts the orders completed (see
 # docs/continuous-operations.md, "The local rig"). Manual only: routed lanes
 # queue for approval and are never claimed here, so the run spends nothing.
+#
+# NOT CI (decided 2026-11-04): the engine runs and collects real data — it
+# never runs on push or pull_request, and this workflow stays
+# workflow_dispatch-only as a manual full-rig check. The rig on a laptop is
+# the integration test; CI unit-tests and integration-tests the pieces.
+# GitHub registers a workflow only when it exists on the default branch, so
+# dispatch may 404 until this file reaches main — run the same check locally
+# with make ops-smoke.
 
 on:
   workflow_dispatch:

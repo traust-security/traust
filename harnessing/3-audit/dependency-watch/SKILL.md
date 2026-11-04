@@ -194,6 +194,14 @@ dependencies:
    (`dependency_sources`; resolved through deps.dev, or go.mod for Go). Packets
    also carry each candidate commit's date and each fixed version's publish
    time, as facts for review.
+
+   **A runner session never asks a scope question.** A headless run (a task
+   contract, no interactive user) reviews **every** packet in its task: the
+   admission layer already authorized this order's spend, and stopping to
+   ask "run all? narrow? stop?" leaves the output unwritten and the order
+   fails. Work packet by packet — the reviews are independent — and write
+   the complete `output/verdicts.json` once, at the end. Spend caution
+   belongs to the pack's admission, not to the session.
 2. **Two blind reviews per packet**, as separate Task subagents that never see
    each other's output:
    - reviewer A on `task.json` `models.reviewer_a` (resolved by the runner at opus-class);

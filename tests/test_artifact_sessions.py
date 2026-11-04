@@ -13,6 +13,7 @@ from uuid import UUID
 
 import pytest
 from traust_core.v1.context import Context
+from traust_core.v1.errors import ValidationError
 from traust_core.v1.models.artifacts import BelowRangeVerdictsArtifact
 from traust_core.v1.models.assessment import Assessment, AssessmentKind
 from traust_core.v1.models.below_range import (
@@ -131,7 +132,7 @@ from pathlib import Path
 root = Path(shlex.split(sys.argv[-1])[-1])
 task = json.loads((root / "task.json").read_bytes())
 index = json.loads((root / "input/below-range.json").read_bytes())
-snapshot = {{"root": str(root), "cwd": str(Path.cwd()), "argv": sys.argv, "has_deployment_env": "TRAUST_CONFIG_HOME" in os.environ, "task": task, "task_sha256": __import__("hashlib").sha256((root / "task.json").read_bytes()).hexdigest()}}
+snapshot = {{"root": str(root), "cwd": str(Path.cwd()), "argv": sys.argv, "has_deployment_env": "TRAUST_CONFIG_HOME" in os.environ, "env": dict(os.environ), "task": task, "task_sha256": __import__("hashlib").sha256((root / "task.json").read_bytes()).hexdigest()}}
 Path({str(seen)!r}).write_text(json.dumps(snapshot))
 doc = {{"artifact": "below-range-verdicts", "packets_assessment_id": index["packets_assessment_id"], "cases": [{{"case": packet["case"], "reviews": [{{"model": task["models"][slot], "verdict": "applicable", "evidence": "lib.go:2 evidence"}} for slot in ("reviewer_a", "reviewer_b")], "verdict": "applicable"}} for packet in index["packets"]], "coverage_gaps": index["coverage_gaps"]}}
 output = root / task["output"]["path"]
@@ -200,6 +201,38 @@ def run(estate: Estate, *extra: str) -> tuple[int, dict]:
     return code, json.loads(printed.getvalue().splitlines()[-1])
 
 
+def test_a_real_skill_directory_refuses_the_session_and_keeps_the_files(
+    estate: Estate,
+) -> None:
+    """An installed skill is the operator's files: the session refuses rather than delete
+    them, and the order answers bad_request instead of dying before its error handling."""
+    from traust.cli.session import artifact_claude_dir
+
+    installed = estate.config / "claude-artifact" / "skills" / "dependency-watch"
+    installed.mkdir(parents=True)
+    (installed / "hand-written.md").write_text("an operator's install")
+
+    with pytest.raises(ValidationError, match="real directory"):
+        artifact_claude_dir(estate.config)
+    assert (installed / "hand-written.md").read_text() == "an operator's install"
+
+    code, result = run(estate)
+    assert code == 1 and result["outcome"] == "failed" and result["reason"] == "bad_request"
+
+
+def test_stored_settings_cannot_disable_the_guard(estate: Estate) -> None:
+    """The confinement's settings travel on the command line; a settings file in the
+    harness-owned dir (e.g. disableAllHooks) is removed so it can never weaken them."""
+    from traust.cli.session import artifact_claude_dir
+
+    root = estate.config / "claude-artifact"
+    root.mkdir(parents=True)
+    (root / "settings.json").write_text('{"disableAllHooks": true}')
+
+    assert artifact_claude_dir(estate.config) == root
+    assert not (root / "settings.json").exists()
+
+
 def test_a_real_fixture_executor_records_findings_usage_and_audit(
     estate: Estate, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -209,7 +242,16 @@ def test_a_real_fixture_executor_records_findings_usage_and_audit(
     captured = json.loads(seen.read_text())
     assert Path(captured["cwd"]) == HARNESS_ROOT
     assert not Path(captured["root"]).exists() and not captured["has_deployment_env"]
-    assert "--restricted" in captured["argv"] and "Bash(*traust.cli*)" in captured["argv"]
+    # The confinement loads skills (the session's own config dir through the user source)
+    # and never the workstation's: --restricted and a blank --setting-sources strip
+    # Claude's skills entirely, which is how every artifact-only order died as
+    # session-output-invalid before 2026-11-04 (the rig's live run found it).
+    argv = captured["argv"]
+    assert "--restricted" not in argv and "Bash(*traust.cli*)" in argv
+    user_source = argv[argv.index("--setting-sources") + 1]
+    assert user_source == "user", argv
+    assert captured["env"]["CLAUDE_CONFIG_DIR"].endswith("claude-artifact")
+    assert (Path(captured["env"]["CLAUDE_CONFIG_DIR"]) / "skills" / "dependency-watch").exists()
     audit = estate.core.services().ops.manifest(estate.order_id).sessions[0]
     assert audit.task_sha256 == captured["task_sha256"]
     assert tuple(file.path for file in audit.inputs) == tuple(captured["task"]["input"])

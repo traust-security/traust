@@ -320,7 +320,13 @@ if ledger in (None, {}) or rig_configured:
 with open(path, "w") as f:
     yaml.safe_dump(cfg, f, sort_keys=False)
 PYEOF
-    mkdir -p "$RUN_DIR/home" "$RUN_DIR/workspace" "$RUN_DIR/analysis-results" "$RUN_DIR/progress-tracker" "$OPS_DIR/pack"
+    mkdir -p "$RUN_DIR/home" "$RUN_DIR/workspace/inputs" "$RUN_DIR/analysis-results" \
+        "$RUN_DIR/progress-tracker" "$OPS_DIR/pack"
+    # The doctor compares the DB volume's age with the artifacts tree's; that tree's own
+    # mtime moves whenever an artifact lands, so the rig marks its birth once instead.
+    if [ ! -e "$RUN_DIR/.artifacts-created" ]; then
+        : >>"$RUN_DIR/.artifacts-created"
+    fi
     # The events file must exist (a missing one is refused). Created empty, never truncated:
     # events an operator appends to the rig survive the next up — under the analysis-results
     # the rig's traust.yaml configures, which an operator may have pointed elsewhere.
@@ -526,6 +532,93 @@ cmd_doctor() {
         echo "traust-engine: importable"
     else
         echo "traust-engine: NOT importable (make ops-up reinstalls it)" >&2; bad=1
+    fi
+    # The venv is the rig's truth: a `uv sync` between commands can silently
+    # swap traust-core (and strip the engine) to whatever that checkout's lock
+    # held — the 2026-11-02 fleet run observed a pre-fix core this way and its
+    # orders wrote nothing. The doctor asserts what is installed matches what
+    # THIS checkout's lock resolves, the only code the rig claims to run.
+    # The check itself is the `if` condition: a failed revision check sets bad and the
+    # doctor still reaches its remaining diagnostics (set -e would kill it otherwise).
+    if ! OPS_EXPECTED_ENGINE="$OPS_ENGINE_SRC" uv run --no-sync python - <<'PYEOF'
+import json
+import os
+import sys
+import tomllib
+from importlib.metadata import distribution
+from pathlib import Path
+
+bad = 0
+lock = Path("uv.lock")
+expected = {}
+if lock.is_file():
+    doc = tomllib.loads(lock.read_text())
+    for pkg in doc.get("package", []):
+        if pkg["name"] in ("traust-core", "traust-engine"):
+            source = pkg.get("source") or {}
+            rev = source.get("rev") or source.get("git") or ""
+            if "#" in rev:
+                rev = rev.split("#")[-1]
+            elif "?rev=" in rev:
+                rev = rev.split("?rev=")[-1]
+            if rev:
+                expected[pkg["name"]] = rev[:40]
+for name in ("traust-core", "traust-engine"):
+    try:
+        installed = distribution(name)
+    except Exception:
+        print(f"{name}: NOT installed (make ops-up)", file=sys.stderr)
+        bad = 1
+        continue
+    direct = json.loads((Path(installed._path) / "direct_url.json").read_text())
+    commit = (direct.get("vcs_info") or {}).get("commit_id")
+    want = expected.get(name)
+    if want and commit and not commit.startswith(want):
+        print(
+            f"{name}: STALE — venv has {commit[:12]}, this checkout's lock wants {want[:12]};"
+            " a uv sync swapped it (make ops-up restores)",
+            file=sys.stderr,
+        )
+        bad = 1
+    else:
+        print(f"{name}: {commit[:12] if commit else 'installed (no vcs info)'}")
+engine_src = os.environ.get("OPS_EXPECTED_ENGINE", "")
+if engine_src and "@" in engine_src:
+    want = engine_src.split("@", 1)[1][:12]
+    try:
+        installed = distribution("traust-engine")
+        direct = json.loads((Path(installed._path) / "direct_url.json").read_text())
+        commit = (direct.get("vcs_info") or {}).get("commit_id") or ""
+        if not commit.startswith(want):
+            print(
+                f"traust-engine: PIN MISMATCH — venv has {commit[:12]}, the rig pins {want};"
+                " make ops-up reinstalls",
+                file=sys.stderr,
+            )
+            bad = 1
+    except Exception:
+        pass
+sys.exit(bad)
+PYEOF
+    then
+        bad=1
+    fi
+    # The DB volume and the artifacts dir age together: a volume that survives
+    # a worktree removal holds rows pointing at artifacts that no longer exist
+    # (orders refuse not_found; claims can crash on unregistered degraded keys).
+    if container_running && [ -e "$OPS_DIR/run/.artifacts-created" ]; then
+        # Podman prints "2026-11-04 12:00:00 +00:00 UTC", Docker RFC3339 "2026-11-04T12:00:00Z":
+        # the first ten characters are the date either way (a space cut would keep Docker's
+        # whole timestamp and warn on every healthy Docker rig).
+        OPS_DB_CREATED=$("$CT" volume inspect "$OPS_VOLUME" --format '{{.CreatedAt}}' 2>/dev/null | cut -c1-10)
+        OPS_ARTIFACTS_CREATED=$(uv run --no-sync python -c \
+            'import datetime, os, sys; print(datetime.datetime.fromtimestamp(os.path.getmtime(sys.argv[1]), datetime.UTC).strftime("%Y-%m-%d"))' \
+            "$OPS_DIR/run/.artifacts-created" 2>/dev/null)
+        if [ -n "$OPS_DB_CREATED" ] && [ -n "$OPS_ARTIFACTS_CREATED" ] \
+            && [ "$OPS_DB_CREATED" != "$OPS_ARTIFACTS_CREATED" ]; then
+            echo "warning: DB volume ($OPS_DB_CREATED) and artifacts ($OPS_ARTIFACTS_CREATED) disagree in age —" >&2
+            echo "         one survived a reset the other did not; make ops-reset realigns them" >&2
+        fi
     fi
     if [ -f "$CONFIG_HOME/traust.yaml" ]; then
         echo "config home: $OPS_DIR/config"

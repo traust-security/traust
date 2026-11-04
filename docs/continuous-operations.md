@@ -628,7 +628,7 @@ make ops-approve ORDER=<id-prefix>  # approve exactly one awaiting order
 make ops-approve-all # explicitly approve every awaiting order
 make ops-sh          # a shell with the rig's env, for the commands below
 make ops-scan REPO=https://github.com/<you>/<small-repo>   # the workflow by hand
-make ops-smoke       # one bounded cycle with asserts (the CI entry)
+make ops-smoke       # one bounded cycle with asserts (a manual full-rig check, not CI)
 make ops-down        # stop Postgres, data kept; ops-reset drops it
 ```
 
@@ -664,12 +664,15 @@ Tokens live in `.local-ops/env` (created with commented placeholders):
 without `GITHUB_TOKEN`, `repo_state` orders fail as `no-credentials`; without
 `ANTHROPIC_API_KEY` (or a login under the config home's `claude-runner`),
 skill sessions fail as `runner-crashed`. Routed lanes (`full_audit`,
-`diff_scan`) queue for approval by design — CI never approves, so a smoke
-run exercises the deterministic assets without spend. `make ops-smoke`
+`diff_scan`) queue for approval by design — the smoke never approves, so a
+smoke run exercises the deterministic assets without spend. `make ops-smoke`
 (what the `ops-smoke` workflow runs on demand) asserts the cycle end to
 end over two engine passes: orders drain, `feeds_cache`, `repo_state` and
 `manifest_sbom` complete (degraded on a failing feed source is a pass),
-nothing left running or queued.
+nothing left running or queued. **The smoke is not CI** (2026-11-04): the
+engine runs and collects real data, so it never runs on push or pull_request
+— the workflow is a manual full-rig check (workflow_dispatch), and the rig
+on a laptop is the integration test.
 
 A deployment needs the same pieces the rig writes: `process.allowed_binaries`
 in `traust.yaml` includes `syft` for manifest SBOMs and `gitleaks` for observation;
