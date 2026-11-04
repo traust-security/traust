@@ -580,13 +580,19 @@ if engine_src and "@" in engine_src:
         pass
 sys.exit(bad)
 PYEOF
-    [ $? -ne 0 ] && bad=1
+    # An `if`, not `[ $? -ne 0 ] && bad=1`: that compound returns 1 when the check
+    # passes, which `set -e` turns into the doctor failing a healthy rig.
+    if [ $? -ne 0 ]; then
+        bad=1
+    fi
     # The DB volume and the artifacts dir age together: a volume that survives
     # a worktree removal holds rows pointing at artifacts that no longer exist
     # (orders refuse not_found; claims can crash on unregistered degraded keys).
     if container_running && [ -d "$OPS_DIR/run/artifacts" ]; then
-        OPS_DB_CREATED=$(podman volume inspect "$OPS_VOLUME" --format '{{.CreatedAt}}' 2>/dev/null | cut -d" " -f1)
-        OPS_ARTIFACTS_CREATED=$(stat -f "%Sm" -t "%Y-%m-%d" "$OPS_DIR/run/artifacts" 2>/dev/null)
+        OPS_DB_CREATED=$("$CT" volume inspect "$OPS_VOLUME" --format '{{.CreatedAt}}' 2>/dev/null | cut -d" " -f1)
+        OPS_ARTIFACTS_CREATED=$(uv run --no-sync python -c \
+            'import datetime, os, sys; print(datetime.datetime.fromtimestamp(os.path.getmtime(sys.argv[1]), datetime.UTC).strftime("%Y-%m-%d"))' \
+            "$OPS_DIR/run/artifacts" 2>/dev/null)
         if [ -n "$OPS_DB_CREATED" ] && [ -n "$OPS_ARTIFACTS_CREATED" ] \
             && [ "$OPS_DB_CREATED" != "$OPS_ARTIFACTS_CREATED" ]; then
             echo "warning: DB volume ($OPS_DB_CREATED) and artifacts ($OPS_ARTIFACTS_CREATED) disagree in age —" >&2

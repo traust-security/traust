@@ -24,6 +24,7 @@ from __future__ import annotations
 import json
 import os
 import shlex
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -117,8 +118,10 @@ def artifact_claude_dir(config_home: Path | None) -> Path:
         link = skills / directory.name
         if link.is_symlink() and link.resolve() == directory.resolve():
             continue
-        if link.is_symlink() or link.exists():
+        if link.is_symlink() or link.is_file():
             link.unlink()
+        elif link.is_dir():  # an older layout, or a skill installed as a real directory
+            shutil.rmtree(link)
         link.symlink_to(directory, target_is_directory=True)
     return root
 

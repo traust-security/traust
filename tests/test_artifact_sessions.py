@@ -200,6 +200,23 @@ def run(estate: Estate, *extra: str) -> tuple[int, dict]:
     return code, json.loads(printed.getvalue().splitlines()[-1])
 
 
+def test_a_stale_real_skill_directory_is_replaced_not_crashed(
+    estate: Estate, tmp_path: Path
+) -> None:
+    """An older layout (or a hand-installed skill) can leave a real directory where the
+    session wants its symlink; the order must still start, not die on unlink."""
+    stale = tmp_path / "claude-artifact" / "skills" / "dependency-watch"
+    stale.mkdir(parents=True)
+    (stale / "leftover.md").write_text("an old layout")
+
+    from traust.cli.session import artifact_claude_dir
+
+    root = artifact_claude_dir(tmp_path)
+
+    link = root / "skills" / "dependency-watch"
+    assert link.is_symlink() and not (link / "leftover.md").exists()
+
+
 def test_a_real_fixture_executor_records_findings_usage_and_audit(
     estate: Estate, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
