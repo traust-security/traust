@@ -447,7 +447,8 @@ consumer run alone.
 
 Operators (or feed importers) append records to
 `analysis-results/findings/_manifest/rescan-events.jsonl`, one JSON object per
-line:
+line. The file must exist: `rescan_event_intake` refuses a missing one rather than
+reading it as no events, so a deployment without events keeps it empty.
 
 ```json
 {"source": "external-report", "repo": "https://github.com/org/repo",

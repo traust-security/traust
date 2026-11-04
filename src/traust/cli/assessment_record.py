@@ -25,7 +25,7 @@ from traust_core.v1.models.common import Provenance
 from traust_core.v1.models.values import HttpsRepoUrl
 from traust_core.v1.models.vocabulary import SourceType
 
-from traust.cli._doors import add_branch_arg, parser, register_commit, run, when
+from traust.cli._doors import add_branch_arg, add_run_order_arg, parser, register_commit, run, when
 from traust.context import load
 
 # The kind of assessment each audit skill records, and its document's contract type.
@@ -65,6 +65,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--sha", required=True, help="the audited commit")
     ap.add_argument("--public", action="store_true", help="the repository is public")
     add_branch_arg(ap)
+    add_run_order_arg(ap)
     args = ap.parse_args(argv)
     kind = AssessmentKind(args.kind)
     skill, artifact = RECORDS[kind]
@@ -83,10 +84,11 @@ def main(argv: list[str] | None = None) -> int:
             f"skill:{skill}",
             version("traust"),
             Provenance(
-                run_id=uuid.uuid4(),
+                run_id=args.run_id or uuid.uuid4(),
                 source=SourceType.VULN_SCAN_REPORT,
                 occurred_at=ran_at(kind, doc),
             ),
+            run_order_id=args.run_id,
         )
         return assessment.model_dump(mode="json", exclude_none=True)
 

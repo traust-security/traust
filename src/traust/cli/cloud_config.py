@@ -20,7 +20,7 @@ from traust_core.v1.models.values import HttpsRepoUrl
 from traust_core.v1.models.vocabulary import SourceType
 
 from traust.cli import _doors
-from traust.cli._doors import add_branch_arg, parser, register_commit, run
+from traust.cli._doors import add_branch_arg, add_run_order_arg, parser, register_commit, run
 from traust.context import load
 
 
@@ -87,6 +87,7 @@ def record(argv: list[str] | None = None) -> int:
     ap.add_argument("--sha", required=True, help="the scanned commit (the facts' target_head)")
     ap.add_argument("--public", action="store_true", help="the repository is public")
     add_branch_arg(ap)
+    add_run_order_arg(ap)
     args = ap.parse_args(argv)
 
     def call() -> dict:
@@ -101,7 +102,12 @@ def record(argv: list[str] | None = None) -> int:
         assessment, decisions = services.assessment.record_audit(
             doc,
             ref.id,
-            Provenance(run_id=uuid.uuid4(), source=SourceType.VULN_SCAN_REPORT, occurred_at=when),
+            Provenance(
+                run_id=args.run_id or uuid.uuid4(),
+                source=SourceType.VULN_SCAN_REPORT,
+                occurred_at=when,
+            ),
+            run_order_id=args.run_id,
         )
         return {
             "assessment_id": assessment.id,

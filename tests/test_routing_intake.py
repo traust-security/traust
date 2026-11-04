@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from datetime import timedelta
 from pathlib import Path
 from uuid import UUID
@@ -389,3 +390,27 @@ def test_inventory_cli_rejects_provider_errors_without_private_tracebacks(
     diagnostics = captured.err + caplog.text
     assert username not in diagnostics and password not in diagnostics
     assert rejected not in diagnostics and "Traceback" not in diagnostics
+
+
+@pytest.mark.parametrize("present", [False, True], ids=["missing", "empty"])
+def test_a_missing_events_file_is_refused_and_an_empty_one_is_no_events(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture, present: bool
+) -> None:
+    core = context(tmp_path)
+    events = tmp_path / "rescan-events.jsonl"
+    if present:
+        events.write_text("", encoding="utf-8")
+    with core.repository_observation() as observation:
+        intake = RescanEventIntakeMaterializer(
+            core.services(), observation.query, PRINCIPAL, events
+        )
+        with caplog.at_level(logging.WARNING, logger="traust.ops.intake"):
+            result = intake.materialize(
+                AssetRequest(asset="rescan_event_intake", run_id="events-run")
+            )
+    if present:
+        assert result == JobResult.succeeded()
+    else:
+        assert result == JobResult.failed(OrderReason.BAD_REQUEST)
+        assert "no rescan-events file rescan-events.jsonl" in caplog.text
+        assert str(tmp_path) not in caplog.text

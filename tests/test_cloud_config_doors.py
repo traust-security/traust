@@ -13,7 +13,7 @@ import stat
 import sys
 import uuid
 from collections.abc import Iterator
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +21,10 @@ import pytest
 import sqlalchemy as sa
 import yaml
 from traust_core.v1 import contracts
+from traust_core.v1.models.identity import IdentitySource, Principal
+from traust_core.v1.models.operations import OrderRequest, WorkerId
+from traust_core.v1.models.values import HttpsRepoUrl
+from traust_core.v1.models.vocabulary import ActorKind
 from traust_core.v1.repositories import apply_schema, create_database_engine
 from traust_core.v1.repositories.sql import Dialect
 
@@ -344,3 +348,49 @@ def test_the_group_answers_on_the_cli(sqlite_home: Path, tmp_path: Path) -> None
     with contextlib.redirect_stdout(out):
         assert main(argv) == 0
     assert out.getvalue().strip() == "0 errors"
+
+
+def test_record_binds_the_audit_to_its_leased_order(home: Path, tmp_path: Path) -> None:
+    services = load(home).services()
+    repo = services.portfolio.register_repository(
+        HttpsRepoUrl.parse(REPO, load(home).config.forge_hosts), False
+    )
+    operator = Principal(
+        identity="operator@example.com",
+        kind=ActorKind.HUMAN,
+        display="operator@example.com",
+        verified_by=IdentitySource.LOCAL_USER,
+    )
+    order = services.ops.submit(
+        OrderRequest(asset="cloud_config_audit", priority=1, repository_id=repo.id), operator
+    )
+    services.ops.claim(WorkerId("machine:runner"), timedelta(minutes=5), order_id=order.id)
+    report = str(a_report(tmp_path))
+
+    rc, out, err = run(
+        cloud_config.record,
+        home,
+        report,
+        "--repo-url",
+        REPO,
+        "--sha",
+        SHA,
+        "--run-id",
+        str(order.id),
+    )
+
+    assert rc == 0, err
+    bound = load(home).services().assessment.list_for_order(order.id)
+    assert [str(a.id) for a in bound] == [json.loads(out)["assessment_id"]]
+    rc, _, _ = run(
+        cloud_config.record,
+        home,
+        report,
+        "--repo-url",
+        REPO,
+        "--sha",
+        SHA,
+        "--run-id",
+        str(uuid.uuid4()),
+    )
+    assert rc != 0

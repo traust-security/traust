@@ -109,3 +109,33 @@ def test_scheduled_check_up_applies_ratings() -> None:
         assert run[run.index("--") + 1 :] == ["--auto", "--apply-ratings"], lane
     others = {n for n, a in assets.items() if "--apply-ratings" in a.get("run", ())}
     assert others == {_asset_for_lane(assets, lane) for lane in rating}
+
+
+def test_every_asset_runs_a_registered_traust_op() -> None:
+    """An asset whose `run` names a CLI op that doesn't exist fails only when a runner claims it."""
+    from traust.cli.groups import GROUPS
+
+    for name, asset in _assets().items():
+        run = asset.get("run")
+        if not run:
+            continue
+        assert run[:3] == ["python3", "-m", "traust.cli"], name
+        group, op = run[3], run[4]
+        assert op in GROUPS.get(group, {}), (name, group, op)
+
+
+def test_every_lane_is_taken_by_an_asset_unqueued_or_event_only() -> None:
+    """The engine refuses a whole routing pass when the router names a lane no asset takes.
+    Event-only lanes are planned by `rescan_event_intake` onto its own assets, never routed."""
+    from traust_core.v1 import contracts
+
+    from traust.ops.intake import RescanEventIntakeMaterializer
+    from traust.ops.router import EVENT_ONLY_LANES, UNQUEUED
+
+    assets = _assets()
+    taken = {lane for a in assets.values() for lane in a.get("trigger", {}).get("lanes", ())}
+    lanes = set(contracts.enum_values("work-lane"))
+    assert lanes == taken | UNQUEUED | EVENT_ONLY_LANES
+    assert not taken & (UNQUEUED | EVENT_ONLY_LANES)
+    planned = {a for names in RescanEventIntakeMaterializer._assets.values() for a in names}
+    assert planned <= set(assets)
