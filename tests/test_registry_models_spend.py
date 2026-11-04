@@ -5,9 +5,8 @@ from __future__ import annotations
 
 import contextlib
 import io
-import json
 from collections.abc import Iterator
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -15,13 +14,7 @@ from typing import Any
 import pytest
 import yaml
 from traust_core.v1.models.common import TimeWindow
-from traust_core.v1.models.operations import (
-    ModelUsage,
-    SpendCalibration,
-    SpendDimension,
-    SpendEvent,
-    SpendFilter,
-)
+from traust_core.v1.models.operations import SpendDimension, SpendEvent, SpendFilter
 from traust_core.v1.services.operations import SpendService
 
 from tests.test_products_doors import _postgres
@@ -52,14 +45,8 @@ def recorded(monkeypatch: pytest.MonkeyPatch) -> list[SpendEvent]:
     saved: list[SpendEvent] = []
     record = SpendService.record
 
-    def spy(
-        self: SpendService,
-        event: SpendEvent,
-        *,
-        usage: tuple[ModelUsage, ...] = (),
-        calibration: SpendCalibration | None = None,
-    ) -> SpendEvent:
-        saved.append(record(self, event, usage=usage, calibration=calibration))
+    def spy(self: SpendService, event: SpendEvent) -> SpendEvent:
+        saved.append(record(self, event))
         return saved[-1]
 
     monkeypatch.setattr(SpendService, "record", spy)
@@ -127,39 +114,20 @@ def test_each_declaration_is_another_event_as_each_journal_append_was(
     assert by_model(home) == [("claude-haiku-5-5", 2, 0, 200, Decimal("0.0001"))]
 
 
-def test_the_skill_invocation_persists_the_complete_calibration_and_cache_usage(
+def test_the_skill_md_invocation_records_and_names_the_flags_not_stored(
     home: Path, recorded: list[SpendEvent]
 ) -> None:
     rc, out, err = spend(
         home,
         *("--skill", "secure-code-audit", "--model", "claude-opus-5-5"),
         *("--tokens-in", "10", "--tokens-out", "20", "--repo", "org/repo", "--loc", "1234"),
-        *("--batch", "b-1", "--note", "rerun", "--cache-read", "30", "--cache-creation", "40"),
+        *("--batch", "b-1", "--note", "rerun"),
     )
-    assert (rc, out, err, len(recorded)) == (0, "", "", 1)
-    [event] = recorded
-    evidence = load(home).services().spend.evidence(event.id)
-    assert evidence is not None
-    assert evidence.calibration == SpendCalibration(
-        repo="org/repo", loc=1234, batch="b-1", note="rerun"
-    )
-    [request] = evidence.usage
-    assert (request.tokens_in, request.tokens_out, request.cache_read, request.cache_creation) == (
-        10,
-        20,
-        30,
-        40,
-    )
-    response, errors = io.StringIO(), io.StringIO()
-    with contextlib.redirect_stdout(response), contextlib.redirect_stderr(errors):
-        code = cli(["registry", "models", "--config-home", str(home), "calibration", str(event.id)])
-    assert code == 0 and errors.getvalue() == ""
-    assert json.loads(response.getvalue())["calibration"] == {
-        "repo": "org/repo",
-        "loc": 1234,
-        "batch": "b-1",
-        "note": "rerun",
-    }
+    assert (rc, out, len(recorded)) == (0, "", 1)
+    assert err.splitlines() == [
+        f"spend: --{flag} not stored: spend_event has no column for it"
+        for flag in ("repo", "loc", "batch", "note")
+    ]
 
 
 @pytest.mark.parametrize(
@@ -193,57 +161,3 @@ def test_without_a_model_registry_the_declaration_is_refused(
         "there (spend pricing and the spend view need it)\n"
     )
     assert by_model(home) == []
-
-
-def test_grouped_cli_reprices_recorded_requests_without_rebooking(
-    home: Path, recorded: list[SpendEvent], tmp_path: Path
-) -> None:
-    code, payload, error = spend(
-        home,
-        "--skill",
-        "triage",
-        "--model",
-        "claude-haiku-5-5",
-        "--tokens-in",
-        "95000",
-        "--cache-read",
-        "9000",
-        "--tokens-out",
-        "700",
-        "--json",
-    )
-    assert code == 0 and error == ""
-    event_id = json.loads(payload)["event"]["id"]
-    [event] = recorded
-    registry = yaml.safe_load((home / "model-registry.yaml").read_text())
-    spec = registry["providers"]["anthropic"]["models"]["claude-haiku-5-5"]
-    for rates in (spec, spec["long_prompt"]):
-        rates["price_per_mtok_in"] *= 2
-        rates["price_per_mtok_out"] *= 2
-    (home / "model-registry.yaml").write_text(yaml.safe_dump(registry))
-    start = event.occurred_at.replace(hour=0, minute=0, second=0, microsecond=0)
-    output, errors = io.StringIO(), io.StringIO()
-    with contextlib.redirect_stdout(output), contextlib.redirect_stderr(errors):
-        code = cli(
-            [
-                "dashboard",
-                "view",
-                "--config-home",
-                str(home),
-                "spend",
-                "--since",
-                start.isoformat(),
-                "--until",
-                (start + timedelta(days=1)).isoformat(),
-                "--reprice",
-                "--out",
-                str(tmp_path / "report"),
-            ]
-        )
-    assert code == 0 and errors.getvalue() == ""
-    [month] = json.loads(output.getvalue())["model"]["months"]
-    assert Decimal(month["total"]["cost_usd"]) == event.cost_usd == Decimal("0.0497")
-    assert Decimal(month["repricing"]["current_usd"]) == Decimal("0.0994")
-    assert month["repricing"]["unavailable"] == []
-    assert str(event.id) == event_id
-    assert by_model(home) == [("claude-haiku-5-5", 1, 95000, 700, Decimal("0.0497"))]

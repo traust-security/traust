@@ -92,9 +92,10 @@ For multi-arch manifest lists, audit the `amd64` image by default and record the
 
 Images are immutable: a published digest's audit never goes stale — the
 *next tag/digest* does. Re-audits are therefore **release-event-driven,
-never calendar-driven**: `traust portfolio release-discover` observes inventory digest/tag
-changes through Core's recorded feed snapshots. The `release-passthrough` materializer
-plans the container audit asset, which invokes this skill on its exact observed batch.
+never calendar-driven**: the continuous-operations router
+(docs/continuous-operations.md) routes container release events to its
+`release-passthrough` lane, whose asset refuses until traust-core has a release feed
+(NEED(release-passthrough)); release discovery from inventory files is retired.
 Base-image CVE waves route through `/impact-analysis` + grype re-scan rather than a full
 re-audit. A quarterly full pass over the
 flagship image set is the only calendar backstop.

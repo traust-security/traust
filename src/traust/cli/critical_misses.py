@@ -1,23 +1,25 @@
-"""Export the campaign's critical candidate worklist without ingesting findings."""
+"""Export the recorded critical misses of a window: critical findings first reported in it that an
+earlier audit of the repository missed (`DetectionQualityService.critical_misses`)."""
 
 from __future__ import annotations
 
 import argparse
+import json
+from collections.abc import Sequence
 from datetime import datetime
 from pathlib import Path
 
-from traust_core.v1.context.critical_misses import critical_miss_markdown, read_critical_campaign
 from traust_core.v1.errors import ValidationError
 from traust_core.v1.models.common import TimeWindow
+from traust_core.v1.models.detection_quality import CriticalMiss
+from traust_core.v1.rendering.markdown import markdown_table, markdown_text
 
 from traust.cli._doors import parser, run
 from traust.cli.groups._registry import OpSpec
-from traust.cli.impact import harness_version
 from traust.context import analysis_results_dir, load
 
 
 def add_args(ap: argparse.ArgumentParser) -> None:
-    ap.add_argument("--campaign-dir", type=Path, required=True, help="campaign directory to read")
     ap.add_argument("--out", type=Path, help="Markdown destination (default: CRITICAL-MISSES.md)")
     ap.add_argument("--json-out", type=Path, help="JSON destination (default: beside Markdown)")
     ap.add_argument("--start", type=datetime.fromisoformat, help="recorded findings window start")
@@ -26,36 +28,58 @@ def add_args(ap: argparse.ArgumentParser) -> None:
     )
 
 
+def _window(args: argparse.Namespace) -> TimeWindow:
+    if args.start is None or args.end is None:
+        raise ValidationError("--start and --end must be supplied together")
+    if args.start.tzinfo is None or args.end.tzinfo is None:
+        raise ValidationError("--start and --end must include time zones")
+    if args.start >= args.end:
+        raise ValidationError("--start must precede --end")
+    return TimeWindow(start=args.start, end=args.end)
+
+
+def critical_miss_markdown(window: TimeWindow, misses: Sequence[CriticalMiss]) -> str:
+    """The misses as one table; titles come from audited reports, so every cell is escaped."""
+    lines = [
+        "# Critical misses",
+        "",
+        f"Window: {window.start.isoformat()} to {window.end.isoformat()} (end exclusive).",
+        f"Misses: {len(misses)}; an `area_reported` row is for adjudication, not a hit.",
+        "",
+    ]
+    rows = [
+        (
+            str(m.repository_id),
+            str(m.finding_id),
+            markdown_text(m.title),
+            m.found_at.isoformat(),
+            str(m.found_by),
+            str(m.missed_by),
+            m.reason.value,
+            m.validity or "",
+        )
+        for m in misses
+    ]
+    columns = ("Repository", "Finding", "Title", "Found at", "Found by", "Missed by", "Reason")
+    lines += markdown_table((*columns, "Validity"), rows)
+    return "\n".join(lines) + "\n"
+
+
 def call(args: argparse.Namespace) -> int:
     def export() -> dict[str, str | int]:
-        window = None
-        if args.start is not None or args.end is not None:
-            if args.start is None or args.end is None:
-                raise ValidationError("--start and --end must be supplied together")
-            if args.start.tzinfo is None or args.end.tzinfo is None:
-                raise ValidationError("--start and --end must include time zones")
-            if args.start >= args.end:
-                raise ValidationError("--start must precede --end")
-            window = TimeWindow(start=args.start, end=args.end)
+        window = _window(args)
         core = load(args.config_home)
-        campaign = read_critical_campaign(args.campaign_dir)
-        report = core.services().detection_quality.critical_miss_report(
-            campaign, window=window, harness_version=harness_version()
-        )
+        misses = core.services().detection_quality.critical_misses(window)
         out = args.out or analysis_results_dir(core) / "CRITICAL-MISSES.md"
         json_out = args.json_out or out.with_suffix(".json")
         if out.resolve() == json_out.resolve():
             raise ValidationError("Markdown and JSON destinations must differ")
         out.parent.mkdir(parents=True, exist_ok=True)
         json_out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_text(critical_miss_markdown(report), encoding="utf-8")
-        json_out.write_text(report.model_dump_json(indent=2) + "\n", encoding="utf-8")
-        return {
-            "markdown": str(out),
-            "json": str(json_out),
-            "campaign_candidates": len(report.candidates),
-            "recorded_misses": len(report.recorded_misses),
-        }
+        out.write_text(critical_miss_markdown(window, misses), encoding="utf-8")
+        document = [m.model_dump(mode="json") for m in misses]
+        json_out.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
+        return {"markdown": str(out), "json": str(json_out), "recorded_misses": len(misses)}
 
     return run(export)
 
@@ -63,7 +87,7 @@ def call(args: argparse.Namespace) -> int:
 CRITICAL_MISSES = OpSpec(
     add_args=add_args,
     call=call,
-    help="export critical campaign candidates, triage and human-gated routing states",
+    help="export a window's recorded critical misses",
 )
 
 

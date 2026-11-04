@@ -58,7 +58,7 @@ Parse `$ARGUMENTS` as a space-separated token list:
 | `--product <slug>` | **yes** | The product the repositories join (a `traust products list` name). Replaces `--segment`: *retired*, segments were CSV directories. |
 | `--label <name>` | no | Display name, to register a product that is not registered yet. |
 | `--inventory <path>` | — | *Retired*: the inventory is traust-core's repository table, not a checkout. |
-| `--sub-service <name>` | no | Declared `App/Sub-Service` label in the inventory reference/export; organization intake defaults to the organization name. |
+| `--sub-service <name>` | — | *Retired*: the `App/Sub-Service` CSV column has no home in the data model. |
 | `--dry-run` | no | Print what would be added without writing anything (`traust portfolio plan`). |
 
 ---
@@ -141,7 +141,7 @@ Report skipped duplicates to the user.
 ## Step 4 — Register the repositories
 
 ```bash
-traust portfolio onboard --product <slug> [--label <name>] [--repo <url> ...] [--org <org> [--host <host>]] [--sub-service <name>] [--reference <declared.yaml>]
+traust portfolio onboard --product <slug> [--label <name>] [--repo <url> ...] [--org <org> [--host <host>]]
 ```
 
 ### File location
@@ -150,11 +150,9 @@ traust portfolio onboard --product <slug> [--label <name>] [--repo <url> ...] [-
 
 ### Column schema
 
-The repository row holds the canonical URL and forge visibility. Ad-hoc intake derives
-`Resource Type=adhoc`; supplied service labels and contact/routing declarations are retained
-in the provider-owned `<traust.yaml home>/inventory-reference.yaml`, not new domain columns.
-`traust portfolio inventory-export --format csv` exports the joined handoff (JSON is default).
-Use `--reference` for per-repository declarations; see `docs/cli-reference.md`.
+*Retired*: the `repository` row holds the URL (and visibility, from the
+forge); `Repository`, `Host`, `Organization/Group` and `Repo Name` derive
+from the URL; `App/Sub-Service` and `Resource Type` have no column.
 
 ---
 
@@ -164,22 +162,21 @@ For each newly added repository, resolve its owners.
 
 ### Schema
 
-Team ownership remains in core. Person hints and provenance, known managers/business units,
-and explicitly supplied tracker/escalation routes live in the declared inventory reference.
-Use `traust portfolio inventory-export` for the joined owner/contact/version handoff.
-Ad-hoc intake leaves routes/contact fields empty unless an authoritative source supplies them;
-never derive Jira keys or escalation addresses from repository/team names.
+*Retired*: no `owners.csv`. traust-core stores the owning team
+(`ownership` rows); `Manager`, `Individual Owners`, `Ownership Source`,
+`Jira Project`, `Jira Component` and `Escalation Contact` have no column.
 
 ### Ownership resolution (best-effort)
 
 Try each source in order; stop at the first that yields a team name:
 
-1. **OWNERS file** — `traust portfolio owner-hints --repo <url> --save` fetches it
-   (`origin: owners-file`) and retains handles plus file/source provenance as reference hints.
-   These never assign an owning team.
+1. **OWNERS file** — `traust portfolio owner-hints --repo <url>` fetches it
+   (`origin: owners-file`) and parses the `approvers:` list. Use the first 1–2 approvers as
+   `Individual Owners` (reported to the user; hints, not stored).
 
 2. **GitHub top contributors** — the same command's `origin: contributor`
-   hints, bots already filtered out, are retained with their source when `--save` is given.
+   hints, bots already filtered out. Take the top 1–2 as `Individual Owners`
+   (reported, not stored).
 
 3. **GitHub org-level mapping** — Map the organization to a team using the
    `org_teams:` map in `<inputs>/inventory.yaml`:
@@ -190,13 +187,6 @@ Try each source in order; stop at the first that yields a team name:
    team (no `ownership` row; nothing is written).
 
 `import-owners` mirrors the declared source onto every registered repository.
-
-Known manager/contact/tracker facts may be passed with `onboard`'s `--manager`,
-`--business-unit`, `--individual-owner`, `--ownership-source`, `--jira-project`,
-`--jira-component`, and `--escalation-contact`, or imported later using
-`traust portfolio import-reference --source <declared.yaml>`. Missing fields never
-erase earlier declarations; explicit nulls in a reference import clear optional fields.
-The export uses a declared manager as a person fallback only when no individual owners exist.
 
 ---
 

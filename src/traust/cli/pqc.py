@@ -8,6 +8,8 @@ prepare   what Layer 2 scores from: the commit's facts, its route (full/light/sk
 summary   the latest readiness per commit in scope, rolled up by bucket or dominant provenance
 blockers  the remediations of each commit's latest readiness, in the vocabulary /patch reads
 vendor-claims  the next version of the curated vendor PQC claims (`dashboard view pqc-vendors`)
+worklist  one entry per repository in scope, chokepoints (config home `pqc-priority.yaml`) first
+sweep     prescan a bounded batch; refused until a pqc-scan scanner exists (plan 15, decision 4)
 """
 
 from __future__ import annotations
@@ -17,7 +19,7 @@ from pathlib import Path
 from uuid import UUID
 
 from traust_core.v1.context import Context
-from traust_core.v1.errors import NotFoundError, ValidationError
+from traust_core.v1.errors import NotFoundError
 from traust_core.v1.models.artifacts import (
     PqcFactsArtifact,
     PqcReadinessArtifact,
@@ -29,10 +31,11 @@ from traust_core.v1.models.vocabulary import (
     PqcReadinessBucket,
     PqcRemediationCategory,
 )
+from traust_core.v1.rendering.markdown import markdown_table
 
 from traust.cli import _doors
 from traust.cli._doors import parser, run
-from traust.context import load
+from traust.context import load, pqc_priority
 from traust.ops.pqc import PqcSweep
 
 
@@ -206,6 +209,16 @@ def vendor_claims(argv: list[str] | None = None) -> int:
     return run(call)
 
 
+def _sweep(core: Context, config_home: Path | None) -> PqcSweep:
+    """The sweep over this deployment's chokepoints, with the Context's (unregistered) scanner."""
+    return PqcSweep(
+        core.services(),
+        tuple(core.config.forge_hosts),
+        chokepoints=pqc_priority(config_home),
+        scanner=core.pqc_scanner,
+    )
+
+
 def worklist(argv: list[str] | None = None) -> int:
     ap = _filter_parser(
         "worklist", "One entry per repository, priority-tiered from inventory.", buckets=False
@@ -215,14 +228,16 @@ def worklist(argv: list[str] | None = None) -> int:
 
     def call() -> object:
         core = load(args.config_home)
-        services = core.services()
-        entries = PqcSweep(services, tuple(core.config.forge_hosts)).worklist(_filter(core, args))
+        entries = _sweep(core, args.config_home).worklist(_filter(core, args))
         if args.markdown:
-            table = services.reporting.export_markdown(
+            table = markdown_table(
                 ("Repository", "Commit", "Priority", "Route", "Reason"),
-                ((e.repository, e.sha, e.priority_tier, e.route, e.reason) for e in entries),
+                [
+                    (e.repository, e.sha or "", e.priority_tier, e.route.value, e.reason or "")
+                    for e in entries
+                ],
             )
-            return f"# PQC sweep worklist\n\n{table}"
+            return "# PQC sweep worklist\n\n" + "\n".join(table)
         return [e.model_dump(mode="json") for e in entries]
 
     return run(call)
@@ -241,7 +256,7 @@ def sweep(argv: list[str] | None = None) -> int:
     def call() -> str:
         nonlocal incomplete
         core = load(args.config_home)
-        result = PqcSweep(core.services(), tuple(core.config.forge_hosts)).refresh(
+        result = _sweep(core, args.config_home).refresh(
             _filter(core, args),
             limit=args.limit,
             after=args.after,
@@ -252,63 +267,3 @@ def sweep(argv: list[str] | None = None) -> int:
 
     rc = run(call)
     return 1 if rc == 0 and incomplete else rc
-
-
-def repair(argv: list[str] | None = None) -> int:
-    ap = _parser(
-        "repair",
-        "Repair explicit reports into a new directory; originals stay intact.",
-        commit=False,
-    )
-    ap.add_argument("--report", type=Path, action="append", required=True)
-    ap.add_argument("--out-dir", type=Path)
-    ap.add_argument("--force", action="store_true", help="re-derive authored remediations")
-    ap.add_argument("--refresh-md", action="store_true", help="repair only the companions")
-    ap.add_argument("--dry-run", action="store_true")
-    args = ap.parse_args(argv)
-    if not args.dry_run and args.out_dir is None:
-        ap.error("--out-dir is required unless --dry-run")
-    if args.refresh_md and args.force:
-        ap.error("--force and --refresh-md are mutually exclusive")
-
-    def call() -> list[dict[str, object]]:
-        service = load(args.config_home).services().pqc
-        pending = []
-        names: set[str] = set()
-        for path in args.report:
-            if path.name in names:
-                raise ValidationError(f"duplicate report output name: {path.name}")
-            names.add(path.name)
-            companion = path.with_suffix(".md")
-            if args.refresh_md and not companion.is_file():
-                raise NotFoundError(f"no Markdown companion for {path}")
-            doc = PqcReadinessArtifact.parse(path.read_bytes())
-            repaired = service.repair(
-                doc,
-                companion.read_text() if companion.is_file() else "",
-                force=args.force,
-                derive=not args.refresh_md,
-            )
-            if args.out_dir is not None:
-                for source in (path, companion):
-                    destination = args.out_dir / source.name
-                    if destination.resolve() == source.resolve() or destination.exists():
-                        raise ValidationError(f"repair refuses to overwrite {destination}")
-            pending.append((path, repaired))
-        if not args.dry_run:
-            args.out_dir.mkdir(parents=True, exist_ok=True)
-            for path, repaired in pending:
-                if not args.refresh_md:
-                    (args.out_dir / path.name).write_bytes(repaired.report.payload)
-                (args.out_dir / path.with_suffix(".md").name).write_text(repaired.markdown)
-        return [
-            {
-                "report": str(path),
-                "derived": repaired.changed,
-                "remediations": len(repaired.report.remediations or ()),
-                "written": not args.dry_run,
-            }
-            for path, repaired in pending
-        ]
-
-    return run(call)

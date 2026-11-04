@@ -17,14 +17,6 @@ import yaml
 from traust_core.v1.context import Context
 from traust_core.v1.errors import ValidationError
 from traust_core.v1.models.detection_quality import Calibration, GateReachability, RulePack
-from traust_core.v1.models.rule_calibration import (
-    CalibrationHit,
-    CalibrationStatus,
-    FixtureSanity,
-    PackCalibrationRun,
-    PackScan,
-    RuleCalibrationRequest,
-)
 
 from traust.cli import calibrate_rule_pack
 
@@ -100,85 +92,3 @@ def test_a_refused_scan_is_exit_2_with_cores_reason(
     stub(monkeypatch, ValidationError("assessments x are not tool scans"))
     rc, err = run(home, "crypto", *scans(SCANS[0]))
     assert rc == 2 and "not tool scans" in err
-
-
-def stub_live(monkeypatch: pytest.MonkeyPatch, result: Any) -> Door:
-    door = Door(result)
-    services = SimpleNamespace(detection_quality=SimpleNamespace(calibrate_pack=door))
-    monkeypatch.setattr(Context, "services", lambda self: services)
-    return door
-
-
-def test_fixture_mode_needs_no_recorded_scan_or_confirmed_corpus(
-    monkeypatch: pytest.MonkeyPatch, home: Path, tmp_path: Path
-) -> None:
-    result = PackCalibrationRun(
-        pack=PACK,
-        status=CalibrationStatus.COMPLETED,
-        fixture=FixtureSanity(
-            target=tmp_path / "pack" / "tests",
-            scan=PackScan(
-                files_scanned=1,
-                engine_errors=0,
-                skipped_rules=0,
-                returncode=0,
-                hits=(CalibrationHit(rule="demo", path="a.py", line=1, snippet="danger(x)"),),
-            ),
-        ),
-    )
-    door = stub_live(monkeypatch, result)
-    output = tmp_path / "calibration"
-    rc, text = run(
-        home, "crypto", "--fixtures", "--rules", str(tmp_path / "pack"), "--out", str(output)
-    )
-    assert rc == 0 and json.loads(text)["fixture"]["scan"]["complete"]
-    assert door.calls == [
-        (RuleCalibrationRequest(pack="crypto", fixtures=True, rules=str(tmp_path / "pack")),)
-    ]
-    assert json.loads((output / "calibration.json").read_text())["status"] == "completed"
-    assert json.loads((output / "review-samples.jsonl").read_text())["rule"] == "demo"
-    assert "Rule-pack calibration" in (output / "summary.md").read_text()
-
-
-def test_default_live_mode_uses_the_typed_core_workflow(
-    monkeypatch: pytest.MonkeyPatch, home: Path
-) -> None:
-    door = stub_live(monkeypatch, PackCalibrationRun(pack=PACK, status=CalibrationStatus.COMPLETED))
-    rc, _ = run(home, "crypto", "--limit", "3", "--timeout", "25")
-    assert rc == 0
-    assert door.calls == [(RuleCalibrationRequest(pack="crypto", limit=3, timeout=25),)]
-
-
-@pytest.mark.parametrize("status", [CalibrationStatus.DEGRADED, CalibrationStatus.FAILED])
-def test_an_incomplete_workflow_emits_evidence_and_exits_nonzero(
-    monkeypatch: pytest.MonkeyPatch, home: Path, status: CalibrationStatus
-) -> None:
-    stub_live(monkeypatch, PackCalibrationRun(pack=PACK, status=status))
-    rc, text = run(home, "crypto", "--fixtures")
-    assert rc == 1 and json.loads(text)["status"] == status
-
-
-def test_unavailable_fixtures_are_a_meaningful_refusal(
-    monkeypatch: pytest.MonkeyPatch, home: Path
-) -> None:
-    stub_live(monkeypatch, ValidationError("no tests/ tree or annotated fixtures"))
-    rc, text = run(home, "--fixtures")
-    assert rc == 2 and "no tests/ tree" in text
-
-
-def test_invalid_live_boundary_is_refused_before_core_is_called(
-    monkeypatch: pytest.MonkeyPatch, home: Path
-) -> None:
-    door = stub_live(monkeypatch, None)
-    rc, _ = run(home, "crypto", "--timeout", "0")
-    assert rc == 2 and door.calls == []
-
-
-def test_markdown_summary_keeps_untrusted_pack_text_inert(
-    monkeypatch: pytest.MonkeyPatch, home: Path, tmp_path: Path
-) -> None:
-    pack = PACK.model_copy(update={"name": "<script>alert(1)</script>"})
-    stub_live(monkeypatch, PackCalibrationRun(pack=pack, status=CalibrationStatus.COMPLETED))
-    rc, _ = run(home, "--fixtures", "--out", str(tmp_path / "out"))
-    assert rc == 0
-    assert "<script>" not in (tmp_path / "out" / "summary.md").read_text()

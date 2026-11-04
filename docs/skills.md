@@ -486,7 +486,7 @@ Use when the user asks to mine the disposition ledger for confirmed true positiv
 
 ## portfolio-graph
 
-Use when the user asks code-level portfolio questions, fleet API-group coupling, package import/export evidence, or to build an organizational repository relationship map. Native SBOM and code-facts services answer dependencies (L1), Kubernetes interfaces (L2), image modules (L3) and exports/imports (L4); `portfolio graph` derives offline interactive HTML, JSON/DOT/GEXF and hub/coverage statistics without restoring SQLite graph storage. Read-only crown-jewel draft, IaC census and organization index views complement these sources; unsigned crown-jewel proposals never authorize dispatch.
+Use when the user asks code-level portfolio questions or to build/refresh/query the portfolio source-code graph — "which products depend on module X" / CVE blast radius, "top shared libraries", "internal library coupling", "rebuild the portfolio graph", "query the code graph". Distinct from the retired /repo-graph (the organizational coverage graph): this one holds the code-level layers — module dependencies (L1), Kubernetes interfaces (L2), artifacts/SBOM (L3), and symbols (L4), all implemented — read through traust-core by python3 -m traust.cli.
 
 - **Stage:** —
 - **Tier:** `secondary`
@@ -534,7 +534,7 @@ Use when the user asks for a fleet-wide or portfolio-wide view of threats (not f
 
 ## traust-metrics
 
-Use when the user asks for campaign metrics, a leadership scoreboard, or to rebuild the scoreboard. Composes recorded executive, trend, threat, validation/fuzz, census, insecure-pattern and detection-quality views with separately measured harness checkout maturity.
+Use when the user asks for campaign metrics, a leadership scoreboard, or to (re)build/refresh progress-tracker/metrics/dashboards/scoreboard/traust-metrics.md. Deterministically harvests headline numbers from traust-core's executive summary, findings trend and threat register views into one consistently-updatable Markdown scoreboard.
 
 - **Stage:** —
 - **Tier:** `secondary`

@@ -6,7 +6,8 @@ add     register a product (name = slug, label = display name) with its ownershi
 update  change a registered product's label, ownership or business unit
 
 The label lives on the product row (products.name); the registry subject's label stays unset.
-Caveats are subject-labelled entries in the existing corpus registry document note.
+NEED(contracts: corpus-registry subject `notes`): the subject has no notes field, so a BU
+boundary cutting through a tree is flagged by the skill, not recorded.
 """
 
 from __future__ import annotations
@@ -25,16 +26,13 @@ from traust.context import load
 OWNERSHIP = [o.value for o in OwnershipClass]
 
 
-def _row(
-    product: Product, subject: CorpusSubject | None, note: str | None = None
-) -> dict[str, Any]:
+def _row(product: Product, subject: CorpusSubject | None) -> dict[str, Any]:
     return {
         "name": product.slug,
         "label": product.name,
         "ownership": None if subject is None else subject.ownership,
         "business_unit": None if subject is None else subject.business_unit,
         "product_id": product.id,
-        "note": note,
     }
 
 
@@ -48,10 +46,7 @@ def list_(argv: list[str] | None = None) -> int:
         out, page = [], PageRequest()
         while True:
             got = portfolio.list_products(page)
-            out += [
-                _row(p, registry.subject(str(p.id)), registry.subject_note(str(p.id)))
-                for p in got.items
-            ]
+            out += [_row(p, registry.subject(str(p.id))) for p in got.items]
             if got.next is None:
                 return out
             page = PageRequest(cursor=got.next)
@@ -65,22 +60,19 @@ def add(argv: list[str] | None = None) -> int:
     ap.add_argument("--label", required=True, help="the display name")
     ap.add_argument("--ownership", required=True, choices=OWNERSHIP)
     ap.add_argument("--business-unit", required=True)
-    ap.add_argument("--note", help="boundary caveat, retained in CorpusRegistry.note")
     args = ap.parse_args(argv)
 
     def call() -> dict[str, Any]:
-        portfolio = load(args.config_home).services().portfolio
-        product, subject = portfolio.register_corpus_product(
-            ProductSlug.parse(args.name),
-            args.label,
-            OwnershipClass(args.ownership),
-            args.business_unit,
-            note=args.note,
+        return _row(
+            *load(args.config_home)
+            .services()
+            .portfolio.register_corpus_product(
+                ProductSlug.parse(args.name),
+                args.label,
+                OwnershipClass(args.ownership),
+                args.business_unit,
+            )
         )
-        doc = portfolio.corpus_registry()
-        assert doc is not None
-        registry = CorpusRegistry.of(doc)
-        return _row(product, subject, registry.subject_note(str(product.id)))
 
     return run(call)
 
@@ -91,20 +83,18 @@ def update(argv: list[str] | None = None) -> int:
     ap.add_argument("--label")
     ap.add_argument("--ownership", choices=OWNERSHIP)
     ap.add_argument("--business-unit")
-    ap.add_argument("--note", help="replace the boundary caveat; empty text clears it")
     args = ap.parse_args(argv)
 
     def call() -> dict[str, Any]:
-        portfolio = load(args.config_home).services().portfolio
-        product, subject = portfolio.update_corpus_product(
-            ProductSlug.parse(args.name),
-            label=args.label,
-            ownership=None if args.ownership is None else OwnershipClass(args.ownership),
-            business_unit=args.business_unit,
-            note=args.note,
+        return _row(
+            *load(args.config_home)
+            .services()
+            .portfolio.update_corpus_product(
+                ProductSlug.parse(args.name),
+                label=args.label,
+                ownership=None if args.ownership is None else OwnershipClass(args.ownership),
+                business_unit=args.business_unit,
+            )
         )
-        doc = portfolio.corpus_registry()
-        registry = CorpusRegistry() if doc is None else CorpusRegistry.of(doc)
-        return _row(product, subject, registry.subject_note(str(product.id)))
 
     return run(call)

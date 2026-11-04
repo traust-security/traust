@@ -49,24 +49,5 @@ def test_core_registry_age_reads_the_same_cache_as_the_fetcher(
     core = load(home)
     assert feeds_cache_dir(core) == expected
     assert core.config.locations.feeds_cache_dir() == expected
-    assert core.product_definitions().status().fetched_at == STAMP
-
-
-def test_cli_load_registers_the_actual_review_reference_not_the_template(tmp_path: Path) -> None:
-    home = tmp_path / "config"
-    home.mkdir()
-    (home / "traust.yaml").write_text(yaml.safe_dump({"home": str(tmp_path / "state")}))
-    (home / "reachability-watch.yaml").write_text(
-        "reviewed: 2026-10-01\nreview_cadence_days: 30\nwatch: []\n"
-    )
-    review = load(home).reachability_review.read()
-    assert review is not None
-    assert review.reviewed == STAMP.date()
-    assert review.review_cadence_days == 30
-
-
-def test_absent_review_reference_is_not_recorded_as_reviewed(tmp_path: Path) -> None:
-    home = tmp_path / "config"
-    home.mkdir()
-    (home / "traust.yaml").write_text(yaml.safe_dump({"home": str(tmp_path / "state")}))
-    assert load(home).reachability_review.read() is None
+    retrieved = core.product_definitions().read().source.retrieved_at
+    assert retrieved is not None and datetime.fromisoformat(retrieved) == STAMP

@@ -20,10 +20,10 @@ from importlib.metadata import version
 from pathlib import Path
 
 import yaml
-from traust_core.v1.context.benchmark import benchmark_markdown, scorecards_markdown
 from traust_core.v1.errors import ValidationError
 from traust_core.v1.models.artifacts import BenchmarkTargetArtifact, ReportArtifact
 from traust_core.v1.models.detection_quality import BenchmarkFilter, BenchmarkTargetId
+from traust_core.v1.rendering.benchmark import benchmark_markdown, scorecards_markdown
 
 from traust.cli import _doors
 from traust.cli._doors import parser, run

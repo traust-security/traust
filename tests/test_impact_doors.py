@@ -158,6 +158,11 @@ def test_scan_checks_out_an_undecided_commit_at_its_sha_through_the_service(
 
 
 def test_one_commit_by_url_and_sha(home: Path, tmp_path: Path) -> None:
+    unrelated = tmp_path / "sbom-unrelated.json"
+    unrelated.write_text(
+        json.dumps({"bomFormat": "CycloneDX", "components": [{"purl": "pkg:npm/left-pad@1.3.0"}]})
+    )
+    run(impact.sbom, home, str(unrelated), "--repo-url", REPO, "--sha", SHA)
     rc, out = run(impact.analyze, home, LODASH.identifier, "--repo-url", REPO, "--sha", SHA)
     assert rc == 0 and json.loads(out)["classifications"] == {"not_imported": 1}
     with pytest.raises(SystemExit):
@@ -191,6 +196,7 @@ def test_fix_propagation_reads_the_commits_sbom(home: Path, tmp_path: Path) -> N
 def test_judged_symbols_and_the_feature_description_reach_the_record(
     home: Path, tmp_path: Path
 ) -> None:
+    run(impact.sbom, home, str(sbom(tmp_path, "4.17.20")), "--repo-url", REPO, "--sha", SHA)
     rc, _ = run(
         impact.analyze,
         home,
