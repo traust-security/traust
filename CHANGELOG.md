@@ -2,6 +2,19 @@
 
 All notable changes to Traust are documented here.
 
+## [0.41.0]
+
+- Make the remediate-finding pushed fix deterministic (followup ask E): the agent
+  no longer commits in the worktree — it leaves the patch uncommitted and writes
+  the commit message to the run's output directory. A new `push_fix.sh` snapshots
+  the worktree's files (never `.git`), lays them over a fresh clone at the
+  recorded pre-agent base commit, and commits under the fixed machine identity
+  `sci-remediation <sci-remediation@localhost>` — attributable to the harness,
+  never to a person, unsigned, hookless — before the gated push. Phase 5's report
+  and Phase 5b's review now read that exact clone, so what is reviewed is
+  bit-for-bit what is pushed; the push itself is script-driven, normal-only
+  (never forced) and keeps the isolated per-command credential helper.
+
 ## [0.40.0]
 
 - Keep rejected inventory URLs and exception payloads out of intake diagnostics.
