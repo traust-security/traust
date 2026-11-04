@@ -192,5 +192,7 @@ def test_completed_event_is_not_dispatched_again(tmp_path: Path) -> None:
         intake = RescanEventIntakeMaterializer(services, observation.query, PRINCIPAL, events)
         first = intake.materialize(AssetRequest(asset="rescan_event_intake", run_id="first-run"))
         complete(services, first.written)
-        repeated = intake.materialize(AssetRequest(asset="rescan_event_intake", run_id="repeat-run"))
+        repeated = intake.materialize(
+            AssetRequest(asset="rescan_event_intake", run_id="repeat-run")
+        )
     assert repeated == JobResult.succeeded()
