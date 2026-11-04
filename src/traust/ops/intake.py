@@ -110,10 +110,15 @@ def external_validation_input(manifest: OrderManifest) -> ExternalValidationInpu
 
 
 def _rescan_events(path: Path) -> tuple[RescanEvent, ...]:
+    """The unconsumed events in `path`. A missing file is refused, not read as no events: a
+    config that points at the wrong tree would otherwise drop every event silently. An empty
+    file declares that the deployment has none."""
     try:
         lines = path.read_text(encoding="utf-8").splitlines()
-    except FileNotFoundError:
-        return ()
+    except FileNotFoundError as error:
+        raise ConfigError(
+            f"rescan events {path} does not exist; create it empty to declare no events"
+        ) from error
     except (OSError, UnicodeError) as error:
         raise ConfigError(f"reading rescan events {path}: {error}") from error
     events = []
