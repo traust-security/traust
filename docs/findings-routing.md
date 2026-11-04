@@ -21,7 +21,7 @@ only the first is in scope for this page:
 | Kind | What it routes | Where it lives | Documented in |
 |---|---|---|---|
 | **Historical findings routing** | a producer's findings → ledger events | retired `route_regressions.py`, `route_impact_findings.py` | **this page** |
-| **Work routing** (the *rescan router*) | repos → one of 12 scan lanes (`full-audit`, `impact-lane`, `diff-scan`, `deps-lane`, `threat-model-review`, …) | `build_rescan_worklist.py` | [continuous-operations.md](continuous-operations.md) |
+| **Work routing** (the *rescan router*) | repos → one of 12 scan lanes (`full-audit`, `impact-lane`, `diff-scan`, `deps-lane`, `threat-model-review`, …) | `traust.ops.router` | [continuous-operations.md](continuous-operations.md) |
 | **Owner routing** | findings packages → teams and named maintainers | `/assign-findings-owners` (internal extension), `/reassign-findings-owners` | those skills |
 | **Defect routing** | findings → Jira issues | `/file-security-defect` (internal extension) | those skills |
 

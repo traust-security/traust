@@ -4,6 +4,14 @@ All notable changes to Traust are documented here.
 
 ## [0.40.0]
 
+- Keep rejected inventory URLs and exception payloads out of intake diagnostics.
+- Surface unsuccessful event work as degraded until explicit operator disposition;
+  retain idempotent open/completed bindings without automatic audit/validation retries.
+- Index event history once per repository/asset group per intake tick, updating
+  new bindings in memory instead of rescanning history for each feed row.
+- Clarify that event intake has scheduling priority, not a completion barrier
+  before ordinary repository observation.
+
 - Make audit admission guidance kind-specific: canonical container/RPM/vulnerability-scan
   recording admits findings for immediate native triage; secure-code recording does not.
   A null lookup or empty assessment-only batch is not an identity check or clean-audit proof.

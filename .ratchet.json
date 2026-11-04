@@ -2,10 +2,6 @@
   "src/traust/cli/auth.py": {
     "core-internal": 1
   },
-  "src/traust/cli/build_rescan_worklist.py": {
-    "database": 2,
-    "state-file": 1
-  },
   "src/traust/cli/build_symbol_index.py": {
     "database": 1
   },

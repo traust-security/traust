@@ -115,5 +115,3 @@ or substitute for the ledger):
 | `/refresh-dashboards` | downstream dashboard builders read the fresh projection |
 | `/drift-watch` | staleness sentinel (`built_at` vs newest ledger/report mtime) — watches the DB, never queries findings from it |
 
-The daily rescan router (python3 -m traust.cli build rescan-worklist) also reads
-it when assembling the diff-lane worklist.

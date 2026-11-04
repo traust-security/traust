@@ -243,7 +243,7 @@ advisory blast radius; `/pqc-readiness` for product rollups, the vendor
 tracker and crypto-dependency scans; `/isolation-review` to resolve a
 service's repo set; `/fleet-fix` to select every repo affected by one
 systemic pattern; `/dependency-watch` for the fleet advisory sweep;
-`/refresh-dashboards` for dependency exposure; plus the rescan worklist and the
+`/refresh-dashboards` for dependency exposure; plus the router's routes and the
 unsigned `portfolio crown-jewel-draft` proposal. Organization navigation and
 IaC census/worklists are available through `portfolio org-index` and `iac-census`.
 

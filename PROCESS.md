@@ -306,8 +306,7 @@ error doctrine: [error model](docs/error-model.md).
 
 The stages above describe one pass. After the initial baseline, **rescan
 frequency is decided deterministically by the continuous-operations
-router** (python3 -m traust.cli build rescan-worklist
-→ `analysis-results/findings/_manifest/rescan-worklist.json`), not by a
+router** (`traust.ops.router`, run by traust-engine per repository), not by a
 calendar: heavy or security-sensitive code churn and injected events
 (external reports, methodology releases, CVE reachability, artifact
 releases) route repos back into ③ as full audits or

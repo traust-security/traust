@@ -27,6 +27,7 @@ from traust_core.v1.services.observation import GITLEAKS
 from traust.cli import portfolio_observe
 from traust.context import load
 from traust.ops.materializers import RepoStateMaterializer
+from traust.ops.router import SecurityRouter
 
 REPO = "https://github.com/org/app"
 HOSTS = ("github.com",)
@@ -179,9 +180,37 @@ def test_a_repository_outside_the_inventory_is_refused(home: Path) -> None:
     assert (rc, result["outcome"]) == (5, "refused")
 
 
-def test_a_repository_on_an_unknown_host_is_a_bad_request(home: Path) -> None:
-    rc, result = observe(home, "https://example.com/org/app")
-    assert (rc, result["outcome"]) == (1, "failed")
+def test_an_audited_unknown_host_still_reaches_age_ceiling_routing(home: Path) -> None:
+    unknown = "https://example.com/org/app"
+    core = load(home)
+    repo = core.services().portfolio.register_repository(
+        HttpsRepoUrl.parse(unknown, ("example.com",)), False
+    )
+    with SqlTraustUnitOfWork(core.database) as uow:
+        ref = uow.repository_refs.add(RepositoryRef(repository_id=repo.id, sha="a" * 40))
+        uow.assessments.add(
+            Assessment(
+                repository_ref_id=ref.id,
+                kind=AssessmentKind.SECURE_CODE,
+                status="completed",
+                assessor="skill:secure-code-audit",
+                assessor_version="1",
+                occurred_at=datetime(2000, 1, 1, tzinfo=UTC),
+            )
+        )
+        uow.commit()
+    assert observe(home, unknown) == (
+        4,
+        JobResult.partly({"unsupported-host": 1}).model_dump(mode="json"),
+    )
+    with core.repository_observation() as observation:
+        state = observation.query.repo_state(repo_url=unknown)
+    route = SecurityRouter().route(state, (), ())[0]
+    assert (state.status, route.lane, route.reason) == (
+        "unsupported-host",
+        "full-audit",
+        "rule-4",
+    )
 
 
 class Services:
@@ -201,7 +230,7 @@ class Portfolio:
 
 @pytest.mark.parametrize("status", list(ComparisonStatus))
 def test_every_status_is_succeeded_or_a_named_gap(status: ComparisonStatus) -> None:
-    result = RepoStateMaterializer(Services(Portfolio(status)), HOSTS).materialize(  # type: ignore[arg-type]
+    result = RepoStateMaterializer(Services(Portfolio(status))).materialize(  # type: ignore[arg-type]
         AssetRequest(asset="repo_state", run_id="t", partition=REPO)
     )
     answered = status in ("ok", "no-pinned-sha", "never-audited")
@@ -210,7 +239,14 @@ def test_every_status_is_succeeded_or_a_named_gap(status: ComparisonStatus) -> N
 
 def test_a_repository_core_doesnt_know_is_refused_with_its_reason() -> None:
     portfolio = Portfolio(NotFoundError("repository not in inventory: x"))
-    result = RepoStateMaterializer(Services(portfolio), HOSTS).materialize(  # type: ignore[arg-type]
+    result = RepoStateMaterializer(Services(portfolio)).materialize(  # type: ignore[arg-type]
         AssetRequest(asset="repo_state", run_id="t", partition=REPO)
     )
     assert result == JobResult.refused(OrderReason.NOT_FOUND)
+
+
+def test_malformed_ipv6_repository_is_bad_request(home: Path) -> None:
+    assert observe(home, "https://[::1") == (
+        1,
+        JobResult.failed(OrderReason.BAD_REQUEST).model_dump(mode="json"),
+    )

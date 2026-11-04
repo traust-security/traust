@@ -25,7 +25,7 @@ python3 -m traust.cli check skill-alignment      # equivalent
 | `assessments` | The audit skills' doors on traust-core | `coverage`, `prepare`, `threats` |
 | `attack` | The pack's pinned MITRE ATT&CK release | `validate` |
 | `auth` | Who you act as, over traust-core's identity provider | `local`, `login`, `logout`, `refresh`, `service-account`, `status`, `token` |
-| `build` | Deterministic builders | `rescan-worklist`, `skills-reference`, `symbol-index` |
+| `build` | Deterministic builders | `skills-reference`, `symbol-index` |
 | `check` | Deterministic gates | `citations`, `content-licenses`, `coverage`, `docs-consistency`, `estate-data`, `drift`, `fix-propagation`, `location-paths`, `reference-integrity`, `skill-alignment`, `skill-security` |
 | `cloud-config` | The cloud-config-audit skill's doors on traust-core | `check`, `record`, `run` |
 | `compliance` | compliance-check doors on traust-core (posture: `dashboard view compliance`) | `adrs`, `calibrate`, `check`, `declare`, `docs`, `evaluate`, `evidence`, `latest`, `policy`, `record`, `resolve`, `scopes` |
@@ -37,7 +37,7 @@ python3 -m traust.cli check skill-alignment      # equivalent
 | `isolation` | Tenant-isolation review | `repos` |
 | `ledger` | Ledger audit (traust-core) and the doc-variance register | `audit`, `doc-variance` |
 | `metrics` | Metrics & spend | `attribute-spend`, `collect-spend`, `lane-costs` |
-| `portfolio` | Native inventory and declared owner/contact/tracker handoffs, forge liveness, recorded dependency/interface facts, unsigned analytical proposals, graph presentation and release discovery | `checkout-refresh`, `crd-consumers`, `crown-jewel-draft`, `dependencies`, `dependents`, `exports-of`, `facts-collect`, `file`, `graph`, `iac-census`, `import-owners`, `import-reference`, `import-release`, `imports-package`, `internal-coupling`, `inventory-export`, `liveness`, `mirror-evict`, `observe`, `onboard`, `org-index`, `owner-hints`, `plan`, `population`, `release-audit`, `release-changes`, `release-discover`, `release-passthrough`, `ships-module` |
+| `portfolio` | Native inventory and declared owner/contact/tracker handoffs, routing intake, forge liveness, recorded dependency/interface facts, unsigned analytical proposals, graph presentation and release discovery | `checkout-refresh`, `crd-consumers`, `crown-jewel-draft`, `dependencies`, `dependents`, `event-intake`, `event-validate`, `exports-of`, `facts-collect`, `file`, `graph`, `iac-census`, `import-owners`, `import-reference`, `import-release`, `imports-package`, `internal-coupling`, `inventory-discover`, `inventory-export`, `liveness`, `mirror-evict`, `observe`, `onboard`, `org-index`, `owner-hints`, `plan`, `population`, `release-audit`, `release-changes`, `release-discover`, `release-passthrough`, `ships-module` |
 | `pqc` | The pqc-readiness skill's doors on traust-core; ranked worklists, bounded stamped refresh and non-destructive report repair | `blockers`, `check`, `prepare`, `record`, `repair`, `summary`, `sweep`, `vendor-claims`, `worklist` |
 | `products` | corpus-intake's doors on traust-core: products and their corpus ownership | `add`, `list`, `update` |
 | `registry` | Model/product registry and the recorded product map | `models`, `product-map`, `products` |
@@ -223,21 +223,18 @@ names both methodologies and shows field-level old/new values and numeric deltas
 Missing values remain distinct from JSON null. No comparison rewrites an archive.
 Portable history, comparison and original exports remain script-free.
 
-`traust check drift [--config-home <dir>] [--worklist <file>]`
-prints pack configuration checks and the surviving rescan worklist's age backstop.
-The worklist override matches `build rescan-worklist --out`; otherwise it uses
-configured analysis-results. Bootstrap reads Core's current typed inputs inventory,
-including unregistered repositories; there is no graph-database routing override.
-The command remains informational (no `--fail-on` gate); native feed/registry age,
+`traust check drift [--config-home <dir>]`
+prints pack configuration checks. The command remains informational (no `--fail-on` gate); native feed/registry age,
 upstream releases, stored-PQC-schema compatibility and measured-language coverage are
 in `traust dashboard view freshness --out <dir>`.
 
-The surviving `build rescan-worklist` router still reads its existing interim
-`findings.db` projection for HEAD code-audit population, live vulnerability risk,
-report paths and cloud-config baseline presence. `--db <file>` selects that input;
-the default remains `graph/findings.db` under configured analysis-results. This is
-not the retired portfolio graph, and the native inventory bootstrap replacement
-does not claim that the whole router or its population backend has migrated.
+`traust build rescan-worklist`, the former daily router, is retired: it read a
+`findings.db` projection nothing builds. `traust portfolio inventory-discover`
+registers configured input repositories and plans their first observation and
+bootstrap audit. `traust portfolio event-intake` turns unconsumed
+`rescan-events.jsonl` rows into distinct engine orders. Ordinary routing runs per
+repository through `traust.ops.router`
+([continuous-operations.md](continuous-operations.md)).
 
 ### Artifact-only below-range sessions
 

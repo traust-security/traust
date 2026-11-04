@@ -9,6 +9,7 @@ from collections.abc import Iterable
 from http import HTTPStatus
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 from uuid import UUID
 
 from traust_core.v1.context import Services
@@ -28,18 +29,26 @@ ANSWERED = frozenset(
 )
 
 
+def _repo_url(raw: str) -> HttpsRepoUrl:
+    """Structurally validate a repository URL without treating forge support as policy."""
+    try:
+        hostname = urlsplit(raw).hostname or ""
+        return HttpsRepoUrl.parse(raw, (hostname,))
+    except (ValueError, ValidationError):
+        raise ValidationError("invalid repository URL") from None
+
+
 class RepoStateMaterializer:
     """`repo_state`: observe one inventory repository at its forge and keep what it answered."""
 
     asset = "repo_state"
 
-    def __init__(self, services: Services, hosts: Iterable[str]) -> None:
+    def __init__(self, services: Services) -> None:
         self._portfolio = services.portfolio
-        self._hosts = tuple(hosts)
 
     def materialize(self, request: AssetRequest) -> JobResult:
         try:
-            url = HttpsRepoUrl.parse(request.partition or "", self._hosts)
+            url = _repo_url(request.partition or "")
         except ValidationError as e:
             log.warning("run %s: %s: %s", request.run_id, OrderReason.BAD_REQUEST, e)
             return JobResult.failed(OrderReason.BAD_REQUEST)

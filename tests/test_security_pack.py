@@ -25,11 +25,19 @@ def _asset_for_lane(assets: dict, lane: str) -> str:
 def test_the_security_pack_loads_and_every_source_asset_has_a_cadence() -> None:
     assets = _assets()
     sources = [name for name, asset in assets.items() if not asset.get("deps")]
-    assert {"feeds_cache", "repo_state"} <= set(sources)
+    assert {"feeds_cache", "inventory_discovery"} <= set(sources)
     assert all(assets[name]["trigger"].get("every") is not None for name in sources)
 
 
-EVENT_PLANNED = {"release_container_audit", "release_rpm_audit"}
+RELEASE_PLANNED = {"release_container_audit", "release_rpm_audit"}
+DIRECT_PLANNED = {
+    "external_report_audit": ["repo_state"],
+    "external_report_validation": ["external_report_audit"],
+    "methodology_audit": ["repo_state"],
+    "cve_impact": ["feeds_cache"],
+    "release_container_audit": ["release_discovery"],
+    "release_rpm_audit": ["release_discovery"],
+}
 
 
 def test_below_range_review_waits_for_the_verification_packets() -> None:
@@ -39,8 +47,8 @@ def test_below_range_review_waits_for_the_verification_packets() -> None:
 def test_every_asset_has_a_trigger_freshness_and_runner_labels() -> None:
     raw = yaml.safe_load(PACK.read_text())["assets"]
     for name, asset in raw.items():
-        if name in EVENT_PLANNED:
-            assert asset.get("deps") == ["release_discovery"]
+        if name in DIRECT_PLANNED:
+            assert asset.get("deps") == DIRECT_PLANNED[name]
             assert not asset.get("trigger"), name
         else:
             assert asset.get("trigger") or asset.get("deps"), name
@@ -76,11 +84,14 @@ def test_every_runnable_skill_session_starts_through_traust_session_with_its_rol
         if "model" not in asset or "run" not in asset:
             continue
         run = asset["run"]
-        if name in EVENT_PLANNED:
+        if name in RELEASE_PLANNED:
             assert run[3:5] == ["portfolio", "release-audit"] and "{role}" in run, name
             kind = run[run.index("--kind") + 1]
             assert kind in {"container", "rpm"}
             skill_dir(f"secure-{kind}-audit")
+        elif name == "external_report_validation":
+            assert run[3:5] == ["portfolio", "event-validate"] and "{role}" in run
+            skill_dir("validate-findings")
         else:
             assert run[3:5] == ["session", "run"] and "{role}" in run, name
             skill_dir(run[run.index("--skill") + 1])

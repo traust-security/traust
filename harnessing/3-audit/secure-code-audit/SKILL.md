@@ -121,7 +121,7 @@ The command prints the checkout's path (`<local-path>` below). If the input name
 
 ### Companion-lane stamp (initial tree survey)
 
-While surveying the checkout's tree (before pass 1), check for IaC content this audit does **not** assess: Terraform (`*.tf`, `*.tfvars`, `*.tf.json`), CloudFormation (`cloudformation/` or `cfn/` directories), and ARM/Bicep (`*.bicep`, `azuredeploy*.json`). When any is present, stamp `metadata.additional.companion_lanes: ["cloud-config-audit"]` on the report — a declaration only, never a behavior change: do not launch the companion skill or deep-read the IaC here. The consumer is the continuous-operations router's iac route (python3 -m traust.cli build rescan-worklist, lever-6 companion backfill; docs/continuous-operations.md): a stamp on a repo with no `/cloud-config-audit` baseline becomes an additive `iac-baseline` row on the next daily run, so the stamp doubles as backfill discovery for repos the Phase-0 IaC census missed. Do **not** stamp for Kubernetes manifests, Helm charts, Kustomize overlays, or Dockerfiles — this audit's KHS arm already covers those.
+While surveying the checkout's tree (before pass 1), check for IaC content this audit does **not** assess: Terraform (`*.tf`, `*.tfvars`, `*.tf.json`), CloudFormation (`cloudformation/` or `cfn/` directories), and ARM/Bicep (`*.bicep`, `azuredeploy*.json`). When any is present, stamp `metadata.additional.companion_lanes: ["cloud-config-audit"]` on the report — a declaration only, never a behavior change: do not launch the companion skill or deep-read the IaC here. The consumer is the continuous-operations router's iac route (`traust.ops.router`, lever-6 companion backfill; docs/continuous-operations.md): a stamp on a repo with no `/cloud-config-audit` baseline becomes an additive `iac-baseline` row on the next daily run, so the stamp doubles as backfill discovery for repos the Phase-0 IaC census missed. Do **not** stamp for Kubernetes manifests, Helm charts, Kustomize overlays, or Dockerfiles — this audit's KHS arm already covers those.
 
 ---
 
@@ -1510,7 +1510,7 @@ Every finding `id` must be **globally unique across the entire campaign**, not j
 
 Examples: `STACKROX-4f9e812-003` · `KUBE_RBAC_PROXY-9cb7556-012` · `CLUSTER_MONITORING_OPERA-a1b2c3d-001`.
 
-**Always populate `metadata.commit`** with the full 40-char SHA (or at minimum the same 7-char short SHA) so the ID is reproducible and the finding can be traced to an exact code state. This field is also the **change-detection anchor for the continuous-operations router** (python3 -m traust.cli build rescan-worklist, docs/continuous-operations.md): re-audit frequency is computed by diffing this SHA against the repo's live HEAD, and a report without a parseable SHA makes the repo invisible to change detection until a fresh audit re-establishes the anchor (211 converter-era reports had exactly this defect at the 2026-07-27 first live run). The regex the schema and validator enforce for reports produced by harness ≥ 0.12.0 is:
+**Always populate `metadata.commit`** with the full 40-char SHA (or at minimum the same 7-char short SHA) so the ID is reproducible and the finding can be traced to an exact code state. This field is also the **change-detection anchor for the continuous-operations router** (`traust.ops.router`, docs/continuous-operations.md): re-audit frequency is computed by diffing this SHA against the repo's live HEAD, and a report without a parseable SHA makes the repo invisible to change detection until a fresh audit re-establishes the anchor (211 converter-era reports had exactly this defect at the 2026-07-27 first live run). The regex the schema and validator enforce for reports produced by harness ≥ 0.12.0 is:
 
 ```
 ^[A-Z][A-Z0-9_]{0,23}-[a-f0-9]{7}-\d{3}$
@@ -1763,16 +1763,16 @@ unattributed audit is a calibration gap.
 
 **Which repos to (re-)audit, and when, is not this skill's judgment
 call.** Re-audit frequency is decided deterministically by the
-continuous-operations router (python3 -m traust.cli build rescan-worklist →
-`findings/_manifest/rescan-worklist.json`; policy and lane definitions
+continuous-operations router (`traust.ops.router`, run by traust-engine
+per repository; policy and lane definitions
 in docs/continuous-operations.md): heavy churn (≥8K first-party lines /
 ≥10% of code), sensitive-path changes (≥200 lines in auth/crypto/
 session/RBAC-matching files), age ceilings (P0 180d / P1 270d / P2
 365d), and injected events (external report, methodology release) route
 to a full audit; smaller changes route to `/vuln-scan --diff`. Batch
-sessions should consume the worklist's `full-audit` rows rather than
-hand-picking repos — the router's reasons ride along for the report's
-audit-trail.
+sessions should claim engine-owned `full_audit` orders through
+`traust-engine claim $E`, rather than hand-picking repos. The engine expands
+each order's `{rule}` token with the router reason for the report's audit trail.
 
 When this skill is driven at scale — workflow scripts, loop templates (`_manifest/*_AGENT_TEMPLATE.md`), or hand-written subagent prompts — the batch prompt must **not** restate the report schema. Every documented consistency regression in the portfolio (legacy `FIND-NNN` IDs, `loc_reviewed` typed as "STRING", all-`confirmed` validation status, vanished `attack_pattern`, free-form categories) entered through a batch prompt that paraphrased this skill from memory and then drifted from it.
 

@@ -52,8 +52,7 @@ workspace/                              # Run the agent from here
 └── *-results/                          # Audit output
     ├── findings/
     │   ├── _manifest/                  # Campaign manifests, progress tracking
-    │   │   ├── *-manifest.csv
-    │   │   └── rescan-worklist.json
+    │   │   └── *-manifest.csv
     │   ├── <product>/
     │   │   └── <repo>/
     │   │       ├── <repo>-security-audit.{md,json}

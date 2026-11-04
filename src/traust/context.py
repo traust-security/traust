@@ -291,11 +291,6 @@ def inputs_dir(src: Context) -> Path:
     return _required(locations(src).inputs_dir, "inputs")
 
 
-def findings_db(src: Context) -> Path:
-    """``<analysis-results>/graph/findings.db`` (fail-loud when unset)."""
-    return _required(locations(src).findings_db, "analysis_results")
-
-
 def progress_tracker_dir(src: Context) -> Path:
     """Configured progress-tracker root (fail-loud when unset)."""
     return _required(locations(src).progress_tracker_dir, "progress_tracker")
