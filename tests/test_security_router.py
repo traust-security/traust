@@ -28,6 +28,7 @@ from traust_core.v1.services.observation import PREROUTE_MIN_FILES
 from traust_core.v1.services.portfolio import PortfolioPolicy
 
 from traust.ops.router import (
+    EVENT_ONLY_LANES,
     LANES,
     THREAT_MODEL_PR,
     UNQUEUED,
@@ -156,6 +157,13 @@ def test_status_rules_match_the_legacy_router(case: dict[str, Any]) -> None:
     assert (rule.id, lane, state.risk_tier) == (want["Rule"], want["Lane"], want["RiskTier"])
     if want["Exposure"]:
         assert state.exposure == want["Exposure"]
+
+
+def test_the_router_never_routes_an_event_only_lane() -> None:
+    states = [_table_state(c["input"]) for c in DECISIONS["table"]]
+    states += [_primary_state(c["input"]) for c in STATUS_CASES]
+    routed = {r.lane for s in states for r in SecurityRouter().route(s, (), ())}
+    assert routed and not routed & EVENT_ONLY_LANES
 
 
 def test_the_corpus_covers_every_status() -> None:

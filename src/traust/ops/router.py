@@ -54,6 +54,9 @@ PRIORITY_BASE = 100
 # Classified but not queued: rule 3b's manifest-only change is covered advisory-first by the
 # `dependency_watch` asset, which never read the worklist rows.
 UNQUEUED = frozenset({"deps-lane", "none"})
+# Only an operator event routes these (`event_route`); `rescan_event_intake` plans them onto its
+# own assets, so no pack asset takes them from the router.
+EVENT_ONLY_LANES = frozenset({"full-audit+validate", "impact-lane"})
 DIFF_LANES = frozenset({"diff-scan", "diff-scan-quarterly"})
 # Lever 1: the below-threshold lanes a secret in the change's patch escalates to an immediate
 # diff scan, which adjudicates the hit.
