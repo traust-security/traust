@@ -135,7 +135,7 @@ rows named in the last column are the backstop that makes a dead timer visible.
 | Job | Cadence | Trigger | Runner | Output gate / staleness backstop |
 |---|---|---|---|---|
 | Input inventory discovery | daily, before repository observation | timer (`inventory_discovery`) | `traust portfolio inventory-discover` | Registers every typed `locations.inputs` URL as private by default and plans its first observation plus bootstrap audit. Existing orders coalesce idempotently. |
-| Operator event intake | daily, before table routing | timer (`rescan_event_intake`) | `traust portfolio event-intake` | Plans unconsumed external-report, methodology and CVE records as distinct orders; an invalid or unregistered row is visible, never silently dropped. |
+| Operator event intake | daily, before table routing | timer (`rescan_event_intake`) | `traust portfolio event-intake` | Plans unconsumed methodology and CVE work directly. An external-report row plans separate approved audit and live-validation orders; invalid, unscoped or unregistered rows are visible, never silently dropped. |
 | Repository observation + router | per `repo_state` observation | engine tick | `traust portfolio observe`, then `traust.ops.router` | routes only, never authors findings; the engine tick is the cadence |
 | **Feed-source liveness** | *retired* with `check drift`; returns as traust-core provider readiness once the live sources are core providers | probe | — | Probes every source in traust-core's shipped `feeds.yaml` carrying a `probe` — both tiers — so a live-tier source that answers with an error is visible. A definitive HTTP error is `drift`; a transport failure is `unavailable`, never `drift`, so an offline workstation does not report every source as broken |
 | Release/dist-git event feeder | daily (`release_discovery`, 24h) | inventory digest/tag/local-key or watched dist-git HEAD change | `traust portfolio release-discover` | Native `release-inventory` feed snapshots retain observation identities. Initial observation is baseline only; changed artifacts plan `release_passthrough`, then approved container/RPM batches. Explicit product bindings record versions; dist-git movement never becomes a version. |
@@ -450,18 +450,27 @@ line:
 
 ```json
 {"source": "external-report", "repo": "https://github.com/org/repo",
- "refs": [], "note": "researcher report <tracker-id>",
+ "report": "incoming/researcher-report.md",
+ "targets": "config/authorized-lab-targets.yaml",
+ "note": "researcher report <tracker-id>",
  "date": "YYYY-MM-DD", "consumed": false}
 ```
 
-`source` is `external-report` (→ immediate `full-audit+validate`),
-`methodology` (→ full audit for P0-tier repos; P1+ catch up via the rule-4
-ceiling), or `cve` (→ immediate `cve_impact` order running `/dependency-watch`).
-Release events use the native release-discovery feed below, not this file.
-`rescan_event_intake` plans the event-specific order before ordinary
-`repo_state` table routing. It is read-only over the file: flip `consumed` to
-`true` after dispatch. Malformed, unsupported or unregistered records make the
-intake fail or degrade rather than disappear.
+`source` is `external-report`, `methodology`, or `cve`. External reports require
+both a whitespace-free `report` input reference and a mode-1 `targets.yaml`
+scope. Intake plans an operator-approved `external_report_audit` plus a distinct
+operator-approved `external_report_validation` that waits for the audit, runs
+`/validate-findings <report> --targets <targets> --auto --replay-only`, and has
+its own outcome. The immutable order manifest binds both inputs. Methodology
+events queue a full audit only for P0-tier repos; P1+ catch up through the
+rule-4 ceiling. CVE events queue an immediate `cve_impact` order running
+`/dependency-watch`. Release events use the native release-discovery feed below,
+not this file.
+
+`rescan_event_intake` plans before ordinary `repo_state` table routing. It is
+read-only over the file: flip `consumed` to `true` after dispatch. Malformed,
+unsupported or unregistered records make the intake fail or degrade rather
+than disappear.
 
 ### Event feeders
 

@@ -10,7 +10,12 @@ from traust_core.v1.models.operations import AssetRequest
 from traust_core.v1.models.vocabulary import ActorKind
 
 from traust.context import load
-from traust.ops.intake import InventoryDiscoveryMaterializer, RescanEventIntakeMaterializer
+from traust.ops.intake import (
+    ExternalValidationInput,
+    InventoryDiscoveryMaterializer,
+    RescanEventIntakeMaterializer,
+    external_validation_input,
+)
 from traust.ops.router import SecurityRouter
 
 REPO = "https://github.com/example-org/input-only"
@@ -58,7 +63,18 @@ def test_unconsumed_events_become_distinct_executable_orders(tmp_path: Path) -> 
         events = tmp_path / "rescan-events.jsonl"
         events.write_text(
             "\n".join(
-                json.dumps({"source": source, "repo": REPO, "consumed": False})
+                json.dumps(
+                    {
+                        "source": source,
+                        "repo": REPO,
+                        "consumed": False,
+                        **(
+                            {"report": "incoming/report.md", "targets": "scope/targets.yaml"}
+                            if source == "external-report"
+                            else {}
+                        ),
+                    }
+                )
                 for source in ("external-report", "cve")
             ),
             encoding="utf-8",
@@ -67,11 +83,17 @@ def test_unconsumed_events_become_distinct_executable_orders(tmp_path: Path) -> 
             services, observation.query, PRINCIPAL, events
         ).materialize(AssetRequest(asset="rescan_event_intake", run_id="event-run"))
         orders = [services.ops.get(UUID(order_id)) for order_id in result.written]
+        validation = next(order for order in orders if order.asset == "external_report_validation")
+        validation_input = external_validation_input(services.ops.manifest(validation.id))
         state = observation.query.repo_state(repo_url=REPO)
     assert {(order.asset, order.lane, order.event_source) for order in orders} == {
         ("external_report_audit", "full-audit+validate", "external-report"),
+        ("external_report_validation", "full-audit+validate", "external-report"),
         ("cve_impact", "impact-lane", "cve"),
     }
+    assert validation_input == ExternalValidationInput(
+        report="incoming/report.md", targets="scope/targets.yaml"
+    )
     assert (
         min(order.priority for order in orders) < SecurityRouter().route(state, (), ())[0].priority
     )

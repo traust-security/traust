@@ -62,6 +62,14 @@ assets:
     admission: {approval: operators, estimate_usd: "29.04"}
     runner: {labels: [llm]}
 
+  external_report_validation:
+    model: {role: validation-planner}
+    run: [python3, -m, traust.cli, portfolio, event-validate, --role, "{role}", --run-id, "{run_id}"]
+    deps: [external_report_audit]
+    admission: {approval: operators}
+    runner: {labels: [llm]}
+
+
   methodology_audit:
     model: {role: deep-audit}
     run: [python3, -m, traust.cli, session, run, --skill, secure-code-audit, --role, "{role}", --repo, "{repo_url}", --run-id, "{run_id}"]

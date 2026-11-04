@@ -103,6 +103,7 @@ GROUPS: dict[str, dict[str, object]] = {
         "observe": portfolio.OBSERVE,
         "inventory-discover": portfolio.INVENTORY_DISCOVER,
         "event-intake": portfolio.EVENT_INTAKE,
+        "event-validate": portfolio.EVENT_VALIDATE,
         "plan": portfolio.PLAN,
         "onboard": portfolio.ONBOARD,
         "owner-hints": portfolio.OWNER_HINTS,

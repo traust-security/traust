@@ -11,11 +11,14 @@ from traust_core.v1.errors import ConfigError, ValidationError
 from traust_core.v1.models.common import PageRequest
 from traust_core.v1.models.identity import Principal
 from traust_core.v1.models.input_segments import InputSegmentInventory
+from traust_core.v1.models.integrity import sha256_hex
 from traust_core.v1.models.inventory import RepositoryFilter
 from traust_core.v1.models.operations import (
     AssetRequest,
+    ConfigDigest,
     DegradedKey,
     JobResult,
+    OrderManifest,
     OrderReason,
     OrderRequest,
     RescanEventSource,
@@ -29,9 +32,61 @@ log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
+class ExternalValidationInput:
+    report: str
+    targets: str
+
+
+@dataclass(frozen=True, slots=True)
 class RescanEvent:
     source: RescanEventSource
     repo: str
+    validation: ExternalValidationInput | None = None
+
+
+_VALIDATION_CONFIG = "external-validation:"
+
+
+def _required(row: dict[str, object], field: str) -> str:
+    value = row.get(field)
+    if (
+        not isinstance(value, str)
+        or not value
+        or value != value.strip()
+        or any(character.isspace() for character in value)
+    ):
+        raise ValueError(f"{field} must be one nonblank whitespace-free reference")
+    return value
+
+
+def _external_validation_config(event: RescanEvent) -> tuple[ConfigDigest, ...]:
+    if event.validation is None:
+        return ()
+    payload = json.dumps(
+        {"report": event.validation.report, "targets": event.validation.targets},
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode()
+    encoded = payload.hex()
+    return (ConfigDigest(name=_VALIDATION_CONFIG + encoded, digest=sha256_hex(payload)),)
+
+
+def external_validation_input(manifest: OrderManifest) -> ExternalValidationInput:
+    matches = tuple(row for row in manifest.config if row.name.startswith(_VALIDATION_CONFIG))
+    if len(matches) != 1:
+        raise ValidationError("external validation order has no single bound input")
+    [entry] = matches
+    encoded = entry.name.removeprefix(_VALIDATION_CONFIG)
+    try:
+        payload = bytes.fromhex(encoded)
+        document = json.loads(payload)
+        if not isinstance(document, dict) or sha256_hex(payload) != entry.digest:
+            raise ValueError("invalid external validation input digest")
+        return ExternalValidationInput(
+            report=_required(document, "report"), targets=_required(document, "targets")
+        )
+    except (ValueError, UnicodeError) as error:
+        raise ValidationError("invalid external validation input") from error
 
 
 def _rescan_events(path: Path) -> tuple[RescanEvent, ...]:
@@ -58,9 +113,14 @@ def _rescan_events(path: Path) -> tuple[RescanEvent, ...]:
             if source is RescanEventSource.RELEASE:
                 raise ValueError("release events use the native release-discovery feed")
             repo = str(_repo_url(row.get("repo")))
+            validation = (
+                ExternalValidationInput(_required(row, "report"), _required(row, "targets"))
+                if source is RescanEventSource.EXTERNAL_REPORT
+                else None
+            )
         except (TypeError, ValueError, ValidationError) as error:
             raise ConfigError(f"{path}:{line_number}: invalid rescan event: {error}") from error
-        events.append(RescanEvent(source, repo))
+        events.append(RescanEvent(source, repo, validation))
     return tuple(events)
 
 
@@ -122,10 +182,13 @@ class RescanEventIntakeMaterializer:
     """Turn each unconsumed external-report, methodology or CVE record into an engine order."""
 
     asset = "rescan_event_intake"
-    _assets: ClassVar[dict[RescanEventSource, str]] = {
-        RescanEventSource.EXTERNAL_REPORT: "external_report_audit",
-        RescanEventSource.METHODOLOGY: "methodology_audit",
-        RescanEventSource.CVE: "cve_impact",
+    _assets: ClassVar[dict[RescanEventSource, tuple[str, ...]]] = {
+        RescanEventSource.EXTERNAL_REPORT: (
+            "external_report_audit",
+            "external_report_validation",
+        ),
+        RescanEventSource.METHODOLOGY: ("methodology_audit",),
+        RescanEventSource.CVE: ("cve_impact",),
     }
 
     def __init__(self, services: Services, states: Any, principal: Principal, events: Path) -> None:
@@ -163,17 +226,20 @@ class RescanEventIntakeMaterializer:
             routed.append((event, repository.id, route))
         written = []
         for event, repository_id, route in routed:
-            order = self._ops.plan(
-                OrderRequest(
-                    asset=self._assets[event.source],
-                    priority=route.priority,
-                    repository_id=repository_id,
-                    lane=route.lane,
-                    event_source=event.source,
-                ),
-                self._principal,
-            )
-            written.append(str(order.id))
+            config = _external_validation_config(event)
+            for offset, asset in enumerate(self._assets[event.source]):
+                order = self._ops.plan(
+                    OrderRequest(
+                        asset=asset,
+                        priority=route.priority + offset,
+                        repository_id=repository_id,
+                        lane=route.lane,
+                        event_source=event.source,
+                    ),
+                    self._principal,
+                    config=config,
+                )
+                written.append(str(order.id))
         if unavailable:
             return JobResult.partly(
                 {DegradedKey.ERROR: unavailable}, written=tuple(dict.fromkeys(written))

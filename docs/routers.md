@@ -45,8 +45,10 @@ that repository's `repo_state` and routes it to a lane, which traust-engine
 queues as an order — `full-audit+validate`, `full-audit`, `impact-lane`,
 `iac-lane`, `iac-baseline`, `release-passthrough`, `threat-model-review`,
 `deps-lane`, `diff-scan`, `diff-scan-quarterly`, `threat-model-quarterly`,
-`none`. External-report, methodology and CVE injection is planned directly by
-`rescan_event_intake` ahead of this table.
+`none`. Methodology and CVE injection is planned directly by
+`rescan_event_intake` ahead of this table. External-report intake plans separate
+approved audit and scoped live-validation orders; the validation waits for the
+audit and carries an immutable binding to its report and targets file.
 
 **Writes:** routes (engine orders), nothing else. It **never authors a finding,
 verdict, or audit**, and never self-tunes.

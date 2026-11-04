@@ -15,6 +15,11 @@ INVENTORY_DISCOVER = passthrough_op(
 EVENT_INTAKE = passthrough_op(
     "portfolio_observe", "Plan unconsumed operator routing events.", "event_intake"
 )
+EVENT_VALIDATE = passthrough_op(
+    "portfolio_observe",
+    "Run an external report's authorized live-validation stage.",
+    "event_validate",
+)
 
 
 PLAN = passthrough_op("portfolio_onboard", "What onboard would register, writing nothing.", "plan")

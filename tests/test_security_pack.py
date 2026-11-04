@@ -32,6 +32,7 @@ def test_the_security_pack_loads_and_every_source_asset_has_a_cadence() -> None:
 RELEASE_PLANNED = {"release_container_audit", "release_rpm_audit"}
 DIRECT_PLANNED = {
     "external_report_audit": ["repo_state"],
+    "external_report_validation": ["external_report_audit"],
     "methodology_audit": ["repo_state"],
     "cve_impact": ["feeds_cache"],
     "release_container_audit": ["release_discovery"],
@@ -88,6 +89,9 @@ def test_every_runnable_skill_session_starts_through_traust_session_with_its_rol
             kind = run[run.index("--kind") + 1]
             assert kind in {"container", "rpm"}
             skill_dir(f"secure-{kind}-audit")
+        elif name == "external_report_validation":
+            assert run[3:5] == ["portfolio", "event-validate"] and "{role}" in run
+            skill_dir("validate-findings")
         else:
             assert run[3:5] == ["session", "run"] and "{role}" in run, name
             skill_dir(run[run.index("--skill") + 1])

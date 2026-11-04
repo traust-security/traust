@@ -3,12 +3,18 @@
 from __future__ import annotations
 
 from pathlib import Path
+from uuid import UUID
 
-from traust_core.v1.models.operations import AssetRequest
+from traust_core.v1.errors import NotFoundError, ValidationError
+from traust_core.v1.models.operations import AssetRequest, JobResult, OrderReason
 
 from traust.cli._doors import answer, parser
 from traust.context import findings_tree_dir, load, load_caller
-from traust.ops.intake import InventoryDiscoveryMaterializer, RescanEventIntakeMaterializer
+from traust.ops.intake import (
+    InventoryDiscoveryMaterializer,
+    RescanEventIntakeMaterializer,
+    external_validation_input,
+)
 from traust.ops.materializers import MANUAL, RepoStateMaterializer
 
 
@@ -62,3 +68,48 @@ def event_intake(argv: list[str] | None = None) -> int:
         return answer(
             materializer.materialize(AssetRequest(asset=materializer.asset, run_id=args.run_id))
         )
+
+
+def event_validate(argv: list[str] | None = None) -> int:
+    ap = parser(
+        "portfolio",
+        "event-validate",
+        "Run the explicitly scoped live-validation stage of an external report order.",
+    )
+    ap.add_argument("--role", required=True)
+    ap.add_argument("--run-id", required=True)
+    args = ap.parse_args(argv)
+    core = load(args.config_home)
+    try:
+        order_id = UUID(args.run_id)
+        order = core.services().ops.get(order_id)
+        if order.asset != "external_report_validation" or order.event_source != "external-report":
+            raise ValidationError("run order is not external report validation")
+        validation = external_validation_input(core.services().ops.manifest(order_id))
+    except (ValueError, ValidationError):
+        return answer(JobResult.failed(OrderReason.BAD_REQUEST))
+    except NotFoundError:
+        return answer(JobResult.refused(OrderReason.NOT_FOUND))
+    from traust.cli.session import run
+
+    command = [
+        "--skill",
+        "validate-findings",
+        "--role",
+        args.role,
+        "--run-id",
+        args.run_id,
+    ]
+    if args.config_home is not None:
+        command.extend(("--config-home", str(args.config_home)))
+    command.extend(
+        (
+            "--",
+            validation.report,
+            "--targets",
+            validation.targets,
+            "--auto",
+            "--replay-only",
+        )
+    )
+    return run(command)
