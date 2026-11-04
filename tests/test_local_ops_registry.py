@@ -144,3 +144,23 @@ def test_up_creates_the_events_file_empty_and_keeps_what_an_operator_appended(
     result = rig.run("up")
     assert result.returncode == 0, result.stdout + result.stderr
     assert events.read_text() == '{"source": "cve", "repo": "https://github.com/org/repo"}\n'
+
+
+def test_up_creates_the_events_file_where_the_rig_configures_its_results(
+    tmp_path: Path,
+) -> None:
+    """An operator may point the rig's analysis_results elsewhere; the file the intake
+    needs belongs there, not under the path a fresh rig would have configured."""
+    rig = LocalOpsRig(tmp_path)
+    assert rig.run("up").returncode == 0
+    custom = tmp_path / "elsewhere"
+    installed = rig.config_home / "traust.yaml"
+    document = yaml.safe_load(installed.read_text())
+    document["locations"]["analysis_results"] = str(custom)
+    installed.write_text(yaml.safe_dump(document, sort_keys=False))
+    events = custom / "findings" / "_manifest" / "rescan-events.jsonl"
+
+    result = rig.run("up")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert events.is_file()

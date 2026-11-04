@@ -322,9 +322,22 @@ with open(path, "w") as f:
 PYEOF
     mkdir -p "$RUN_DIR/home" "$RUN_DIR/workspace" "$RUN_DIR/analysis-results" "$RUN_DIR/progress-tracker" "$OPS_DIR/pack"
     # The events file must exist (a missing one is refused). Created empty, never truncated:
-    # events an operator appends to the rig survive the next up.
-    mkdir -p "$RUN_DIR/analysis-results/findings/_manifest"
-    : >>"$RUN_DIR/analysis-results/findings/_manifest/rescan-events.jsonl"
+    # events an operator appends to the rig survive the next up — under the analysis-results
+    # the rig's traust.yaml configures, which an operator may have pointed elsewhere.
+    EVENTS_DIR=$(uv run --no-sync python - "$CONFIG_HOME/traust.yaml" "$RUN_DIR/analysis-results" <<'PY'
+import sys, yaml
+from pathlib import Path
+
+config, default = sys.argv[1], sys.argv[2]
+try:
+    document = yaml.safe_load(Path(config).read_text()) or {}
+    print((document.get("locations") or {}).get("analysis_results") or default)
+except (FileNotFoundError, yaml.YAMLError):
+    print(default)
+PY
+)
+    mkdir -p "$EVENTS_DIR/findings/_manifest"
+    : >>"$EVENTS_DIR/findings/_manifest/rescan-events.jsonl"
     pack_overlay > "$OPS_DIR/pack/assets.yaml"
 
     # Repo-config isolation keeps checkout hooks/config out of headless sessions.
