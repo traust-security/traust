@@ -160,6 +160,11 @@ with `HARNESS_BIN_DIR`); `--dry-run` previews. macOS and Linux. `doctor` exits
 databases populated, 1 with a per-tool diagnostic otherwise; `/drift-watch`
 (`traust dashboard view freshness`) shows the same readiness on demand.
 
+traust-core runs only the binaries `traust.yaml` grants under
+`process.allowed_binaries`. Impact analysis needs `syft` (commit SBOMs), plus
+`git` and `govulncheck` for `--scan`; a tool not granted is reported not ready
+(`govulncheck skipped: …` in the evidence), never run.
+
 Step by step, if you need to install by hand:
 
 | Tool | Upstream release | Checksum verified |

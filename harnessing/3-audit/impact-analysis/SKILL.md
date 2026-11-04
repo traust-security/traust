@@ -51,7 +51,8 @@ python3 -m traust.cli impact analyze does all the work, on traust-core's
 
 1. **Blast radius** — walks the recorded SBOMs for every commit that holds
    the advisory's packages, directly, through a base image or through an
-   internal library. Filters by the advisory's version ranges.
+   internal library. Each commit's version is then checked against the
+   advisory's version ranges.
 2. **L4 refinement** — *retired:* the model has no package-import edges;
    the deep scan's govulncheck and source-import tiers answer it.
 3. **Deep scan** — with `--scan`, for commits still classified
@@ -176,7 +177,8 @@ Parse from `$ARGUMENTS`:
 
 - `<advisory-id>` (positional, required) — `CVE`/`GHSA`/`MAL`/`PYSEC`/`GO`/
   `RUSTSEC`/`OSV`-prefixed, e.g. `CVE-2026-33186` or a `MAL-` malicious-package
-  advisory.
+  advisory. A CVE whose record names no package takes the packages its
+  GHSA/GO/PYSEC aliases name.
 - The affected module, its ecosystem, the vulnerable packages, the
   vulnerable range (every span, lower and upper bounds) and the fixed
   version come from the advisory's record (`traust impact find`), not
@@ -292,7 +294,7 @@ not whichever safe package packet happened to finish last.
 | `not_observed` | Vulnerable package/symbol not observed | govulncheck `*_not_observed`, or not in manifests and no imports |
 | `version_not_in_range` | At safe version | SBOM version ≥ fix |
 | `not_imported` | Module not in dep graph | blast-radius miss |
-| `inconclusive` | Analysis hit limits | clone failed, non-Go repo, unsafe/reflect |
+| `inconclusive` | Analysis hit limits | clone failed, non-Go repo, unsafe/reflect, a Go pin in range not yet scanned (`--scan`) |
 
 `not_observed` means "not observed by the tools we ran" — same vocabulary
 discipline as govulncheck. It is evidence for a human decision, not a
