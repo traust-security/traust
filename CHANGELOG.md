@@ -2,6 +2,15 @@
 
 All notable changes to Traust are documented here.
 
+## [0.40.1]
+
+- Register Core's native PQC scanner at the application composition root and retain
+  fail-closed scan outcomes, provider currency and branch-scoped sweep resumption.
+- Replace the standalone Layer-1 scanner with `pqc prescan`: persist native facts,
+  export their exact bytes and raw CBOM, and refuse unavailable cached CBOM exports.
+- Pin merged Core development with cross-publisher artifact reads and named/unnamed
+  verification-ref isolation, rather than the pre-merge implementation branch.
+
 ## [0.40.0]
 
 - Keep rejected inventory URLs and exception payloads out of intake diagnostics.

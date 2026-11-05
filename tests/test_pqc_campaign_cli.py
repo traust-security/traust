@@ -5,12 +5,10 @@ from pathlib import Path
 
 import pytest
 from traust_core.v1.context import Config, Context
+from traust_core.v1.models.pqc import PqcFilter
 from traust_core.v1.models.values import GitSha, HttpsRepoUrl
 
 from traust.cli import pqc
-from traust.cli.groups.pqc import PQC
-
-FIXTURE = Path(__file__).parent / "fixtures/pqc/widget-pqc-readiness.json"
 
 
 def test_worklist_cli_discovers_registered_unassessed_repositories(
@@ -35,7 +33,6 @@ def test_worklist_cli_discovers_registered_unassessed_repositories(
     ]
     assert all(e["scan"]["assessment_id"] is None for e in entries)
     assert entries[0]["repository"] == "https://github.com/example/oauth-gateway"
-    assert {"sweep", "worklist"} <= PQC.keys()
 
 
 def test_sweep_cli_reports_access_work_and_rejects_invalid_batch_bounds(
@@ -60,7 +57,7 @@ def test_sweep_cli_reports_access_work_and_rejects_invalid_batch_bounds(
     assert core.services().portfolio.inventory.list_refs(repository.id) == []
 
 
-def test_sweep_cli_refuses_a_source_scan_until_the_scanner_decision(
+def test_sweep_cli_rejects_a_missing_provider_without_partial_scan_output(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -71,11 +68,14 @@ def test_sweep_cli_refuses_a_source_scan_until_the_scanner_decision(
     repository = services.portfolio.register_repository(
         HttpsRepoUrl.parse("https://github.com/example/widget", ["github.com"]), True
     )
-    services.portfolio.register_ref(repository.id, GitSha.parse("a" * 40), None, None)
+    target = services.portfolio.register_ref(repository.id, GitSha.parse("a" * 40), None, None)
     assert pqc.sweep([]) == 2
-    assert "pqc-scan scanner needs a traust-core decision (plan 15, decision 4)" in (
-        capsys.readouterr().err
-    )
+    captured = capsys.readouterr()
+    assert captured.out == "" and captured.err
+    assert services.portfolio.inventory.get_ref(target.id).manifest_sbom_id is None
+    [state] = services.pqc.scan_states(PqcFilter())
+    assert state.assessment_id is None
+    assert services.pqc.list_readiness(PqcFilter()) == []
 
 
 def test_without_a_chokepoint_every_repository_ranks_crypto_cwe_then_tail(

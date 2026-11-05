@@ -1,8 +1,8 @@
 """Capabilities whose traust-core home waits on an owner decision: they fail closed.
 
 The plan "traust runs on traust-core development again" (traust-standardization plan 15,
-owner Michele, decisions Shaun's) keeps four capabilities out of traust-core until their owner
-answers. Until then the traust commands that need them stay, and refuse with
+owner Michele, decisions Shaun's) keeps unresolved capabilities out of traust-core until their
+owner answers. Until then the traust commands that need them stay, and refuse with
 :class:`PendingCoreDecision` naming the decision. They never read a fallback or do nothing.
 """
 
@@ -19,7 +19,6 @@ class Decision(Enum):
     CLAIM_CORRECTION = (1, "Claim correction")
     CVE_REPLAY = (2, "CVE replay")
     LIVENESS_STATUS = (3, "Liveness status")
-    PQC_SCANNER = (4, "The pqc-scan scanner")
 
     @property
     def number(self) -> int:

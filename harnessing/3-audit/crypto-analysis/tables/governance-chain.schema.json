@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://red.ht/traust/crypto-analysis/governance-chain.schema.json",
   "title": "Crypto Analysis Governance Chain",
-  "description": "Ordered governance chain from decision origin to call site for a crypto fact. Expresses who decided a crypto configuration, not just where it appears in code. General-purpose: covers classical crypto posture, algorithm strength, and PQC readiness. Compatible with pqc_facts.py provenance_hint() and pqc-readiness-decision-tree.json tls_control_crosswalk when used in PQC context.",
+  "description": "Ordered governance chain from decision origin to call site for a crypto fact. Expresses who decided a crypto configuration, not just where it appears in code. General-purpose: covers classical crypto posture, algorithm strength, and PQC readiness. Compatible with provenance_hint values in Core-native facts exported by traust pqc prescan and pqc-readiness-decision-tree.json tls_control_crosswalk when used in PQC context.",
   "type": "object",
   "required": [
     "fact_id",
@@ -142,7 +142,7 @@
       }
     },
     "flat_provenance_mapping": {
-      "description": "Maps pqc_facts.py flat provenance_hint() values to governance chain patterns. externalized is from pqc-readiness-decision-tree.json, not provenance_hint().",
+      "description": "Maps flat provenance_hint values in Core-native PQC facts to governance chain patterns. externalized is from pqc-readiness-decision-tree.json, not the native fact's provenance_hint.",
       "type": "object",
       "properties": {
         "vendored": {
