@@ -43,6 +43,7 @@ try, in order).
 from __future__ import annotations
 
 import csv
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -154,6 +155,7 @@ def load_descriptor(inputs: Path | None) -> InventoryDescriptor:
 
 _REPO_URL = TypeAdapter(HttpsRepoUrl)
 _URL_COLUMNS = ("GitHub URL", "URL")
+_NO_REPOSITORY_COLUMN = "GitHub Repository"  # `N/A (<image>)` on a base-image row
 
 
 @dataclass(frozen=True)
@@ -202,6 +204,15 @@ def repository_inventory(inputs: Path) -> InputSegmentInventory:
     )
 
 
+def _no_repository(header: Sequence[str], row: Sequence[str]) -> bool:
+    """Whether a row declares it has no repository, as a catalog's base-image row does: its
+    `GitHub Repository` cell reads `N/A (<base-image-path>)`."""
+    if _NO_REPOSITORY_COLUMN not in header:
+        return False
+    i = header.index(_NO_REPOSITORY_COLUMN)
+    return i < len(row) and row[i].strip().upper().startswith("N/A")
+
+
 def _segment_urls(directory: Path) -> tuple[str, ...]:
     urls: set[str] = set()
     try:
@@ -228,6 +239,8 @@ def _segment_urls(directory: Path) -> tuple[str, ...]:
                     raw = next(
                         (row[i].strip() for i in columns if i < len(row) and row[i].strip()), ""
                     )
+                    if not raw and _no_repository(header, row):
+                        continue  # a catalog's base image: `N/A (<image>)`, no repository
                     if not raw:
                         raise ConfigError(f"{path}:{rows.line_num}: empty or missing URL cell")
                     try:

@@ -160,3 +160,21 @@ def test_discovery_fails_rather_than_register_an_inventory_that_dropped_a_row(
     core = load(home)
     hosts = core.config.forge_hosts
     assert core.services().portfolio.find_repository(HttpsRepoUrl.parse(URL, hosts)) is None
+
+
+def test_a_catalog_base_image_row_without_a_url_is_listed_as_no_repository(tmp_path: Path) -> None:
+    inputs = tmp_path / "inputs"
+    (inputs / "catalog").mkdir(parents=True)
+    (inputs / "catalog" / "operator-repos.csv").write_text(
+        "Component,GitHub Repository,GitHub URL\n"
+        f"operator,example/operator,{URL}\n"
+        "runtime,N/A (base/runtime-image),\n"
+    )
+    [segment] = repository_inventory(inputs).segments
+    assert (segment.name, segment.repository_urls) == ("catalog", (URL,))
+    # a row without that marker still needs its URL
+    (inputs / "catalog" / "operator-repos.csv").write_text(
+        "Component,GitHub Repository,GitHub URL\nruntime,example/runtime,\n"
+    )
+    with pytest.raises(ConfigError, match="empty or missing URL cell"):
+        repository_inventory(inputs)
