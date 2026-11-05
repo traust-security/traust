@@ -12,14 +12,14 @@ allowed-tools:
   - Task
   - Bash(git diff:*)
   - Bash(git status:*)
-  - Bash(git add:*)
-  - Bash(git commit:*)
-  - Bash(git checkout:*)
   - Bash(git log:*)
-  - Bash(git -C:*)
-  # git -C fallback: this skill's commands are -C-shaped; prefix-scoped
-  # subcommand grants can't match them until the command shapes are
-  # reworked (P1-W4 residual, sandbox-adoption plan)
+  - Bash(git -C * diff:*)
+  - Bash(git -C * status:*)
+  - Bash(git -C * log:*)
+  # Read-only git only, `-C <dir>` forms included: no `git add` / `git
+  # commit` / `git checkout` grant in any shape, by design (followup ask E). The agent never
+  # creates git objects — push_fix.sh commits a file-level snapshot of the
+  # worktree under a fixed machine identity (Phase 4d).
   - Bash(jq:*)
   - Bash(ls:*)
   - Bash(rg:*)
@@ -34,6 +34,7 @@ allowed-tools:
   - Bash(bash *run_checks.sh:*)
   - Bash(bash *run_mutation.sh:*)
   - Bash(bash *run_property.sh:*)
+  - Bash(bash *push_fix.sh:*)
   - Bash(python3 *-m traust.cli remediation open:*)
   - Bash(python3 *-m traust.cli remediation next:*)
   - Bash(python3 *-m traust.cli remediation prepare:*)
@@ -201,8 +202,12 @@ Produce the **smallest correct change** that eliminates the root cause
   removed verbs/resources are not used elsewhere by the same
   ServiceAccount. List the verified call sites in `patch.rationale`.
 
-Commit on the worktree's HEAD (`fix_branch` is created on the fork at
-push time) with message:
+Do **not** commit: the agent never runs a mutating git command
+(followup ask E). Leave the changes **uncommitted** in the worktree —
+Phase 4d turns the worktree's file state into the deterministic commit
+that Phase 5 reports on, Phase 5b reviews and Phase 6 pushes. Write the
+commit message to `<out>/commit-message.txt` (the message is the only
+commit-adjacent artifact you author; the script commits it verbatim):
 
 ```
 <fix-prefix>: fix <finding_id> — <short title>
@@ -224,7 +229,8 @@ bash harnessing/7-remediate/remediate-finding/run_checks.sh <worktree> <out> > <
 `run_checks.sh` auto-detects Go/Rust/Python and runs build, vet/lint,
 and unit tests. Inspect any `fail`:
 
-- A failure **caused by the patch** → fix the patch, re-commit,
+- A failure **caused by the patch** → fix the patch, re-create the
+  deterministic commit (Phase 4d),
   re-run. Iterate until green or until you determine the failure
   reveals a genuine compatibility break — then record it in
   `patch.behaviour_change` and `notes` and continue.
@@ -348,12 +354,50 @@ have one form of guard each — neither is portfolio-wide assurance.
 
 ---
 
+## Phase 4d — Deterministic commit
+
+Once Phase 4 is done (the checks green, or a genuine compatibility break
+recorded as Phase 4 allows), the patch becomes a commit through a script,
+never through the agent's git (followup ask E — the same isolation SCI's
+worker applies). `push_fix.sh commit` snapshots the worktree's **files**
+(`.git` excluded — the worktree's `.git` is agent-adjacent and,
+per assessment 2026-07-31 C2, potentially tainted by hostile target test
+code; it is never read), lays the snapshot over a **fresh clone** at the
+recorded pre-agent base commit (SHA-verified after checkout, so the clone
+is exactly the audited tree plus your snapshot), and commits under the
+fixed machine identity `sci-remediation <sci-remediation@localhost>` —
+no human committer, no signing, no hooks:
+
+```bash
+bash harnessing/7-remediate/remediate-finding/push_fix.sh commit \
+  <worktree> <audited_commit> <fork_url> <out>/commit-message.txt
+```
+
+Output (stdout): JSON `{"clone": …, "fix_commit": …, …}` — capture it.
+Phase 5 assembles the report from the clone, Phase 5b reviews its diff,
+Phase 6 pushes it. This step runs **before** Phase 5, not at push time,
+because `assemble` builds the report (patch diff, files changed,
+`fork.fix_commit`) from committed state `audited_commit..HEAD` — pointing
+it at the clone makes the report describe exactly the commit that gets
+pushed.
+
+An empty diff is refused — a patch that changed nothing means the flow
+went wrong, not a no-op commit. Re-running after an iteration (Phase 4
+loop) creates a fresh clone: first remove the previous one with
+`bash harnessing/7-remediate/remediate-finding/push_fix.sh discard <fix_clone>`
+(it holds a copy of the worktree, gitignored files included), then keep
+the new JSON. A commit that fails part-way removes its own clone. The clone needs `GITHUB_TOKEN` in the environment (the
+script clones the fork over https with the per-command env-reading
+credential helper — same isolation Phase 6 pushes with).
+
+---
+
 ## Phase 5 — Report
 
 ```bash
 python3 -m traust.cli remediation assemble <work-item> --product <product-slug> \
   --out <out>/<work-item>-remediation.json \
-  --worktree <worktree> \
+  --worktree <fix_clone> \
   --checks <out>/checks.json \
   --strategy <strategy> \
   --rationale "<why this closes the root cause — reference the triage rationale>" \
@@ -369,6 +413,12 @@ python3 -m traust.cli reporting validate \
   <out>/<work-item>-remediation.json
 ```
 
+`<fix_clone>` is the Phase 4d clone — the report's patch diff, files
+changed and `fork.fix_commit` are read from it, so they describe exactly
+the commit Phase 6 pushes. (The Phase 2 abandoned path never ran 4d and
+has no changes: pass the untouched `<worktree>` there — `assemble`
+tolerates the empty diff only for `abandoned`.)
+
 The report MUST validate. Fix any schema or cross-check errors before
 proceeding. (`assemble` writes `<work-item>-patch.diff` beside it; Phase 6 records it.)
 
@@ -383,15 +433,18 @@ attack and isolates its reviewer; audit D1, plan P2.12). Before Phase 6:
 
 1. Spawn ONE reviewer subagent (`subagent_type: "general-purpose"`,
    never forked). It receives ONLY: `{file, line, category}` from the
-   finding, plus the raw diff (`git -C <worktree> diff <audited_commit>..HEAD`)
+   finding, plus the raw diff (`git -C <fix_clone> diff <audited_commit>..HEAD`)
    — **never** the finding's `description`, `recommendation`,
    `exploit_scenario`, the triage rationale, or your own reasoning.
-2. The reviewer has read-only access to the worktree and answers the
+2. The reviewer has read-only access to the fix clone and answers the
    four questions from `/patch` Phase 3 (scope, suppression, new
    surface, style 0-10), ending with `REVIEW: ACCEPT | REJECT`.
+   The reviewed diff is the exact commit Phase 6 pushes — same clone,
+   same `HEAD`, bit for bit.
 3. **REJECT blocks the push.** Record `review: REJECT` + reason in the
-   remediation report, set status `checks_passed` (not pushed), and
-   stop — a human decides. ACCEPT: record `review: ACCEPT` +
+   remediation report, set status `checks_passed` (not pushed), remove
+   the clone (`push_fix.sh discard <fix_clone>`), and stop — a human
+   decides. ACCEPT: record `review: ACCEPT` +
    `style_score` in the report and proceed to Phase 6.
 
 ## Phase 6 — Push & record
@@ -399,22 +452,30 @@ attack and isolates its reviewer; audit D1, plan P2.12). Before Phase 6:
 Only after Phase 5b ACCEPT:
 
 ```bash
-git -C <worktree> \
-  -c credential.helper= \
-  -c credential.helper='!f() { test "$1" = get && printf "username=x-access-token\npassword=%s\n" "${GITHUB_TOKEN:?GITHUB_TOKEN not set}"; }; f' \
-  push --no-verify <fork_url> HEAD:refs/heads/<fix_branch>
+bash harnessing/7-remediate/remediate-finding/push_fix.sh push \
+  <fix_clone> <fork_url> <fix_branch> <fix_commit>
 python3 -m traust.cli remediation record <out>/<work-item>-remediation.json
 ```
 
-(`<fork_url>` and `<fix_branch>` come from the Phase 1 workspace descriptor.
-The push is by URL with a per-command credential helper — the empty
-`-c credential.helper=` clears the list first, so the env-reading helper is
-the only one asked and an ambient helper (osxkeychain, a store file) can
-never answer for it; the helper reads the token from the environment,
-never argv or a config file. `--no-verify` runs no pre-push hook: the
-worktree's `.git` is a file, so run_checks.sh's sanitizer skips it, and
-native-fallback target code may have written a hook path into the
-mirror config the worktree shares.)
+(`<fork_url>` and `<fix_branch>` come from the Phase 1 workspace descriptor;
+`<fix_clone>` and `<fix_commit>` from Phase 4d's JSON. The script pushes that
+exact commit, the one the report names and 5b reviewed, and refuses if the
+clone's HEAD or its sentinel no longer name it.) The script — never the agent — pushes
+the deterministic commit from the pristine clone (never from the agent's
+worktree) to the fork by URL, with a per-command credential helper: the
+empty `-c credential.helper=` clears the list first, so the env-reading
+helper is the only one asked and an ambient helper (osxkeychain, a store
+file) can never answer for it; the helper reads the token from the
+environment, never argv or a config file. `--no-verify` runs no pre-push
+hook — belt and braces: the clone was created by the script with hooks
+disabled and system/global git config ignored, so no config or hook the
+agent's session (or hostile target code) could have planted is even
+loaded. The push is **normal only** — the script never force-pushes; a
+non-fast-forward rejection means the fix branch already exists with
+different history: stop and let a human decide, never override. After a
+successful push the script removes the clone (it held the worktree's
+uncommitted files, gitignored content included; only committed content
+was pushed).
 
 (`record` attaches the report — its `fork.fix_commit` — links its Jira keys and
 moves the work item to `summary.status`; it refuses a public fork or an
@@ -492,9 +553,13 @@ analysis-results/remediations/<repo>/<work-item>/
 ├── <work-item>-remediation.json # schema-validated report (recorded by `record`)
 ├── run.log                      # run_one.sh log
 ├── <work-item>-patch.diff       # unified diff (referenced by report)
+├── commit-message.txt           # Phase 3's message, committed verbatim by push_fix.sh
 ├── checks.json                  # run_checks.sh output
 └── check-*.log                  # per-check logs
 ```
+
+(The Phase 4d fix clone is a disposable mktemp directory outside this
+layout; `push_fix.sh push` removes it after the push, `push_fix.sh discard` when it isn't pushed.)
 
 ---
 
@@ -504,8 +569,15 @@ analysis-results/remediations/<repo>/<work-item>/
   `ensure_fork.sh` creates it `private: true`. The skill MUST refuse
   if `fork.visibility != private|internal` (`record` refuses it too).
 - **No upstream writes**: the working tree is a checkout worktree with no
-  remotes at all (its mirror's config stays pristine); Phase 6 pushes to the
+  remotes at all (its mirror's config stays pristine); Phase 6 pushes
+  from the pristine Phase 4d clone — never the agent's worktree — to the
   fork by URL only, with a per-command credential helper.
+- **Deterministic commit** (followup ask E): the agent never runs a
+  mutating git command; `push_fix.sh` commits a file-level snapshot of
+  the worktree (`.git` excluded) on a fresh clone at the recorded
+  pre-agent base commit, under the fixed machine identity
+  `sci-remediation <sci-remediation@localhost>` — attributable to the
+  harness, never to a person, and never signed.
 - **Embargo**: commit messages and branch names use the internal
   finding ID, never a CVE or public tracker reference.
 - **Audit trail**: every state transition is recorded via
