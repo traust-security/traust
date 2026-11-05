@@ -214,11 +214,9 @@ RUN groupadd -r -g 1001 traust && useradd -r -u 1001 -g traust -d /home/traust -
 #     and docs.
 #   - python3.11 (no -pip): the pip-audit venv's interpreter symlink resolves here at runtime;
 #     pip itself is never invoked after the venv is built.
-#   - rsync: remediate-finding's push_fix.sh lays the agent's worktree files over a pristine
-#     clone with it (`rsync -a --delete --exclude=/.git`) before the deterministic commit.
 # ca-certificates and tzdata are already in ubi-minimal (verified); no scanner here links
 # against anything else ubi-minimal doesn't already carry.
-RUN microdnf install -y --setopt=install_weak_deps=0 git-core python3.11 rsync \
+RUN microdnf install -y --setopt=install_weak_deps=0 git-core python3.11 \
     && microdnf clean all
 
 COPY --from=tools-builder /out/go /usr/local/go

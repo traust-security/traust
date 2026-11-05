@@ -7,7 +7,7 @@
 # script turns that file state into the exact commit that gets reported
 # (Phase 5), reviewed (Phase 5b) and pushed (Phase 6):
 #
-#   commit  snapshot the worktree's FILES (rsync, .git excluded) onto a
+#   commit  snapshot the worktree's FILES (.git excluded) onto a
 #          fresh clone at the recorded pre-agent base commit, then commit
 #          under a fixed machine identity.
 #   push    push the reviewed fix commit from that clone to the fix branch on
@@ -24,8 +24,8 @@
 # config ignored (GIT_CONFIG_GLOBAL/SYSTEM=/dev/null — no url.*.insteadOf
 # rewrites, no clean/smudge filters, no ambient hooks) and hooks disabled,
 # and only worktree FILES — never .git — are copied onto it
-# (`rsync -a --delete --exclude=/.git`, the SCI worker's pristine-push
-# shape). The base commit is re-verified by sha after checkout, so the
+# (the SCI worker's pristine-push shape, `rsync -a --delete --exclude=/.git`,
+# done with python3 so no image needs another tool). The base commit is re-verified by sha after checkout, so the
 # clone is exactly the audited tree plus the snapshot.
 #
 # Committer identity — FIXED, deliberately not any person:
@@ -90,6 +90,32 @@ git_safe() {
     git -c core.hooksPath=/dev/null -c core.fsmonitor= "$@"
 }
 
+snapshot_files() {
+  # snapshot_files <worktree> <clone>: the `rsync -a --delete --exclude=/.git`
+  # of the SCI worker. The clone's files (all but its .git) go, then the
+  # worktree's (all but its top-level .git) are copied in, symlinks as links
+  # and modes kept. A special file (a FIFO, a device) fails the snapshot.
+  python3 - "$1" "$2" <<'PY'
+import os, shutil, sys
+src, dst = sys.argv[1:]
+for name in os.listdir(dst):
+    if name != ".git":
+        path = os.path.join(dst, name)
+        if os.path.isdir(path) and not os.path.islink(path):
+            shutil.rmtree(path)
+        else:
+            os.unlink(path)
+for name in os.listdir(src):
+    if name == ".git":
+        continue
+    s, d = os.path.join(src, name), os.path.join(dst, name)
+    if os.path.isdir(s) and not os.path.islink(s):
+        shutil.copytree(s, d, symlinks=True)
+    else:
+        shutil.copy2(s, d, follow_symlinks=False)
+PY
+}
+
 emit_json() {
   # emit_json <key> <value> ... — argv via json.dumps, never printf into a
   # template (crafted values injecting fields: audit F8, plan P2.15)
@@ -136,8 +162,6 @@ do_commit() {
   [ -s "$MSG" ] || { echo "[push_fix] message file is empty: $MSG" >&2; exit 1; }
   head -n1 "$MSG" | grep -q '[^[:space:]]' || {
     echo "[push_fix] message file has no subject line: $MSG" >&2; exit 1; }
-  command -v rsync >/dev/null 2>&1 || {
-    echo "[push_fix] rsync is required for the file snapshot" >&2; exit 1; }
 
   case "$CLONE_SRC" in
     https://*)
@@ -185,11 +209,13 @@ do_commit() {
 
   # File-level snapshot: worktree FILES only, never .git (the worktree's
   # .git is a file naming the mirror's gitdir; excluded either way).
-  # --delete propagates the agent's file deletions; rsync never deletes
-  # the destination's excluded .git.
-  rsync -a --delete --exclude=/.git "$WORKTREE/" "$CLONE/"
+  snapshot_files "$WORKTREE" "$CLONE"
 
-  # Commit exactly the snapshot under the fixed identity.
+  # Commit exactly the snapshot under the fixed identity, dated as the base
+  # commit: the same snapshot always makes the same commit, so a retry pushes
+  # the object already on the fix branch instead of a non-fast-forward one.
+  local BASE_DATE
+  BASE_DATE="$(git_safe -C "$CLONE" log -1 --format=%cd --date=raw HEAD)"
   git_safe -C "$CLONE" add -A
   if git_safe -C "$CLONE" diff --cached --quiet; then
     echo "[push_fix] snapshot matches the audited commit — nothing to commit; a patch that changed nothing means the flow went wrong" >&2
@@ -200,6 +226,7 @@ do_commit() {
   # the commit.
   GIT_AUTHOR_NAME="$COMMITTER_NAME" GIT_AUTHOR_EMAIL="$COMMITTER_EMAIL" \
   GIT_COMMITTER_NAME="$COMMITTER_NAME" GIT_COMMITTER_EMAIL="$COMMITTER_EMAIL" \
+  GIT_AUTHOR_DATE="$BASE_DATE" GIT_COMMITTER_DATE="$BASE_DATE" \
   git_safe -C "$CLONE" \
     -c "user.name=$COMMITTER_NAME" -c "user.email=$COMMITTER_EMAIL" \
     -c commit.gpgsign=false \
@@ -284,7 +311,7 @@ do_push() {
     -c credential.helper="$GH_CRED_HELPER" \
     push --no-verify "$FORK_URL" "${FIX_COMMIT}:refs/heads/${FIX_BRANCH}" >&2
 
-  # The clone held a copy of the worktree's uncommitted files (rsync
+  # The clone held a copy of the worktree's uncommitted files (the snapshot
   # copies gitignored content too; only committed content was pushed).
   # Remove it now that the push succeeded.
   remove_clone "$CLONE" "$PARENT"

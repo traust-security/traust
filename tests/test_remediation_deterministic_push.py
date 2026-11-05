@@ -15,6 +15,7 @@ their rejection paths here."""
 
 import json
 import os
+import re
 import subprocess
 from pathlib import Path
 
@@ -411,7 +412,9 @@ def test_push_fix_source_gates():
     assert "-c commit.gpgsign=false" in s
     assert "--no-verify" in s
     # the file snapshot: worktree files only, never .git
-    assert "rsync -a --delete --exclude=/.git" in s
+    assert 'if name != ".git"' in s and 'if name == ".git"' in s  # .git never copied or removed
+    # no tool an image may lack: the snapshot is python3, never an rsync call
+    assert not re.search(r"^\s*rsync\s", s, re.M) and "command -v rsync" not in s
     # git runs hardened: ambient system/global config and hooks ignored
     assert "GIT_CONFIG_GLOBAL=/dev/null" in s and "GIT_CONFIG_SYSTEM=/dev/null" in s
     assert "core.hooksPath=/dev/null" in s
@@ -581,3 +584,43 @@ def test_an_inherited_author_or_committer_never_reaches_the_commit(tmp_path):
     ).stdout.strip()
     machine = "sci-remediation <sci-remediation@localhost>"
     assert who == f"{machine}|{machine}"
+
+
+def test_the_same_snapshot_makes_the_same_commit(tmp_path):
+    # dated as the base: a retry re-creates the object already on the fix branch
+    origin, base = _origin_with_base(tmp_path)
+    wt = _patched_worktree(origin, base, tmp_path)
+    msg = tmp_path / "commit-message.txt"
+    msg.write_text(MSG)
+    made = [
+        json.loads(_script("commit", str(wt), base, str(origin), str(msg)).stdout.splitlines()[-1])
+        for _ in range(2)
+    ]
+    assert made[0]["fix_commit"] == made[1]["fix_commit"]
+
+
+def test_the_snapshot_keeps_modes_and_links_and_refuses_special_files(tmp_path):
+    origin, base = _origin_with_base(tmp_path)
+    wt = _patched_worktree(origin, base, tmp_path)
+    (wt / "run.sh").write_text("#!/bin/sh\n")
+    (wt / "run.sh").chmod(0o755)
+    (wt / "link").symlink_to("app.py")
+    (wt / "ignored.log").write_text("x\n")
+    (wt / ".gitignore").write_text("*.log\n")
+    msg = tmp_path / "commit-message.txt"
+    msg.write_text(MSG)
+    r = _script("commit", str(wt), base, str(origin), str(msg))
+    assert r.returncode == 0, r.stderr
+    clone = json.loads(r.stdout.splitlines()[-1])["clone"]
+    tree = subprocess.run(
+        ["git", "-C", clone, "ls-tree", "HEAD"], capture_output=True, text=True, check=True
+    ).stdout
+    entries = {line.split("\t")[1]: line.split()[0] for line in tree.splitlines()}
+    assert entries["run.sh"] == "100755" and entries["link"] == "120000"
+    assert "ignored.log" not in entries  # gitignored content is never committed
+
+    fifo = tmp_path / "fifo-worktree"
+    _git(origin, "worktree", "add", "--quiet", "--detach", str(fifo), base)
+    os.mkfifo(fifo / "pipe")
+    r = _script("commit", str(fifo), base, str(origin), str(msg))
+    assert r.returncode != 0
