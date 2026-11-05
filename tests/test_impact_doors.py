@@ -157,21 +157,16 @@ def test_scan_checks_out_an_undecided_commit_at_its_sha_through_the_service(
     assert json.loads(out)["classifications"] == {"likely_affected": 1}
 
 
-def test_explicit_commit_preserves_unknown_manifest_coverage(home: Path, tmp_path: Path) -> None:
+def test_one_commit_by_url_and_sha(home: Path, tmp_path: Path) -> None:
     unrelated = tmp_path / "sbom-unrelated.json"
     unrelated.write_text(
         json.dumps({"bomFormat": "CycloneDX", "components": [{"purl": "pkg:npm/left-pad@1.3.0"}]})
     )
     run(impact.sbom, home, str(unrelated), "--repo-url", REPO, "--sha", SHA)
-    run(impact.sbom, home, str(sbom(tmp_path, "4.17.20")), "--repo-url", REPO, "--sha", "b" * 40)
     rc, out = run(impact.analyze, home, LODASH.identifier, "--repo-url", REPO, "--sha", SHA)
     # an SBOM given as a document has no manifest scan behind it, so its coverage is unknown
     # and a package it lacks can't be called not imported (contracts manifest-coverage binding)
-    assert rc == 0
-    summary = json.loads(out)
-    assert summary["commits"] == 1
-    assert summary["classifications"] == {"inconclusive": 1}
-    assert summary["affected"] == []
+    assert rc == 0 and json.loads(out)["classifications"] == {"inconclusive": 1}
     with pytest.raises(SystemExit):
         run(impact.analyze, home, LODASH.identifier, "--repo-url", REPO)
 

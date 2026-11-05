@@ -8,10 +8,6 @@ All notable changes to Traust are documented here.
   fail-closed scan outcomes, provider currency and branch-scoped sweep resumption.
 - Replace the standalone Layer-1 scanner with `pqc prescan`: persist native facts,
   export their exact bytes and raw CBOM, and refuse unavailable cached CBOM exports.
-- Adopt the merged Core models and registered reporting views without restoring
-  retired context shims or duplicate rendering owners.
-- Preserve inconclusive impact results when an omitted package has no recorded
-  manifest-coverage proof; an unrelated SBOM is not evidence of no imports.
 
 ## [0.40.0]
 
