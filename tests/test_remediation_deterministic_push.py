@@ -440,6 +440,7 @@ def test_skill_md_confines_the_agent_away_from_committing():
     assert "Bash(bash *push_fix.sh:*)" in s
     # nor through `git -C <dir>`: only read-only -C subcommands are granted
     assert "Bash(git -C:*)" not in s
+    assert "Bash(git checkout:*)" not in s  # checkout would rewrite the worktree's edits
     assert "Bash(git -C * diff:*)" in s
     # the deterministic-commit phase exists and the push is script-driven
     assert "Phase 4d — Deterministic commit" in s
@@ -528,3 +529,55 @@ def test_a_failed_commit_leaves_no_clone_behind(tmp_path):
     r = _script("commit", str(wt), base, str(origin), str(msg), env_extra={"TMPDIR": str(scratch)})
     assert r.returncode == 1 and "nothing to commit" in r.stderr
     assert list(scratch.iterdir()) == []
+
+
+def test_a_quote_in_tmpdir_is_never_run_as_shell_code(tmp_path):
+    # the cleanup trap names a function; the path never reaches a shell parser
+    origin, base = _origin_with_base(tmp_path)
+    wt = _patched_worktree(origin, base, tmp_path)
+    msg = tmp_path / "commit-message.txt"
+    msg.write_text(MSG)
+    marker = tmp_path / "pwned"
+    hostile = tmp_path / """q'; touch "$MARK"; '"""  # one path segment: no slash
+    hostile.mkdir()
+    # the prefix a broken quote leaves exists, so an injected command would run
+    (tmp_path / "q").mkdir()
+    not_a_repo = tmp_path / "not-a-repo"
+    not_a_repo.mkdir()  # the clone fails, so the cleanup trap runs
+
+    r = _script(
+        "commit",
+        str(wt),
+        base,
+        str(not_a_repo),
+        str(msg),
+        env_extra={"TMPDIR": str(hostile), "MARK": str(marker)},
+    )
+    assert r.returncode != 0
+    assert not marker.exists()
+    assert list(hostile.iterdir()) == []  # and the half-made clone is gone
+
+
+def test_an_inherited_author_or_committer_never_reaches_the_commit(tmp_path):
+    origin, base = _origin_with_base(tmp_path)
+    wt = _patched_worktree(origin, base, tmp_path)
+    msg = tmp_path / "commit-message.txt"
+    msg.write_text(MSG)
+    person = {
+        "GIT_AUTHOR_NAME": "A Person",
+        "GIT_AUTHOR_EMAIL": "person@example.com",
+        "GIT_COMMITTER_NAME": "A Person",
+        "GIT_COMMITTER_EMAIL": "person@example.com",
+    }
+    r = _script("commit", str(wt), base, str(origin), str(msg), env_extra=person)
+    assert r.returncode == 0, r.stderr
+    clone = json.loads(r.stdout.strip().splitlines()[-1])["clone"]
+    who = subprocess.run(
+        ["git", "-C", clone, "log", "-1", "--format=%an <%ae>|%cn <%ce>"],
+        capture_output=True,
+        text=True,
+        check=True,
+        env={**os.environ, "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_SYSTEM": "/dev/null"},
+    ).stdout.strip()
+    machine = "sci-remediation <sci-remediation@localhost>"
+    assert who == f"{machine}|{machine}"
