@@ -4,7 +4,6 @@ traust-owned input-inventory reader that inventory discovery registers from."""
 from __future__ import annotations
 
 import contextlib
-import csv
 import io
 import json
 from datetime import UTC, datetime
@@ -38,7 +37,7 @@ def home(tmp_path: Path) -> Path:
     return config
 
 
-def test_export_joins_owners_and_products_and_keeps_cells_inert(home: Path) -> None:
+def test_export_joins_owners_and_products_as_json(home: Path) -> None:
     core = load(home)
     portfolio = core.services().portfolio
     hosts = (*core.config.forge_hosts, "gitlab.com")
@@ -50,25 +49,18 @@ def test_export_joins_owners_and_products_and_keeps_cells_inert(home: Path) -> N
     product = portfolio.register_product(ProductSlug("widget"), "Widget")
     assert product.id is not None
 
-    code, output, error = invoke(home, "portfolio", "inventory-export", "--format", "csv")
+    code, output, error = invoke(home, "portfolio", "inventory-export")
     assert code == 0, error
-    rows = {row["URL"]: row for row in csv.DictReader(io.StringIO(output))}
+    rows = {row["URL"]: row for row in json.loads(output)}
     assert set(rows) == {URL, OTHER}
     row = rows[URL]
     assert (row["Repository"], row["Host"]) == ("example-org/api", "github.com")
     assert (row["Organization/Group"], row["Repo Name"]) == ("example-org", "api")
-    assert row["Owner Team"] == "Gateway Team"
+    assert row["Owner Team"] == ["Gateway Team"]
     assert rows[OTHER]["Organization/Group"] == "example-group/sub"
     assert rows[OTHER]["Repo Name"] == "web"
-    assert rows[OTHER]["Owner Team"] == "'=HYPERLINK(1)"  # a formula-shaped cell never runs
-    assert rows[OTHER]["Products"] == rows[OTHER]["Accountable Contacts"] == ""
-
-    code, output, error = invoke(home, "portfolio", "inventory-export")
-    assert code == 0, error
-    exported = {row["URL"]: row for row in json.loads(output)}
-    assert exported[URL]["Owner Team"] == ["Gateway Team"]
-    assert exported[OTHER]["Owner Team"] == ["=HYPERLINK(1)"]
-    assert exported[URL]["Products"] == [] and exported[URL]["Accountable Contacts"] == []
+    assert rows[OTHER]["Owner Team"] == ["=HYPERLINK(1)"]  # JSON keeps the text; no CSV yet
+    assert rows[OTHER]["Products"] == rows[OTHER]["Accountable Contacts"] == []
 
 
 def test_inventory_reader_lists_each_segment_in_descriptor_order(tmp_path: Path) -> None:

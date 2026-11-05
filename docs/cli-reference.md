@@ -100,9 +100,9 @@ convert uninspectable deliverables and rerun the gate; there is no binary fallba
 - `traust sweep bootstrap-benchmark --out candidates.yaml [--limit 100]` harvests
   confirmed fixes as **unadmitted** answer-key candidates with fix evidence and a stable
   held-out split. Human review precedes `benchmark-targets candidates.yaml`.
-- `traust sweep score-benchmark --runs-dir <runs> --out benchmark.json` also writes
-  `benchmark.md`; `--markdown <path>` selects an explicit Markdown destination. Without
-  `--runs-dir`, the recorded scorecards receive the same human-readable export.
+- `traust sweep score-benchmark --runs-dir <runs> --out benchmark.json` writes the scored
+  run as JSON; without `--runs-dir` it writes the recorded scorecards. There is no Markdown
+  report until core registers its Insight view (a priority follow-up).
 - `traust sweep cards <deck.yaml> --checkout <dir>` sweeps the valid cards' code-facts
   enumerators over the checkout; reference cards enumerate textual mentions, not resolved
   calls. There is no replay of supplied facts: traust-core's `sweep_cards` runs from the
@@ -111,12 +111,12 @@ convert uninspectable deliverables and rerun the gate; there is no binary fallba
   named rule pack's recorded scans against confirmed true positives
   (`DetectionQualityService.calibrate`); record the scans first. It scans nothing itself.
 - `traust sweep compliance-precision --framework <framework> --gate 0.5 --out-dir <dir>`
-  exports JSON and Markdown field precision from recorded assessments. The inclusive gate
+  exports field precision from recorded assessments as JSON (no Markdown until core registers its Insight view (a priority follow-up)). The inclusive gate
   flags checks for human demotion review; it does not run the evaluator twice or mutate checks.
-- `traust sweep critical-misses --start <ISO8601> --end <ISO8601> [--out <file>.md]
-  [--json-out <file>.json]` exports the window's recorded critical misses
-  (`DetectionQualityService.critical_misses`): critical findings first reported in the window
-  that an earlier audit of the repository missed, as a Markdown table and a JSON list. Both
+- `traust sweep critical-misses --start <ISO8601> --end <ISO8601> [--json-out <file>.json]`
+  exports the window's recorded critical misses (`DetectionQualityService.critical_misses`):
+  critical findings first reported in the window that an earlier audit of the repository
+  missed, as a JSON list (no Markdown table until core registers its Insight view (a priority follow-up)). Both
   zoned window bounds are required; campaign directories are not read.
 - `traust sweep cve-replay monitor|candidates|trends|oracle` refuses: "CVE replay needs a
   traust-core decision (plan 15, decision 2)". It never reads a fallback.
@@ -350,7 +350,7 @@ judgements on existing core findings; it does not replace machine-report intake.
 ```bash
 traust portfolio onboard --product example --label Example --org example-org
 traust portfolio owner-hints --repo https://github.com/example-org/api
-traust portfolio inventory-export --format csv [--pd-cache-dir <feeds-dir>]
+traust portfolio inventory-export [--pd-cache-dir <feeds-dir>]
 traust products add example --label Example --ownership owned --business-unit Commerce
 traust products list
 ```
@@ -359,7 +359,7 @@ traust products list
 `Repository`, `URL`, `Host`, `Organization/Group`, `Repo Name`, `Owner Team` (current owning
 teams), `Products` (products shipping it) and `Accountable Contacts` (product-definitions
 candidates for its URL through the recorded product map, with source field and embargo
-eligibility). JSON is the default; CSV cells are spreadsheet-safe. `--pd-cache-dir` reads a
+eligibility), as JSON (no CSV until core registers its Insight view (a priority follow-up)). `--pd-cache-dir` reads a
 product-definitions snapshot other than `locations.feeds_cache` for that run only. A contact
 is a candidate, never an owner, and grants no authority to disclose findings. Declared
 per-repository inventory facts (service labels, managers, tracker routes, escalation

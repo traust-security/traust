@@ -222,21 +222,11 @@ def worklist(argv: list[str] | None = None) -> int:
     ap = _filter_parser(
         "worklist", "One entry per repository, priority-tiered from inventory.", buckets=False
     )
-    ap.add_argument("--markdown", action="store_true", help="render a Markdown worklist")
     args = ap.parse_args(argv)
 
     def call() -> object:
         core = load(args.config_home)
         entries = _sweep(core, args.config_home).worklist(_filter(core, args))
-        if args.markdown:
-            table = core.services().reporting.export_markdown(
-                ("Repository", "Commit", "Priority", "Route", "Reason"),
-                [
-                    (e.repository, e.sha or "", e.priority_tier, e.route.value, e.reason or "")
-                    for e in entries
-                ],
-            )
-            return "# PQC sweep worklist\n\n" + table.rstrip("\n")
         return [e.model_dump(mode="json") for e in entries]
 
     return run(call)

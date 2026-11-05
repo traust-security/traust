@@ -149,7 +149,7 @@ rows named in the last column are the backstop that makes a dead timer visible.
 | Rule-mining lane | weekly + post-wave | timer + drift row `rule-mining` (ledger changes >7d newer than the artifact) | python3 -m traust.cli sweep rule-lane, then the scheduled `/mine-ledger` session | never auto-files findings; rule promotion sits behind the mechanical test-and-calibrate gate; sweep hits route to `/triage` |
 | Ledger audit | weekly | timer | python3 -m traust.cli ledger audit (`LedgerService.audit`) | verifies every ledger layer against its stored events and signature, so an edit to stored decision events is found within a week (appends no longer re-verify the layer); a layer that fails or can't be verified degrades the order, never green |
 | CVE-replay FN monitor | *pending* | — | `traust sweep cve-replay` refuses: "CVE replay needs a traust-core decision (plan 15, decision 2)" | no timer until the decision lands; nothing is replayed or filed in the meantime |
-| Critical-miss report | after each campaign wave / triage refresh | operator | `traust sweep critical-misses --start <ts> --end <ts>` | Core's recorded critical misses for the window (`DetectionQualityService.critical_misses`): Markdown plus JSON. No finding or ticket is created |
+| Critical-miss report | after each campaign wave / triage refresh | operator | `traust sweep critical-misses --start <ts> --end <ts>` | Core's recorded critical misses for the window (`DetectionQualityService.critical_misses`) as JSON. No finding or ticket is created |
 | `/drift-watch` | on demand; recommended alongside every `/census`; scheduled by the orchestrator | operator / timer | python3 -m traust.cli dashboard view freshness | routes attention only — never auto-rebuilds, auto-advances a pin, or files a finding |
 | Census + repo-liveness refresh | at intake and before denominators are consumed | operator / intake flow | `portfolio observe` records forge availability; `/census` reads the census view | `traust portfolio liveness` refuses: "Liveness status needs a traust-core decision (plan 15, decision 3)" (the typed repo-liveness status needs a newer contracts pin); it never derives a status core did not record |
 | FP-precedent cache rebuild | formerly drift-triggered, no timer | former `fp-precedent-cache` drift row | retired: Core matches precedents on admitted native findings; `traust triage prepare` supplies them for triage Phase 2g. Canonical container/RPM/vulnerability-scan recording admits findings; secure-code recording does not | Human and sound machine context informs review, never automatic dismissal. Existing cache artifacts are not a rebuild; an assessment-only audit without admission is not a clean native batch |
@@ -172,9 +172,8 @@ Run `traust sweep critical-misses --start <timezone-aware timestamp> --end <time
 timestamp>` after a campaign wave, triage refresh or disposition refresh. It exports
 traust-core's recorded critical misses for that window: critical findings first reported in
 it that an earlier audit of the repository missed (`area_reported` rows are for
-adjudication, not hits). The default outputs are `CRITICAL-MISSES.md` and
-`CRITICAL-MISSES.json` under configured `analysis_results`; `--out <markdown>` and
-`--json-out <json>` select independent destinations. Both bounds are required. Campaign
+adjudication, not hits). The output is `CRITICAL-MISSES.json` under configured
+`analysis_results`, or `--json-out <json>`; there is no Markdown table until core registers its Insight view (a priority follow-up). Both bounds are required. Campaign
 directories (probe/matrix deltas, replay candidates, sample maps) are not read: the export
 covers recorded findings only, and neither admits findings nor files tickets.
 

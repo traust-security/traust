@@ -509,7 +509,7 @@ with their locations; `traust dashboard view pqc [--product <slug>] --out <dir>`
 writes the rendered `pqc-readiness.{md,html,json}`. (The ranked lists stay in
 the roll-up below.)
 
-`traust pqc worklist [--product <slug>] [--markdown]` emits one entry per
+`traust pqc worklist [--product <slug>]` emits one JSON entry per
 registered repository: chokepoint → crypto-CWE ground truth → tail, including
 repositories with no readiness assessment. Chokepoints are the deployment's own list:
 repository URL fragments under `chokepoints` in the config home's `pqc-priority.yaml`
