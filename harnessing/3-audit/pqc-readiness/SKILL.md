@@ -509,13 +509,11 @@ with their locations; `traust dashboard view pqc [--product <slug>] --out <dir>`
 writes the rendered `pqc-readiness.{md,html,json}`. (The ranked lists stay in
 the roll-up below.)
 
-`traust pqc worklist [--product <slug>]` emits one JSON entry per
+`traust pqc worklist [--product <slug>] [--chokepoint <URL fragment>]...` emits one JSON entry per
 registered repository: chokepoint → crypto-CWE ground truth → tail, including
-repositories with no readiness assessment. Chokepoints are the deployment's own list:
-repository URL fragments under `chokepoints` in the config home's `pqc-priority.yaml`
-(template `config/pqc-priority.example.yaml`); with no file there is no chokepoint tier,
-and the command says so on stderr. A misnamed priority file (for example
-`pqc-priority.yml`) exits 2.
+repositories with no readiness assessment. Chokepoints are the deployment's own list,
+passed per run as repeatable `--chokepoint` repository URL fragments (case-insensitive);
+without one there is no chokepoint tier.
 A repository with no registered commit routes to `access-request`. Access routing from
 observation outcomes (no-credentials → `access-request`, unreachable → `sbom-only`) needs
 the typed liveness status that waits on plan 15's decision 3.

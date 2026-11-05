@@ -89,10 +89,10 @@ class SweepBatch(Model):
 class PqcSweep:
     """The PQC sweep's worklist and bounded prescan batches.
 
-    ``chokepoints`` are the deployment's priority repositories (URL fragments from the config
-    home's ``pqc-priority.yaml``, :func:`traust.context.pqc_priority`): a repository whose URL
-    contains one leads the worklist. ``scanner`` is the Context's ``pqc_scanner``; traust
-    registers none until plan 15's decision 4, so a batch that would scan refuses.
+    ``chokepoints`` are the caller's priority repositories (URL fragments, `--chokepoint`): a
+    repository whose URL contains one leads the worklist. ``scanner`` is the Context's
+    ``pqc_scanner``; traust registers none until plan 15's decision 4, so a batch that would
+    scan refuses.
     """
 
     def __init__(

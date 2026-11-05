@@ -783,7 +783,6 @@ CONFIG_SHIPPED = {
     "traust.example.yaml",
     "model-registry.yaml",
     "rule-pack-allowlist.example.yaml",
-    "pqc-priority.example.yaml",
 }
 
 
