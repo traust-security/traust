@@ -1727,24 +1727,26 @@ adjudication/identity/precedent handoff as unavailable. Do not invent
 another audit-intake command or silently convert the artifact.
 Plan 15's decision 5 may change whether secure-code recording admits findings.
 
-**Step 5 — Declare spend:**
+**Step 5 — Declare per-repo spend (calibration tuple):**
 
-After the report is written, record this audit's spend
-(docs/model-routing.md):
+After the report is written, record this audit's spend against the repo
+so `estimate_scan` can calibrate (docs/model-routing.md; analysis:
+progress-tracker/metrics/estimate-calibration-analysis.md F5):
 
 ```bash
 python3 -m traust.cli registry models spend --skill secure-code-audit \
-    --model <resolved model id> [--tokens-in <N>] [--tokens-out <N>]
+    --model <resolved model id> [--tokens-in <N>] [--tokens-out <N>] \
+    --repo <repo-slug> --loc <total LoC/bytes from the LoC step> \
+    [--batch <batch-id>]
 ```
 
 Use real token counts when the orchestrator has them (Task results
 carry per-subagent usage), otherwise omit them — an agent cannot
 observe its own usage mid-run. **This row is a routing marker, not a
-cost claim**: actual per-lane cost is attributed from session
-transcripts by python3 -m traust.cli metrics attribute-spend. Never skip
-the row. Do not pass `--repo`, `--loc`, `--batch` or `--note`: core's
-spend event has no field for them, so the declaration refuses them and
-records nothing.
+cost claim**: it carries the `(repo, loc, model)` attribution, while
+actual per-lane cost is attributed from session transcripts by
+python3 -m traust.cli metrics attribute-spend. Never skip the row: an
+unattributed audit is a calibration gap.
 
 **A report is not complete until python3 -m traust.cli reporting validate exits with 0 errors. Do not begin analysis of the next repository until the current report passes validation.**
 

@@ -90,15 +90,16 @@ an unknown or unpriced `--model` exits 1 and records nothing):
 
 ```bash
 python3 -m traust.cli registry models spend --skill secure-code-audit \
-    --model <id> --tokens-in N --tokens-out N
+    --model <id> --tokens-in N --tokens-out N [--batch <batch-id>] \
+    [--repo <slug> --loc <size>]
 ```
 
-The calibration tuple `(spend, repo, size)` the scan estimator fits against is
-*not stored*: core's spend event has no field for a repository slug, a size, a
-batch id or a note. `--repo`, `--loc`, `--batch` and `--note` are therefore
-refused (exit 2, a `ValidationError` naming them, nothing recorded) rather than
-accepted and dropped; callers omit them until the spend event can carry them.
-Every model-heavy per-target skill carries a "Spend declaration"
+`--repo`/`--loc` attribute the row to one audited target — the calibration
+tuple `(spend, repo, size)` the scan estimator fits against (*not stored* yet:
+the spend event has no column for them, nor for `--batch`/`--note`; the command
+says so on stderr). Batch drivers
+SHOULD pass both on per-repo rows; batch-level rows omit them. Every
+model-heavy per-target skill carries a "Spend declaration (calibration tuple)"
 section instructing the row; any other skill that consumes model tokens should
 declare too — an unknown `--skill` name falls to the budget policy's `default`
 ceiling. Estimator calibration is **per skill**.

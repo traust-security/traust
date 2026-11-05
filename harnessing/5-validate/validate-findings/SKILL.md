@@ -561,14 +561,17 @@ Emitted artifacts:
 - Discovery-sweep candidates (`origin: validation-discovery`) —
   consumed by `/triage` generic ingest.
 
-## Spend declaration
+## Spend declaration (calibration tuple)
 
 After this skill's report/artifact is written, declare the run's spend
-(contract: docs/model-routing.md):
+against the target so `estimate_scan` can calibrate per-skill cost
+models (contract: docs/model-routing.md; analysis:
+progress-tracker/metrics/estimate-calibration-analysis.md §F5):
 
 ```bash
 python3 -m traust.cli registry models spend --skill validate-findings \
-    --model <resolved model id> [--tokens-in <N>] [--tokens-out <N>]
+    --model <resolved model id> [--tokens-in <N>] [--tokens-out <N>] \
+    --repo <target-slug> --loc <target size, if known> [--batch <batch-id>]
 ```
 
 Token counts are OPTIONAL and best-effort: pass them when the
@@ -576,6 +579,5 @@ orchestrator has them (Task results carry per-subagent usage),
 otherwise omit them — an agent cannot observe its own usage mid-run.
 **This row is a routing marker, not a cost claim**; actual per-lane
 cost is attributed from session transcripts by
-python3 -m traust.cli metrics attribute-spend. Never skip the row. Do not
-pass `--repo`, `--loc`, `--batch` or `--note`: core's spend event has no
-field for them, so the declaration refuses them and records nothing.
+python3 -m traust.cli metrics attribute-spend. Never skip the row: an
+unattributed run is a calibration gap.
