@@ -339,9 +339,9 @@ def test_push_rejects_unsafe_branch(tmp_path, branch):
     msg.write_text(MSG)
     r = _script("commit", str(wt), base, str(origin), str(msg))
     assert r.returncode == 0, r.stderr
-    clone = json.loads(r.stdout.strip().splitlines()[-1])["clone"]
+    made = json.loads(r.stdout.strip().splitlines()[-1])
 
-    r = _script("push", clone, "https://github.com/org/fork", branch)
+    r = _script("push", made["clone"], "https://github.com/org/fork", branch, made["fix_commit"])
     assert r.returncode == 1
     assert "fix branch" in r.stderr
 
@@ -362,9 +362,9 @@ def test_push_rejects_non_https_fork_url(tmp_path, url):
     msg.write_text(MSG)
     r = _script("commit", str(wt), base, str(origin), str(msg))
     assert r.returncode == 0, r.stderr
-    clone = json.loads(r.stdout.strip().splitlines()[-1])["clone"]
+    made = json.loads(r.stdout.strip().splitlines()[-1])
 
-    r = _script("push", clone, url, "fix/abc/some-slug")
+    r = _script("push", made["clone"], url, "fix/abc/some-slug", made["fix_commit"])
     assert r.returncode == 1
     assert "fork URL" in r.stderr
 
@@ -373,7 +373,7 @@ def test_push_rejects_directory_that_is_not_a_script_clone(tmp_path):
     # a plain repo directory: no mktemp parent, no sentinel — refused
     # even with a valid https fork URL (the push gate never widens)
     origin, _base = _origin_with_base(tmp_path)
-    r = _script("push", str(origin), "https://github.com/org/fork", "fix/abc/some-slug")
+    r = _script("push", str(origin), "https://github.com/org/fork", "fix/abc/some-slug", "a" * 40)
     assert r.returncode == 1
     assert "not a push_fix.sh clone" in r.stderr
 
@@ -385,13 +385,14 @@ def test_push_requires_token(tmp_path):
     msg.write_text(MSG)
     r = _script("commit", str(wt), base, str(origin), str(msg))
     assert r.returncode == 0, r.stderr
-    clone = json.loads(r.stdout.strip().splitlines()[-1])["clone"]
+    made = json.loads(r.stdout.strip().splitlines()[-1])
 
     r = _script(
         "push",
-        clone,
+        made["clone"],
         "https://github.com/org/fork",
         "fix/abc/some-slug",
+        made["fix_commit"],
         drop_env=("GITHUB_TOKEN",),
     )
     assert r.returncode != 0
@@ -423,6 +424,9 @@ def test_push_fix_source_gates():
     # normal pushes only — the push verb never carries a force flag
     # (the prose "never --force" documents the refusal)
     assert "push --force" not in s
+    # the pushed object is the reviewed commit, never HEAD at push time
+    assert '"${FIX_COMMIT}:refs/heads/${FIX_BRANCH}"' in s
+    assert "HEAD:refs/heads" not in s
     assert "push -f " not in s
     # the identity is documented as deliberately not a person
     assert "deliberately not any person" in s
@@ -434,9 +438,93 @@ def test_skill_md_confines_the_agent_away_from_committing():
     assert "Bash(git commit:*)" not in s
     assert "Bash(git add:*)" not in s
     assert "Bash(bash *push_fix.sh:*)" in s
+    # nor through `git -C <dir>`: only read-only -C subcommands are granted
+    assert "Bash(git -C:*)" not in s
+    assert "Bash(git -C * diff:*)" in s
     # the deterministic-commit phase exists and the push is script-driven
     assert "Phase 4d — Deterministic commit" in s
     assert "Do **not** commit" in s
     assert "push_fix.sh push" in s
     # the review gate still blocks the push
     assert "REJECT blocks the push" in s
+
+
+def _committed(tmp_path):
+    origin, base = _origin_with_base(tmp_path)
+    wt = _patched_worktree(origin, base, tmp_path)
+    msg = tmp_path / "commit-message.txt"
+    msg.write_text(MSG)
+    r = _script("commit", str(wt), base, str(origin), str(msg))
+    assert r.returncode == 0, r.stderr
+    return json.loads(r.stdout.strip().splitlines()[-1])
+
+
+def test_push_refuses_a_clone_that_moved_after_review(tmp_path):
+    made = _committed(tmp_path)
+    clone = Path(made["clone"])
+    (clone / "app.py").write_text("changed after review\n")
+    _git(clone, "add", "-A")
+    _commit(clone, "smuggled")  # HEAD moves off the reviewed commit
+
+    r = _script(
+        "push",
+        str(clone),
+        "https://github.com/org/fork",
+        "fix/abc/some-slug",
+        made["fix_commit"],
+        env_extra={"GITHUB_TOKEN": "t"},
+    )
+    assert r.returncode == 1
+    assert "no longer holds the reviewed commit" in r.stderr
+
+
+def test_push_refuses_a_commit_other_than_the_one_recorded(tmp_path):
+    made = _committed(tmp_path)
+    other = "b" * 40
+    r = _script(
+        "push",
+        made["clone"],
+        "https://github.com/org/fork",
+        "fix/abc/some-slug",
+        other,
+        env_extra={"GITHUB_TOKEN": "t"},
+    )
+    assert r.returncode == 1
+    assert "no longer holds the reviewed commit" in r.stderr
+
+
+@pytest.mark.parametrize("commit", ["", "HEAD", "abc1234", "--force"])
+def test_push_needs_the_full_reviewed_sha(tmp_path, commit):
+    made = _committed(tmp_path)
+    r = _script("push", made["clone"], "https://github.com/org/fork", "fix/abc/some-slug", commit)
+    assert r.returncode == 1
+
+
+def test_discard_removes_an_unpushed_clone_and_only_one_this_script_made(tmp_path):
+    made = _committed(tmp_path)
+    parent = Path(made["clone"]).parent
+    r = _script("discard", made["clone"])
+    assert r.returncode == 0, r.stderr
+    assert json.loads(r.stdout)["discarded"] == "true"
+    assert not parent.exists()
+
+    (tmp_path / "other").mkdir()
+    origin, _ = _origin_with_base(tmp_path / "other")
+    refused = _script("discard", str(origin))
+    assert refused.returncode == 1
+    assert "not a push_fix.sh clone" in refused.stderr
+    assert origin.exists()
+
+
+def test_a_failed_commit_leaves_no_clone_behind(tmp_path):
+    origin, base = _origin_with_base(tmp_path)
+    wt = tmp_path / "clean-worktree"
+    _git(origin, "worktree", "add", "--quiet", "--detach", str(wt), base)
+    msg = tmp_path / "commit-message.txt"
+    msg.write_text(MSG)
+    scratch = tmp_path / "tmp"
+    scratch.mkdir()
+
+    r = _script("commit", str(wt), base, str(origin), str(msg), env_extra={"TMPDIR": str(scratch)})
+    assert r.returncode == 1 and "nothing to commit" in r.stderr
+    assert list(scratch.iterdir()) == []

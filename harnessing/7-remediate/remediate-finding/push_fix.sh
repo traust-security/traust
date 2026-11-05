@@ -10,7 +10,10 @@
 #   commit  snapshot the worktree's FILES (rsync, .git excluded) onto a
 #          fresh clone at the recorded pre-agent base commit, then commit
 #          under a fixed machine identity.
-#   push    push that clone's HEAD to the fix branch on the private fork.
+#   push    push the reviewed fix commit from that clone to the fix branch on
+#          the private fork, refusing unless the clone still holds exactly it.
+#   discard remove a clone this script created without pushing it (a Phase 5b
+#          REJECT, or an earlier iteration's clone).
 #
 # Why a fresh clone rather than committing in the worktree: the worktree's
 # .git is agent-adjacent and shared with core's mirror, and hostile target
@@ -40,7 +43,8 @@
 #
 # Usage:
 #   push_fix.sh commit <worktree> <audited-sha> <clone-source> <message-file>
-#   push_fix.sh push   <fix-clone> <fork-url> <fix-branch>
+#   push_fix.sh push   <fix-clone> <fork-url> <fix-branch> <fix-commit>
+#   push_fix.sh discard <fix-clone>
 #
 #   <clone-source>  the private fork URL (https://github.com/<owner>/<repo>);
 #                   the clone is fetched from the fork over https with the
@@ -51,6 +55,9 @@
 #                   so the source cannot alter what gets committed.
 #   <message-file>  the commit message, authored in Phase 3 in the skill's
 #                   prescribed format; committed verbatim via -F.
+#   <fix-commit>    the `fix_commit` `commit` printed: the commit the report
+#                   describes and Phase 5b reviewed. `push` pushes that exact
+#                   object, and only while the clone's HEAD and sentinel name it.
 #
 # Env:
 #   GITHUB_TOKEN    required by `commit` (https clone) and `push` — read by
@@ -94,11 +101,12 @@ PY
 
 usage() {
   echo "usage: push_fix.sh commit <worktree> <audited-sha> <clone-source> <message-file>" >&2
-  echo "       push_fix.sh push <fix-clone> <fork-url> <fix-branch>" >&2
+  echo "       push_fix.sh push <fix-clone> <fork-url> <fix-branch> <fix-commit>" >&2
+  echo "       push_fix.sh discard <fix-clone>" >&2
   exit 1
 }
 
-[ $# -ge 2 ] || usage
+[ $# -ge 1 ] || usage
 MODE="$1"; shift
 
 # ---------------------------------------------------------------- commit ----
@@ -124,7 +132,7 @@ do_commit() {
     https://*)
       # fork URL gate: https on github.com only (pilot parity with
       # ensure_fork.sh), no embedded credentials (user:pass@ / token@)
-      if [[ ! "$CLONE_SRC" =~ ^https://github\.com/([^/@[:space:]]+)/([^/@[:space:]]+?)(\.git)?/?$ ]]; then
+      if [[ ! "$CLONE_SRC" =~ ^https://github\.com/([^/@[:space:]]+)/([^/@[:space:]]+)$ ]]; then
         echo "[push_fix] clone source must be https://github.com/<owner>/<repo> — got: $CLONE_SRC" >&2
         exit 1
       fi
@@ -148,6 +156,9 @@ do_commit() {
   # included — is persisted into the clone's config.
   PDIR="$(mktemp -d "${TMPDIR:-/tmp}/traust-fix-clone.XXXXXX")"
   CLONE="$PDIR/repo"
+  # a commit that fails part-way leaves no copy of the worktree behind
+  # shellcheck disable=SC2064  # the path is fixed now: the trap runs after do_commit returns
+  trap "chmod -R u+w '$PDIR' 2>/dev/null; rm -rf -- '$PDIR'" EXIT
   if [[ "$CLONE_SRC" == https://* ]]; then
     git_safe -c credential.helper= -c credential.helper="$GH_CRED_HELPER" \
       clone --quiet "$CLONE_SRC" "$CLONE" >&2
@@ -156,7 +167,7 @@ do_commit() {
   fi
   git_safe -C "$CLONE" checkout --quiet "$SHA" -- >&2
   HEAD_REV="$(git_safe -C "$CLONE" rev-parse HEAD)"
-  if [[ "${HEAD_REV,,}" != "${SHA,,}"* ]]; then
+  if [[ "$HEAD_REV" != "$(printf '%s' "$SHA" | tr 'A-F' 'a-f')"* ]]; then
     echo "[push_fix] clone HEAD $HEAD_REV is not the recorded base $SHA — refusing" >&2
     exit 1
   fi
@@ -183,19 +194,46 @@ do_commit() {
   # committed): `push` only drives clones this script created.
   printf 'created_by=push_fix.sh\nbase=%s\nfix_commit=%s\n' "$SHA" "$HEAD_REV" \
     > "$PDIR/.traust-fix-clone"
+  trap - EXIT
 
   emit_json clone "$CLONE" fix_commit "$HEAD_REV" base_commit "$SHA" \
     worktree "$WORKTREE" committer "$COMMITTER_NAME <$COMMITTER_EMAIL>"
 }
 
+# ------------------------------------------------------------ clone gate ---
+# Only clones this script created: an absolute <mktemp parent>/repo path with
+# the sentinel beside it. Prints the parent.
+script_clone() {
+  local CLONE="$1" PARENT
+  [[ "$CLONE" == /* ]] || { echo "[push_fix] fix clone must be an absolute path: $CLONE" >&2; exit 1; }
+  [ "$(basename "$CLONE")" = "repo" ] || {
+    echo "[push_fix] not a push_fix.sh clone directory: $CLONE" >&2; exit 1; }
+  PARENT="$(dirname "$CLONE")"
+  case "$(basename "$PARENT")" in
+    traust-fix-clone.*) ;;
+    *) echo "[push_fix] not a push_fix.sh clone directory: $CLONE" >&2; exit 1;;
+  esac
+  [ -f "$PARENT/.traust-fix-clone" ] || {
+    echo "[push_fix] missing clone sentinel — refusing to use $CLONE" >&2; exit 1; }
+  printf '%s\n' "$PARENT"
+}
+
+remove_clone() {
+  local CLONE="$1" PARENT="$2"
+  chmod -R u+w "$PARENT" 2>/dev/null || true
+  rm -rf -- "$CLONE" "$PARENT/.traust-fix-clone"
+  rmdir "$PARENT" 2>/dev/null || true
+}
+
 # ----------------------------------------------------------------- push -----
 do_push() {
-  local CLONE="${1:?}" FORK_URL="${2:?}" FIX_BRANCH="${3:?}"
+  local CLONE="${1:?}" FORK_URL="${2:?}" FIX_BRANCH="${3:?}" FIX_COMMIT="${4:?}"
+  local PARENT RECORDED HEAD_REV
 
   # push target gate: https on github.com only (pilot parity with
   # ensure_fork.sh), no embedded credentials — same shape as `commit`'s
   # clone-source gate; the fork URL is never a local path.
-  if [[ ! "$FORK_URL" =~ ^https://github\.com/([^/@[:space:]]+)/([^/@[:space:]]+?)(\.git)?/?$ ]]; then
+  if [[ ! "$FORK_URL" =~ ^https://github\.com/([^/@[:space:]]+)/([^/@[:space:]]+)$ ]]; then
     echo "[push_fix] fork URL must be https://github.com/<owner>/<repo> — got: $FORK_URL" >&2
     exit 1
   fi
@@ -203,17 +241,19 @@ do_push() {
   # the argument is always prefixed with refs/heads/)
   git_safe check-ref-format "refs/heads/${FIX_BRANCH}" 2>/dev/null || {
     echo "[push_fix] unsafe fix branch name: $FIX_BRANCH" >&2; exit 1; }
+  [[ "$FIX_COMMIT" =~ ^[0-9a-f]{40}$ ]] || {
+    echo "[push_fix] fix-commit must be the full 40-hex sha commit printed: $FIX_COMMIT" >&2; exit 1; }
 
-  # only clones this script created (mktemp parent, sentinel beside them)
-  [[ "$CLONE" == /* ]] || { echo "[push_fix] fix clone must be an absolute path: $CLONE" >&2; exit 1; }
-  local PARENT
-  PARENT="$(dirname "$CLONE")"
-  case "$(basename "$PARENT")" in
-    traust-fix-clone.*) ;;
-    *) echo "[push_fix] not a push_fix.sh clone directory: $CLONE" >&2; exit 1;;
-  esac
-  [ -f "$PARENT/.traust-fix-clone" ] || {
-    echo "[push_fix] missing clone sentinel — refusing to push from $CLONE" >&2; exit 1; }
+  PARENT="$(script_clone "$CLONE")"
+  # The reviewed commit, and nothing else: the sentinel `commit` wrote and the
+  # clone's HEAD must both still name it, and the refspec pushes that object,
+  # never whatever HEAD resolves to by then.
+  RECORDED="$(sed -n 's/^fix_commit=//p' "$PARENT/.traust-fix-clone")"
+  HEAD_REV="$(git_safe -C "$CLONE" rev-parse HEAD)"
+  if [ "$RECORDED" != "$FIX_COMMIT" ] || [ "$HEAD_REV" != "$FIX_COMMIT" ]; then
+    echo "[push_fix] clone no longer holds the reviewed commit $FIX_COMMIT (sentinel: ${RECORDED:-none}, HEAD: $HEAD_REV) — refusing to push" >&2
+    exit 1
+  fi
 
   : "${GITHUB_TOKEN:?GITHUB_TOKEN must be set to push to the private fork}"
   export GIT_ALLOW_PROTOCOL=https  # https transport only (plan P0.1)
@@ -225,27 +265,27 @@ do_push() {
   git_safe -C "$CLONE" \
     -c credential.helper= \
     -c credential.helper="$GH_CRED_HELPER" \
-    push --no-verify "$FORK_URL" "HEAD:refs/heads/${FIX_BRANCH}" >&2
-  local FIX_COMMIT
-  FIX_COMMIT="$(git_safe -C "$CLONE" rev-parse HEAD)"
+    push --no-verify "$FORK_URL" "${FIX_COMMIT}:refs/heads/${FIX_BRANCH}" >&2
 
   # The clone held a copy of the worktree's uncommitted files (rsync
   # copies gitignored content too; only committed content was pushed).
-  # Remove it now that the push succeeded — sentinel-gated, and only the
-  # exact mktemp-shaped path this script creates.
-  local REMOVED=false
-  if [ "$(basename "$CLONE")" = "repo" ]; then
-    chmod -R u+w "$CLONE" 2>/dev/null || true
-    rm -rf -- "$CLONE"
-    rmdir "$PARENT" 2>/dev/null || true
-    REMOVED=true
-  fi
+  # Remove it now that the push succeeded.
+  remove_clone "$CLONE" "$PARENT"
   emit_json pushed true fix_branch "$FIX_BRANCH" fork_url "$FORK_URL" \
-    fix_commit "$FIX_COMMIT" clone_removed "$REMOVED"
+    fix_commit "$FIX_COMMIT" clone_removed true
+}
+
+# -------------------------------------------------------------- discard -----
+do_discard() {
+  local CLONE="${1:?}" PARENT
+  PARENT="$(script_clone "$CLONE")"
+  remove_clone "$CLONE" "$PARENT"
+  emit_json discarded true clone "$CLONE"
 }
 
 case "$MODE" in
   commit) [ $# -eq 4 ] || usage; do_commit "$@";;
-  push)   [ $# -eq 3 ] || usage; do_push "$@";;
+  push)   [ $# -eq 4 ] || usage; do_push "$@";;
+  discard) [ $# -eq 1 ] || usage; do_discard "$@";;
   *)      usage;;
 esac
