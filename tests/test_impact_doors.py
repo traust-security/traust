@@ -310,11 +310,20 @@ def test_sbom_without_a_document_reads_the_commits_manifests(
     assert (str(request.repo), str(request.ref), request.keep) == (REPO, SHA, MANIFESTS)
 
 
-def test_a_commit_keeps_the_first_sbom_recorded_for_it(home: Path, tmp_path: Path) -> None:
+def test_a_commit_keeps_the_first_sbom_recorded_for_it(
+    home: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     # a later `impact sbom` without a file returns the document SBOM, never a scan of it
     rc, out = run(
         impact.sbom, home, str(sbom(tmp_path, "4.17.20")), "--repo-url", REPO, "--sha", SHA
     )
     assert rc == 0
+
+    def no_scan(*_: object, **__: object) -> Any:
+        raise AssertionError("a commit with a recorded SBOM was fetched or scanned")
+
+    for provider in (ArchiveCheckout, MirrorCheckout):
+        monkeypatch.setattr(provider, "checkout", no_scan)
+    monkeypatch.setattr(SyftSbom, "acquire", no_scan)
     rc, again = run(impact.sbom, home, "--repo-url", REPO, "--sha", SHA)
     assert rc == 0 and json.loads(again)["sbom_id"] == json.loads(out)["sbom_id"]
