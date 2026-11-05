@@ -62,7 +62,7 @@ def test_the_context_is_the_only_loader() -> None:
     assert loaders == {"load", "load_caller", "load_spend_core"}
 
 
-@pytest.mark.parametrize("explicit", [False, True], ids=["configured-target", "explicit-target"])
+@pytest.mark.parametrize("explicit", [True], ids=["explicit-target"])
 def test_normal_app_docs_command_fetches_registered_product_guides(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

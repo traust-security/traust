@@ -250,7 +250,9 @@ class SecurityRouter:
     def route(
         self, state: RepoState, events: Sequence[RecordedRelease], refusals: Sequence[Refusal]
     ) -> tuple[Route, ...]:
-        # Artifact release observations inject passthrough orders; source releases only re-model.
+        # Rule 1's external-report, methodology and CVE events are orders injected with their
+        # event_source, never router input. NEED(release-passthrough): a release's rule-1
+        # passthrough row has no traust-core release feed, so its asset refuses the order.
         # NEED(refusals): a refused lane isn't re-decided here; the engine won't plan it again.
         rule, lane = decide(state)
         reason = rule.id

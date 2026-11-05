@@ -13,7 +13,7 @@ from traust.cli.groups import GROUPS
 
 
 @pytest.mark.parametrize("assessments", [0, 2])
-def test_precision_cli_exports_counts_gate_and_safe_human_view(
+def test_precision_cli_exports_counts_and_gate_as_json_only(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, assessments: int
 ) -> None:
     framework = next(iter(ComplianceFramework))
@@ -47,17 +47,16 @@ def test_precision_cli_exports_counts_gate_and_safe_human_view(
         ]
     )
     doc = json.loads((tmp_path / "compliance-precision.json").read_text())
-    md = (tmp_path / "compliance-precision.md").read_text()
     assert rc == 0
     assert calls == [(framework, 0.4)]
     assert (doc["assessments"], doc["gate"]) == (assessments, 0.4)
     if assessments:
         assert (doc["checks"][0]["precision"], doc["checks"][0]["flagged"]) == (0.5, False)
-        assert "<script>" not in md
-        assert "&lt;script&gt;" in md
+        assert doc["checks"][0]["check_id"] == "tls<script>|x"  # JSON keeps the text
     else:
         assert doc["checks"] == []
-        assert "unmeasured" in md
+    # the Markdown render waits on its Insight view (plan 15 follow-up)
+    assert [p.name for p in tmp_path.iterdir()] == ["compliance-precision.json"]
 
 
 def test_field_precision_is_independently_routed_from_evaluator_calibration() -> None:

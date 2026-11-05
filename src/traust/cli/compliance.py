@@ -12,7 +12,7 @@ check     the citation gate over an (edited) assessment; exit 1 on any violation
 record    record a gated assessment against each in-scope commit
 latest    a boundary's newest recorded assessment of a framework, with its posture
 adrs      the decisions of the pinned registers governing a product
-docs      fetch the registered product's official guides using configured or explicit targets
+docs      fetch the registered product's official guides for an explicit --product-slug/--version
 calibrate evaluate twice: identical inputs must give identical verdicts; given an answer key,
           score the run on it; exit 1 on any divergence or failure
 """
@@ -28,7 +28,7 @@ from typing import Any, TypeVar
 from uuid import UUID
 
 import yaml
-from traust_core.v1.context import DocsTarget, Services
+from traust_core.v1.context import Services
 from traust_core.v1.errors import NotFoundError, ValidationError
 from traust_core.v1.models.artifacts import (
     AdrRegistryArtifact,
@@ -45,6 +45,7 @@ from traust_core.v1.models.compliance import (
     FINDINGS_DB,
     Collector,
     ComplianceScope,
+    DocsTarget,
     EfficacyKey,
     EvaluationRequest,
     InventorySnapshot,
@@ -362,16 +363,17 @@ def docs(argv: list[str] | None = None) -> int:
         core = load(args.config_home)
         services = core.services()
         (product,) = _doors.products(services, [args.product])
-        explicit = args.product_slug or args.version or args.guide or args.all_guides
-        if explicit:
-            if not args.product_slug or not args.version:
-                raise ValidationError(
-                    "explicit documentation targets require --product-slug and --version"
-                )
-            core.register_compliance_sources(
-                {product.id: DocsTarget(args.product_slug, args.version, tuple(args.guide or ()))}
+        # traust-core takes docs targets only from its caller: traust.yaml has no
+        # `compliance.docs_targets` until the contracts schema does, so a target is always explicit.
+        if not args.product_slug or not args.version:
+            raise ValidationError(
+                "documentation targets are explicit: pass --product-slug and --version"
+                " (traust.yaml compliance.docs_targets is not supported)"
             )
-            services = core.services()
+        core.register_compliance_sources(
+            {product.id: DocsTarget(args.product_slug, args.version, tuple(args.guide or ()))}
+        )
+        services = core.services()
         return [
             guide.model_dump(mode="json")
             for guide in services.compliance.collect_product_docs(product.id)

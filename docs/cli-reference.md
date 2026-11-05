@@ -30,24 +30,24 @@ python3 -m traust.cli check skill-alignment      # equivalent
 | `cloud-config` | The cloud-config-audit skill's doors on traust-core | `check`, `record`, `run` |
 | `compliance` | compliance-check doors on traust-core (posture: `dashboard view compliance`) | `adrs`, `calibrate`, `check`, `declare`, `docs`, `evaluate`, `evidence`, `latest`, `policy`, `record`, `resolve`, `scopes` |
 | `config` | The config home's one file, `traust.yaml`: `migrate <old home>` writes it from a pre-traust.yaml home and reports every file (carried, dropped, a fact to record with its command) | `migrate` |
-| `dashboard` | Dashboard rebuilds, immutable reported history, the team report and SLA policy | `capture`, `compare`, `explore-loc`, `history`, `read-report`, `refresh`, `sla-policy`, `team-report`, `view` |
+| `dashboard` | Dashboard rebuilds, the team report, one insight view, the recorded SLA policy and the local LoC explorer | `explore-loc`, `refresh`, `sla-policy`, `team-report`, `view` |
 | `feeds` | Security feed snapshots, CVE provenance (traust-core) and the product-definitions cache | `fetch`, `fetch-products`, `reconcile-cve-provenance` |
-| `findings` | track-findings' and findings-db's doors on traust-core | `apply`, `baseline`, `claim`, `confirm`, `correction-request`, `decide`, `find`, `history`, `import`, `queue`, `rebaseline`, `record`, `refuted`, `reject`, `request`, `review-cases`, `sarif`, `status`, `summary`, `surfaces`, `tickets`, `timeline`, `verified-fix-mtta` |
+| `findings` | track-findings' and findings-db's doors on traust-core (`claim`, `correction-request` and `rebaseline` refuse until plan 15's decision 1) | `apply`, `baseline`, `claim`, `confirm`, `correction-request`, `decide`, `find`, `history`, `import`, `queue`, `rebaseline`, `record`, `refuted`, `reject`, `request`, `review-cases`, `sarif`, `status`, `summary`, `surfaces`, `tickets`, `timeline`, `verified-fix-mtta` |
 | `impact` | Impact analysis; `export` reads the retained advisory-wide fleet view; `manifest-sbom` is the `manifest_sbom` materializer, `below-range-scan` the `below_range_packets` one, `below-range-review` / `below-range-record` the review lane's doors | `analyze`, `below-range`, `below-range-record`, `below-range-review`, `below-range-scan`, `calibrate-rule-pack`, `cluster-state-diff`, `document`, `enrich`, `export`, `find`, `manifest-sbom`, `package`, `sbom`, `sweep`, `symbols` |
 | `isolation` | Tenant-isolation review | `repos` |
 | `ledger` | Ledger audit (traust-core) and the doc-variance register | `audit`, `doc-variance` |
 | `metrics` | Metrics & spend | `attribute-spend`, `collect-spend`, `lane-costs` |
-| `portfolio` | Native inventory and declared owner/contact/tracker handoffs, routing intake, forge liveness, recorded dependency/interface facts, unsigned analytical proposals, graph presentation and release discovery | `checkout-refresh`, `crd-consumers`, `crown-jewel-draft`, `dependencies`, `dependents`, `event-intake`, `event-validate`, `exports-of`, `facts-collect`, `file`, `graph`, `iac-census`, `import-owners`, `import-reference`, `import-release`, `imports-package`, `internal-coupling`, `inventory-discover`, `inventory-export`, `liveness`, `mirror-evict`, `observe`, `onboard`, `org-index`, `owner-hints`, `plan`, `population`, `release-audit`, `release-changes`, `release-discover`, `release-passthrough`, `ships-module` |
-| `pqc` | The pqc-readiness skill's doors on traust-core; ranked worklists, bounded stamped refresh and non-destructive report repair | `blockers`, `check`, `prepare`, `record`, `repair`, `summary`, `sweep`, `vendor-claims`, `worklist` |
+| `portfolio` | The portfolio on traust-core: inventory discovery and routing-event intake, `observe` (the `repo_state` materializer), the checkout mirror-cache materializers, add-inputs' and inventory-repositories' doors, the owner/contact export, SBOM reads (`dependencies`, `dependents`, `ships-module`); `liveness` refuses until plan 15's decision 3 and `release-passthrough` refuses until a release feed exists (NEED(release-passthrough)) | `checkout-refresh`, `dependencies`, `dependents`, `event-intake`, `event-validate`, `file`, `import-owners`, `import-release`, `inventory-discover`, `inventory-export`, `liveness`, `mirror-evict`, `observe`, `onboard`, `owner-hints`, `plan`, `population`, `release-changes`, `release-passthrough`, `ships-module` |
+| `pqc` | The pqc-readiness skill's doors on traust-core; the ranked sweep worklist and bounded refresh (a batch that would scan refuses until plan 15's decision 4) | `blockers`, `check`, `prepare`, `record`, `summary`, `sweep`, `vendor-claims`, `worklist` |
 | `products` | corpus-intake's doors on traust-core: products and their corpus ownership | `add`, `list`, `update` |
 | `registry` | Model/product registry and the recorded product map | `models`, `product-map`, `products` |
 | `remediation` | The remediation loop's doors on traust-core (remediate-finding, patch, property-test, fleet-fix, verify-remediation) | `assemble`, `candidates`, `fleet-approve`, `fleet-claim`, `fleet-record`, `fleet-submit`, `fleet-targets`, `fork`, `mutation-evidence`, `next`, `open`, `prepare`, `progress`, `property-evidence`, `record`, `verifications`, `verify-differential`, `verify-prepare`, `verify-record`, `verify-sweep`, `work-items` |
 | `repo` | A commit's files through core's checkout service (the mirror cache): prints the workspace path, for skills and hand runs | `checkout` |
-| `reporting` | Report validation, rendering & recording | `import-fuzz-campaign`, `lint`, `rate-threats`, `record`, `render`, `sarif`, `validate` |
+| `reporting` | Report validation, rendering & recording | `lint`, `rate-threats`, `record`, `render`, `sarif`, `validate` |
 | `session` | Headless skill sessions and artifact-only task preparation/recording | `prepare`, `record`, `run` |
 | `tools` | One door over traust-core's tool registry: each registered tool's readiness, version and database; one tool over a checkout, SBOM, image or symbols, its typed result as JSON | `list`, `run` |
 | `triage` | The triage skill's doors on traust-core | `check`, `intake`, `prepare`, `record`, `render` |
-| `sweep` | Class-generalization sweep; detection-quality reports; recall-benchmark answer key | `benchmark`, `benchmark-targets`, `bootstrap-benchmark`, `build-canaries`, `cards`, `collect`, `compliance-precision`, `critical-misses`, `cve-replay`, `draft`, `emit`, `mine`, `propose-rule`, `regression-drafts`, `rule-lane`, `score-benchmark`, `screen-injection`, `sweep`, `verify-draft` |
+| `sweep` | Class-generalization sweep; detection-quality reports (`cve-replay` refuses until plan 15's decision 2); recall-benchmark answer key | `benchmark`, `benchmark-targets`, `bootstrap-benchmark`, `build-canaries`, `cards`, `collect`, `compliance-precision`, `critical-misses`, `cve-replay`, `draft`, `emit`, `mine`, `propose-rule`, `regression-drafts`, `rule-lane`, `score-benchmark`, `screen-injection`, `sweep`, `verify-draft` |
 | `util` | Utility commands | `elf`, `redact`, `safe-exec` |
 | `validation` | Core-backed machine validation evidence | `prepare`, `plan`, `record` |
 
@@ -58,15 +58,15 @@ admission depends on the selected kind and its canonical document schema:
 
 | Kind | Finding admission on successful recording | Triage handoff |
 |---|---|---|
-| `container`, `rpm`, `vuln_scan` | Core admits the document's findings atomically with the assessment | Run `traust triage prepare <returned-assessment-id>` for its native items and any matching precedents |
-| `secure_code` | Assessment/artifact only; no native finding admission | Report the admission handoff gap; native triage requires a supported intake receipt and its admitted assessment/bindings |
+| `secure_code`, `container`, `rpm`, `vuln_scan` | Core admits the document's findings atomically with the assessment | Run `traust triage prepare <returned-assessment-id>` for its native items and any matching precedents |
 | `benchmark_audit` | No native finding admission; benchmark reports are scored | Keep the benchmark workflow, not native finding triage |
 
 Core computes finding identity when findings are admitted, including during
 recording for the supported kinds above; it does not stamp the report file.
-An empty report can legitimately prepare no items. An empty assessment-only
-secure-code batch is not proof that a report containing findings is clean;
-later intake does not automatically attach its findings to that original audit.
+An empty report can legitimately prepare no items, and an empty batch is not
+proof that the repository is clean. A re-audit finding that names an already
+recorded finding under another identity is held for a person's rebaseline review.
+Plan 15's decision 5 may change whether `secure_code` recording admits findings.
 
 `reporting record` and `cloud-config record` take `--run-id <order-uuid>` (default:
 `$TRAUST_RUN_ID`, which `traust session run` sets for the agent it starts, along with
@@ -100,27 +100,26 @@ convert uninspectable deliverables and rerun the gate; there is no binary fallba
 - `traust sweep bootstrap-benchmark --out candidates.yaml [--limit 100]` harvests
   confirmed fixes as **unadmitted** answer-key candidates with fix evidence and a stable
   held-out split. Human review precedes `benchmark-targets candidates.yaml`.
-- `traust sweep score-benchmark --runs-dir <runs> --out benchmark.json` also writes
-  `benchmark.md`; `--markdown <path>` selects an explicit Markdown destination. Without
-  `--runs-dir`, the recorded scorecards receive the same human-readable export.
-- `traust sweep cards <deck.yaml> --artifact symbol-index:<card-id>=facts.json`
-  compiles pre-generated typed facts without checkout tools. `--checkout` remains the
-  live mode; reference cards enumerate textual mentions, not resolved calls. Live target
-  sanitizer execution remains tools-package-owned; supplied execution facts are replayable.
-- `traust impact calibrate-rule-pack [pack] --fixtures [--rules <path-or-URL@SHA>]`
-  runs pack sanity without corpus truth; omit `--fixtures` for integrated pinned-TP rescans.
-  `--scan <UUID>` retains recorded-scan scoring. `--out <dir>` writes `calibration.json`,
-  `summary.md` and `review-samples.jsonl`; see `--help` for limits/timeouts.
+- `traust sweep score-benchmark --runs-dir <runs> --out benchmark.json` writes the scored
+  run as JSON; without `--runs-dir` it writes the recorded scorecards. There is no Markdown
+  report until core registers its Insight view (a priority follow-up).
+- `traust sweep cards <deck.yaml> --checkout <dir>` sweeps the valid cards' code-facts
+  enumerators over the checkout; reference cards enumerate textual mentions, not resolved
+  calls. There is no replay of supplied facts: traust-core's `sweep_cards` runs from the
+  checkout.
+- `traust impact calibrate-rule-pack <pack> --scan <UUID> [--scan <UUID> ...]` scores the
+  named rule pack's recorded scans against confirmed true positives
+  (`DetectionQualityService.calibrate`); record the scans first. It scans nothing itself.
 - `traust sweep compliance-precision --framework <framework> --gate 0.5 --out-dir <dir>`
-  exports JSON and Markdown field precision from recorded assessments. The inclusive gate
+  exports field precision from recorded assessments as JSON (no Markdown until core registers its Insight view (a priority follow-up)). The inclusive gate
   flags checks for human demotion review; it does not run the evaluator twice or mutate checks.
-- `traust sweep critical-misses --campaign-dir <campaign> --out <dir>/CRITICAL-MISSES.md`
-  exports Markdown and sibling JSON from critical deltas, replay, triage and sample/report maps,
-  including un-ingested candidates. `--start` and `--end` add recorded Core misses.
-- `traust sweep cve-replay monitor [--since <ISO8601>]` emits JSON discovery results for newly
-  published advisory candidates against recorded audited commits. `oracle`, `candidates`
-  and `trends` emit their separate JSON views. Presence uncertainty, near matches and misses stay
-  distinct; candidate export never admits findings. Source watermarks advance only after success.
+- `traust sweep critical-misses --start <ISO8601> --end <ISO8601> [--json-out <file>.json]`
+  exports the window's recorded critical misses (`DetectionQualityService.critical_misses`):
+  critical findings first reported in the window that an earlier audit of the repository
+  missed, as a JSON list (no Markdown table until core registers its Insight view (a priority follow-up)). Both
+  zoned window bounds are required; campaign directories are not read.
+- `traust sweep cve-replay monitor|candidates|trends|oracle` refuses: "CVE replay needs a
+  traust-core decision (plan 15, decision 2)". It never reads a fallback.
 - `traust sweep emit --rule <rule> --sweeps-root <dir>` exports the cached candidate and
   summary payload too; `--force` recomputes rather than being required to export elsewhere.
 - `traust sweep benchmark check-trigger --since <ref>` resolves its checkout from explicit
@@ -139,10 +138,9 @@ OSCAL exports as well as assessment/coverage/gate outcomes. UUID and structural 
 fail calibration; only documented run timestamps are ignored. JSON `oscal_compared` states
 whether the selected frameworks support the 800-53-spine export.
 
-`traust compliance docs <registered-product-slug>` fetches official guides using that
-product's `compliance.docs_targets` entry in `traust.yaml` (see
-[setup](setup.md)). The result is JSON containing real source URLs and extracted text,
-not generated documentation. For an explicit one-run source selection:
+`traust compliance docs <registered-product-slug>` fetches official guides for an explicit
+target (see [setup](setup.md)). The result is JSON containing real source URLs and extracted
+text, not generated documentation:
 
 ```bash
 traust compliance docs <registered-product-slug> \
@@ -151,37 +149,22 @@ traust compliance docs <registered-product-slug> \
 ```
 
 Repeat `--guide` to fetch several guides; omit it (or use `--all-guides`) to discover actual
-guide links from the official product page. Explicit mode requires both source slug and version
-and does not rewrite configuration. Missing mappings, unknown products and fetch failures
-are errors, never fabricated fallback documents.
-### Portfolio facts, views and artifact releases
+guide links from the official product page. Both source slug and version are required:
+`traust.yaml` carries no docs targets until the contracts config schema does. Missing
+selectors, unknown products and fetch failures are errors, never fabricated fallback
+documents.
+### Portfolio SBOM reads and artifact releases
 
-`portfolio facts-collect` records package/interface facts at observed default heads;
-repeat `--repository-ref-id` to select pinned commits and `--checkout UUID=PATH`
-to supply an existing checkout. `crd-consumers <api-group>` joins owners,
-consumers, RBAC and webhook evidence fleet-wide. `imports-package <package>` and
-`exports-of [package]` return cited persisted facts; `ships-module <package> --ecosystem <ecosystem>`
-reads image SBOMs. `internal-coupling` counts distinct
-dependent repositories of packages with declared producing-repository provenance.
+`portfolio ships-module <package> --ecosystem <ecosystem> [--version V]` lists the images
+whose recorded SBOMs ship the package (Exposure's `find_package` then `image_dependents`),
+directly or through a base image or internal library. An unrecorded package is an error.
 
-`portfolio graph --out <dir>` writes full relationship JSON, GraphViz, Gephi,
-interactive offline HTML and a top-20 hub/coverage Markdown report. It reads
-native services and optional `--inputs` hierarchy; it never creates a graph database.
-`crown-jewel-draft`, `iac-census` and `org-index` accept optional scope and `--out`
-to publish JSON/Markdown/HTML; without output they print the typed model.
-The crown-jewel proposal is explicitly unsigned human-review input, never
-dispatch authorization or a write to approved crown-jewel facts.
+`portfolio release-passthrough --run-id <uuid>` is the `release_passthrough` asset's door. It
+refuses its order (NEED(release-passthrough)): traust-core has no release feed yet to plan the
+container and RPM audits from. Release discovery from inventory files is retired.
 
-`portfolio release-discover` observes payload digests/tags and watched dist-git
-heads into the native release-inventory feed. The first observation is a baseline,
-not a burst of audit jobs. Changes plan `release-passthrough` and artifact-specific
-container/RPM audit batches; major/minor inventory version changes also request a
-source threat review when identity is known. Dist-git commits are not versions.
-`portfolio release-audit --kind container|rpm --role <role> --run-id <uuid>`
-runs the exact observed batch through the existing security skill.
+`traust dashboard view executive-summary --out <dir>` accepts repeatable `--panel attack|pqc|isolation|iac`. Optional panels are embedded in all three generated formats, not links to unrelated views. PQC retains its current-state/product-only boundary. `dashboard view scoreboard` reads its headline numbers off the executive summary, findings trend and threat register views as of `--as-of`.
 
-
-`traust dashboard view executive-summary --out <dir>` accepts repeatable `--panel attack|pqc|isolation|iac`, plus `--by-segment`, `--inputs-root <dir>` and repeatable `--exclude-segment <name>` (default exclusion: `ansible`). Segment rows are first-match in input declaration order and include overlap/unmapped/excluded-only accounting. Optional panels are embedded in all three generated formats, not links to unrelated views. PQC retains its current-state/product-only boundary. `dashboard view scoreboard` composes validation/fuzz, census, patterns and benchmark recall alongside the leadership headlines; harness checkout maturity carries its own current measurement timestamp, independently of `--as-of`.
 ### Check scope and inputs
 
 `traust check estate-data --staged` reads the Git index, including migration portability
@@ -198,41 +181,6 @@ Go build/test commands are checked even without package arguments or trailing wh
 
 `traust check docs-consistency --root <path>` compares the model-class index against the
 skills in that selected checkout, not the checkout where the checker is installed.
-
-### Immutable as-reported dashboards
-
-`dashboard view` computes a preview; `dashboard capture` also archives the exact report
-exports in content-addressed ObjectStore bytes plus an append-only artifact row. Capture
-requires `--note` for the counting methodology or change explanation and returns its artifact
-UUID/digest. Scoreboard, executive summary and threat register use this shared archive;
-other registered views can be captured too. No new schema or legacy metrics JSONL writer is used.
-
-```bash
-traust dashboard capture scoreboard --note "Published counting policy" --out <report-dir>
-traust dashboard capture executive-summary --product <slug> --note "Leadership brief" --out <report-dir>
-traust dashboard capture threat-register --note "Latest recorded threat models" --out <report-dir>
-traust dashboard history scoreboard --limit 20 --out <history-dir>
-traust dashboard read-report <artifact-uuid> --out <original-report-dir>
-traust dashboard compare <artifact-uuid> --against previous --out <comparison-dir>
-traust dashboard compare <artifact-uuid> --against recomputed --out <replay-comparison-dir>
-traust dashboard compare <artifact-uuid> --against current --out <current-comparison-dir>
-```
-
-Capture accepts the same scope/window/configuration options as `view`. Repeat those
-scope options for `history`; `--as-of` is excluded from the history key, while view,
-product/team/category sets and non-default calculation/window options distinguish streams.
-`history` without `--out` lists report metadata; with it, the saved metric columns are also
-rendered as Markdown/HTML/JSON. `read-report` without `--out` reads the saved bundle;
-with it, original JSON/Markdown/HTML/CSV and `<artifact-uuid>.snapshot.json` bytes are exported.
-
-`previous` compares two immutable reported snapshots linked in the same stream. The
-first has no predecessor and returns a not-found error. Each link retains its prior
-artifact UUID/digest; concurrent captures can share a predecessor without overwriting
-either report. `recomputed` uses today's code/configuration at the saved report time,
-where the view supports historical reads; `current` uses today's data cut. The comparison
-names both methodologies and shows field-level old/new values and numeric deltas.
-Missing values remain distinct from JSON null. No comparison rewrites an archive.
-Portable history, comparison and original exports remain script-free.
 
 `traust check drift [--config-home <dir>]`
 prints pack configuration checks. The command remains informational (no `--fail-on` gate); native feed/registry age,
@@ -282,8 +230,9 @@ then the same `--worker` during recording. Missing/invalid output fails with
 
 ### Static configuration and placement diagnostics
 
-`traust adapters config-matrix <checkout> [--max-triples N] [--out F]` retains
-judged defaults first and records omitted rows as coverage gaps. Its JSON includes
+`traust adapters config-matrix <checkout> [--out F]` retains judged defaults first, up to
+traust-core's default cap, and records omitted rows as coverage gaps. `--max-triples` is
+refused: core's config-matrix provider takes no cap yet. Its JSON includes
 the checkout name, generation time, harness version, YAML-parser availability and
 statistics over the emitted triples. Credential literals remain redacted in every
 tier and in sink expressions; a row limit never means complete coverage.
@@ -332,29 +281,22 @@ repository/product scope. Nonmatching or empty filters produce no work, never
 the whole fleet. Do not pass the counts-only `impact analyze` response or a
 single native artifact as this advisory-wide filter.
 
-### Bulk CVE provenance
+### CVE provenance
 
 ```bash
 traust feeds fetch --feed rh-cve
-traust feeds reconcile-cve-provenance --min-score 0.55 --report /tmp/provenance-preview.json
-traust feeds reconcile-cve-provenance --apply --report /tmp/provenance-applied.json
+traust feeds reconcile-cve-provenance --finding <finding-uuid> [--finding <uuid> ...] --apply \
+  [--report /tmp/provenance.json]
 ```
 
-The default is a dry run over all recorded code audits and the retained `rh-cve`
-snapshot: no advisory or finding link is written. `--apply` records each distinct
-finding/CVE reference idempotently and links an unnamed finding's best primary
-advisory through Core. Existing primary conflicts stay visible and are never
-overwritten; no finding verdict or resolution changes.
-
-Stdout and optional `--report` contain the same typed reconciliation JSON:
-per-audit/ref/finding match rows with publication/audit dates, positive lead days,
-title score and confidence; distinct-CVE counts; confirmed lead-day min/median/max;
-and planned/written link counts. One CVE can match several branch reports but counts
-once in `distinct_cves`. The median uses the upper middle row, as the original workflow did.
-The score floor must be finite and within 0–1; lowering it below 0.55 does not admit
-unclassified matches. Shared CWEs promote confidence but never rescue a title below
-the chosen floor. A missing snapshot fails with exit 2: fetch it first. This command
-uses recorded assessment IDs and current services, not legacy corpus/layer paths.
+Each named finding is matched against the retained `rh-cve` snapshot by traust-core's
+`ExposureService.reconcile_provenance`: its repository's component, published after the
+finding's first report, a like title. When the finding names no advisory, the best match is
+recorded as its advisory; a finding naming an advisory the best match is not comes back a
+conflict and is never overwritten. Core always records, so there is no dry run: the command
+refuses without `--apply` and without at least one `--finding`. The match threshold is core's;
+there is no corpus-wide sweep. Stdout and optional `--report` carry the same typed checks.
+A missing snapshot fails with exit 2: fetch it first.
 ### Retired workflow entry points
 
 The core-hub cutover removed the following entry points; they are **not**
@@ -367,7 +309,7 @@ here so an old runbook cannot be mistaken for an executable fallback:
 | `check report-digests` | Verify report/artifact digest bindings | Core artifact publishing/index services; gate skill port unfinished |
 | Ledger triage / validation / verification emitters | Convert report verdicts into legacy layer events | `traust triage record`, `traust validation record`, and `traust remediation verify-record` persist through Core; use `remediation verifications` and `findings baseline` for recorded/current results |
 | `ledger pull` | Export a read-only snapshot of one legacy ledger layer | Legacy layer stores remain retired. Core `ledger.layer(layer_id)` and paged `ledger.events(layer_id, page)` read native layers; `findings import` is a distinct external-statement intake operation, not a snapshot-export replacement |
-| `corpus` group | Report discovery, identity, projections, summaries and precedents | Core owns assessment/artifact recording and native finding intake. Recording admits canonical container/RPM/vulnerability-scan findings, but not secure-code findings; only admitted candidates/bindings support native triage and precedents. See “Audit publication versus finding admission” above; `findings find` can legitimately return no match |
+| `corpus` group | Report discovery, identity, projections, summaries and precedents | Core owns assessment/artifact recording and native finding intake. Recording admits canonical secure-code/container/RPM/vulnerability-scan findings; only admitted candidates/bindings support native triage and precedents. See “Audit publication versus finding admission” above; `findings find` can legitimately return no match |
 | `route` group | Admit impact findings and remediation regressions without changing baselines | Core finding intake; routing skill ports unfinished |
 
 There is no executable fallback for these retired workflows. Do not hand-write a
@@ -403,68 +345,27 @@ judgements on existing core findings; it does not replace machine-report intake.
 
 
 
-## Inventory reference and owner/contact export
+## Owner/contact export
 
 ```bash
-traust portfolio onboard --product example --label Example --org example-org \
-  --sub-service Gateway --manager morgan --ownership-source "reviewed org directory"
-traust portfolio owner-hints --repo https://github.com/example-org/api --save
-traust portfolio import-reference --source /private/inventory-declarations.yaml
-traust portfolio inventory-export --format csv
-traust products add example --label Example --ownership owned --business-unit Commerce \
-  --note "The BU boundary cuts this shared tree."
-traust products update example --note "Reviewed boundary exception."
+traust portfolio onboard --product example --label Example --org example-org
+traust portfolio owner-hints --repo https://github.com/example-org/api
+traust portfolio inventory-export [--pd-cache-dir <feeds-dir>]
+traust products add example --label Example --ownership owned --business-unit Commerce
 traust products list
 ```
 
-`plan` accepts the same intake declarations and writes nothing. `--reference <file>` on
-`onboard`/`plan` accepts per-repository labels and contacts (and supplies the named repositories):
-
-```yaml
-version: 1
-repositories:
-  - repo_url: https://github.com/example-org/api
-    service: Gateway
-    individual_owners: [alice]
-    ownership_source: "OWNERS at reviewed commit"
-    manager: morgan
-    business_unit: Commerce
-    jira_project: PAY
-    jira_component: API
-    escalation_contact: oncall@example.com
-    payload_versions: ["4.0"]
-    operator_versions: ["1.0", "2.0"]
-```
-
-`onboard` derives `Resource Type=adhoc`. Organization intake defaults an omitted service
-label to the organization name. `--sub-service`, `--individual-owner` (repeatable),
-`--ownership-source`, `--manager`, `--business-unit`, `--jira-project`, `--jira-component`
-and `--escalation-contact` provide request-wide defaults; per-repository reference values win.
-`--payload-version` / `--operator-version` are repeatable observed inventory labels;
-onboarding accumulates them without claiming commit-qualified release membership.
-CSV exposes these separately from `Recorded Product Versions`.
-`import-reference` applies facts to already registered repositories, without forge discovery.
-The provider retains these declarations in `<traust.yaml home>/inventory-reference.yaml`
-outside domain tables. Omitted fields preserve previous facts; explicit nulls in YAML clear
-optional fields; explicit empty version lists replace/clear the authoritative declaration.
-No contact, manager or tracker key is fabricated.
-
-`inventory-export` emits JSON by default or spreadsheet-safe CSV with service/intake kind,
-team/person/source/manager/BU facts, explicit tracker and escalation routes, shipped
-`product:version` labels and trusted product-definitions contacts. A declared manager is a
-person fallback only when no individual owners exist. `owner-hints --save` retains the forge
-handles and provenance, never a team-ownership assignment. Contacts carry source and embargo
-eligibility; neither an exported route nor a candidate grants authority to disclose findings.
-The registry join uses `locations.feeds_cache` and the recorded product map, not slug guesses.
-For an SLA-specific snapshot, use `traust dashboard view sla --pd-cache-dir <feeds-dir> --out <dir>`;
-this override affects only that invocation and leaves deployment configuration unchanged.
-Saved forge hints are retained separately (`owner_hints`, `owner_hint_source`), so they cannot
-overwrite declared individuals/provenance. Exported people use declared individuals first,
-then forge hints, then a known manager. Organization defaults preserve existing service labels.
-
-`products add/update --note` round-trips subject-labelled caveats through the existing
-corpus-registry document note. Omitting the flag preserves the caveat; `--note ""` clears
-only that product. `products list` returns the note with each product.
+`inventory-export` composes every registered repository from the portfolio's own lists:
+`Repository`, `URL`, `Host`, `Organization/Group`, `Repo Name`, `Owner Team` (current owning
+teams), `Products` (products shipping it) and `Accountable Contacts` (product-definitions
+candidates for its URL through the recorded product map, with source field and embargo
+eligibility), as JSON (no CSV until core registers its Insight view (a priority follow-up)). `--pd-cache-dir` reads a
+product-definitions snapshot other than `locations.feeds_cache` for that run only. A contact
+is a candidate, never an owner, and grants no authority to disclose findings. Declared
+per-repository inventory facts (service labels, managers, tracker routes, escalation
+contacts) are retired: traust-core has one ownership source, the onboarding and owner-import
+doors. `owner-hints` prints forge hints; it never stores them. Product boundary caveats are
+not recorded (NEED(contracts: corpus-registry subject `notes`)).
 
 ## Deprecated forms
 
@@ -928,25 +829,12 @@ validation. This read-only historical check does not restore retired layer write
 or verify signatures over ordinary audit-report bodies; all reports still pass
 their exact contract schema.
 
-## Human-reviewed claim correction
+## Claim correction
 
-`traust findings correction-request REPORT --finding UUID --assessment ORIGINAL_UUID
---label LABEL --ticket CHANGE_RECORD --rationale WHY` requires a verified human
-login and a schema-valid corrected report for the original repository and commit.
-It retains the immutable proposal artifact on the original assessment and opens a
-`rebaseline_mapping` review. It does not admit fresh audit work or a verdict.
-
-`traust findings rebaseline REVIEW_UUID --ticket CHANGE_RECORD --rationale WHY`
-atomically records human acceptance and applies the stored proposal through canonical
-intake. It takes no replacement candidate from the command line, so approval cannot
-be reused for changed content. The stable finding UUID, original report/occurrence,
-judgement history and original assessment count are retained. Collision and repository
-checks still apply; correcting claim text is not a severity/validity judgement.
-
-`traust findings claim FINDING_UUID [--as-of ISO_WITH_ZONE]` reads the accepted
-corrected candidate, or null when there is none. Current finding views project the
-corrected title, description, locations, CWE and category while preserving the original
-reported severity and separate canonical decisions.
+`traust findings correction-request`, `traust findings rebaseline` and `traust findings claim`
+keep their arguments but refuse with "Claim correction needs a traust-core decision (plan 15,
+decision 1)": traust-core has no claim-correction door until that decision. They never apply,
+store or read a corrected claim.
 
 ## Container cumulative view and rating diagnostics
 

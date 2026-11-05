@@ -42,15 +42,15 @@ harness enum are different languages and the join must stay auditable.
 
    ```bash
    python3 -m traust.cli dashboard view sla \
-       [--sla-policy <other-policy.yaml>] [--pd-cache-dir <feeds-dir>] [--as-of <ISO time>] \
+       [--sla-policy <other-policy.yaml>] [--as-of <ISO time>] \
        [--product <slug>…] [--team-id <uuid>…] \
        --out progress-tracker/metrics/dashboards/sla
    ```
 
    Output: `progress-tracker/metrics/dashboards/sla/sla-view-<policy>.{md,html,json}`.
-   `--profile` is retired: every profile is in the one view. Product-definitions contacts
-   use `locations.feeds_cache` by default; `--pd-cache-dir` selects a snapshot for this run.
-   A missing snapshot is reported as unavailable, not a fabricated contact.
+   *Retired:* `--profile` (every profile is in the one view; read the one
+   asked for) and `--pd-cache-dir` (no product-definitions door yet; the
+   report says "Accountable contacts: unavailable").
 
 3. **Report back**: overdue count (lead with criticals), resolved-SLA
    compliance %, the per-team overdue table, and the unclocked /
@@ -100,13 +100,12 @@ harness enum are different languages and the join must stay auditable.
 
 **Consumes:** traust-core's findings, decisions, Jira links and repository
 owners (`SlaView`); the recorded SLA policy, else `packs/security/sla-policy.yaml`
-(human-curated policy data); the product-definitions snapshot at `locations.feeds_cache`
+(human-curated policy data); `analysis-results/feeds/product_definitions.json`
 (producer: python3 -m traust.cli feeds fetch-products, read via
 python3 -m traust.cli registry products) plus the recorded product map (`registry product-map`)
-for the accountable-contact join. `SlaView` uses reviewed repo mappings or exact registry repo
-matches only; slug candidates are not accountable contacts. Each digest row retains contact
-field/tier and embargo eligibility in JSON; the rendered digest shows source and eligibility.
-Freshness/unavailability and dropped invalid contacts remain in the view's source metadata.
+for the accountable-contact join (NEED(core: a product-definitions provider
+giving `SlaView` each product's accountable contacts; until then the view
+reports contacts unavailable)).
 
 **Emits:** `progress-tracker/metrics/dashboards/sla/sla-view-<policy>.{md,html,json}` —
 read by humans and quoted by the executive dashboards; the escalation

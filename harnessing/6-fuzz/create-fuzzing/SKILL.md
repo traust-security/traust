@@ -188,8 +188,8 @@ For each crasher:
    (CWE-770 resource exhaustion), or invariant violation (differential).
 4. Copy the reproducer into `analysis-results/findings/**/<id>/fuzz-corpus/<FuzzName>/`.
 5. **File a follow-up finding** through the fuzz report in step 6 or
-   `/file-security-defect`. Preserve the source audit reference in the
-   analyst narrative; never amend the baseline audit (gate A15).
+   `/file-security-defect`. Keep the link to the source audit through the
+   target's `audit_ref` (step 6); never amend the baseline audit (gate A15).
 6. **Record it in traust.** A crasher that only exists as
    prose in a batch summary is not recorded — traust is the register of
    what we know about a finding, and for months it held none of these.
@@ -203,19 +203,6 @@ For each crasher:
    traust reporting record <fuzz-report.json> --kind fuzz \
        --repo-url <repository-URL> --sha <target commit>
    ```
-
-   When supplied by the campaign, record its `batch` label and explicit
-   `patterns` observations (`name`, `tested`, `vulnerable`, optional
-   `reference`/`advisory`). A missing outcome is `null`, not a clean result;
-   a vulnerable observation requires an actual test. Do not classify a
-   pattern from a crash class or populate a denominator from clean harnesses.
-
-   Preserve each crasher's complete `cvss.vector`, source `location`,
-   reproducer digest/URI/path and any supplied `analysis`: `narrative`,
-   `narrative_references`, `fix`, `priority`, `negative_control_references`.
-   References are declared evidence locations, not paths for the dashboard
-   to walk. Do not generate analyst text or negative-control claims from
-   run outcomes. Omit analyst fields that were not supplied.
 
    One finding per crasher: its reproducer digest and path are in the report,
    which the `fuzz` assessment holds. Where the target's `audit_ref` names a
@@ -240,32 +227,6 @@ with results (hit / miss / compile-gap per target) so the next batch's
 selection can learn from it. The campaign rollup is
 `traust dashboard view validation-fuzz --out <dir>`, built from the recorded
 fuzz reports.
-
-The dashboard retains prior runs separately from latest-target results.
-Batch counts use only declared membership; pattern hit rates use only
-explicit tested-target observations. Any tested target with an unresolved
-outcome leaves its pattern rate unmeasured.
-
-For an existing adopter's historical campaign, import the supplied sidecar
-and original analyst rollup without restoring embedded estate-specific
-tables in tooling:
-
-```bash
-traust reporting import-fuzz-campaign FUZZ-CAMPAIGN-SUMMARY.json \
-    --legacy-summary --campaign-id <campaign-id> \
-    --repository <repository-URL> [--repository <other-URL>] \
-    --rollup FUZZ-FINDINGS-ROLLUP.md
-```
-
-Declare every repository in the historical population. Optional
-`--bug-narrative <number>=<file>`, `--remediation-priority <file>` and
-`--negative-controls <file>` retain separately supplied analyst text;
-`--source-reference <reference>` adds provenance. Without `--legacy-summary`,
-the command accepts a `fuzz-campaign` contract document directly and retains
-its exact bytes. Imported aggregate counts remain labelled supplied
-historical facts: they never become target observations, findings or runs.
-A product/team cut shows the snapshot only when its entire declared
-repository population belongs to that scope; counts are never apportioned.
 
 ## Output
 

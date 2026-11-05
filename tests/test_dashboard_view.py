@@ -465,7 +465,7 @@ def test_container_view_preserves_the_full_report_stem_and_anchor(
     assert json.loads((out / f"{stem}-findings-current.json").read_text()) == answer["model"]
 
 
-def test_executive_segment_options_publish_real_inventory_counts(
+def test_executive_panel_options_publish_real_counts(
     home: Path,
     tmp_path: Path,
 ) -> None:
@@ -473,11 +473,6 @@ def test_executive_segment_options_publish_real_inventory_counts(
 
     from traust.context import load
 
-    inputs = tmp_path / "inputs"
-    (inputs / "services").mkdir(parents=True)
-    (inputs / "services/scope-repos.csv").write_text(
-        "URL\nhttps://github.com/example-org/service.git\n"
-    )
     core = load(home)
     core.services().portfolio.register_repository(
         HttpsRepoUrl.parse("https://github.com/example-org/service", ("github.com",)), public=True
@@ -486,9 +481,6 @@ def test_executive_segment_options_publish_real_inventory_counts(
     rc, answer = run(
         home,
         "executive-summary",
-        "--by-segment",
-        "--inputs-root",
-        str(inputs),
         "--panel",
         "isolation",
         "--panel",
@@ -498,9 +490,6 @@ def test_executive_segment_options_publish_real_inventory_counts(
     )
     assert rc == 0
     model = json.loads((out / "executive-summary-findings.json").read_text())
-    assert model["segments"]["rows"][0]["segment"] == "services"
-    assert model["segments"]["rows"][0]["repositories"] == 1
-    assert model["segments"]["rows"][0]["tally"]["open"]["high"] == 0
     assert model["isolation"]["reviews"] == []
     assert model["iac"]["assessments"] == 0
     assert answer["model"] == model
@@ -527,38 +516,23 @@ def test_executive_options_refuse_unrelated_views_before_loading_or_writing(
     assert not out.exists()
 
 
-def test_loc_comparison_and_calibration_options_reach_core(
-    publish: Door, home: Path, tmp_path: Path
-) -> None:
+def test_loc_calibration_option_reaches_core(publish: Door, home: Path, tmp_path: Path) -> None:
     from decimal import Decimal
 
-    earlier = datetime(2026, 9, 1, tzinfo=UTC)
-    rc, answer = run(
-        home,
-        "loc",
-        "--compare-as-of",
-        earlier.isoformat(),
-        "--first-party-divisor",
-        "1.6",
-        "--out",
-        str(tmp_path / "loc"),
-    )
+    rc, answer = run(home, "loc", "--first-party-divisor", "1.6", "--out", str(tmp_path / "loc"))
     assert rc == 0, answer
-    assert publish.calls == [
-        (ViewName.LOC, ViewFilter(compare_as_of=earlier, first_party_divisor=Decimal("1.6")))
-    ]
+    assert publish.calls == [(ViewName.LOC, ViewFilter(first_party_divisor=Decimal("1.6")))]
 
 
-def test_spend_repricing_and_workstation_options_reach_core(
+def test_loc_comparison_is_refused_before_publication(
     publish: Door, home: Path, tmp_path: Path
 ) -> None:
-    rc, answer = run(
-        home, "spend", "--reprice", "--workstation-spend", "--out", str(tmp_path / "spend")
-    )
-    assert rc == 0, answer
-    assert publish.calls == [
-        (ViewName.SPEND, ViewFilter(reprice_spend=True, workstation_spend=True))
-    ]
+    earlier = datetime(2026, 9, 1, tzinfo=UTC)
+    out = tmp_path / "loc"
+    rc, answer = run(home, "loc", "--compare-as-of", earlier.isoformat(), "--out", str(out))
+    assert rc == 2 and "no historical comparison" in answer
+    assert publish.calls == []
+    assert not out.exists()
 
 
 @pytest.mark.parametrize(
@@ -566,8 +540,6 @@ def test_spend_repricing_and_workstation_options_reach_core(
     [
         ("--compare-as-of", AS_OF.isoformat()),
         ("--first-party-divisor", "1.6"),
-        ("--reprice",),
-        ("--workstation-spend",),
     ],
 )
 def test_view_specific_options_cannot_silently_change_another_view(

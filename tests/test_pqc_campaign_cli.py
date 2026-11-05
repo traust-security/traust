@@ -13,39 +13,6 @@ from traust.cli.groups.pqc import PQC
 FIXTURE = Path(__file__).parent / "fixtures/pqc/widget-pqc-readiness.json"
 
 
-def test_repair_cli_validates_a_batch_before_writing_and_never_overwrites_sources(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    core = Context(Config(home=tmp_path / "home"))
-    monkeypatch.setattr(pqc, "load", lambda _: core)
-    body = json.loads(FIXTURE.read_bytes())
-    body.pop("remediations")
-    for clock in body["clock_items"]:
-        clock["remediation_effort"] = None
-    original = tmp_path / "widget-pqc-readiness.json"
-    original.write_text(json.dumps(body))
-    original.with_suffix(".md").write_text(
-        "# Report\n\n### Fix now\n- `tls.go:4` — Remove the group pin\n"
-    )
-    before = original.read_bytes()
-    output = tmp_path / "repaired"
-    assert pqc.repair(["--report", str(original), "--out-dir", str(output)]) == 0
-    result = json.loads(capsys.readouterr().out)
-    assert result[0]["derived"] is True and result[0]["remediations"] == 2
-    assert original.read_bytes() == before
-    repaired = json.loads((output / original.name).read_bytes())
-    assert [r["category"] for r in repaired["remediations"]] == ["fix-now", "deadline"]
-    assert "### What the domains mean" in (output / original.with_suffix(".md").name).read_text()
-    assert pqc.repair(["--report", str(original), "--out-dir", str(tmp_path)]) == 2
-    capsys.readouterr()
-    assert original.read_bytes() == before
-    dry_output = tmp_path / "preview"
-    assert pqc.repair(["--report", str(original), "--out-dir", str(dry_output), "--dry-run"]) == 0
-    assert not dry_output.exists()
-
-
 def test_worklist_cli_discovers_registered_unassessed_repositories(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -60,42 +27,15 @@ def test_worklist_cli_discovers_registered_unassessed_repositories(
             True,
         )
         services.portfolio.register_ref(repository.id, GitSha.parse("a" * 40), None, None)
-    assert pqc.worklist([]) == 0
+    assert pqc.worklist(["--chokepoint", " OAuth-Gateway ", "--chokepoint", "oauth-gateway"]) == 0
     entries = json.loads(capsys.readouterr().out)
     assert [(e["priority_tier"], e["route"]) for e in entries] == [
         ("chokepoint", "source"),
         ("tail", "source"),
     ]
     assert all(e["scan"]["assessment_id"] is None for e in entries)
-    assert pqc.worklist(["--markdown"]) == 0
-    markdown = capsys.readouterr().out
-    assert "https://github.com/example/oauth-gateway" in markdown
-    assert {"repair", "sweep", "worklist"} <= PQC.keys()
-
-
-def test_repair_batch_with_an_invalid_member_leaves_no_partial_output(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    core = Context(Config(home=tmp_path / "home"))
-    monkeypatch.setattr(pqc, "load", lambda _: core)
-    bad = tmp_path / "invalid.json"
-    bad.write_text("{}")
-    output = tmp_path / "output"
-    assert (
-        pqc.repair(
-            [
-                "--report",
-                str(FIXTURE),
-                "--report",
-                str(bad),
-                "--out-dir",
-                str(output),
-            ]
-        )
-        == 2
-    )
-    assert not output.exists()
+    assert entries[0]["repository"] == "https://github.com/example/oauth-gateway"
+    assert {"sweep", "worklist"} <= PQC.keys()
 
 
 def test_sweep_cli_reports_access_work_and_rejects_invalid_batch_bounds(
@@ -118,3 +58,47 @@ def test_sweep_cli_reports_access_work_and_rejects_invalid_batch_bounds(
     assert pqc.sweep(["--limit", "0"]) == 2
     capsys.readouterr()
     assert core.services().portfolio.inventory.list_refs(repository.id) == []
+
+
+def test_sweep_cli_refuses_a_source_scan_until_the_scanner_decision(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    core = Context(Config(home=tmp_path / "home"))
+    monkeypatch.setattr(pqc, "load", lambda _: core)
+    services = core.services()
+    repository = services.portfolio.register_repository(
+        HttpsRepoUrl.parse("https://github.com/example/widget", ["github.com"]), True
+    )
+    services.portfolio.register_ref(repository.id, GitSha.parse("a" * 40), None, None)
+    assert pqc.sweep([]) == 2
+    assert "pqc-scan scanner needs a traust-core decision (plan 15, decision 4)" in (
+        capsys.readouterr().err
+    )
+
+
+def test_without_a_chokepoint_every_repository_ranks_crypto_cwe_then_tail(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    core = Context(Config(home=tmp_path / "home"))
+    monkeypatch.setattr(pqc, "load", lambda _: core)
+    services = core.services()
+    repository = services.portfolio.register_repository(
+        HttpsRepoUrl.parse("https://github.com/example/oauth-gateway", ["github.com"]), True
+    )
+    services.portfolio.register_ref(repository.id, GitSha.parse("a" * 40), None, None)
+    assert pqc.worklist([]) == 0
+    captured = capsys.readouterr()
+    assert [e["priority_tier"] for e in json.loads(captured.out)] == ["tail"]
+    assert captured.err == ""
+
+
+@pytest.mark.parametrize("blank", ["", "  "])
+def test_a_blank_chokepoint_is_refused(blank: str, capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit) as refused:
+        pqc.worklist(["--chokepoint", blank])
+    assert refused.value.code == 2
+    assert "nonblank URL fragment" in capsys.readouterr().err

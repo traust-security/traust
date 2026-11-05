@@ -5,7 +5,7 @@ import io
 import json
 from collections.abc import Callable
 from pathlib import Path
-from uuid import UUID, uuid4
+from uuid import UUID
 
 import pytest
 from traust_core.v1.context import Config, Context
@@ -38,67 +38,6 @@ def registered(core: Context, name: str, sha: str) -> UUID:
     ref = portfolio.register_ref(repository.id, GitSha.parse(sha), None, None)
     assert ref.id is not None
     return ref.id
-
-
-def test_collect_then_reverse_queries_read_persisted_reference_facts(
-    core: Context,
-    tmp_path: Path,
-) -> None:
-    ref_id = registered(core, "library", "a" * 40)
-    checkout = tmp_path / "checkout"
-    checkout.mkdir()
-    (checkout / "go.mod").write_text("module example.test/library\n")
-    (checkout / "api.go").write_text("""package library
-import "example.test/upstream/api"
-func Public() {}
-""")
-    (checkout / "crd.yaml").write_text("""apiVersion: apiextensions.k8s.io/v1
-kind: CustomResourceDefinition
-metadata: {name: widgets.widgets.example.test}
-spec:
-  group: widgets.example.test
-  names: {kind: Widget, plural: widgets}
-  scope: Namespaced
-""")
-    code, collected = invoke(
-        portfolio_facts.collect,
-        "--repository-ref-id",
-        str(ref_id),
-        "--checkout",
-        f"{ref_id}={checkout}",
-    )
-    assert code == 0
-    artifact_id = collected[0]["artifact_id"]
-    code, imports = invoke(
-        portfolio_facts.imports_package,
-        "example.test/upstream",
-        "--repository-ref-id",
-        str(ref_id),
-    )
-    assert code == 0
-    assert [(r["artifact_id"], r["fact"]["package"]) for r in imports] == [
-        (artifact_id, "example.test/upstream/api"),
-    ]
-    code, exports = invoke(portfolio_facts.exports_of, "--repository-ref-id", str(ref_id))
-    assert code == 0
-    assert [r["fact"]["name"] for r in exports] == ["Public"]
-    code, interfaces = invoke(
-        portfolio_facts.crd_consumers,
-        "widgets.example.test",
-        "--repository-ref-id",
-        str(ref_id),
-    )
-    assert code == 0
-    assert [(r["artifact_id"], r["fact"]["role"]) for r in interfaces] == [(artifact_id, "owner")]
-    repository_id = core.services().portfolio.inventory.get_ref(ref_id).repository_id
-    code, coupling = invoke(
-        portfolio_facts.internal_coupling,
-        "--repository-id",
-        str(repository_id),
-    )
-    assert code == 0
-    assert coupling[0]["consumer_repository_ids"] == []
-    assert coupling[0]["packages"][0]["source_repository_id"] == str(repository_id)
 
 
 def test_images_shipping_module_query_uses_recorded_sbom_and_version(core: Context) -> None:
@@ -136,17 +75,5 @@ def test_images_shipping_module_query_uses_recorded_sbom_and_version(core: Conte
         "example.test/library",
         "--ecosystem",
         "npm",
-    )
-    assert code == 2
-
-
-def test_checkout_mapping_must_name_a_selected_ref(core: Context, tmp_path: Path) -> None:
-    ref_id = registered(core, "source", "d" * 40)
-    code, _ = invoke(
-        portfolio_facts.collect,
-        "--repository-ref-id",
-        str(ref_id),
-        "--checkout",
-        f"{uuid4()}={tmp_path}",
     )
     assert code == 2

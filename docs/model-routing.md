@@ -91,17 +91,14 @@ an unknown or unpriced `--model` exits 1 and records nothing):
 ```bash
 python3 -m traust.cli registry models spend --skill secure-code-audit \
     --model <id> --tokens-in N --tokens-out N [--batch <batch-id>] \
-    [--repo <slug> --loc <size>] [--note <text>] [--json]
+    [--repo <slug> --loc <size>]
 ```
 
-`--repo`/`--loc` associate the declaration with one audited target. Core stores
-the complete calibration tuple (`repo`, `loc`, `batch`, `note`) and original
-request/cache usage in a typed reference artifact linked to the immutable
-spend event; no extra spend-table columns are required. `--json` returns the
-event ID; read its evidence with
-`python3 -m traust.cli registry models calibration <event-id>`.
-Missing values stay unknown. Batch drivers
-SHOULD pass repo and size on per-repo rows; batch-level rows omit them. Every
+`--repo`/`--loc` attribute the row to one audited target — the calibration
+tuple `(spend, repo, size)` the scan estimator fits against (*not stored* yet:
+the spend event has no column for them, nor for `--batch`/`--note`; the command
+says so on stderr). Batch drivers
+SHOULD pass both on per-repo rows; batch-level rows omit them. Every
 model-heavy per-target skill carries a "Spend declaration (calibration tuple)"
 section instructing the row; any other skill that consumes model tokens should
 declare too — an unknown `--skill` name falls to the budget policy's `default`
@@ -122,12 +119,6 @@ Two properties of declared rows to keep in mind:
 Cost, where a dashboard shows one, comes from the registry rate card
 (`price_per_mtok_*`); verify it against the current published prices before
 treating a dashboard figure as billing truth.
-
-`traust dashboard view spend --reprice` adds a separate current-rate comparison.
-Settled dollars, invoices and budgets are unchanged. Pricing preserves request
-boundaries, cache reads/writes and long-prompt thresholds. Legacy events without
-complete request evidence, and models without prices, are explicitly unavailable:
-the comparison reports its covered settled amount and never invents a zero price.
 
 ## Batch lane
 

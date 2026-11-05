@@ -546,7 +546,7 @@ COMPLIANCE_PRECISION = passthrough_op(
     "main",
 )
 CRITICAL_MISSES = passthrough_op(
-    "critical_misses", "Report critical pre-intake campaign candidates and recorded misses.", "main"
+    "critical_misses", "Report a window's recorded critical misses.", "main"
 )
 CVE_REPLAY = passthrough_op(
     "cve_replay", "Discover advisory replay candidates against audited commits.", "main"

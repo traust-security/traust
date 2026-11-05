@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-import re
 from collections import defaultdict
 from datetime import UTC, datetime
 from enum import StrEnum
 from uuid import UUID
 
 from traust_core.v1.context import CheckoutRequest, Services
-from traust_core.v1.errors import ConfigError, TraustError, ValidationError
+from traust_core.v1.errors import TraustError, ValidationError
 from traust_core.v1.models.base import Model
 from traust_core.v1.models.common import ToolRequest, every_item
 from traust_core.v1.models.findings import FindingFilter
@@ -15,6 +14,8 @@ from traust_core.v1.models.inventory import Liveness, RepositoryFilter, Reposito
 from traust_core.v1.models.observation import ComparisonStatus
 from traust_core.v1.models.pqc import PqcFilter, PqcScanState
 from traust_core.v1.models.values import GitSha, HttpsRepoUrl
+
+from traust.lib.pending_decisions import Decision, PendingCoreDecision
 
 CRYPTO_CWES = frozenset(
     {
@@ -51,12 +52,6 @@ CRYPTO_CWES = frozenset(
         "CWE-1240",
     }
 )
-CHOKEPOINT = re.compile(
-    r"oauth-proxy|kube-rbac-proxy|keycloak|authorino|cert-manager|service-ca|"
-    r"cluster-ingress|certman|ingress-operator|router|haproxy|sigstore|cosign|chains|"
-    r"recert|openssl|crypto|vault|pki|ca-operator|sso|dex|oauth",
-    re.I,
-)
 
 
 class SweepRoute(StrEnum):
@@ -92,13 +87,47 @@ class SweepBatch(Model):
 
 
 class PqcSweep:
-    def __init__(self, services: Services, hosts: tuple[str, ...]) -> None:
+    """The PQC sweep's worklist and bounded prescan batches.
+
+    ``chokepoints`` are the caller's priority repositories (URL fragments, `--chokepoint`): a
+    repository whose URL contains one leads the worklist. ``scanner`` is the Context's
+    ``pqc_scanner``; traust registers none until plan 15's decision 4, so a batch that would
+    scan refuses.
+    """
+
+    def __init__(
+        self,
+        services: Services,
+        hosts: tuple[str, ...],
+        chokepoints: tuple[str, ...] = (),
+        scanner: object | None = None,
+    ) -> None:
         self._services, self._hosts = services, hosts
+        self._chokepoints = tuple(c.lower() for c in chokepoints)
+        self._scanner = scanner
+
+    def _scoped_refs(self, filter: PqcFilter) -> list[RepositoryRef]:
+        """Registered commits in scope, scanned or not: the named commits, narrowed to what the
+        product ships, else every registered repository's commits."""
+        portfolio = self._services.portfolio
+        refs = None if filter.repository_ref_ids is None else list(filter.repository_ref_ids)
+        if filter.product_id is not None:
+            shipped = {r.id for r in portfolio.list_product_refs(filter.product_id) if r.id}
+            refs = sorted(shipped, key=str) if refs is None else [r for r in refs if r in shipped]
+        if refs is not None:
+            return portfolio.inventory.list_refs_by_ids(refs)
+        repositories = every_item(
+            lambda page: portfolio.list_repositories(RepositoryFilter(), page)
+        )
+        return portfolio.inventory.list_refs_of([r.id for r in repositories if r.id])
+
+    def _chokepoint(self, url: str) -> bool:
+        return any(fragment in url.lower() for fragment in self._chokepoints)
 
     def worklist(self, filter: PqcFilter) -> tuple[SweepEntry, ...]:
         services = self._services
         refs: dict[UUID, list[RepositoryRef]] = defaultdict(list)
-        for ref in services.pqc.scoped_refs(filter):
+        for ref in self._scoped_refs(filter):
             refs[ref.repository_id].append(ref)
         states = {
             state.repository_ref_id: state
@@ -138,7 +167,7 @@ class PqcSweep:
                 for finding in findings
                 for cwe in finding.cwes
             )
-            tier = 0 if CHOKEPOINT.search(repository.url) else 1 if crypto else 2
+            tier = 0 if self._chokepoint(repository.url) else 1 if crypto else 2
             access = availability[repository.id]
             route, reason = SweepRoute.SOURCE, access.reason
             if ref is None:
@@ -182,14 +211,15 @@ class PqcSweep:
                 if not refresh:
                     continue
                 if scan.current is None:
-                    raise ConfigError(
-                        "PQC refresh needs a registered scanner pack to compare stamps"
-                    )
+                    raise PendingCoreDecision(Decision.PQC_SCANNER)
                 if scan.current:
                     continue
             pending.append(entry)
+        batch = pending[:limit]
+        if self._scanner is None and any(e.route != SweepRoute.ACCESS_REQUEST for e in batch):
+            raise PendingCoreDecision(Decision.PQC_SCANNER)
         results = []
-        for entry in pending[:limit]:
+        for entry in batch:
             if entry.route == SweepRoute.ACCESS_REQUEST:
                 results.append(SweepResult(entry=entry, status="access-request"))
                 continue

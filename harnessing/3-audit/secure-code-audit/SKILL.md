@@ -365,20 +365,16 @@ using only evidence available before recording; another repo's context
 does not establish this one's applicability.
 
 Precedent handling requires admitted native findings. For this skill's
-`--kind secure_code`, `traust reporting record` stores the canonical
-secure-code assessment/artifact only: `SECURE_CODE_CANONICAL` has no
-reported-findings admission mapping. This gap is specific to secure code,
-not canonical container/RPM/vuln-scan recording. Do not convert or rewrite
-the report to bypass it. Only separate actual supported admission of
-matching claims can supply a native assessment for `traust triage prepare`.
-Use that admitted assessment's identity, not the stored-only secure-code
-assessment ID. If only the
-assessment receipt exists or reported claims remain unadmitted,
-adjudication of those claims is unavailable, not a clean audit or proof
-of no findings. A genuinely empty batch after successful supported finding
-intake is valid, with zero native counts under triage's existing contract;
-it still does not prove the repository secure. For admitted candidates,
-`/triage` Phase 2g owns the
+`--kind secure_code`, a successful `traust reporting record` admits the
+report's findings as native findings under the returned assessment ID,
+as canonical container/RPM/vuln-scan recording does; `traust triage
+prepare <assessment-id>` reads them (Step 4b). If recording fails or
+reported claims remain unadmitted, adjudication of those claims is
+unavailable, not a clean audit or proof of no findings. Do not convert or
+rewrite the report to work around a refusal. A genuinely empty batch after
+successful recording is valid, with zero native counts under triage's
+existing contract; it still does not prove the repository secure. For
+admitted candidates, `/triage` Phase 2g owns the
 supplied `precedents`, their provenance, verification routing and
 subsequent adjudication. Do not require a pre-filing match, downgrade on
 an unavailable match, or add an `"fp-precedent"` entry to
@@ -1545,7 +1541,7 @@ Key profile obligations for this skill:
 - Always emit `review_surface_coverage`: one entry per review surface ([`review-surfaces.md` → Recording coverage](review-surfaces.md#recording-coverage)). Required from traust 0.20.0; the validator checks every `finding_ids`, `negative` and `not_assessed` entry against the rest of the report.
 - Include `metadata.loc_breakdown` on all new reports.
 - Stamp `metadata.additional.repo_status` from `progress-tracker/metrics/repo-liveness.json` when present (`active | archived | moved | missing`, with `status_since`); absent from the artifact → `"unknown: not in liveness artifact"`. **Record only** — status never changes findings, severity, or scan depth: archived code that ships is exactly as exploitable as live code. Consumers read the artifact; do not re-query GitHub.
-- Core computes cross-scan `fingerprint` on native finding admission, not this skill's assessment-only `reporting record --kind secure_code`; never stamp it into the report.
+- Core computes cross-scan `fingerprint` on native finding admission (which `reporting record --kind secure_code` performs); never stamp it into the report.
 
 ### Field Conventions
 
@@ -1644,16 +1640,15 @@ If errors appear, read each error message, fix the JSON, and re-run the validato
 
 **Step 2b — Informational: Core finding identity, not an audit completion gate:**
 
-Core computes cross-scan identity on supported **finding intake** —
+Core computes cross-scan identity on **finding admission** —
 never model-authored or stamped into this report. It uses the canonical
 repo URL, lineless location paths and primary CWE. Changing locations or
 CWEs can change that identity. This skill's `traust reporting record
---kind secure_code` stores the assessment/artifact only; its receipt is not
-a finding-admission receipt and does not complete finding identity.
+--kind secure_code` admits the report's findings, so its receipt's
+assessment ID is the native assessment for triage (Step 4b).
 
-Only after separate actual supported admission of matching claims, using
-the corresponding admitted native assessment for triage, is the following
-an **optional diagnostic lookup**, not a required post-record check:
+After recording, the following is an **optional diagnostic lookup**, not
+a required post-record check:
 
 ```bash
 traust findings find <path-to-report.json> --label <report-local-finding-id> \
@@ -1662,8 +1657,7 @@ traust findings find <path-to-report.json> --label <report-local-finding-id> \
 
 Use the audited source repository URL, not the harness URL. Exit 0 with
 `finding_id: null` means **no match**, not successful identity completion,
-admission or a clean audit. The current assessment-only audit handoff gap
-must be reported explicitly; do not invent an audit-intake CLI, convert
+admission or a clean audit. Do not invent an audit-intake CLI, convert
 the report into scanner input, rewrite it, or stamp a fabricated identity.
 
 **Step 3 — Run strict mode (recommended):**
@@ -1722,17 +1716,16 @@ admission checks at this door; compatibility validation and rendering are
 not a substitute. Preserve historical reports and stored-run replay
 rather than rewriting them to satisfy new-authorship rules.
 
-**Current secure-code handoff gap:** `SECURE_CODE_CANONICAL` recording
-does not admit this report's findings as native candidates. This is not
-the behavior of canonical container/RPM/vuln-scan recording. Retain this
-secure-code assessment receipt
-and the original artifact. If there is no trusted supported admission
-receipt, or artifact claims remain unadmitted, report their native
-adjudication/identity/precedent handoff as unavailable. Successful supported
-intake may instead establish a valid empty native batch; use its own
-assessment identity and triage's empty-batch contract, not this audit's
-assessment ID as proof of admission. Do not invent another audit-intake
-command or silently convert the artifact.
+**Finding admission:** `SECURE_CODE_CANONICAL` recording admits this
+report's findings as native findings under the returned assessment ID, as
+canonical container/RPM/vuln-scan recording does. A finding that a
+re-audit names differently from an already recorded one is held for a
+person's rebaseline review rather than opened as a duplicate. Retain the
+assessment receipt and the original artifact; `/triage` takes the returned
+assessment ID as its input (A). If recording is refused, report native
+adjudication/identity/precedent handoff as unavailable. Do not invent
+another audit-intake command or silently convert the artifact.
+Plan 15's decision 5 may change whether secure-code recording admits findings.
 
 **Step 5 — Declare per-repo spend (calibration tuple):**
 
@@ -1804,6 +1797,6 @@ report artifact — consumed by `/triage`, `/track-findings`,
 `/threat-model` bootstrap, `/create-fuzzing` target selection,
 `/file-security-defect`, and every dashboard via python3 -m traust.cli dashboard view.
 These report-artifact consumers do not establish native finding
-admission; the assessment-only handoff gap in Step 4b still applies.
+admission; Step 4b's recording does.
 The Markdown companion is rendered by python3 -m traust.cli reporting render,
 never hand-written.

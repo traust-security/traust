@@ -10,7 +10,6 @@ import pytest
 import yaml
 from traust_core.v1.errors import ValidationError
 from traust_core.v1.models.identity import Principal
-from traust_core.v1.models.input_segments import InputSegment, InputSegmentInventory
 from traust_core.v1.models.operations import (
     AssetRequest,
     JobResult,
@@ -21,7 +20,8 @@ from traust_core.v1.models.operations import (
 from traust_core.v1.models.vocabulary import ActorKind
 
 from traust.cli import portfolio_observe
-from traust.context import load
+from traust.context import inputs_dir, load
+from traust.inventory import InputSegment, InputSegmentInventory, repository_inventory
 from traust.ops.intake import (
     ExternalValidationInput,
     InventoryDiscoveryMaterializer,
@@ -67,7 +67,7 @@ def test_inventory_url_reaches_observation_and_full_audit_orders(tmp_path: Path)
     services = core.services()
     with core.repository_observation() as observation:
         result = InventoryDiscoveryMaterializer(
-            services, observation.query, core.repository_inventory(), PRINCIPAL
+            services, observation.query, repository_inventory(inputs_dir(core)), PRINCIPAL
         ).materialize(AssetRequest(asset="inventory_discovery", run_id="inventory-run"))
         orders = [services.ops.get(UUID(order_id)) for order_id in result.written]
         repository = services.portfolio.find_repository(REPO)
@@ -100,7 +100,7 @@ def test_unconsumed_events_become_distinct_executable_orders(tmp_path: Path) -> 
     services = core.services()
     with core.repository_observation() as observation:
         InventoryDiscoveryMaterializer(
-            services, observation.query, core.repository_inventory(), PRINCIPAL
+            services, observation.query, repository_inventory(inputs_dir(core)), PRINCIPAL
         ).materialize(AssetRequest(asset="inventory_discovery", run_id="inventory-run"))
         events = event_file(
             tmp_path,
@@ -138,7 +138,7 @@ def test_external_reports_remain_separate_while_the_first_is_open(tmp_path: Path
     services = core.services()
     with core.repository_observation() as observation:
         InventoryDiscoveryMaterializer(
-            services, observation.query, core.repository_inventory(), PRINCIPAL
+            services, observation.query, repository_inventory(inputs_dir(core)), PRINCIPAL
         ).materialize(AssetRequest(asset="inventory_discovery", run_id="inventory-run"))
         events = event_file(
             tmp_path,
@@ -187,7 +187,7 @@ def test_completed_event_is_not_dispatched_again(tmp_path: Path) -> None:
     services = core.services()
     with core.repository_observation() as observation:
         InventoryDiscoveryMaterializer(
-            services, observation.query, core.repository_inventory(), PRINCIPAL
+            services, observation.query, repository_inventory(inputs_dir(core)), PRINCIPAL
         ).materialize(AssetRequest(asset="inventory_discovery", run_id="inventory-run"))
         events = event_file(
             tmp_path,
@@ -245,7 +245,7 @@ def test_inventory_failure_diagnostics_do_not_echo_provider_exception_payloads(
     monkeypatch.setattr(services.portfolio, "find_repository", refused)
     with core.repository_observation() as observation:
         result = InventoryDiscoveryMaterializer(
-            services, observation.query, core.repository_inventory(), PRINCIPAL
+            services, observation.query, repository_inventory(inputs_dir(core)), PRINCIPAL
         ).materialize(AssetRequest(asset="inventory_discovery", run_id="provider-failure"))
     assert result.outcome == "degraded" and result.degraded == {"error": 1}
     assert not result.written
@@ -277,7 +277,7 @@ def test_unsuccessful_event_work_stays_visible_until_operator_archives_it(
     }
     with core.repository_observation() as observation:
         InventoryDiscoveryMaterializer(
-            services, observation.query, core.repository_inventory(), PRINCIPAL
+            services, observation.query, repository_inventory(inputs_dir(core)), PRINCIPAL
         ).materialize(AssetRequest(asset="inventory_discovery", run_id="inventory-run"))
         events = event_file(tmp_path, row)
         intake = RescanEventIntakeMaterializer(services, observation.query, PRINCIPAL, events)
@@ -311,7 +311,7 @@ def test_many_events_read_each_groups_history_and_manifests_once(
     services = core.services()
     with core.repository_observation() as observation:
         InventoryDiscoveryMaterializer(
-            services, observation.query, core.repository_inventory(), PRINCIPAL
+            services, observation.query, repository_inventory(inputs_dir(core)), PRINCIPAL
         ).materialize(AssetRequest(asset="inventory_discovery", run_id="inventory-run"))
         for index in range(5):
             events = event_file(tmp_path, {"source": "cve", "repo": REPO, "note": f"old-{index}"})
@@ -354,7 +354,7 @@ def test_duplicate_feed_rows_share_the_same_in_tick_event_binding(tmp_path: Path
     }
     with core.repository_observation() as observation:
         InventoryDiscoveryMaterializer(
-            services, observation.query, core.repository_inventory(), PRINCIPAL
+            services, observation.query, repository_inventory(inputs_dir(core)), PRINCIPAL
         ).materialize(AssetRequest(asset="inventory_discovery", run_id="inventory-run"))
         events = event_file(tmp_path, row, row, row)
         result = RescanEventIntakeMaterializer(

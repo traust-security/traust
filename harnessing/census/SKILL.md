@@ -16,7 +16,7 @@ allowed-tools:
 
 # Corpus Census — population, duplication, distinct vulnerabilities
 
-> **Ported to traust-core in part** (progress-tracker skill port 09, census): the population is `traust portfolio population`, repo liveness `traust portfolio liveness`, distinct vulnerabilities, ownership cuts and the census files `traust dashboard view census` (traust-core's census view).
+> **Ported to traust-core in part** (progress-tracker skill port 09, census): the population is `traust portfolio population`, repo liveness `traust portfolio liveness` (refused until plan 15's decision 3), distinct vulnerabilities, ownership cuts and the census files `traust dashboard view census` (traust-core's census view).
 
 > **Paths.** `analysis-results/…` and `progress-tracker/…` in this skill are the
 > default workspace layout. They resolve through `locations:` in `traust.yaml` in
@@ -102,28 +102,12 @@ What the script does:
 The census owns **repo liveness** — population metadata recording which
 repos can still act on findings (metrics-improvement plan, Phase 7):
 
-```bash
-python3 -m traust.cli portfolio liveness \
-    > <workspace-root>/progress-tracker/metrics/repo-liveness.json
-```
-
-traust-core's liveness covers every registered repository as of its latest
-`traust portfolio observe` attempt — no forge call here. The forge observation
-owner stores availability reference facts through the existing artifact publisher;
-see `traust portfolio liveness --help` and the SDK's `LivenessStatus` for statuses.
-`status_since` retains the first observation of the current status and advances
-only when that status changes. `observed_at` dates the latest attempt, including
-failed attempts; an unqueried repository has neither timestamp. Renames report
-`canonical_url` while retaining the registered URL and stable repository identity.
-Repository lookup absence is `missing`, including deletion after a successful
-observation; a disabled repository is reported separately from an archived one.
-Authentication, throttling and network failures are `unknown`, with `unobserved`
-and a `reason`, never evidence of deletion. `dormant` marks no reported push in
-365 days and is unknown without a push date. A stale repo-liveness artifact means downstream
-consumers (audit stamps, verify-remediation sweep flags, graph attrs,
-dashboard segments) are reading old status. Include the non-`active`
-counts in the report-back — archived-but-shipping components are a
-distinct risk segment, not burndown residue.
+**Pending:** `traust portfolio liveness` refuses with "Liveness status needs a
+traust-core decision (plan 15, decision 3)": the typed repo-liveness status (active,
+archived, moved, missing, disabled, unknown) needs a newer traust-core contracts pin. It
+never derives a status traust-core did not record, so there is no liveness artifact to
+refresh until that decision. Report liveness as unavailable in the report-back; do not
+substitute archived flags from another source.
 
 ### Step 2c — Rebuild the findings database (projection)
 

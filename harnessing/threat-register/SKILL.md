@@ -18,10 +18,6 @@ allowed-tools:
   - Bash(python3 *-m traust_engine.reporting.lint:*)
   - Bash(python3 *-m traust.cli assessments threats:*)
   - Bash(python3 *-m traust.cli dashboard view:*)
-  - Bash(python3 *-m traust.cli dashboard capture:*)
-  - Bash(python3 *-m traust.cli dashboard history:*)
-  - Bash(python3 *-m traust.cli dashboard read-report:*)
-  - Bash(python3 *-m traust.cli dashboard compare:*)
   - Bash(ls:*)
   - Bash(wc:*)
 ---
@@ -68,30 +64,12 @@ rows. It never edits a model.
 ## Output
 
 ```bash
-python3 -m traust.cli dashboard capture threat-register \
+python3 -m traust.cli dashboard view threat-register \
     [--product <slug>]... [--team-id <uuid>]... [--as-of <ISO time>] \
-    --note "<threat-register methodology or change explanation>" \
     --out <progress-tracker>/metrics/dashboards/threat-register
 ```
 
-`progress-tracker/metrics/dashboards/threat-register/threat-register.{json,md,html}`
-is the current portable report. The capture also retains immutable original exports,
-Core version, methodology note, scope and the previous same-scope artifact UUID/digest.
-`ThreatRegisterView` uses each repository's latest threat model at `--as-of`, else now;
-that recomputation is distinct from a saved as-reported register.
-
-```bash
-traust dashboard history threat-register --out <history-dir>
-traust dashboard read-report <artifact-uuid> --out <original-register-dir>
-traust dashboard compare <artifact-uuid> --against previous --out <comparison-dir>
-```
-
-Repeat product/team options when listing a scoped history. `previous` compares two
-saved registers, not today's reconstruction; the first report has no predecessor.
-`--against recomputed` compares with today's methodology at the saved generation time,
-and `--against current` compares with today's data cut. Neither modifies saved bytes.
-`dashboard view threat-register` remains a non-recording preview. Existing legacy
-metrics-ledger snapshots stay untouched; the legacy fallback output folder remains retired.
+`progress-tracker/metrics/dashboards/threat-register/threat-register.{json,md,html}` (traust-core's `ThreatRegisterView`: each repository's latest threat model as of `--as-of`, else now). *Retired* (a point in time is `--as-of`; nothing is stored): the legacy fallback `<root>/threat-register/` and the `threat-register` snapshot appended to the central hash-chained metrics ledger with its trend-vs-previous banner in the md/html.
 
 - **json** — full register (every threat with id, repository, label,
   actors, surface, asset, severity, band, crosswalked, likelihood, impact,
@@ -103,11 +81,11 @@ metrics-ledger snapshots stay untouched; the legacy fallback output folder remai
   open documentation variances.
 - **html** — self-contained dashboard, no external assets.
 
-The md/html outputs include ownership cuts joined from the corpus registry: repositories,
-latest completed default-line models (including models with no threats), threats, open and
-open-critical counts per ownership class. Unregistered ownership stays explicit. A repository
-shipped by more than one ownership class appears under each, so these cuts are not additive;
-the fleet headline counts its model once. Product/team filters narrow the same join.
+*Retired* (scope is product or team: `--product`, `--team-id`): The md/html outputs embed the standard population block (roots, unit,
+filters, denominator) for cross-dashboard reconciliation, and include an
+Ownership cuts table splitting models/threats/open/open-critical
+between owned (`findings/`, Hybrid Platforms) and upstream (`oss-findings/`)
+— upstream is never folded into the owned cut.
 
 **Ranking.** Threats are ranked by their **OWASP Risk Rating Methodology**
 severity (<https://owasp.org/www-community/OWASP_Risk_Rating_Methodology>),
