@@ -39,7 +39,8 @@ def _window(args: argparse.Namespace) -> TimeWindow:
 
 
 def critical_miss_markdown(window: TimeWindow, misses: Sequence[CriticalMiss]) -> str:
-    """The misses as one table; titles come from audited reports, so every cell is escaped."""
+    """The misses as one table; titles come from audited reports and validity from recorded
+    decisions, so every text cell is escaped."""
     lines = [
         "# Critical misses",
         "",
@@ -56,7 +57,7 @@ def critical_miss_markdown(window: TimeWindow, misses: Sequence[CriticalMiss]) -
             str(m.found_by),
             str(m.missed_by),
             m.reason.value,
-            m.validity or "",
+            markdown_text(m.validity) if m.validity else "",
         )
         for m in misses
     ]

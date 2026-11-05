@@ -102,3 +102,61 @@ def test_inventory_reader_refuses_what_it_cannot_read(tmp_path: Path, content: s
 def test_inventory_reader_refuses_a_missing_tree(tmp_path: Path) -> None:
     with pytest.raises(ConfigError):
         repository_inventory(tmp_path / "absent")
+
+
+@pytest.mark.parametrize("content", ["", "\n\n"], ids=["empty", "blank-lines-only"])
+def test_inventory_reader_refuses_a_file_without_a_header_naming_it(
+    tmp_path: Path, content: str
+) -> None:
+    inputs = tmp_path / "inputs"
+    (inputs / "segment").mkdir(parents=True)
+    path = inputs / "segment" / "headless-repos.csv"
+    path.write_text(content)
+    with pytest.raises(ConfigError, match=f"{path}: no header row"):
+        repository_inventory(inputs)
+
+
+@pytest.mark.parametrize(
+    ("content", "line"),
+    [
+        (f"URL,Team\n{URL},a\n,b\n", 3),  # an empty URL cell
+        (f"Team,URL\na,{URL}\nb\n", 3),  # a row too short to have the URL cell
+        (f"GitHub URL,URL,Team\n , ,c\n{URL},,a\n", 2),  # every URL column blank
+    ],
+    ids=["empty-cell", "missing-cell", "every-url-column-blank"],
+)
+def test_inventory_reader_refuses_a_row_without_a_url_naming_file_and_line(
+    tmp_path: Path, content: str, line: int
+) -> None:
+    inputs = tmp_path / "inputs"
+    (inputs / "segment").mkdir(parents=True)
+    path = inputs / "segment" / "rows-repos.csv"
+    path.write_text(content)
+    with pytest.raises(ConfigError, match=f"{path}:{line}: empty or missing URL cell"):
+        repository_inventory(inputs)
+
+
+def test_discovery_fails_rather_than_register_an_inventory_that_dropped_a_row(
+    tmp_path: Path,
+) -> None:
+    inputs = tmp_path / "inputs"
+    (inputs / "services").mkdir(parents=True)
+    (inputs / "services" / "scope-repos.csv").write_text(f"URL,Team\n{URL},a\n,b\n")
+    home = tmp_path / "config"
+    home.mkdir()
+    (home / "traust.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "home": str(tmp_path / "store"),
+                "identity": {"trust_local": True},
+                "locations": {"inputs": str(inputs)},
+            }
+        )
+    )
+    assert invoke(home, "auth", "local", "--identity", "operator@example.com")[0] == 0
+    code, output, error = invoke(home, "portfolio", "inventory-discover")
+    assert code == 1, (output, error)
+    assert json.loads(output)["outcome"] == "failed"
+    core = load(home)
+    hosts = core.config.forge_hosts
+    assert core.services().portfolio.find_repository(HttpsRepoUrl.parse(URL, hosts)) is None

@@ -13,12 +13,15 @@ from typing import Any
 
 import pytest
 import yaml
+from traust_core.v1.context import Context
 from traust_core.v1.models.common import TimeWindow
 from traust_core.v1.models.operations import SpendDimension, SpendEvent, SpendFilter
+from traust_core.v1.providers.clock import FixedClock
 from traust_core.v1.services.operations import SpendService
 
 from tests.test_products_doors import _postgres
 from traust.cli.__main__ import main as cli
+from traust.cli.groups import registry
 from traust.context import load
 
 REGISTRY = Path(__file__).resolve().parents[1] / "config" / "model-registry.yaml"
@@ -114,20 +117,47 @@ def test_each_declaration_is_another_event_as_each_journal_append_was(
     assert by_model(home) == [("claude-haiku-5-5", 2, 0, 200, Decimal("0.0001"))]
 
 
-def test_the_skill_md_invocation_records_and_names_the_flags_not_stored(
-    home: Path, recorded: list[SpendEvent]
+@pytest.mark.parametrize(
+    ("attribution", "named"),
+    [
+        (("--repo", "org/repo", "--loc", "1234", "--batch", "b-1", "--note", "rerun"),
+         "--repo, --loc, --batch, --note"),
+        (("--repo", "org/repo"), "--repo"),
+        (("--loc", "1234"), "--loc"),
+        (("--batch", "b-1"), "--batch"),
+        (("--note", "rerun"), "--note"),
+    ],
+)  # fmt: skip
+def test_attribution_core_cannot_store_is_refused_and_records_nothing(
+    home: Path, recorded: list[SpendEvent], attribution: tuple[str, ...], named: str
 ) -> None:
     rc, out, err = spend(
         home,
         *("--skill", "secure-code-audit", "--model", "claude-opus-5-5"),
-        *("--tokens-in", "10", "--tokens-out", "20", "--repo", "org/repo", "--loc", "1234"),
-        *("--batch", "b-1", "--note", "rerun"),
+        *("--tokens-in", "10", "--tokens-out", "20", *attribution),
     )
-    assert (rc, out, len(recorded)) == (0, "", 1)
-    assert err.splitlines() == [
-        f"spend: --{flag} not stored: spend_event has no column for it"
-        for flag in ("repo", "loc", "batch", "note")
-    ]
+    assert (rc, out, recorded, by_model(home)) == (2, "", [], [])
+    assert err == (
+        f"spend: {named} refused: core's spend event cannot store it (no spend-event column; "
+        "docs/model-routing.md); declare without it, nothing was recorded\n"
+    )
+
+
+def test_a_declaration_is_stamped_by_the_configured_clock(
+    home: Path, recorded: list[SpendEvent], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    at = datetime(2026, 3, 4, 5, 6, 7, tzinfo=UTC)
+
+    def fixed(config_home: Path | None) -> Context:
+        core = load(config_home)
+        core.clock = FixedClock(at)
+        return core
+
+    monkeypatch.setattr(registry, "load", fixed)
+    argv = ("--skill", "triage", "--model", "claude-haiku-5-5", "--tokens-out", "5")
+    assert spend(home, *argv) == (0, "", "")
+    [event] = recorded
+    assert event.occurred_at == at
 
 
 @pytest.mark.parametrize(

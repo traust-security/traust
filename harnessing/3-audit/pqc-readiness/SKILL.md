@@ -513,7 +513,9 @@ the roll-up below.)
 registered repository: chokepoint → crypto-CWE ground truth → tail, including
 repositories with no readiness assessment. Chokepoints are the deployment's own list:
 repository URL fragments under `chokepoints` in the config home's `pqc-priority.yaml`
-(template `config/pqc-priority.example.yaml`); with no file there is no chokepoint tier.
+(template `config/pqc-priority.example.yaml`); with no file there is no chokepoint tier,
+and the command says so on stderr. A misnamed priority file (for example
+`pqc-priority.yml`) exits 2.
 A repository with no registered commit routes to `access-request`. Access routing from
 observation outcomes (no-credentials → `access-request`, unreachable → `sbom-only`) needs
 the typed liveness status that waits on plan 15's decision 3.
@@ -668,17 +670,14 @@ is confirmed by probing — never by static data alone.
 | `/crypto-analysis`   | Precursor — governance chains, crypto probes       |
 | `/secure-code-audit` | Spot-tags PQC-relevant findings in its own reports |
 
-## Spend declaration (calibration tuple)
+## Spend declaration
 
 After this skill's report/artifact is written, declare the run's spend
-against the target so `estimate_scan` can calibrate per-skill cost
-models (contract: docs/model-routing.md; analysis:
-progress-tracker/metrics/estimate-calibration-analysis.md §F5):
+(contract: docs/model-routing.md):
 
 ```bash
 python3 -m traust.cli registry models spend --skill pqc-readiness \
-    --model <resolved model id> [--tokens-in <N>] [--tokens-out <N>] \
-    --repo <target-slug> --loc <target size, if known> [--batch <batch-id>]
+    --model <resolved model id> [--tokens-in <N>] [--tokens-out <N>]
 ```
 
 Token counts are OPTIONAL and best-effort: pass them when the
@@ -686,5 +685,6 @@ orchestrator has them (Task results carry per-subagent usage),
 otherwise omit them — an agent cannot observe its own usage mid-run.
 **This row is a routing marker, not a cost claim**; actual per-lane
 cost is attributed from session transcripts by
-python3 -m traust.cli metrics attribute-spend. Never skip the row: an
-unattributed run is a calibration gap.
+python3 -m traust.cli metrics attribute-spend. Never skip the row. Do not
+pass `--repo`, `--loc`, `--batch` or `--note`: core's spend event has no
+field for them, so the declaration refuses them and records nothing.

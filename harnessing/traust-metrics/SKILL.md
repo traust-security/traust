@@ -72,7 +72,8 @@ in a file beside it).
    numbers grouped as the file groups them (scale, impact, validation,
    delivery), calling out any metric that moved
    sharply since the previous version of the file (use `git -C
-   progress-tracker diff traust-metrics.md` when the file is tracked, or
+   progress-tracker diff metrics/dashboards/scoreboard/traust-metrics.md`
+   when the file is tracked, or
    build the view at an earlier `--as-of`).
 
 4. **Manual block (optional).** *Retired:* core rewrites the view on every

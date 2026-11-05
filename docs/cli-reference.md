@@ -58,15 +58,15 @@ admission depends on the selected kind and its canonical document schema:
 
 | Kind | Finding admission on successful recording | Triage handoff |
 |---|---|---|
-| `container`, `rpm`, `vuln_scan` | Core admits the document's findings atomically with the assessment | Run `traust triage prepare <returned-assessment-id>` for its native items and any matching precedents |
-| `secure_code` | Assessment/artifact only; no native finding admission | Report the admission handoff gap; native triage requires a supported intake receipt and its admitted assessment/bindings |
+| `secure_code`, `container`, `rpm`, `vuln_scan` | Core admits the document's findings atomically with the assessment | Run `traust triage prepare <returned-assessment-id>` for its native items and any matching precedents |
 | `benchmark_audit` | No native finding admission; benchmark reports are scored | Keep the benchmark workflow, not native finding triage |
 
 Core computes finding identity when findings are admitted, including during
 recording for the supported kinds above; it does not stamp the report file.
-An empty report can legitimately prepare no items. An empty assessment-only
-secure-code batch is not proof that a report containing findings is clean;
-later intake does not automatically attach its findings to that original audit.
+An empty report can legitimately prepare no items, and an empty batch is not
+proof that the repository is clean. A re-audit finding that names an already
+recorded finding under another identity is held for a person's rebaseline review.
+Plan 15's decision 5 may change whether `secure_code` recording admits findings.
 
 `reporting record` and `cloud-config record` take `--run-id <order-uuid>` (default:
 `$TRAUST_RUN_ID`, which `traust session run` sets for the agent it starts, along with
@@ -309,7 +309,7 @@ here so an old runbook cannot be mistaken for an executable fallback:
 | `check report-digests` | Verify report/artifact digest bindings | Core artifact publishing/index services; gate skill port unfinished |
 | Ledger triage / validation / verification emitters | Convert report verdicts into legacy layer events | `traust triage record`, `traust validation record`, and `traust remediation verify-record` persist through Core; use `remediation verifications` and `findings baseline` for recorded/current results |
 | `ledger pull` | Export a read-only snapshot of one legacy ledger layer | Legacy layer stores remain retired. Core `ledger.layer(layer_id)` and paged `ledger.events(layer_id, page)` read native layers; `findings import` is a distinct external-statement intake operation, not a snapshot-export replacement |
-| `corpus` group | Report discovery, identity, projections, summaries and precedents | Core owns assessment/artifact recording and native finding intake. Recording admits canonical container/RPM/vulnerability-scan findings, but not secure-code findings; only admitted candidates/bindings support native triage and precedents. See “Audit publication versus finding admission” above; `findings find` can legitimately return no match |
+| `corpus` group | Report discovery, identity, projections, summaries and precedents | Core owns assessment/artifact recording and native finding intake. Recording admits canonical secure-code/container/RPM/vulnerability-scan findings; only admitted candidates/bindings support native triage and precedents. See “Audit publication versus finding admission” above; `findings find` can legitimately return no match |
 | `route` group | Admit impact findings and remediation regressions without changing baselines | Core finding intake; routing skill ports unfinished |
 
 There is no executable fallback for these retired workflows. Do not hand-write a

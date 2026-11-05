@@ -668,7 +668,7 @@ def test_review_evidence_preserves_binary_bytes_losslessly() -> None:
     assert "document" not in evidence
 
 
-@pytest.mark.parametrize("kind", ["container", "rpm", "vuln_scan"])
+@pytest.mark.parametrize("kind", ["secure_code", "container", "rpm", "vuln_scan"])
 def test_recorded_audit_findings_are_ready_for_native_triage(
     home: Path, tmp_path: Path, kind: str
 ) -> None:

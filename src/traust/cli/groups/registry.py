@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import sys
-from datetime import UTC, datetime
 from pathlib import Path
 
 import yaml
@@ -17,8 +16,10 @@ from traust.cli.groups._registry import OpSpec
 from traust.context import MODEL_REGISTRY, load, load_spend_core
 
 NO_MAP = "no product map recorded; record one with `traust registry product-map <file>`"
-# NEED(data-model: spend calibration tuple repo/loc/batch/note)
-UNSTORED = "not stored: spend_event has no column for it"
+# NEED(data-model: spend calibration tuple repo/loc/batch/note). Core's SpendEvent has no field
+# for any of them, so a declaration naming one is refused rather than recorded without it.
+UNSTORED_FLAGS = ("repo", "loc", "batch", "note")
+UNSTORED = "refused: core's spend event cannot store it"
 
 
 def add_models_args(ap) -> None:
@@ -50,7 +51,11 @@ def add_models_args(ap) -> None:
 
 def call_models(args) -> int:
     if args.cmd == "spend":
-        return _declare_spend(args)
+        try:
+            return _declare_spend(args)
+        except ValidationError as e:
+            print(f"spend: {e}", file=sys.stderr)
+            return 2
     catalog = load_spend_core(args.config_home).model_catalog
     if args.cmd == "validate":
         errors = catalog.validate()
@@ -76,7 +81,19 @@ def call_models(args) -> int:
     return 2
 
 
+def _refuse_unstored(args) -> None:
+    """A declaration naming a field core cannot store is refused whole: recording the rest would
+    drop the attribution the caller asked for."""
+    named = [f"--{flag}" for flag in UNSTORED_FLAGS if getattr(args, flag) is not None]
+    if named:
+        raise ValidationError(
+            f"{', '.join(named)} {UNSTORED} (no spend-event column; docs/model-routing.md); "
+            "declare without it, nothing was recorded"
+        )
+
+
 def _declare_spend(args) -> int:
+    _refuse_unstored(args)
     core = load(args.config_home)
     if core.model_catalog is None:
         print(
@@ -85,9 +102,6 @@ def _declare_spend(args) -> int:
             file=sys.stderr,
         )
         return 1
-    for flag in ("repo", "loc", "batch", "note"):
-        if getattr(args, flag) is not None:
-            print(f"spend: --{flag} {UNSTORED}", file=sys.stderr)
     model = ModelName(args.model)
     try:
         provider = core.model_catalog.resolve(model).provider
@@ -113,7 +127,7 @@ def _declare_spend(args) -> int:
             tokens_in=args.tokens_in,
             tokens_out=args.tokens_out,
             cost_usd=cost,
-            occurred_at=datetime.now(UTC),
+            occurred_at=core.clock.now(),
         )
     )
     return 0

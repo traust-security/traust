@@ -57,7 +57,16 @@ see [tools/public-export/](../tools/public-export/README.md).
 Which repositories are the estate's PQC chokepoints is the deployment's own list, never this
 tree's: `traust.context.pqc_priority` reads `chokepoints` from the config home's
 `pqc-priority.yaml` (a list of nonblank strings; anything else exits 2), and `traust pqc
-worklist|sweep` ranks a repository whose URL contains one first. No file means no chokepoint.
+worklist|sweep` ranks a repository whose URL contains one first. No file means no chokepoint
+tier, and those commands say so on stderr, naming the path they looked for. A priority file
+under another name in the config home (`pqc-priority.yml`, `pqc_priority.yaml`,
+`pqc_priority.yml`, an unrenamed `pqc-priority.example.yaml`, or `config/pqc-priority.yaml`)
+exits 2 rather than being ignored.
+
+**Upgrading:** the chokepoint list used to be built into the PQC sweep. It no longer ships, so
+an existing deployment that wants to keep a chokepoint tier must add `pqc-priority.yaml` to its
+config home (copy `pqc-priority.example.yaml` and name its own repositories); without it every
+repository ranks in the crypto-CWE and tail tiers.
 
 ## What ships with traust-core instead (not configurable)
 
