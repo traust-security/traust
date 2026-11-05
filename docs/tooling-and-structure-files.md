@@ -15,6 +15,8 @@ The schemas below (from the installed `traust-contracts` package) are the comple
 | `schemas/v1/adapter-result.schema.json` | JSON Schema for traust-engine scanner adapter `scan()` return values (distinct from skill-level vuln-findings output) |
 | `traust-contracts/artifacts_schema/v1/code-facts.schema.json` | Recorded symbols and measured language statistics on a `tool_scan` assessment; read through core's artifact and code-facts services |
 | `traust-contracts/artifacts_schema/v1/manifest-coverage.schema.json` | What a commit's manifest SBOM could not resolve, with the SBOM tool's name and version; recorded by core's dependency ingestion before the SBOM, so an unresolved manifest reads as unknown, never as no dependencies |
+| `traust-contracts/artifacts_schema/v1/fuzz-campaign.schema.json` | A supplied fuzz-campaign scope reference: a campaign snapshot with declared references, not fuzz execution evidence (`reporting import-fuzz-campaign` is retired in traust; nothing records it) |
+| `traust-contracts/artifacts_schema/v1/repo-liveness.schema.json` | Repository liveness facts recorded by traust-core's forge observation, keyed by inventory repository UUID; `traust portfolio liveness` still refuses until plan 15's decision 3 |
 | `schemas/v1/validation.schema.json` | JSON Schema for live-validation reports |
 | `schemas/v1/remediation.schema.json` | JSON Schema for remediation patches |
 | `schemas/v1/verification.schema.json` | JSON Schema for remediation-verification reports |
