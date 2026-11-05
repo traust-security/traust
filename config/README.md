@@ -35,7 +35,6 @@ keys before changing the config; the configuration switch does not migrate them.
 | `traust.example.yaml` | the template for `traust.yaml`: every section, documented, commented out except the defaults. As copied it is the zero-config install |
 | `model-registry.yaml` | model tier classes, routing roles and prices; read from the config home, where `install_traust` copies it ([procedure](../docs/model-classes.md#configuring-your-own-models)) |
 | `rule-pack-allowlist.example.yaml` | the calibrated supplemental rule allowlist; enable it with `overrides.rule_pack_allowlist` (shipped default: no supplements) |
-| `pqc-priority.example.yaml` | optional: the PQC sweep's priority ("chokepoint") repositories as URL fragments; copy to the config home as `pqc-priority.yaml`. Absent: no chokepoint tier |
 
 ## Adopter facts: record them
 
@@ -55,18 +54,11 @@ The public-export inputs (the scrub's organization vocabulary) are not runtime c
 see [tools/public-export/](../tools/public-export/README.md).
 
 Which repositories are the estate's PQC chokepoints is the deployment's own list, never this
-tree's: `traust.context.pqc_priority` reads `chokepoints` from the config home's
-`pqc-priority.yaml` (a list of nonblank strings; anything else exits 2), and `traust pqc
-worklist|sweep` ranks a repository whose URL contains one first. No file means no chokepoint
-tier, and those commands say so on stderr, naming the path they looked for. A priority file
-under another name in the config home (`pqc-priority.yml`, `pqc_priority.yaml`,
-`pqc_priority.yml`, an unrenamed `pqc-priority.example.yaml`, or `config/pqc-priority.yaml`)
-exits 2 rather than being ignored.
-
-**Upgrading:** the chokepoint list used to be built into the PQC sweep. It no longer ships, so
-an existing deployment that wants to keep a chokepoint tier must add `pqc-priority.yaml` to its
-config home (copy `pqc-priority.example.yaml` and name its own repositories); without it every
-repository ranks in the crypto-CWE and tail tiers.
+tree's, and it isn't a config-home file either: it's an adopter fact, to be recorded into core
+once core has a home for it. Until then the caller names them per run with
+`traust pqc worklist|sweep --chokepoint <URL fragment>` (repeatable; the deployment's
+orchestrator passes its list). Without one, every repository ranks in the crypto-CWE and tail
+tiers.
 
 ## What ships with traust-core instead (not configurable)
 

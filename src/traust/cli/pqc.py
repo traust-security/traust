@@ -8,7 +8,7 @@ prepare   what Layer 2 scores from: the commit's facts, its route (full/light/sk
 summary   the latest readiness per commit in scope, rolled up by bucket or dominant provenance
 blockers  the remediations of each commit's latest readiness, in the vocabulary /patch reads
 vendor-claims  the next version of the curated vendor PQC claims (`dashboard view pqc-vendors`)
-worklist  one entry per repository in scope, chokepoints (config home `pqc-priority.yaml`) first
+worklist  one entry per repository in scope, the `--chokepoint` repositories first
 sweep     prescan a bounded batch with Core's registered pqc-scan provider
 """
 
@@ -36,7 +36,7 @@ from traust_core.v1.models.vocabulary import (
 
 from traust.cli import _doors
 from traust.cli._doors import parser, run
-from traust.context import load, pqc_priority
+from traust.context import load
 from traust.ops.pqc import PqcSweep
 
 
@@ -266,12 +266,32 @@ def vendor_claims(argv: list[str] | None = None) -> int:
     return run(call)
 
 
-def _sweep(core: Context, config_home: Path | None) -> PqcSweep:
-    """The sweep over this deployment's chokepoints, with the Context's registered scanner."""
+def _chokepoint_arg(ap: argparse.ArgumentParser) -> None:
+    # NEED(core: recorded PQC chokepoints): which repositories are the estate's chokepoints is
+    # an adopter fact, recorded into core under the one-config-file plan, and neither core nor
+    # traust-contracts has a home for it yet; until one exists the caller names them per run.
+    ap.add_argument(
+        "--chokepoint",
+        action="append",
+        default=[],
+        type=_fragment,
+        metavar="URL_FRAGMENT",
+        help="a repository URL fragment (case-insensitive) that ranks first (repeatable)",
+    )
+
+
+def _fragment(raw: str) -> str:
+    if not raw.strip():
+        raise argparse.ArgumentTypeError("a chokepoint is a nonblank URL fragment")
+    return raw.strip()
+
+
+def _sweep(core: Context, chokepoints: list[str]) -> PqcSweep:
+    """The sweep over the named chokepoints, with the Context's scanner."""
     return PqcSweep(
         core.services(),
         tuple(core.config.forge_hosts),
-        chokepoints=pqc_priority(config_home),
+        chokepoints=tuple(dict.fromkeys(chokepoints)),
         scanner=core.pqc_scanner,
     )
 
@@ -280,11 +300,12 @@ def worklist(argv: list[str] | None = None) -> int:
     ap = _filter_parser(
         "worklist", "One entry per repository, priority-tiered from inventory.", buckets=False
     )
+    _chokepoint_arg(ap)
     args = ap.parse_args(argv)
 
     def call() -> object:
         core = load(args.config_home)
-        entries = _sweep(core, args.config_home).worklist(_filter(core, args))
+        entries = _sweep(core, args.chokepoint).worklist(_filter(core, args))
         return [e.model_dump(mode="json") for e in entries]
 
     return run(call)
@@ -297,13 +318,14 @@ def sweep(argv: list[str] | None = None) -> int:
     ap.add_argument("--limit", type=int, default=20)
     ap.add_argument("--after", help="next_cursor returned by the previous batch")
     ap.add_argument("--refresh", action="store_true", help="also refresh stale pack stamps")
+    _chokepoint_arg(ap)
     args = ap.parse_args(argv)
     incomplete = False
 
     def call() -> str:
         nonlocal incomplete
         core = load(args.config_home)
-        result = _sweep(core, args.config_home).refresh(
+        result = _sweep(core, args.chokepoint).refresh(
             _filter(core, args),
             limit=args.limit,
             after=args.after,

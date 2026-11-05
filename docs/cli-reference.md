@@ -97,8 +97,8 @@ bounded selection.
 `traust pqc worklist` discovers registered repositories without requiring a
 readiness report. `traust pqc sweep --limit <n>` processes a bounded batch;
 `--after <next_cursor>` resumes the batch and `--refresh` also considers stale
-scanner/rules stamps. Deployment priorities come from `pqc-priority.yaml` in the
-configuration home.
+scanner/rules stamps. Name run priorities with repeatable
+`--chokepoint <URL fragment>`; no config-home priority file is read.
 
 The loader registers Core's provider through `Context.register_pqc_scanner`,
 using `skill_dir("pqc-readiness")` to locate `bin/pqc-scan` and `rules/`.

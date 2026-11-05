@@ -18,7 +18,6 @@ def test_worklist_cli_discovers_registered_unassessed_repositories(
 ) -> None:
     core = Context(Config(home=tmp_path / "home"))
     monkeypatch.setattr(pqc, "load", lambda _: core)
-    monkeypatch.setattr(pqc, "pqc_priority", lambda _: ("oauth-gateway",))
     services = core.services()
     for slug in ("widget", "oauth-gateway"):
         repository = services.portfolio.register_repository(
@@ -26,7 +25,7 @@ def test_worklist_cli_discovers_registered_unassessed_repositories(
             True,
         )
         services.portfolio.register_ref(repository.id, GitSha.parse("a" * 40), None, None)
-    assert pqc.worklist([]) == 0
+    assert pqc.worklist(["--chokepoint", " OAuth-Gateway ", "--chokepoint", "oauth-gateway"]) == 0
     entries = json.loads(capsys.readouterr().out)
     assert [(e["priority_tier"], e["route"]) for e in entries] == [
         ("chokepoint", "source"),
@@ -79,74 +78,27 @@ def test_sweep_cli_rejects_a_missing_provider_without_partial_scan_output(
     assert services.pqc.list_readiness(PqcFilter()) == []
 
 
-def test_pqc_priority_reads_the_config_home_file(tmp_path: Path) -> None:
-    from traust.context import pqc_priority
-
-    assert pqc_priority(tmp_path) == ()
-    (tmp_path / "pqc-priority.yaml").write_text("chokepoints: [Gateway, ' tls-proxy ', Gateway]\n")
-    assert pqc_priority(tmp_path) == ("Gateway", "tls-proxy")
-    (tmp_path / "pqc-priority.yaml").write_text("chokepoints: gateway\n")
-    with pytest.raises(SystemExit) as refused:
-        pqc_priority(tmp_path)
-    assert refused.value.code == 2
-
-
-@pytest.mark.parametrize(
-    "name",
-    [
-        "pqc-priority.yml",
-        "pqc_priority.yaml",
-        "pqc_priority.yml",
-        "pqc-priority.example.yaml",
-        "config/pqc-priority.yaml",
-    ],
-)
-def test_a_misplaced_priority_file_is_refused_naming_where_it_belongs(
-    tmp_path: Path, name: str, capsys: pytest.CaptureFixture[str]
-) -> None:
-    from traust.context import pqc_priority
-
-    misplaced = tmp_path / name
-    misplaced.parent.mkdir(parents=True, exist_ok=True)
-    misplaced.write_text("chokepoints: [gateway]\n")
-    with pytest.raises(SystemExit) as refused:
-        pqc_priority(tmp_path)
-    assert refused.value.code == 2
-    err = capsys.readouterr().err
-    assert (
-        f"{misplaced}: the PQC priority file must be the file {tmp_path / 'pqc-priority.yaml'}"
-        in err
-    )
-    (tmp_path / "pqc-priority.yaml").write_text("chokepoints: [gateway]\n")
-    with pytest.raises(SystemExit):  # beside the right file it is still refused, never ignored
-        pqc_priority(tmp_path)
-
-
-def test_a_priority_path_that_is_not_a_file_is_refused(tmp_path: Path) -> None:
-    from traust.context import pqc_priority
-
-    (tmp_path / "pqc-priority.yaml").mkdir()
-    with pytest.raises(SystemExit) as refused:
-        pqc_priority(tmp_path)
-    assert refused.value.code == 2
-
-
-def test_without_a_priority_file_the_pqc_commands_say_so_naming_the_path(
+def test_without_a_chokepoint_every_repository_ranks_crypto_cwe_then_tail(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    home = tmp_path / "config"
-    home.mkdir()
     core = Context(Config(home=tmp_path / "home"))
     monkeypatch.setattr(pqc, "load", lambda _: core)
-    assert pqc.worklist(["--config-home", str(home)]) == 0
+    services = core.services()
+    repository = services.portfolio.register_repository(
+        HttpsRepoUrl.parse("https://github.com/example/oauth-gateway", ["github.com"]), True
+    )
+    services.portfolio.register_ref(repository.id, GitSha.parse("a" * 40), None, None)
+    assert pqc.worklist([]) == 0
     captured = capsys.readouterr()
-    assert json.loads(captured.out) == []
-    assert captured.err.splitlines() == [
-        f"pqc: no chokepoint tier: no priority file at {home / 'pqc-priority.yaml'} "
-        "(template config/pqc-priority.example.yaml)"
-    ]
-    (home / "pqc-priority.yaml").write_text("chokepoints: [gateway]\n")
-    assert pqc.worklist(["--config-home", str(home)]) == 0
-    assert capsys.readouterr().err == ""
+    assert [e["priority_tier"] for e in json.loads(captured.out)] == ["tail"]
+    assert captured.err == ""
+
+
+@pytest.mark.parametrize("blank", ["", "  "])
+def test_a_blank_chokepoint_is_refused(blank: str, capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit) as refused:
+        pqc.worklist(["--chokepoint", blank])
+    assert refused.value.code == 2
+    assert "nonblank URL fragment" in capsys.readouterr().err
