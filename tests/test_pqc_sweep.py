@@ -9,7 +9,8 @@ from uuid import UUID, uuid4
 
 import pytest
 from traust_core.v1.context import Config, Context, Services
-from traust_core.v1.models.common import Provenance
+from traust_core.v1.errors import ConfigError
+from traust_core.v1.models.common import Provenance, ToolRequest
 from traust_core.v1.models.findings import CandidateFormat
 from traust_core.v1.models.identity import IdentitySource, Principal
 from traust_core.v1.models.observation import ComparisonStatus
@@ -19,7 +20,7 @@ from traust_core.v1.models.values import GitSha, HttpsRepoUrl
 from traust_core.v1.models.vocabulary import ActorKind, SourceType
 from traust_core.v1.providers.base import Acquisition, Readiness, Result
 
-from traust.lib.pending_decisions import Decision, PendingCoreDecision, skip_reason
+from traust.lib.pending_decisions import Decision, skip_reason
 from traust.ops.pqc import PqcSweep, SweepRoute
 
 AT = datetime(2026, 10, 24, tzinfo=UTC)
@@ -253,11 +254,35 @@ def test_success_without_availability_does_not_clear_access_failure(
     assert services.pqc.find(target.id) is None
 
 
-def test_a_batch_that_would_scan_without_a_scanner_names_the_pending_decision(
+def test_a_batch_without_a_scanner_fails_before_dependency_or_scan_recording(
     tmp_path: Path,
 ) -> None:
     core = Context(Config(home=tmp_path / "home"))
-    ref(core, "widget")
-    sweep = PqcSweep(core.services(), ("github.com",))
-    with pytest.raises(PendingCoreDecision, match=r"plan 15, decision 4"):
+    target = ref(core, "widget", sbom=False)
+    services = core.services()
+    sweep = PqcSweep(services, ("github.com",))
+    with pytest.raises(ConfigError):
         sweep.refresh(PqcFilter())
+    assert services.portfolio.inventory.get_ref(target.id).manifest_sbom_id is None
+    [state] = services.pqc.scan_states(PqcFilter())
+    assert state.assessment_id is None
+    assert services.pqc.list_readiness(PqcFilter()) == []
+
+
+def test_recorded_scans_resume_without_a_scanner_but_refresh_requires_measured_currency(
+    tmp_path: Path,
+) -> None:
+    core, _, checkouts = registry(tmp_path)
+    target = ref(core, "widget")
+    recorded = core.services().pqc.prescan(target.id, ToolRequest(workspace=checkouts.root))
+    core.pqc_scanner = None
+    services = core.services()
+    sweep = PqcSweep(services, ("github.com",))
+    resumed = sweep.refresh(PqcFilter())
+    assert resumed.results == () and resumed.remaining == 0
+    with pytest.raises(ConfigError):
+        sweep.refresh(PqcFilter(), refresh=True)
+    [state] = services.pqc.scan_states(PqcFilter())
+    assert state.assessment_id == recorded.assessment_id
+    assert services.pqc.prepare(target.id).facts == recorded.facts
+    assert services.pqc.list_readiness(PqcFilter()) == []

@@ -9,7 +9,7 @@ summary   the latest readiness per commit in scope, rolled up by bucket or domin
 blockers  the remediations of each commit's latest readiness, in the vocabulary /patch reads
 vendor-claims  the next version of the curated vendor PQC claims (`dashboard view pqc-vendors`)
 worklist  one entry per repository in scope, chokepoints (config home `pqc-priority.yaml`) first
-sweep     prescan a bounded batch; refused until a pqc-scan scanner exists (plan 15, decision 4)
+sweep     prescan a bounded batch with Core's registered pqc-scan provider
 """
 
 from __future__ import annotations
@@ -209,7 +209,7 @@ def vendor_claims(argv: list[str] | None = None) -> int:
 
 
 def _sweep(core: Context, config_home: Path | None) -> PqcSweep:
-    """The sweep over this deployment's chokepoints, with the Context's (unregistered) scanner."""
+    """The sweep over this deployment's chokepoints, with the Context's registered scanner."""
     return PqcSweep(
         core.services(),
         tuple(core.config.forge_hosts),

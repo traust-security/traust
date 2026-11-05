@@ -38,7 +38,7 @@ python3 -m traust.cli check skill-alignment      # equivalent
 | `ledger` | Ledger audit (traust-core) and the doc-variance register | `audit`, `doc-variance` |
 | `metrics` | Metrics & spend | `attribute-spend`, `collect-spend`, `lane-costs` |
 | `portfolio` | The portfolio on traust-core: inventory discovery and routing-event intake, `observe` (the `repo_state` materializer), the checkout mirror-cache materializers, add-inputs' and inventory-repositories' doors, the owner/contact export, SBOM reads (`dependencies`, `dependents`, `ships-module`); `liveness` refuses until plan 15's decision 3 and `release-passthrough` refuses until a release feed exists (NEED(release-passthrough)) | `checkout-refresh`, `dependencies`, `dependents`, `event-intake`, `event-validate`, `file`, `import-owners`, `import-release`, `inventory-discover`, `inventory-export`, `liveness`, `mirror-evict`, `observe`, `onboard`, `owner-hints`, `plan`, `population`, `release-changes`, `release-passthrough`, `ships-module` |
-| `pqc` | The pqc-readiness skill's doors on traust-core; the ranked sweep worklist and bounded refresh (a batch that would scan refuses until plan 15's decision 4) | `blockers`, `check`, `prepare`, `record`, `summary`, `sweep`, `vendor-claims`, `worklist` |
+| `pqc` | The pqc-readiness skill's doors on traust-core; the ranked sweep worklist and bounded refresh through Core's registered pqc-scan provider | `blockers`, `check`, `prepare`, `record`, `summary`, `sweep`, `vendor-claims`, `worklist` |
 | `products` | corpus-intake's doors on traust-core: products and their corpus ownership | `add`, `list`, `update` |
 | `registry` | Model/product registry and the recorded product map | `models`, `product-map`, `products` |
 | `remediation` | The remediation loop's doors on traust-core (remediate-finding, patch, property-test, fleet-fix, verify-remediation) | `assemble`, `candidates`, `fleet-approve`, `fleet-claim`, `fleet-record`, `fleet-submit`, `fleet-targets`, `fork`, `mutation-evidence`, `next`, `open`, `prepare`, `progress`, `property-evidence`, `record`, `verifications`, `verify-differential`, `verify-prepare`, `verify-record`, `verify-sweep`, `work-items` |
@@ -50,6 +50,31 @@ python3 -m traust.cli check skill-alignment      # equivalent
 | `sweep` | Class-generalization sweep; detection-quality reports (`cve-replay` refuses until plan 15's decision 2); recall-benchmark answer key | `benchmark`, `benchmark-targets`, `bootstrap-benchmark`, `build-canaries`, `cards`, `collect`, `compliance-precision`, `critical-misses`, `cve-replay`, `draft`, `emit`, `mine`, `propose-rule`, `regression-drafts`, `rule-lane`, `score-benchmark`, `screen-injection`, `sweep`, `verify-draft` |
 | `util` | Utility commands | `elf`, `redact`, `safe-exec` |
 | `validation` | Core-backed machine validation evidence | `prepare`, `plan`, `record` |
+
+### PQC sweep provider and refresh
+
+`traust pqc worklist` discovers registered repositories without requiring a
+readiness report. `traust pqc sweep --limit <n>` processes a bounded batch;
+`--after <next_cursor>` resumes the batch and `--refresh` also considers stale
+scanner/rules stamps. Deployment priorities come from `pqc-priority.yaml` in the
+configuration home.
+
+The loader registers Core's provider through `Context.register_pqc_scanner`,
+using `skill_dir("pqc-readiness")` to locate `bin/pqc-scan` and `rules/`.
+Build the pinned binary with that skill's `build_pqc_scan.sh`; source scans need
+the executable and its matching `bin/pqc-scan.sha256`, a readable nonempty rules
+pack, and permission for the binary in `traust.yaml` under
+`process.allowed_binaries`. Checkout and manifest-SBOM acquisition also require
+their normal process permissions, including `git` and `syft` when needed.
+Provider registration does not install the binary or grant process permission.
+Core reports a missing binary or unready provider as a scan failure, never a
+clean readiness result.
+
+An absent provider is a configuration error before a batch acquires source or
+ingests dependencies. Already recorded scans remain resumable without a provider
+when `--refresh` is not requested; refresh refuses with a configuration error
+when the current pack cannot be compared. Source capture, persisted scan state,
+facts and replay stay behind Core's PQC service doors.
 
 ### Audit publication versus finding admission
 

@@ -2,6 +2,15 @@
 
 All notable changes to Traust are documented here.
 
+## [0.40.1]
+
+- Register Core's native PQC scanner at the application composition root and retain
+  fail-closed scan outcomes, provider currency and branch-scoped sweep resumption.
+- Adopt the merged Core models and registered reporting views without restoring
+  retired context shims or duplicate rendering owners.
+- Preserve inconclusive impact results when an omitted package has no recorded
+  manifest-coverage proof; an unrelated SBOM is not evidence of no imports.
+
 ## [0.40.0]
 
 - Keep rejected inventory URLs and exception payloads out of intake diagnostics.

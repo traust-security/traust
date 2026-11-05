@@ -14,11 +14,8 @@ from uuid import uuid4
 
 import pytest
 import yaml
-from traust_core.v1.errors import TraustError
 
 from traust.cli import cve_replay, findings, portfolio_liveness
-from traust.context import load
-from traust.lib.pending_decisions import Decision, PendingCoreDecision, skip_reason
 
 
 @pytest.fixture
@@ -72,17 +69,3 @@ def test_claim_correction_commands_refuse(home: Path, tmp_path: Path) -> None:
 def test_liveness_refuses_rather_than_derive_a_status(home: Path) -> None:
     err = refused(portfolio_liveness.main, home)
     assert "Liveness status needs a traust-core decision (plan 15, decision 3)" in err
-
-
-def test_the_context_registers_no_pqc_scanner(home: Path) -> None:
-    assert load(home).pqc_scanner is None
-
-
-def test_the_error_is_typed_and_names_each_decision() -> None:
-    for decision in Decision:
-        error = PendingCoreDecision(decision)
-        assert isinstance(error, TraustError)
-        assert error.decision is decision
-        assert f"(plan 15, decision {decision.number})" in str(error)
-        assert skip_reason(decision) == str(error)
-    assert [d.number for d in Decision] == [1, 2, 3, 4]

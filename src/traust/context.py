@@ -26,7 +26,13 @@ from traust_core.v1.context.config import CONFIG_FILE
 from traust_core.v1.errors import AuthenticationError, ConfigError, DeploymentConfigMissing
 from traust_core.v1.models.identity import Credential, Principal
 
-from traust.paths import GITLEAKS_CONFIG, HARNESSING_DIR, OPENGREP_RULES_DIR, SECURITY_PACK_DIR
+from traust.paths import (
+    GITLEAKS_CONFIG,
+    HARNESSING_DIR,
+    OPENGREP_RULES_DIR,
+    SECURITY_PACK_DIR,
+    skill_dir,
+)
 
 T = TypeVar("T")
 
@@ -138,7 +144,8 @@ def load(
     (``rule_pack``, else :func:`_rule_pack`, with ``overrides.rule_pack_allowlist``) against
     canaries from ``recall-benchmark/<canaries>`` and stages rule drafts in ``rule_drafts``, else
     ``locations.rule_drafts`` when one resolves. Compliance docs targets are explicit per call
-    (``traust compliance docs``); no pqc-scan scanner is registered (plan 15, decision 4).
+    (``traust compliance docs``). PQC prescans use the skill's pinned scanner and rules; loading
+    the app neither runs the scanner nor grants permission to execute it.
     """
     home = resolve_config_home(config_home)
     core = _guarded(CONFIG_FILE, lambda: Context(_with_bundled_rules(Config.from_home(home))))
@@ -162,8 +169,13 @@ def load(
         print(f"invoices need the spend view: no {MODEL_REGISTRY} in {home}", file=sys.stderr)
         raise SystemExit(2)
     core.register_toolchain()
-    # No pqc-scan scanner is registered: where its adapter lives waits on a traust-core decision
-    # (plan 15, decision 4); `core.pqc_scanner` stays None and the pqc doors that need it refuse.
+    pqc = skill_dir("pqc-readiness")
+    core.register_pqc_scanner(
+        pqc / "bin" / "pqc-scan",
+        pqc / "rules",
+        adapter_version="1.4.0",
+        scan_commit="be5c760adb7d1d4d99e39d35d87d2956079db76e",
+    )
     pack, pack_version = (
         (rule_pack, f"local:{rule_pack}") if rule_pack else _rule_pack(core.config.locations)
     )

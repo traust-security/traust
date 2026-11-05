@@ -3,17 +3,24 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import shutil
+import sys
 from collections.abc import Callable, Iterator, Sequence
 from pathlib import Path
 from typing import Any
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 import yaml
 from traust_core.v1.context import Context
+from traust_core.v1.errors import ConfigError, IntegrityError
+from traust_core.v1.models.artifacts import PqcFactsArtifact
+from traust_core.v1.models.common import ToolRequest
 from traust_core.v1.models.inventory import ProductSlug
+from traust_core.v1.models.pqc import PqcFilter
+from traust_core.v1.models.values import GitSha, HttpsRepoUrl
 from traust_core.v1.providers.process import ProcessResult, ProcessRunner
 
 from traust import context
@@ -62,12 +69,10 @@ def test_the_context_is_the_only_loader() -> None:
     assert loaders == {"load", "load_caller", "load_spend_core"}
 
 
-@pytest.mark.parametrize("explicit", [True], ids=["explicit-target"])
 def test_normal_app_docs_command_fetches_registered_product_guides(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
-    explicit: bool,
 ) -> None:
     home = tmp_path / "config"
     home.mkdir()
@@ -77,17 +82,6 @@ def test_normal_app_docs_command_fetches_registered_product_guides(
     monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
     product = load(home).services().portfolio.register_product(ProductSlug("platform"), "Platform")
     assert product.id is not None
-    if not explicit:
-        data["compliance"] = {
-            "docs_targets": {
-                str(product.id): {
-                    "product_slug": "red_hat_enterprise_linux",
-                    "version": "9",
-                    "guides": ["security_hardening"],
-                }
-            }
-        }
-        path.write_text(yaml.safe_dump(data))
     calls: list[tuple[str, ...]] = []
     body = (ROOT / "tests" / "fixtures" / "compliance-docs.html").read_bytes()
 
@@ -96,16 +90,17 @@ def test_normal_app_docs_command_fetches_registered_product_guides(
         return ProcessResult(tuple(argv), 0, body, b"", 0.0)
 
     monkeypatch.setattr(ProcessRunner, "run", fetched)
-    args = ["platform", "--config-home", str(home)]
-    if explicit:
-        args += [
-            "--product-slug",
-            "red_hat_enterprise_linux",
-            "--version",
-            "9",
-            "--guide",
-            "security_hardening",
-        ]
+    args = [
+        "platform",
+        "--config-home",
+        str(home),
+        "--product-slug",
+        "red_hat_enterprise_linux",
+        "--version",
+        "9",
+        "--guide",
+        "security_hardening",
+    ]
     assert compliance.docs(args) == 0
 
     (guide,) = json.loads(capsys.readouterr().out)
@@ -166,3 +161,136 @@ def test_normal_app_docs_command_refuses_unconfigured_registered_product(
     assert compliance.docs(["platform", "--config-home", str(tmp_path)]) == 2
     assert capsys.readouterr().out == ""
     assert calls == []
+
+
+@pytest.fixture
+def pqc_pack(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Keep the shipped rules and real core provider; control only the installed child."""
+    pack = tmp_path / "pqc-readiness"
+    shutil.copytree(context.skill_dir("pqc-readiness") / "rules", pack / "rules")
+    (pack / "bin").mkdir()
+    binary = pack / "bin" / "pqc-scan"
+    report = {
+        "summary": {"scanned_files": 1, "skipped_files": 0},
+        "findings": [
+            {
+                "rule_id": "API_GO_CRYPTO_RSA",
+                "location": {"file": "keys.go", "line": 2},
+                "evidence": {"match": "crypto/rsa"},
+            }
+        ],
+    }
+    binary.write_text(
+        f"#!{sys.executable}\n"
+        "import pathlib, sys\n"
+        "with pathlib.Path(__file__).with_suffix('.calls').open('a') as calls:\n"
+        "    calls.write('scan\\n')\n"
+        "output = pathlib.Path(sys.argv[sys.argv.index('--out-dir') + 1])\n"
+        f"(output / 'report.json').write_text({json.dumps(report)!r})\n"
+        "(output / 'cbom.json').write_bytes(b'controlled-cbom')\n"
+    )
+    binary.chmod(0o700)
+    binary.with_suffix(".sha256").write_text(hashlib.sha256(binary.read_bytes()).hexdigest())
+    monkeypatch.setattr(context, "skill_dir", lambda name: pack)
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
+    return pack
+
+
+def _load_pqc_app(tmp_path: Path, *, allowed: bool = True) -> Context:
+    (tmp_path / "traust.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "home": str(tmp_path / "store"),
+                "process": {"allowed_binaries": ["pqc-scan"] if allowed else []},
+            }
+        )
+    )
+    return load(tmp_path)
+
+
+def _pqc_ref(core: Context) -> UUID:
+    services = core.services()
+    repository = services.portfolio.register_repository(
+        HttpsRepoUrl.parse("https://github.com/example/widget", core.config.forge_hosts),
+        public=False,
+    )
+    ref = services.portfolio.register_ref(repository.id, GitSha.parse("a" * 40), None, None)
+    services.exposure.ingest_sbom(b'{"bomFormat":"CycloneDX","components":[]}', ref.id)
+    return ref.id
+
+
+def test_app_pqc_prescan_persists_child_facts_and_replays_after_reload(
+    tmp_path: Path, pqc_pack: Path
+) -> None:
+    core = _load_pqc_app(tmp_path)
+    calls = pqc_pack / "bin" / "pqc-scan.calls"
+    assert not calls.exists()
+    ref_id = _pqc_ref(core)
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "keys.go").write_text('package sample\nimport "crypto/rsa"\n')
+    request = ToolRequest(workspace=source)
+    services = core.services()
+    first = services.pqc.prescan(ref_id, request)
+    assert first.scanned
+    assert first.cbom == b"controlled-cbom"
+    assert [
+        (fact.file, fact.line, fact.match)
+        for fact in first.facts
+        if fact.rule_id == "API_GO_CRYPTO_RSA"
+    ] == [("keys.go", 2, "crypto/rsa")]
+    (artifact,) = services.artifacts.list_for_assessment(first.assessment_id)
+    document = services.artifacts.read(artifact.id, PqcFactsArtifact)
+    stamps = json.loads(document.payload)["stamps"]
+    assert (stamps["adapter_version"], stamps["pqc_scan_commit"]) == (
+        "1.4.0",
+        "be5c760adb7d1d4d99e39d35d87d2956079db76e",
+    )
+    assert (
+        stamps["binary_sha256"]
+        == hashlib.sha256((pqc_pack / "bin" / "pqc-scan").read_bytes()).hexdigest()
+    )
+
+    reloaded = load(tmp_path).services()
+    repeated = reloaded.pqc.prescan(ref_id, request)
+    assert not repeated.scanned
+    assert repeated.assessment_id == first.assessment_id
+    assert repeated.facts == first.facts
+    (state,) = reloaded.pqc.scan_states(PqcFilter(repository_ref_ids=(ref_id,)))
+    assert (state.assessment_id, state.basis, state.current) == (
+        first.assessment_id,
+        "source",
+        True,
+    )
+    assert calls.read_text().splitlines() == ["scan"]
+
+
+@pytest.mark.parametrize(
+    ("installation", "error"),
+    [
+        ("missing", ConfigError),
+        ("checksum-mismatch", IntegrityError),
+        ("not-executable", ConfigError),
+        ("not-allowed", ConfigError),
+    ],
+)
+def test_app_pqc_prescan_refuses_unready_installation_without_recording_facts(
+    tmp_path: Path, pqc_pack: Path, installation: str, error: type[Exception]
+) -> None:
+    binary = pqc_pack / "bin" / "pqc-scan"
+    if installation == "missing":
+        binary.unlink()
+    elif installation == "checksum-mismatch":
+        binary.with_suffix(".sha256").write_text("0" * 64)
+    elif installation == "not-executable":
+        binary.chmod(0o600)
+    core = _load_pqc_app(tmp_path, allowed=installation != "not-allowed")
+    ref_id = _pqc_ref(core)
+    source = tmp_path / "source"
+    source.mkdir()
+    services = core.services()
+    with pytest.raises(error):
+        services.pqc.prescan(ref_id, ToolRequest(workspace=source))
+    (state,) = services.pqc.scan_states(PqcFilter(repository_ref_ids=(ref_id,)))
+    assert state.assessment_id is None
+    assert not binary.with_suffix(".calls").exists()

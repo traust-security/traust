@@ -6,7 +6,7 @@ from enum import StrEnum
 from uuid import UUID
 
 from traust_core.v1.context import CheckoutRequest, Services
-from traust_core.v1.errors import TraustError, ValidationError
+from traust_core.v1.errors import ConfigError, TraustError, ValidationError
 from traust_core.v1.models.base import Model
 from traust_core.v1.models.common import ToolRequest, every_item
 from traust_core.v1.models.findings import FindingFilter
@@ -14,8 +14,6 @@ from traust_core.v1.models.inventory import Liveness, RepositoryFilter, Reposito
 from traust_core.v1.models.observation import ComparisonStatus
 from traust_core.v1.models.pqc import PqcFilter, PqcScanState
 from traust_core.v1.models.values import GitSha, HttpsRepoUrl
-
-from traust.lib.pending_decisions import Decision, PendingCoreDecision
 
 CRYPTO_CWES = frozenset(
     {
@@ -91,8 +89,8 @@ class PqcSweep:
 
     ``chokepoints`` are the deployment's priority repositories (URL fragments from the config
     home's ``pqc-priority.yaml``, :func:`traust.context.pqc_priority`): a repository whose URL
-    contains one leads the worklist. ``scanner`` is the Context's ``pqc_scanner``; traust
-    registers none until plan 15's decision 4, so a batch that would scan refuses.
+    contains one leads the worklist. ``scanner`` is the Context's registered ``pqc_scanner``;
+    a batch that needs an absent provider or cannot measure refresh currency fails closed.
     """
 
     def __init__(
@@ -211,13 +209,18 @@ class PqcSweep:
                 if not refresh:
                     continue
                 if scan.current is None:
-                    raise PendingCoreDecision(Decision.PQC_SCANNER)
+                    raise ConfigError(
+                        "pqc sweep refresh cannot compare recorded scans without the "
+                        "pqc-scan provider (Context.register_pqc_scanner)"
+                    )
                 if scan.current:
                     continue
             pending.append(entry)
         batch = pending[:limit]
         if self._scanner is None and any(e.route != SweepRoute.ACCESS_REQUEST for e in batch):
-            raise PendingCoreDecision(Decision.PQC_SCANNER)
+            raise ConfigError(
+                "pqc sweep needs the pqc-scan provider (Context.register_pqc_scanner)"
+            )
         results = []
         for entry in batch:
             if entry.route == SweepRoute.ACCESS_REQUEST:
