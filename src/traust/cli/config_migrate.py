@@ -39,7 +39,6 @@ FACTS = {
 }
 KEPT = {
     "model-registry.yaml": "read from the config home as today",
-    "pqc-priority.yaml": "read from the config home as today (the PQC sweep's chokepoints)",
 }
 RETIRED = {
     "corpus-config.yaml": "no reader",

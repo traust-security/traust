@@ -1,8 +1,0 @@
-# Copy to $TRAUST_CONFIG_HOME/pqc-priority.yaml; this example is never read at runtime.
-# The PQC sweep worklist (`traust pqc worklist|sweep`) ranks a repository whose URL contains
-# one of these fragments (case-insensitive) first, as a "chokepoint": the TLS, PKI and
-# identity components the rest of your estate trusts. Name your own; none ship.
-# Absent file: no repository is a chokepoint, and the crypto-CWE and tail tiers still rank.
-chokepoints: []
-#  - tls-terminator
-#  - internal-ca
