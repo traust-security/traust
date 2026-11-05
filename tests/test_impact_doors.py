@@ -164,7 +164,9 @@ def test_one_commit_by_url_and_sha(home: Path, tmp_path: Path) -> None:
     )
     run(impact.sbom, home, str(unrelated), "--repo-url", REPO, "--sha", SHA)
     rc, out = run(impact.analyze, home, LODASH.identifier, "--repo-url", REPO, "--sha", SHA)
-    assert rc == 0 and json.loads(out)["classifications"] == {"not_imported": 1}
+    # an SBOM given as a document has no manifest scan behind it, so its coverage is unknown
+    # and a package it lacks can't be called not imported (contracts manifest-coverage binding)
+    assert rc == 0 and json.loads(out)["classifications"] == {"inconclusive": 1}
     with pytest.raises(SystemExit):
         run(impact.analyze, home, LODASH.identifier, "--repo-url", REPO)
 
