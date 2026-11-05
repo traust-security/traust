@@ -93,10 +93,12 @@ git_safe() {
 snapshot_files() {
   # snapshot_files <worktree> <clone>: the `rsync -a --delete --exclude=/.git`
   # of the SCI worker. The clone's files (all but its .git) go, then the
-  # worktree's (all but its top-level .git) are copied in, symlinks as links
-  # and modes kept. A special file (a FIFO, a device) fails the snapshot.
+  # worktree's (all but its top-level .git) are copied in: regular files with
+  # their modes, symlinks as links, directories walked. Any other entry, at any
+  # depth (a FIFO, a socket, a device node such as /dev/zero, which a copy
+  # would read forever), fails the snapshot before anything is read from it.
   python3 - "$1" "$2" <<'PY'
-import os, shutil, sys
+import os, shutil, stat, sys
 src, dst = sys.argv[1:]
 for name in os.listdir(dst):
     if name != ".git":
@@ -105,14 +107,25 @@ for name in os.listdir(dst):
             shutil.rmtree(path)
         else:
             os.unlink(path)
+
+def copy(s, d):
+    mode = os.lstat(s).st_mode
+    if stat.S_ISLNK(mode):
+        os.symlink(os.readlink(s), d)
+    elif stat.S_ISDIR(mode):
+        os.mkdir(d)
+        for name in os.listdir(s):
+            copy(os.path.join(s, name), os.path.join(d, name))
+        shutil.copystat(s, d, follow_symlinks=False)
+    elif stat.S_ISREG(mode):
+        shutil.copy2(s, d, follow_symlinks=False)
+    else:
+        sys.exit(f"[push_fix] not a regular file, directory or symlink: {s}")
+
 for name in os.listdir(src):
     if name == ".git":
         continue
-    s, d = os.path.join(src, name), os.path.join(dst, name)
-    if os.path.isdir(s) and not os.path.islink(s):
-        shutil.copytree(s, d, symlinks=True)
-    else:
-        shutil.copy2(s, d, follow_symlinks=False)
+    copy(os.path.join(src, name), os.path.join(dst, name))
 PY
 }
 

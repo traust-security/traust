@@ -624,3 +624,26 @@ def test_the_snapshot_keeps_modes_and_links_and_refuses_special_files(tmp_path):
     os.mkfifo(fifo / "pipe")
     r = _script("commit", str(fifo), base, str(origin), str(msg))
     assert r.returncode != 0
+
+
+def test_a_socket_or_device_anywhere_fails_the_snapshot_before_it_is_read(tmp_path, monkeypatch):
+    # a device node needs root to create; a socket is the same class (neither a regular
+    # file, a directory nor a symlink), so it exercises the same refusal
+    import socket
+
+    origin, base = _origin_with_base(tmp_path)
+    wt = _patched_worktree(origin, base, tmp_path)
+    deeper = wt / "nested" / "deeper"
+    deeper.mkdir(parents=True)
+    monkeypatch.chdir(deeper)  # bind by a short relative path: AF_UNIX paths are short
+    server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    try:
+        server.bind("s.sock")
+        msg = tmp_path / "commit-message.txt"
+        msg.write_text(MSG)
+        r = _script("commit", str(wt), base, str(origin), str(msg))
+    finally:
+        server.close()
+    assert r.returncode != 0
+    assert "not a regular file, directory or symlink" in r.stderr
+    assert "s.sock" in r.stderr
