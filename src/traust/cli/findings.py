@@ -56,6 +56,7 @@ from traust_core.v1.models.findings import (
     ReviewFilter,
 )
 from traust_core.v1.models.identity import Credential
+from traust_core.v1.models.insight import ViewFilter, ViewName
 from traust_core.v1.models.integrity import FingerprintInput
 from traust_core.v1.models.inventory import Repository
 from traust_core.v1.models.remediation import ExternalRef
@@ -830,8 +831,8 @@ def sarif(argv: list[str] | None = None) -> int:
         core = load(args.config_home)
         repo = _repository(core, args.repo_url)
         assert repo.id is not None
-        views = core.services().findings.baseline(repo.id, when(args.as_of) or datetime.now(UTC))
-        doc = core.services().reporting.sarif_findings(views, repo.url)
+        scope = ViewFilter(repository_id=repo.id, as_of=when(args.as_of) or datetime.now(UTC))
+        doc = core.services().insight.build(ViewName.SARIF, scope).model_dump(mode="json")
         if args.out is None:
             return doc
         args.out.write_text(json.dumps(doc, indent=2) + "\n", encoding="utf-8")

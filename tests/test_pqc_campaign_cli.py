@@ -35,9 +35,7 @@ def test_worklist_cli_discovers_registered_unassessed_repositories(
         ("tail", "source"),
     ]
     assert all(e["scan"]["assessment_id"] is None for e in entries)
-    assert pqc.worklist(["--markdown"]) == 0
-    markdown = capsys.readouterr().out
-    assert "https://github.com/example/oauth-gateway" in markdown
+    assert entries[0]["repository"] == "https://github.com/example/oauth-gateway"
     assert {"sweep", "worklist"} <= PQC.keys()
 
 

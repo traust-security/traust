@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from traust_core.v1.context.compliance_precision import compliance_precision_markdown
 from traust_core.v1.models.vocabulary import ComplianceFramework
 
 from traust.cli._doors import parser, run
@@ -27,9 +26,6 @@ def main(argv: list[str] | None = None) -> int:
         args.out_dir.mkdir(parents=True, exist_ok=True)
         (args.out_dir / "compliance-precision.json").write_text(
             report.model_dump_json(indent=2) + "\n", encoding="utf-8"
-        )
-        (args.out_dir / "compliance-precision.md").write_text(
-            compliance_precision_markdown(report), encoding="utf-8"
         )
         return {
             **report.model_dump(mode="json"),

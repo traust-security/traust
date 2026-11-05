@@ -258,7 +258,6 @@ INVENTORY_COLUMNS = (
 
 def inventory_export(argv: list[str] | None = None) -> int:
     ap = parser("portfolio", "inventory-export", "Joined inventory, owners and contacts.")
-    ap.add_argument("--format", choices=("json", "csv"), default="json")
     ap.add_argument(
         "--pd-cache-dir",
         type=Path,
@@ -269,18 +268,9 @@ def inventory_export(argv: list[str] | None = None) -> int:
     def call() -> Any:
         core = load(args.config_home)
         rows = _inventory_rows(core, args.pd_cache_dir)
-        if args.format == "json":
-            return [dict(zip(INVENTORY_COLUMNS, row, strict=True)) for row in rows]
-        exported = core.services().reporting.export_csv(
-            INVENTORY_COLUMNS, (tuple(map(_cell, r)) for r in rows)
-        )
-        return exported.rstrip("\n")
+        return [dict(zip(INVENTORY_COLUMNS, row, strict=True)) for row in rows]
 
     return run(call)
-
-
-def _cell(value: object) -> str:
-    return "; ".join(value) if isinstance(value, list) else str(value)
 
 
 def _inventory_rows(core: Context, cache_dir: Path | None) -> list[tuple[object, ...]]:
