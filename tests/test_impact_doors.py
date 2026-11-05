@@ -308,3 +308,40 @@ def test_sbom_without_a_document_reads_the_commits_manifests(
     assert rc == 0 and done["sbom_id"]
     [request] = asked
     assert (str(request.repo), str(request.ref), request.keep) == (REPO, SHA, MANIFESTS)
+
+
+def test_a_no_file_sbom_never_scans_a_commit_that_has_one(
+    home: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rc, out = run(
+        impact.sbom, home, str(sbom(tmp_path, "4.17.20")), "--repo-url", REPO, "--sha", SHA
+    )
+    assert rc == 0
+    attempts: list[str] = []
+
+    def no_scan(provider: str) -> Any:
+        def refuse(*_: object, **__: object) -> Any:
+            attempts.append(provider)
+            raise AssertionError(f"{provider} ran for a commit with a recorded SBOM")
+
+        return refuse
+
+    for provider in (ArchiveCheckout, MirrorCheckout):
+        monkeypatch.setattr(provider, "checkout", no_scan(provider.__name__))
+    monkeypatch.setattr(SyftSbom, "acquire", no_scan("SyftSbom"))
+    rc, again = run(impact.sbom, home, "--repo-url", REPO, "--sha", SHA)
+    assert attempts == []  # nothing was fetched or scanned, even if an error was swallowed
+    assert rc == 0 and json.loads(again)["sbom_id"] == json.loads(out)["sbom_id"]
+
+
+def test_a_later_document_replaces_the_recorded_sbom(home: Path, tmp_path: Path) -> None:
+    rc, first = run(
+        impact.sbom, home, str(sbom(tmp_path, "4.17.20")), "--repo-url", REPO, "--sha", SHA
+    )
+    assert rc == 0
+    rc, second = run(
+        impact.sbom, home, str(sbom(tmp_path, "4.17.21")), "--repo-url", REPO, "--sha", SHA
+    )
+    assert rc == 0 and json.loads(second)["sbom_id"] != json.loads(first)["sbom_id"]
+    rc, current = run(impact.sbom, home, "--repo-url", REPO, "--sha", SHA)
+    assert rc == 0 and json.loads(current)["sbom_id"] == json.loads(second)["sbom_id"]

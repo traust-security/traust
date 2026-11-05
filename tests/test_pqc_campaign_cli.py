@@ -93,7 +93,11 @@ def test_without_a_chokepoint_every_repository_ranks_crypto_cwe_then_tail(
     assert pqc.worklist([]) == 0
     captured = capsys.readouterr()
     assert [e["priority_tier"] for e in json.loads(captured.out)] == ["tail"]
-    assert captured.err == ""
+    assert captured.err.splitlines() == [
+        "pqc: no chokepoint tier: no --chokepoint given; every repository ranks crypto-CWE then tail"
+    ]
+    assert pqc.worklist(["--chokepoint", "gateway"]) == 0
+    assert capsys.readouterr().err == ""
 
 
 @pytest.mark.parametrize("blank", ["", "  "])

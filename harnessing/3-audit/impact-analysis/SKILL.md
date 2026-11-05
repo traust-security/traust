@@ -262,8 +262,13 @@ what its silence means:
   (`python3 -m traust.cli impact sbom <file> --repo-url <url> --sha <commit> [--branch <branch>]`)
   has no scan behind it, so its coverage is unknown. A package it lacks is
   `inconclusive`, never `not_imported`. Its pins still classify (`likely_affected`,
-  `version_not_in_range`). For absence evidence on that commit, rerun `impact sbom`
-  for it without the file, or use `--scan`.
+  `version_not_in_range`).
+
+`impact sbom` without the file scans only a commit that has no SBOM yet. For a
+commit that has one, it returns that SBOM unchanged. A later document replaces the
+recorded SBOM, and clears a scan's coverage. Nothing replaces a document with a
+scan, so record the scan first when you'll need absence evidence. For a commit that
+already holds a document SBOM, `--scan` (the deep scan) is the only further evidence.
 
 ### Step 3: Validate and review
 
