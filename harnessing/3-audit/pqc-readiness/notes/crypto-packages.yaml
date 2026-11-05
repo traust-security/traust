@@ -11,11 +11,11 @@
 #
 #     repo:<host>/<org>/<name>  -[depends_on {version, ecosystem, manifest}]->  pkg:<eco>/<name>
 #
-# This file names the packages that are *crypto-relevant* so the PQC lane can
-# discover crypto dependencies ACROSS LANGUAGES (npm/pypi/maven/cargo/ruby/
-# nuget) — not just the Go/TLS surface pqc_facts.py already covers. The scan
-# is a pure graph lookup: repos with a `depends_on` edge to one of these
-# packages, with the version + manifest provenance carried on the edge.
+# This file names packages that are *crypto-relevant* for cross-language
+# capability research (npm/pypi/maven/cargo/ruby/nuget). Core's native prescan
+# owns both source/provider facts and SBOM-only package evidence. The retired scan
+# was a pure graph lookup: repos with a `depends_on` edge to one of these
+# packages, with version + manifest provenance carried on the edge.
 #
 # THIS IS A CURATED STARTER SET — DELIBERATELY NOT EXHAUSTIVE.
 # Extend it freely; the scan re-reads it every run. To add a package:

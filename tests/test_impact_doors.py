@@ -165,6 +165,8 @@ def test_explicit_commit_preserves_unknown_manifest_coverage(home: Path, tmp_pat
     run(impact.sbom, home, str(unrelated), "--repo-url", REPO, "--sha", SHA)
     run(impact.sbom, home, str(sbom(tmp_path, "4.17.20")), "--repo-url", REPO, "--sha", "b" * 40)
     rc, out = run(impact.analyze, home, LODASH.identifier, "--repo-url", REPO, "--sha", SHA)
+    # an SBOM given as a document has no manifest scan behind it, so its coverage is unknown
+    # and a package it lacks can't be called not imported (contracts manifest-coverage binding)
     assert rc == 0
     summary = json.loads(out)
     assert summary["commits"] == 1

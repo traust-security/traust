@@ -73,7 +73,7 @@ checks installs against); the per-skill mapping and every license are in
 | Validate browser findings (`validate-browser-finding`) | Playwright (`pip install -r requirements.txt` from the repo root, then `playwright install chromium`) |
 | Fuzz (`create-fuzzing`) | The target language's toolchain: Go native, `atheris` (Python), `Jazzer.js` (JS/TS), `jazzer` (JVM, pinned), `cargo-fuzz` (Rust) |
 | Generate remediations on forks (`remediate-finding`) | A `GITHUB_TOKEN` with fork-push rights — fork setup goes through the GitHub REST API directly (`curl`), no `gh` needed. (`glab` belongs to `fleet-fix` MR automation) |
-| PQC readiness (`pqc-readiness`) | Rust toolchain (builds the pinned `pqc-scan` binary); Go toolchain + `callgraph`/`digraph` for call-graph reachability |
+| PQC readiness (`pqc-readiness`) | `traust pqc prescan` uses Core's registered provider. Source mode needs the pinned executable + matching checksum, readable rules and `process.allowed_binaries` permission; Rust is needed only to build the binary, `git`/`syft` for checkout/SBOM acquisition when needed. SBOM-only mode accepts a manifest without executing the source scanner. Optional x/crypto call-graph evidence needs Go + `callgraph`/`digraph` |
 | Sign disposition ledgers | `cosign`, plus the signing private key in your secret store, referenced by `traust.yaml` → `ledger.key_path` — toolchain profile `ledger-signing`; see [signing.md](signing.md) |
 
 ## Network & access tiers

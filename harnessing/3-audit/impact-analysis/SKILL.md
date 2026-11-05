@@ -249,8 +249,21 @@ finding for each `affected` commit/package. Every affected ecosystem,
 module and held version gets its own document with its own range and fix.
 
 Leave out `--scan` for a fast SBOM-only pass (no cloning). A commit
-with no recorded SBOM is not in the blast radius; record one with
-`python3 -m traust.cli impact sbom <file> --repo-url <url> --sha <commit> [--branch <branch>]`.
+with no recorded SBOM is not in the blast radius. The SBOM's source decides
+what its silence means:
+
+- **A manifest scan of the commit**
+  (`python3 -m traust.cli impact sbom --repo-url <url> --sha <commit> [--branch <branch>]`,
+  no file: syft over that commit's manifests) records the SBOM with its coverage, so
+  a package it lacks is `not_imported`, unless a manifest it couldn't resolve leaves
+  that ecosystem `inconclusive`. The `manifest_sbom` asset (`impact manifest-sbom --repo <url>`)
+  does the same, but only for the repository's observed default head.
+- **An SBOM given as a document**
+  (`python3 -m traust.cli impact sbom <file> --repo-url <url> --sha <commit> [--branch <branch>]`)
+  has no scan behind it, so its coverage is unknown. A package it lacks is
+  `inconclusive`, never `not_imported`. Its pins still classify (`likely_affected`,
+  `version_not_in_range`). For absence evidence on that commit, rerun `impact sbom`
+  for it without the file, or use `--scan`.
 
 ### Step 3: Validate and review
 
@@ -293,8 +306,8 @@ not whichever safe package packet happened to finish last.
 | `likely_affected` | Package imported, no deep scan yet | manifest pin in range, imports found or symbols used + no govulncheck result |
 | `not_observed` | Vulnerable package/symbol not observed | govulncheck `*_not_observed`, or not in manifests and no imports |
 | `version_not_in_range` | At safe version | SBOM version ≥ fix |
-| `not_imported` | Module not in dep graph | blast-radius miss |
-| `inconclusive` | Analysis hit limits | clone failed, non-Go repo, unsafe/reflect, a Go pin in range not yet scanned (`--scan`) |
+| `not_imported` | Module not in dep graph | blast-radius miss against a manifest-scanned SBOM (coverage known) |
+| `inconclusive` | Analysis hit limits | clone failed, non-Go repo, unsafe/reflect, a Go pin in range not yet scanned (`--scan`), a package absent from an SBOM given as a document (coverage unknown) |
 
 `not_observed` means "not observed by the tools we ran" — same vocabulary
 discipline as govulncheck. It is evidence for a human decision, not a

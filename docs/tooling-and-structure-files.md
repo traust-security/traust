@@ -15,6 +15,8 @@ The schemas below (from the installed `traust-contracts` package) are the comple
 | `schemas/v1/adapter-result.schema.json` | JSON Schema for traust-engine scanner adapter `scan()` return values (distinct from skill-level vuln-findings output) |
 | `traust-contracts/artifacts_schema/v1/code-facts.schema.json` | Recorded symbols and measured language statistics on a `tool_scan` assessment; read through core's artifact and code-facts services |
 | `traust-contracts/artifacts_schema/v1/manifest-coverage.schema.json` | What a commit's manifest SBOM could not resolve, with the SBOM tool's name and version; recorded by core's dependency ingestion before the SBOM, so an unresolved manifest reads as unknown, never as no dependencies |
+| `traust-contracts/artifacts_schema/v1/fuzz-campaign.schema.json` | A supplied fuzz-campaign scope reference: a campaign snapshot with declared references, not fuzz execution evidence (`reporting import-fuzz-campaign` is retired in traust; nothing records it) |
+| `traust-contracts/artifacts_schema/v1/repo-liveness.schema.json` | Repository liveness facts recorded by traust-core's forge observation, keyed by inventory repository UUID; `traust portfolio liveness` still refuses until plan 15's decision 3 |
 | `schemas/v1/validation.schema.json` | JSON Schema for live-validation reports |
 | `schemas/v1/remediation.schema.json` | JSON Schema for remediation patches |
 | `schemas/v1/verification.schema.json` | JSON Schema for remediation-verification reports |
@@ -35,7 +37,7 @@ The schemas below (from the installed `traust-contracts` package) are the comple
 | `schemas/v1/compliance-mapping.schema.json` | JSON Schema for the control↔check policy mapping |
 | `schemas/v1/doc-variance.schema.json` | JSON Schema for documentation-variance registers (`<repo>-doc-variance.json`) — official docs.redhat.com claims contradicted by code evidence, per doc version; source URL schema-restricted to docs.redhat.com (informal inputs never mint variance records) |
 | `schemas/v1/compliance-scope.schema.json` | JSON Schema for a compliance boundary declaration (recorded by `python3 -m traust.cli compliance declare`; repo membership resolved from the inventory by `python3 -m traust.cli compliance resolve`) |
-| `schemas/v1/pqc-facts.schema.json` | JSON Schema for the deterministic Layer 1 crypto census (`*-pqc-facts.json`) — the contract `/patch`'s pqc ingest and the Layer 2 prepass consume |
+| `schemas/v1/pqc-facts.schema.json` | JSON Schema for Core's deterministic Layer 1 crypto census (`*-pqc-facts.json`), produced and recorded by `traust pqc prescan`, exported unchanged — the contract `/patch`'s pqc ingest and the Layer 2 prepass consume; re-check with `traust reporting validate <file> --schema pqc-facts` |
 | `schemas/v1/pqc-readiness.schema.json` | JSON Schema for PQC readiness reports |
 | `schemas/v1/pqc-blockers.schema.json` | JSON Schema for the findings-shaped projection of readiness remediations (no longer emitted: `traust pqc blockers` derives the items from the recorded report) — mirrors the security-audit findings vocabulary without claiming `report.schema.json` conformance |
 | `schemas/v1/pqc-decision-tree.schema.json` | JSON Schema for the PQC provenance decision tree |

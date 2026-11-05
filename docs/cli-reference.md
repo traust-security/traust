@@ -38,7 +38,7 @@ python3 -m traust.cli check skill-alignment      # equivalent
 | `ledger` | Ledger audit (traust-core) and the doc-variance register | `audit`, `doc-variance` |
 | `metrics` | Metrics & spend | `attribute-spend`, `collect-spend`, `lane-costs` |
 | `portfolio` | The portfolio on traust-core: inventory discovery and routing-event intake, `observe` (the `repo_state` materializer), the checkout mirror-cache materializers, add-inputs' and inventory-repositories' doors, the owner/contact export, SBOM reads (`dependencies`, `dependents`, `ships-module`); `liveness` refuses until plan 15's decision 3 and `release-passthrough` refuses until a release feed exists (NEED(release-passthrough)) | `checkout-refresh`, `dependencies`, `dependents`, `event-intake`, `event-validate`, `file`, `import-owners`, `import-release`, `inventory-discover`, `inventory-export`, `liveness`, `mirror-evict`, `observe`, `onboard`, `owner-hints`, `plan`, `population`, `release-changes`, `release-passthrough`, `ships-module` |
-| `pqc` | The pqc-readiness skill's doors on traust-core; the ranked sweep worklist and bounded refresh through Core's registered pqc-scan provider | `blockers`, `check`, `prepare`, `record`, `summary`, `sweep`, `vendor-claims`, `worklist` |
+| `pqc` | The pqc-readiness skill's doors on traust-core; native single-commit prescan, ranked sweep worklist and bounded refresh through Core's registered pqc-scan provider | `blockers`, `check`, `prepare`, `prescan`, `record`, `summary`, `sweep`, `vendor-claims`, `worklist` |
 | `products` | corpus-intake's doors on traust-core: products and their corpus ownership | `add`, `list`, `update` |
 | `registry` | Model/product registry and the recorded product map | `models`, `product-map`, `products` |
 | `remediation` | The remediation loop's doors on traust-core (remediate-finding, patch, property-test, fleet-fix, verify-remediation) | `assemble`, `candidates`, `fleet-approve`, `fleet-claim`, `fleet-record`, `fleet-submit`, `fleet-targets`, `fork`, `mutation-evidence`, `next`, `open`, `prepare`, `progress`, `property-evidence`, `record`, `verifications`, `verify-differential`, `verify-prepare`, `verify-record`, `verify-sweep`, `work-items` |
@@ -50,6 +50,47 @@ python3 -m traust.cli check skill-alignment      # equivalent
 | `sweep` | Class-generalization sweep; detection-quality reports (`cve-replay` refuses until plan 15's decision 2); recall-benchmark answer key | `benchmark`, `benchmark-targets`, `bootstrap-benchmark`, `build-canaries`, `cards`, `collect`, `compliance-precision`, `critical-misses`, `cve-replay`, `draft`, `emit`, `mine`, `propose-rule`, `regression-drafts`, `rule-lane`, `score-benchmark`, `screen-injection`, `sweep`, `verify-draft` |
 | `util` | Utility commands | `elf`, `redact`, `safe-exec` |
 | `validation` | Core-backed machine validation evidence | `prepare`, `plan`, `record` |
+
+### Native PQC facts and Layer-2 handoff
+
+`traust pqc prescan` produces and records Core-native Layer-1 facts for one
+explicit repository commit, then exports the published artifact:
+
+```bash
+traust pqc prescan --repo-url <URL> --sha <commit> \
+  --repo-dir <checkout> --sbom <manifest.json> \
+  --out <facts.json> --cbom-out <cbom.json>
+traust pqc prepare --repo-url <URL> --sha <commit>
+```
+
+Exactly one source is required: `--repo-dir <checkout>` for a source scan, or
+`--from-sbom <manifest.json>` for package-only evidence. `--sbom` is optional in
+source mode if the commit's manifest SBOM is already recorded; when supplied,
+Core ingests it before prescan. `--from-sbom` ingests that manifest and does not
+execute the source scanner. `--sbom` and `--cbom-out` are source-only options.
+Both modes require `--repo-url`, `--sha` and `--out`; `--public` marks a public
+repository and `--config-home <dir>` selects the deployment configuration.
+Scanner and rules come only from loader registration, not `--scanner` or
+`--rules-dir` overrides. Provider prerequisites are described below.
+
+The JSON receipt identifies the recorded assessment and whether the scan ran
+or reused current facts. `--out` is the exact native published artifact payload,
+not a reconstruction from the receipt's fact list. Core alone owns policy,
+facts, persistence and pack/source-basis cache decisions. Do not add a redundant
+`pqc record --facts` step. Core does not retain CBOM: `--cbom-out` exports
+unchanged source-scanner bytes only when available, and fails explicitly on
+cached reuse without writing either output. The current native CBOM is a JSON
+array, not a promised CycloneDX document. Source failures also write neither
+output and never manufacture clean facts.
+
+Validate an existing export with
+`traust reporting validate <facts.json> --schema pqc-facts`.
+`pqc prepare` reads the recorded native producer output for `/pqc-readiness`'s
+Layer-2 reasoning; the authored readiness report still uses `pqc check` and
+`pqc record --report`. SBOM-only facts do not establish source/configuration
+coverage, and an empty package result is not a verified source zero-hit.
+The single-commit command is not a fleet campaign; sweeps require an explicit
+bounded selection.
 
 ### PQC sweep provider and refresh
 

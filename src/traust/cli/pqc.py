@@ -1,6 +1,6 @@
-"""``traust pqc record|check|prepare|summary|blockers|vendor-claims``: the pqc-readiness
-skill's doors on traust-core.
+"""``traust pqc …``: the pqc-readiness skill's doors on traust-core.
 
+prescan   persist native source/SBOM facts and export their exact stored payload
 record    a commit's Layer-1 facts or its Layer-2 report; verified zero-hit source scans
           are not applicable (the sweep uses Core's registered scanner provider)
 check     a readiness report against its gate past the schema (`record` applies the same gate)
@@ -19,12 +19,14 @@ from pathlib import Path
 from uuid import UUID
 
 from traust_core.v1.context import Context
-from traust_core.v1.errors import NotFoundError
+from traust_core.v1.errors import NotFoundError, ValidationError
 from traust_core.v1.models.artifacts import (
     PqcFactsArtifact,
     PqcReadinessArtifact,
     PqcVendorClaimsArtifact,
 )
+from traust_core.v1.models.common import ToolRequest
+from traust_core.v1.models.dependencies import NoManifestSbomError
 from traust_core.v1.models.pqc import PqcDimension, PqcFilter
 from traust_core.v1.models.values import GitSha, HttpsRepoUrl
 from traust_core.v1.models.vocabulary import (
@@ -66,11 +68,67 @@ def _find(core: Context, repo_url: str, sha: str) -> UUID:
     return ref.id
 
 
+def prescan(argv: list[str] | None = None) -> int:
+    ap = _parser("prescan", "Prescan a commit and export its persisted native pqc-facts.")
+    ap.add_argument("--public", action="store_true", help="the repository is public")
+    source = ap.add_mutually_exclusive_group(required=True)
+    source.add_argument("--repo-dir", type=Path, help="the commit's checkout (read-only)")
+    source.add_argument("--from-sbom", type=Path, help="prescan only this manifest SBOM")
+    ap.add_argument("--sbom", type=Path, help="source mode's manifest SBOM, recorded first")
+    ap.add_argument("--out", type=Path, required=True, help="export the stored pqc-facts JSON")
+    ap.add_argument("--cbom-out", type=Path, help="export raw scanner CBOM bytes (source only)")
+    args = ap.parse_args(argv)
+    if args.repo_dir is None and (args.sbom is not None or args.cbom_out is not None):
+        ap.error("--sbom and --cbom-out require --repo-dir")
+
+    def call() -> dict:
+        if args.cbom_out is not None and args.out.resolve() == args.cbom_out.resolve():
+            raise ValidationError("--out and --cbom-out must name different destinations")
+        core = load(args.config_home)
+        ref_id = _register(core, args)
+        services = core.services()
+        sbom = args.from_sbom if args.from_sbom is not None else args.sbom
+        if sbom is not None:
+            services.exposure.ingest_sbom(sbom.read_bytes(), ref_id)
+        request = None if args.repo_dir is None else ToolRequest(workspace=args.repo_dir)
+        try:
+            done = services.pqc.prescan(ref_id, request)
+        except NoManifestSbomError as e:
+            raise ValidationError(
+                f"commit {args.sha} has no manifest SBOM recorded: run "
+                f"`syft dir:{args.repo_dir} -o cyclonedx-json` and pass it as --sbom"
+            ) from e
+        if args.cbom_out is not None and done.cbom is None:
+            reason = "cached facts reuse" if not done.scanned else "this scanner run"
+            raise ValidationError(
+                f"CBOM unavailable for {reason}: Core stores facts, not CBOM bytes"
+            )
+        artifact = services.artifacts.latest_for_assessment(done.assessment_id, PqcFactsArtifact)
+        if artifact is None:
+            raise NotFoundError(f"assessment {done.assessment_id} has no persisted pqc-facts")
+        args.out.parent.mkdir(parents=True, exist_ok=True)
+        args.out.write_bytes(artifact.payload)
+        if args.cbom_out is not None:
+            assert done.cbom is not None
+            args.cbom_out.parent.mkdir(parents=True, exist_ok=True)
+            args.cbom_out.write_bytes(done.cbom)
+        return {
+            "repository_ref_id": str(ref_id),
+            "assessment_id": str(done.assessment_id),
+            "scanned": done.scanned,
+            "facts": len(done.facts),
+            "out": str(args.out),
+            "cbom_out": None if args.cbom_out is None else str(args.cbom_out),
+        }
+
+    return run(call)
+
+
 def record(argv: list[str] | None = None) -> int:
     ap = _parser("record", "Record a commit's pqc-facts, or its Layer-2 readiness report.")
     ap.add_argument("--public", action="store_true", help="the repository is public")
     doc = ap.add_mutually_exclusive_group(required=True)
-    doc.add_argument("--facts", type=Path, help="a <slug>-pqc-facts.json (pqc_facts.py output)")
+    doc.add_argument("--facts", type=Path, help="a native <slug>-pqc-facts.json")
     doc.add_argument("--report", type=Path, help="a <slug>-pqc-readiness.json you wrote")
     args = ap.parse_args(argv)
 

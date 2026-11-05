@@ -7,8 +7,8 @@ filling the OCP "x/crypto usage tracking" workbook): the rules only fire
 go.mod dependency versions, and callgraph reachability were all unrecorded.
 
 Emits a sidecar artifact `<slug>-xcrypto-usage.json` next to the pqc facts
-(separate file on purpose — `<slug>-pqc-facts.json` is stamped by the pinned
-pqc-scan binary and must stay byte-attributable to it):
+(separate file on purpose — `<slug>-pqc-facts.json` is produced and stamped by
+Core's native prescan and must remain the unchanged published artifact):
 
   A. import_sites[] — first-party (and test/docs, tagged) `import` lines
      referencing golang.org/x/crypto/<pkg>, with file:line and path_class.

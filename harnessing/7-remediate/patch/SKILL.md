@@ -230,8 +230,10 @@ flat `findings[]` of dicts. Pull what's present; never guess what's absent.
    Unverified; print `Warning: PQC blockers are schedule-risk projections,
    not verified exploits.` and continue.
 4b. **`*-pqc-facts.json`** (PQC readiness Layer 1 output; shape contract:
-   `contracts/schemas/pqc-facts.schema.json`, gated at write time by
-   `pqc_facts.py`) — a crypto census, not a bug list. Detect by
+   `pqc-facts.schema.json` in traust-contracts, produced and recorded by Core
+   via `traust pqc prescan`, exported unchanged; re-check with
+   `traust reporting validate <file> --schema pqc-facts`) — a crypto census,
+   not a bug list. Detect by
    `"artifact": "pqc-facts"` in the top-level object. Fallback when no
    `*-pqc-blockers.json` projection exists. **Filter to actionable first-party facts only:**
    - `path_class == "first_party"` AND
@@ -962,7 +964,8 @@ unattributed run is a calibration gap.
 `/remediate-finding`; `<repo>-triage.json` (preferred; legacy `TRIAGE.json`
 accepted) from `/triage`; `<repo>-security-audit.json` from
 `/secure-code-audit` or `*-vuln-findings.json` from `/vuln-scan`
-(unverified-input warning); `*-pqc-facts.json` from `/pqc-readiness`.
+(unverified-input warning); `*-pqc-facts.json` produced and recorded by
+Core's `traust pqc prescan`, exported unchanged for `/pqc-readiness`'s Layer 2.
 
 **Emits (terminal by design):** `./PATCHES/bug_NN/{patch.diff,
 patch_result.json}`, `PATCHES.md`, `PATCHES.json` are a
