@@ -6,6 +6,11 @@ from pathlib import Path
 from uuid import UUID
 
 import pytest
+
+from traust.lib.pending_decisions import Decision, skip_reason
+
+pytest.skip(skip_reason(Decision.CVE_REPLAY), allow_module_level=True)
+
 from traust_core.v1.context import Config, Context
 from traust_core.v1.models.cve_replay import (
     CveReplayCandidate,

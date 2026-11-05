@@ -1,11 +1,14 @@
-"""Human-gated external advisory replay over Core's recorded audit commits."""
+"""Human-gated external advisory replay over Core's recorded audit commits.
+
+Refused until traust-core decides where CVE replay lives (plan 15, decision 2).
+"""
 
 from __future__ import annotations
 
 from uuid import UUID
 
-from traust.cli._doors import parser, run, when
-from traust.context import load
+from traust.cli._doors import parser, run
+from traust.lib.pending_decisions import Decision, PendingCoreDecision
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -28,22 +31,11 @@ def main(argv: list[str] | None = None) -> int:
         default="unknown",
         help="Human-adjudicated presence; unknown is never counted as a confirmed miss",
     )
-    args = ap.parse_args(argv)
+    ap.parse_args(argv)
 
     def call() -> object:
-        quality = load(args.config_home).services().detection_quality
-        if args.operation == "monitor":
-            result = quality.cve_replay(since=when(args.since))
-        elif args.operation == "candidates":
-            result = quality.cve_replay_candidates()
-        elif args.operation == "trends":
-            result = quality.cve_replay_trends()
-        else:
-            presence = {"true": True, "false": False, "unknown": None}[args.present_at_audit]
-            result = quality.cve_replay_oracle(
-                args.assessment, args.advisory, present_at_audit=presence
-            )
-        return result.model_dump(mode="json")
+        # No traust-core door yet: replaying advisories against recorded audits waits on decision 2.
+        raise PendingCoreDecision(Decision.CVE_REPLAY)
 
     return run(call)
 

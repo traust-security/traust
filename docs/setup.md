@@ -41,34 +41,24 @@ available). The full contract: [config/README.md](../config/README.md).
 ### Official product documentation
 
 Register a product in the record store first (`traust products add`; `traust products list`
-reports its `product_id`), then configure its UUID under `compliance.docs_targets` in
-`$TRAUST_CONFIG_HOME/traust.yaml`:
+reports its `product_id`), then collect its official guides with an explicit target:
 
-```yaml
-compliance:
-  docs_targets:
-    "4ea36226-c5c2-44cf-9071-11adae2de180":  # replace with your registered product's UUID
-      product_slug: red_hat_enterprise_linux
-      version: "9"
-      guides: [security_hardening]
+```bash
+traust compliance docs <registered-product-slug> \
+  --product-slug <official-slug> --version <version> --guide <guide>
 ```
 
-The slug, quoted version and guide names come from the product's actual
+The slug, version and guide names come from the product's actual
 `https://docs.redhat.com/en/documentation/<product_slug>/<version>` URLs; they are
-adopter facts, not inferred from the registered product name. Omit `guides` or use `[]`
-to discover every guide linked by the landing page. The normal app composition root
-loads these targets and validates UUID references against the real product registry.
-Malformed targets or unknown products refuse startup; a registered product without a
-target refuses collection. The shipped provider requires `curl` on `PATH` and HTTPS
-access to `docs.redhat.com`; it fetches genuine single-page HTML and returns plain-text
-guides with section links. Missing pages and HTTP failures are explicit errors, never
-cached substitutes or invented content. See `config/traust.example.yaml` for the template.
-
-Collect with `traust compliance docs <registered-product-slug>`; the JSON output contains
-the fetched guide's source URL and extracted text. For a one-off source selection, use
-`traust compliance docs <registered-product-slug> --product-slug <official-slug>
---version <version> --guide <guide>` (repeat `--guide`, or use `--all-guides`).
-Explicit selectors use the same provider and validation without changing saved config.
+adopter facts, not inferred from the registered product name. Repeat `--guide`, or use
+`--all-guides` to discover every guide linked by the landing page. Targets are always
+explicit: traust-core reads no `compliance.docs_targets` from `traust.yaml` until the
+contracts config schema carries that section, so a run without `--product-slug` and
+`--version` is refused. A malformed target or an unknown product is refused too. The
+shipped provider requires `curl` on `PATH` and HTTPS access to `docs.redhat.com`; it
+fetches genuine single-page HTML and returns plain-text guides with section links, and the
+JSON output contains each guide's source URL and extracted text. Missing pages and HTTP
+failures are explicit errors, never cached substitutes or invented content.
 
 ## 2. Prerequisites
 

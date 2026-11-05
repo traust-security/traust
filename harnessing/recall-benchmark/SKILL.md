@@ -1,6 +1,6 @@
 ---
 name: recall-benchmark
-description: Use when the user asks to measure the auditor's detection recall, run the recall benchmark, score a harness release against ground truth, bootstrap/admit benchmark targets, or asks "what fraction of real vulnerabilities do we find". Harvests unadmitted candidates from confirmed fixes, audits pinned pre-fix refs of repos with known-real findings (self-replay, CVE replay, seeded) on clean checkouts using the shared canonical remediation-authoring rules, records real-target reports through Core, scores detection with the finding_identity match ladder via traust-core (`traust sweep score-benchmark`), and emits benchmark.json plus benchmark.md — strict recall cuts, near-miss adjudication, injection resistance, population/skip detail and run-to-run stability.
+description: Use when the user asks to measure the auditor's detection recall, run the recall benchmark, score a harness release against ground truth, bootstrap/admit benchmark targets, or asks "what fraction of real vulnerabilities do we find". Harvests unadmitted candidates from confirmed fixes, audits pinned pre-fix refs of repos with known-real findings (self-replay, CVE replay, seeded) on clean checkouts using the shared canonical remediation-authoring rules, records real-target reports through Core, scores detection with the finding_identity match ladder via traust-core (`traust sweep score-benchmark`), and emits benchmark.json — strict recall cuts, near-miss adjudication, injection resistance, population/skip detail and run-to-run stability.
 argument-hint: "[bootstrap|admit|run|score] [--sample N] [--release]"
 metadata:
   harness.tier: "secondary"
@@ -213,20 +213,18 @@ run (default: the installed traust version; pin one harness version per
 run). Then `python3 -m traust.cli sweep screen-injection <artifact id>…`
 over the recorded real-target reports (canary injection is scored above).
 
-`--out` writes the JSON result and a sibling `.md` report (the example
-produces `benchmark.json` and `benchmark.md`). Use `--markdown <path>` to
-choose a different Markdown location, with or without `--out`; stdout
-remains JSON. Markdown includes strict recall, every scorecard cut,
-near-misses for human adjudication, expected-finding match tiers, injection
-detection/reporting/obedience signals, per-target rerun Jaccard, scored
-population and skipped targets with reasons. Unknown recall, injection
-rate or stability is labelled **not measured**, never silently zero.
+`--out` writes the JSON result (stdout is the same JSON). It holds strict
+recall, every scorecard cut, near-misses for human adjudication,
+expected-finding match tiers, injection detection/reporting/obedience
+signals, per-target rerun Jaccard, scored population and skipped targets
+with reasons. Unknown recall, injection rate or stability is `null`
+(**not measured**), never silently zero. There is no Markdown report
+until core registers its Insight view (a priority follow-up); summarise the JSON when you report back.
 
 The trend across runs is the recorded real-target audits:
 `python3 -m traust.cli sweep score-benchmark [--auditor-version V] [--include-held-out]`
-prints one scorecard per auditor version, oldest first. `--out` also writes
-the sibling Markdown report in this mode; `--markdown` can select its
-location. Recorded scorecards retain aggregate population, recall cuts,
+prints one scorecard per auditor version, oldest first; `--out` writes them
+as JSON. Recorded scorecards retain aggregate population, recall cuts,
 near-miss counts, injection and stability metrics; they do not contain
 per-target adjudication candidates, skip reasons or injection signals.
 Use runs-dir scoring when those details are required.
@@ -246,7 +244,6 @@ were human- or machine-reviewed.
 |---|---|
 | `$TRAUST_CONFIG_HOME/benchmark-targets.yaml` | The ground-truth manifest (answer key — contamination rule applies); recorded in traust-core by `sweep benchmark-targets` |
 | `benchmark/benchmark.json` | `sweep score-benchmark --out`: the scorecard (recall cuts, injection, stability) + per-target detail |
-| `benchmark/benchmark.md` | Human-readable typed benchmark report, written alongside `--out` JSON; `--markdown <path>` overrides its location or writes Markdown without a JSON file |
 | recorded benchmark audits (real targets) | the trend: `sweep score-benchmark` without `--runs-dir`, one scorecard per auditor version |
 
 ## Failure modes

@@ -14,8 +14,9 @@ The schemas below (from the installed `traust-contracts` package) are the comple
 | `schemas/v1/vuln-findings.schema.json` | JSON Schema for vuln-scan candidate reports (`<repo>-vuln-findings.json`) |
 | `schemas/v1/adapter-result.schema.json` | JSON Schema for traust-engine scanner adapter `scan()` return values (distinct from skill-level vuln-findings output) |
 | `traust-contracts/artifacts_schema/v1/code-facts.schema.json` | Recorded symbols and measured language statistics on a `tool_scan` assessment; read through core's artifact and code-facts services |
-| `traust-contracts/artifacts_schema/v1/fuzz-campaign.schema.json` | Supplied historical fuzz-campaign aggregates and raw narratives, distinct from measured per-target execution evidence |
-| `traust-contracts/artifacts_schema/v1/repo-liveness.schema.json` | Repository liveness references with supported status, observation provenance and explicit unknowns |
+| `traust-contracts/artifacts_schema/v1/manifest-coverage.schema.json` | What a commit's manifest SBOM could not resolve, with the SBOM tool's name and version; recorded by core's dependency ingestion before the SBOM, so an unresolved manifest reads as unknown, never as no dependencies |
+| `traust-contracts/artifacts_schema/v1/fuzz-campaign.schema.json` | A supplied fuzz-campaign scope reference: a campaign snapshot with declared references, not fuzz execution evidence (`reporting import-fuzz-campaign` is retired in traust; nothing records it) |
+| `traust-contracts/artifacts_schema/v1/repo-liveness.schema.json` | Repository liveness facts recorded by traust-core's forge observation, keyed by inventory repository UUID; `traust portfolio liveness` still refuses until plan 15's decision 3 |
 | `schemas/v1/validation.schema.json` | JSON Schema for live-validation reports |
 | `schemas/v1/remediation.schema.json` | JSON Schema for remediation patches |
 | `schemas/v1/verification.schema.json` | JSON Schema for remediation-verification reports |
@@ -83,7 +84,7 @@ The schemas below (from the installed `traust-contracts` package) are the comple
 | python3 -m traust.cli sweep mine | The /mine-ledger miner on traust-core (`DetectionQualityService.mine_rules`) — confirmed-TP corpus, cluster coverage vs the opengrep pack, per-rule campaign precision |
 | python3 -m traust.cli sweep regression-drafts / verify-draft | Regression-rule draft staging from confirmed findings recorded fixed on a later commit (`DetectionQualityService.regression_pairs`: pre/post calibration pairs), and the opengrep fires-before / silent-after gate |
 | python3 -m traust.cli sweep rule-lane | The weekly rule-mining lane runner — miner → sweep collect/draft → bounded draft staging → `lane-delta.{json,md}` vs the previous mine; exit 1 when the delta needs authoring attention |
-| python3 -m traust.cli portfolio liveness | Census-owned repo liveness on traust-core (`PortfolioService.liveness`) — active/archived/unknown per registered repository from stored observations |
+| python3 -m traust.cli portfolio liveness | Census-owned repo liveness; refuses until plan 15's decision 3 (the typed repo-liveness status needs a newer traust-core contracts pin) rather than derive a status |
 | python3 -m traust.cli check skill-alignment | Pre-commit cross-skill contract gate (A-series rules) |
 | python3 -m traust.cli check skill-security | Pre-commit security-posture gate (S-series rules incl. S9 repo-config isolation) |
 | python3 -m traust.cli adapters crypto-source / crypto-image / crypto-cluster | Unopinionated crypto data collector on traust-core — source/image/cluster census JSON |

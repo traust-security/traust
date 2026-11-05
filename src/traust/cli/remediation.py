@@ -34,10 +34,11 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 import pydantic
 import yaml
-from traust_core.v1.errors import NotFoundError, ValidationError
+from traust_core.v1.errors import ConfigError, NotFoundError, ValidationError
 from traust_core.v1.models.artifacts import (
     FleetFixArtifact,
     RemediationArtifact,
@@ -51,6 +52,7 @@ from traust_core.v1.models.remediation import (
     Check,
     EvidenceItem,
     FleetScope,
+    FleetTarget,
     PatchNarrative,
     VerificationFilter,
     WorkItemFilter,
@@ -126,16 +128,7 @@ def fork(argv: list[str] | None = None) -> int:
     def call() -> dict | list:
         core = load(args.config_home)
         if args.list:
-            mappings = every_item(
-                lambda p: core.services().remediation.list_forks(RepositoryFilter(), p)
-            )
-            result = []
-            for mapping in mappings:
-                doc = mapping.model_dump(mode="json")
-                if mapping.fork is not None:
-                    doc["fork"]["url"] = str(mapping.fork.url)
-                result.append(doc)
-            return result
+            return _fork_mappings(core.services())
         repo = _repository(core, args.repo_url)
         found = core.services().remediation.resolve_fork(repo.id)  # type: ignore[arg-type]
         return {**found.model_dump(mode="json"), "url": str(found.url)}
@@ -404,9 +397,8 @@ def fleet_targets(argv: list[str] | None = None) -> int:
         core = load(args.config_home)
         services = core.services()
         if args.rollup is not None:
-            found = services.remediation.fleet_targets_from_rollup(
-                args.progress.read_text(encoding="utf-8"), args.rollup
-            )
+            progress = args.progress.read_text(encoding="utf-8")
+            found = _rollup_targets(services, progress, args.rollup)
             return _emit(json.dumps([t.model_dump(mode="json") for t in found], indent=2), args.out)
         package_id = args.package_id
         if args.module is not None:
@@ -417,6 +409,76 @@ def fleet_targets(argv: list[str] | None = None) -> int:
         return _emit(json.dumps(found, indent=2), args.out)
 
     return run(call)
+
+
+def _fork_mappings(services: Any) -> list[dict[str, Any]]:
+    """Every registered repository with the private fork its fixes go to, under the same fork
+    policy as prepare (`resolve_fork`); a repository without one says why."""
+    mappings: list[dict[str, Any]] = []
+    for repository in every_item(
+        lambda p: services.portfolio.list_repositories(RepositoryFilter(), p)
+    ):
+        assert repository.id is not None
+        mapping: dict[str, Any] = {
+            "repository_id": str(repository.id),
+            "repository_url": repository.url,
+            "fork": None,
+            "unavailable_reason": None,
+        }
+        try:
+            fork = services.remediation.resolve_fork(repository.id)
+        except (NotFoundError, ConfigError) as error:
+            mapping["unavailable_reason"] = str(error)
+        else:
+            mapping["fork"] = {**fork.model_dump(mode="json"), "url": str(fork.url)}
+        mappings.append(mapping)
+    return mappings
+
+
+_ROLLUP_ROW = re.compile(r"^\|\s*\d+\s*\|\s*([^|]+)\|")
+_ROLLUP_LINK = re.compile(r"\[[^\]]+\]\((https://[^\s)]+)\)")
+
+
+def _rollup_targets(services: Any, markdown: str, pattern: str) -> list[FleetTarget]:
+    """The PROGRESS table's numbered rows matching ``pattern``, each resolved to exactly one
+    registered repository, then core's ``fleet_targets`` over them. An unregistered or
+    ambiguous row is refused, never dropped."""
+    try:
+        rx = re.compile(pattern, re.IGNORECASE)
+    except re.error as error:
+        raise ValidationError(f"invalid rollup pattern {pattern!r}: {error}") from error
+    targets = []
+    for row in markdown.splitlines():
+        match = _ROLLUP_ROW.match(row)
+        if match is not None and rx.search(row):
+            cell = match[1].strip().strip("`")
+            link = _ROLLUP_LINK.fullmatch(cell)
+            targets.append(link[1] if link else cell)
+    if not targets:
+        return []
+    registered: dict[str, list[uuid.UUID]] = {}
+    for repository in every_item(
+        lambda p: services.portfolio.list_repositories(RepositoryFilter(), p)
+    ):
+        assert repository.id is not None
+        path = urlsplit(repository.url).path.strip("/").removesuffix(".git")
+        for key in {repository.url.rstrip("/").removesuffix(".git"), path}:
+            registered.setdefault(key, []).append(repository.id)
+    named = []
+    for target in dict.fromkeys(targets):
+        found = registered.get(target.rstrip("/").removesuffix(".git"), [])
+        if not found:
+            raise NotFoundError(f"PROGRESS rollup target {target!r} is not registered")
+        if len(found) != 1:
+            raise ValidationError(
+                f"PROGRESS rollup target {target!r} is ambiguous; use its registered URL"
+            )
+        named.append(found[0])
+    evidence = f"PROGRESS.md rollup match: /{pattern}/"
+    return [
+        target.model_copy(update={"evidence": evidence})
+        for target in services.remediation.fleet_targets(FleetScope(repository_ids=tuple(named)))
+    ]
 
 
 def next_(argv: list[str] | None = None) -> int:

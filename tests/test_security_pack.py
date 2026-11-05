@@ -29,14 +29,11 @@ def test_the_security_pack_loads_and_every_source_asset_has_a_cadence() -> None:
     assert all(assets[name]["trigger"].get("every") is not None for name in sources)
 
 
-RELEASE_PLANNED = {"release_container_audit", "release_rpm_audit"}
 DIRECT_PLANNED = {
     "external_report_audit": ["repo_state"],
     "external_report_validation": ["external_report_audit"],
     "methodology_audit": ["repo_state"],
     "cve_impact": ["feeds_cache"],
-    "release_container_audit": ["release_discovery"],
-    "release_rpm_audit": ["release_discovery"],
 }
 
 
@@ -84,12 +81,7 @@ def test_every_runnable_skill_session_starts_through_traust_session_with_its_rol
         if "model" not in asset or "run" not in asset:
             continue
         run = asset["run"]
-        if name in RELEASE_PLANNED:
-            assert run[3:5] == ["portfolio", "release-audit"] and "{role}" in run, name
-            kind = run[run.index("--kind") + 1]
-            assert kind in {"container", "rpm"}
-            skill_dir(f"secure-{kind}-audit")
-        elif name == "external_report_validation":
+        if name == "external_report_validation":
             assert run[3:5] == ["portfolio", "event-validate"] and "{role}" in run
             skill_dir("validate-findings")
         else:

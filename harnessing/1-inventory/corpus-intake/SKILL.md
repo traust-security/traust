@@ -74,31 +74,29 @@ Collect, one question at a time, anything not already provided:
    dashboards.
 6. **Inventory** (*retired*: core keys the corpus by ids, not paths) — path to the input inventory CSV in
    the inputs inventory (`locations.inputs`) if one exists.
-7. **Notes** — optional boundary caveats, especially product-vs-BU dualities.
-   Pass `--note` to `products add/update`; subject-labelled caveats are retained in the
-   existing `CorpusRegistry.note` and returned by `products list`. No subject schema change.
+7. **Notes** (NEED(contracts: a `notes` field on the corpus-registry subject; the schema's subject allows no other field, so nothing records them)) — anything non-obvious, especially product-vs-BU
+   dualities (see the `ansible` entry: catalog operators inside
+   `findings/` stay owned while the BU engagement is external).
 
 If the answers reveal a BU boundary cutting through an existing tree
 (some products owned, some not), do NOT force a tree-level tag — flag it
-to the user and record the exception with `--note`; per-product `overrides`
+to the user (recording the exception in notes: NEED(contracts: corpus-registry subject `notes`), flag only until then); per-product `overrides`
 support lands with a later phase.
 
 ### Step 3 — Apply
 
 ```bash
 traust products add <name> \
-    --label <label> --ownership <tag> --business-unit "<BU>" [--note "<caveat>"]
+    --label <label> --ownership <tag> --business-unit "<BU>"
 # or targeted field changes
 traust products update \
-    <name> [--label ...] [--ownership ...] [--business-unit ...] [--note "<caveat>"]
+    <name> [--label ...] [--ownership ...] [--business-unit ...]
 ```
 
 The tool validates before writing (ownership enum, name syntax) and
 records the product, then the registry; adding a registered name with the same fields changes nothing,
 with different fields is refused (use `update`), and a concurrent edit is refused rather than overwritten. Exit 2 = validation
 error: relay the message, fix the field, retry.
-Omitting `--note` preserves caveats. `--note ""` explicitly clears this product's caveat,
-without removing another product's caveat or the registry's existing free-text note.
 
 ### Step 4 — Refresh the census
 

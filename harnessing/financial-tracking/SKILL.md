@@ -43,12 +43,12 @@ invoiced actual. Two limits must appear in anything you hand to a human:
    opus-class model carries most campaign spend. Never hardcode which
    one — the spend view reads the current set from the
    registry and prints it. Do not strip that line when summarising.
-2. **Business-unit coverage is partial.** Settled spend is bridged from its
-   run order (repository → product → corpus registry). `--workstation-spend`
-   adds a separate current-rate table from original workstation transcript
-   paths joined to recorded corpus trees. Unknown or conflicting paths remain
-   `unattributed`; never redistribute them or add the source table to settled
-   totals. Quote each table's scope and coverage.
+2. **Business-unit coverage is partial.** Spend carries no BU tag
+   anywhere, so it is bridged from the run order it was recorded against
+   (repository → product → corpus registry); workstation sessions have no
+   order. The view states the share of period cost that resolves to a BU;
+   the rest is `unattributed`. Never redistribute the unknown remainder across
+   known BUs to make a chart total 100% — quote the coverage figure.
 
 If asked for a number without context, give the number **and** which of
 these apply. A confident unqualified figure is the failure mode here.
@@ -70,13 +70,6 @@ python3 -m traust.cli dashboard view spend --since <first of the month 5 months 
 ```
 Reads traust-core's recorded spend (fast, no transcript walk). Writes
 `spend.md` (and `.html`) under `--out`; `spend.json` is the structured form.
-
-Add `--reprice` for an optional, separate current-rate comparison of recorded
-events with complete request evidence. This never changes settled dollars,
-budgets or invoice comparisons. New declarations, collections and order
-settlements preserve cache usage and per-request long-prompt boundaries.
-Legacy events without that detail, and models without prices, are reported
-unavailable; the priced subtotal covers only the named settled amount.
 
 ### capture — refresh, then report
 
@@ -102,8 +95,7 @@ downstream figure is untrustworthy. Stop and say so.
 ### bu — business-unit split
 
 ```bash
-python3 -m traust.cli dashboard view spend --since <...> --until <...> \
-    --workstation-spend --out <dir>
+python3 -m traust.cli dashboard view spend --since <...> --until <...> --out <dir>
 ```
 
 The spend view carries the split. The BU comes from the corpus registry's
@@ -117,14 +109,6 @@ risk signal and play no role in routing or ceilings
 partition the *same* total along *different* axes. An order can carry a
 BU's repository without a skill, or a skill can run with no order. The
 rows will not reconcile against each other, and that is not an error.
-
-On a workstation, `--workstation-spend` additionally walks the original Claude
-Code transcripts for `locations.workspace`. It resolves exact findings-tree
-paths through the existing corpus registry, not guessed product names. That
-table is a separate current-rate source view, including unpriced-model gaps;
-it cannot be summed with settled spend (which can include the same sessions).
-Without original transcripts, this source contains no requests. The normal
-report never reads workstation transcripts.
 
 ### reconcile — check estimates against reality
 

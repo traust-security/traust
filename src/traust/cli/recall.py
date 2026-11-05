@@ -20,7 +20,6 @@ from importlib.metadata import version
 from pathlib import Path
 
 import yaml
-from traust_core.v1.context.benchmark import benchmark_markdown, scorecards_markdown
 from traust_core.v1.errors import ValidationError
 from traust_core.v1.models.artifacts import BenchmarkTargetArtifact, ReportArtifact
 from traust_core.v1.models.detection_quality import BenchmarkFilter, BenchmarkTargetId
@@ -110,9 +109,6 @@ def score(argv: list[str] | None = None) -> int:
         "--include-held-out", action="store_true", help="release scoring: held-out targets too"
     )
     ap.add_argument("--out", type=Path, help="also write the result here (JSON)")
-    ap.add_argument(
-        "--markdown", type=Path, help="Markdown output (default with --out: sibling .md file)"
-    )
     args = ap.parse_args(argv)
 
     def call() -> dict:
@@ -124,7 +120,6 @@ def score(argv: list[str] | None = None) -> int:
                 )
             )
             out = {"scorecards": [c.model_dump(mode="json") for c in cards]}
-            markdown = scorecards_markdown(cards)
         else:
             scored = quality.score_reports(
                 _runs(args.runs_dir),
@@ -135,14 +130,9 @@ def score(argv: list[str] | None = None) -> int:
                 "scorecard": scored.scorecard().model_dump(mode="json"),
                 "run": scored.model_dump(mode="json"),
             }
-            markdown = benchmark_markdown(scored)
         if args.out is not None:
             args.out.parent.mkdir(parents=True, exist_ok=True)
             args.out.write_text(json.dumps(out, indent=2) + "\n", encoding="utf-8")
-        markdown_path = args.markdown or (args.out.with_suffix(".md") if args.out else None)
-        if markdown_path is not None:
-            markdown_path.parent.mkdir(parents=True, exist_ok=True)
-            markdown_path.write_text(markdown, encoding="utf-8")
         return out
 
     return run(call)

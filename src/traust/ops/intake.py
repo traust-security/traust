@@ -11,7 +11,6 @@ from traust_core.v1.context import Services
 from traust_core.v1.errors import ConfigError, ValidationError
 from traust_core.v1.models.common import PageRequest, every_item
 from traust_core.v1.models.identity import Principal
-from traust_core.v1.models.input_segments import InputSegmentInventory
 from traust_core.v1.models.integrity import sha256_hex
 from traust_core.v1.models.inventory import RepositoryFilter
 from traust_core.v1.models.operations import (
@@ -30,6 +29,7 @@ from traust_core.v1.models.operations import (
 )
 from traust_core.v1.models.vocabulary import ComparisonStatus
 
+from traust.inventory import InputSegmentInventory
 from traust.ops.materializers import _repo_url
 from traust.ops.router import SecurityRouter, event_route
 
@@ -140,7 +140,7 @@ def _rescan_events(path: Path) -> tuple[RescanEvent, ...]:
                 continue
             source = RescanEventSource(row.get("source"))
             if source is RescanEventSource.RELEASE:
-                raise ValueError("release events use the native release-discovery feed")
+                raise ValueError("release events have no release feed: NEED(release-passthrough)")
             repo = str(_repo_url(row.get("repo")))
             validation = (
                 ExternalValidationInput(_required(row, "report"), _required(row, "targets"))

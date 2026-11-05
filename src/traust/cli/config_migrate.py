@@ -45,7 +45,7 @@ RETIRED = {
     "hardening-risk-weights.json": "no reader",
     "storage.yaml": "the remote materialiser is gone; the record store is `database.url`",
     "agent-plugins.yaml": "its reader exists only on main",
-    "reachability-watch.yaml": "its reader exists only on main",
+    "reachability-watch.yaml": "its reader was retired",
     "rpm-distgit-watch.yaml": "its feeder was deleted",
     "jira-sync.yaml": "moves into traust-internal's file-security-defect skill",
     "escalation-contacts-share.yaml": "moves into traust-internal records/",

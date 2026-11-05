@@ -160,25 +160,14 @@ consumable without archaeology:
 | Semantic-shaped confirmations (authn/authz/ordering — never rule-expressible) | Precedent cards (python3 -m traust.cli sweep cards; traust-core's `DetectionQualityService.sweep_cards`): predicate over a shipped enumerator's output schema, or REJECTED | The semantic sweep tier — its `candidates[]` into `/triage` |
 | What the enumerators could NOT cover | Structured `metadata.additional.coverage_gaps` in every report (recording convention in the enumerator pre-scan sections) + skipped `deterministic_steps` | `traust assessments coverage` (traust-core's `AssessmentService.coverage`) — the repos-affected-ranked enumerator-expansion backlog |
 | Rule-expressible shapes surfaced in benchmark runs | the benchmark rule-candidate extractor (post-scoring) | `benchmark-rule-candidates.{json,md}` under the rule-mining metrics — identity-only pattern exemplars for rule authors |
-| Missed benchmark/CVE anchors | `fn_cve_replay_missed.jsonl` + the benchmark near-miss tier | Ground-truth queue for match-ladder and technique work |
+| Missed benchmark/CVE anchors | the benchmark near-miss tier (CVE replay waits on a traust-core decision, plan 15 decision 2) | Ground-truth queue for match-ladder and technique work |
 
 Semantic cards support both symbol definitions and textual references. Reference rows mark
 definition sites with `is_def`; a call-looking mention is still a candidate, not a resolved
-call graph or a finding. To replay pre-generated facts without checkout tools, use:
-
-```bash
-python3 -m traust.cli sweep cards cards.yaml \
-  --artifact route-guards=routes.json \
-  --artifact symbol-index:pc-caller=references.json
-```
-
-`--artifact` is repeatable and accepts `enumerator[:card-id]=json-file`. Card-specific input
-overrides the generic input for that enumerator, even when its array is empty. Arrays are
-typed at the boundary: route `routes`, config `triples`, sanitizer discovery `candidates`,
-sanitizer execution `probes`, and symbol `defs` or `refs`. Missing inputs are explicitly
-not run; supplying artifacts never falls back to checkout tools, even with `--checkout`.
-Sanitizer target execution remains tools-package-owned under the dated 2026-10-25 handoff;
-live execution-shaped cards stay not run, but supplied probe evidence can be filtered offline.
+call graph or a finding. Cards sweep a checkout (`sweep cards <deck> --checkout <dir>`);
+traust-core's `sweep_cards` runs the enumerators there, and there is no replay of
+pre-generated facts. Sanitizer target execution remains tools-package-owned under the dated
+2026-10-25 handoff; execution-shaped cards stay not run.
 
 Two boundary rules keep the loop honest:
 

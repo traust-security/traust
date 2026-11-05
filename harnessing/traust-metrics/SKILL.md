@@ -1,6 +1,6 @@
 ---
 name: traust-metrics
-description: Use when the user asks for campaign metrics, a leadership scoreboard, or to rebuild the scoreboard. Composes recorded executive, trend, threat, validation/fuzz, census, insecure-pattern and detection-quality views with separately measured harness checkout maturity.
+description: Use when the user asks for campaign metrics, a leadership scoreboard, or to (re)build/refresh progress-tracker/metrics/dashboards/scoreboard/traust-metrics.md. Deterministically harvests headline numbers from traust-core's executive summary, findings trend and threat register views into one consistently-updatable Markdown scoreboard.
 metadata:
   harness.tier: "secondary"
 ---
@@ -40,37 +40,41 @@ in a file beside it).
 1. **Run the collector:**
 
    ```bash
-   python3 -m traust.cli dashboard capture scoreboard [--as-of <ISO time>] \
-       --note "<counting methodology or change explanation>" \
+   python3 -m traust.cli dashboard view scoreboard [--as-of <ISO time>] \
        --out progress-tracker/metrics/dashboards/scoreboard
    ```
 
-   It writes `traust-metrics.{md,html,json}` and a digest-verified snapshot bundle,
-   returning the snapshot's artifact UUID. Numbers the views can't derive render as "-".
+   It writes `traust-metrics.{md,html,json}`; numbers the views can't
+   derive render as "-".
 
-2. **Read the source semantics.** Portfolio numbers come from recorded domain state at the requested cutoff, not from parsing rendered dashboards. An absent benchmark answer key is unknown recall, not zero recall. No validation or fuzz run is not evidence of a clean result. Harness maturity is a separate current-checkout measurement with its own timestamp, not a historical audit fact.
+2. **Check the Data freshness table** — *retired:* the scoreboard reads
+   traust-core's views live, so no source can be stale or missing. Was: each
+   source row showed the artifact's own `Generated:` date and stale sources
+   were rebuilt with their owning skill first. What each old source became:
 
    | Old source | Now |
    |---|---|
    | `Executive-summary-findings.metrics.json` sidecar | `ExecutiveSummaryView` (composed) |
-   | `census/census.json` | `CensusView` ownership, distinct-exposure and branch-confirmation cuts (composed) |
-   | `insecure-patterns/insecure-patterns.json` | `InsecurePatternsView` systemic-pattern cuts (composed) |
-   | `benchmark/benchmark.json` | `DetectionQualityService.scorecards`, versioned recall with an audit cutoff; scoped requests explicitly leave fleet recall unavailable |
+   | `census/census.json` | *retired:* ownership cuts and branch confirmations (scope is product/team; one finding per repository) |
+   | `insecure-patterns/insecure-patterns.json` | not on the scoreboard (insecure-patterns has its own view port) |
+   | `benchmark/benchmark.json` | not on the scoreboard (a `/recall-benchmark` campaign artifact; report it from there) |
    | `trends/trends.json` | `FindingsTrendView`, latest bucket (composed) |
-   | `Live-validation-fuzz-dashboard.md` and the fuzz campaign sidecar | `ValidationFuzzView`, latest recorded target runs and validation verdicts (composed) |
+   | `Live-validation-fuzz-dashboard.md` and the fuzz campaign sidecar | not yet: the validation-fuzz view waits on `ValidationService.summary` |
    | `threat-register/threat-register.md` | `ThreatRegisterView` (composed) |
    | `progress-tracker/tracking/opened-tickets.md` | findings filed in Jira, from the findings' Jira links |
    | cloud-config lane (`findings.db`) | counted in the findings totals (one finding model) |
-   | harness repo tree/git metadata | `HarnessMetadataProvider`, registered by the CLI; separate measurement time, unknown fields and limitations retained |
+   | harness repo tree/git metadata | *retired:* not portfolio data; the traust-core version is stamped in About |
 
    `/refresh-dashboards` (python3 -m traust.cli dashboard refresh) renders
    the scoreboard with every other view in its `views` stage.
 
 3. **Report back.** Read the generated file and give the user the headline
-   numbers grouped as the file groups them (scale, impact, validation, delivery).
-   Use `traust dashboard compare <artifact-uuid> --against previous --out <dir>`
-   to show changes from the previous reported snapshot in the same scope.
-   The first snapshot has no previous report; do not substitute a recomputation.
+   numbers grouped as the file groups them (scale, impact, validation,
+   delivery), calling out any metric that moved
+   sharply since the previous version of the file (use `git -C
+   progress-tracker diff metrics/dashboards/scoreboard/traust-metrics.md`
+   when the file is tracked, or
+   build the view at an earlier `--as-of`).
 
 4. **Manual block (optional).** *Retired:* core rewrites the view on every
    run. If the user supplies narrative claims
@@ -78,43 +82,29 @@ in a file beside it).
    beside the scoreboard — never hand-edit generated rows; fix the upstream
    record instead.
 
-## Metrics history — immutable as-reported reports
+## Metrics history — the append-only improvement ledger
 
-`dashboard capture` stores the exact JSON, Markdown and no-script HTML exports
-(and CSV when available), the current Core version, scope, generation time and required
-methodology note through the existing artifact/ObjectStore owner. Each snapshot records
-the previous same-scope report's artifact UUID and digest; earlier bundles are never rewritten.
-Concurrent captures may share a predecessor; both reports remain archived.
-
-```bash
-traust dashboard history scoreboard --out <history-dir>
-traust dashboard read-report <artifact-uuid> --out <original-report-dir>
-traust dashboard compare <artifact-uuid> --against previous --out <comparison-dir>
-traust dashboard compare <artifact-uuid> --against recomputed --out <replay-comparison-dir>
-traust dashboard compare <artifact-uuid> --against current --out <current-comparison-dir>
-```
-
-History lists snapshots newest first and renders their **saved** values, not replayed
-numbers. Repeat the original product/team/category/window options to select the same
-history; `as_of` alone does not change that scope. `previous` compares two reported
-snapshots. `recomputed` rebuilds at the saved report time with today's code and configuration;
-`current` rebuilds now. Neither is the historical reported truth. Latest-only views
-reject historical recomputation rather than pretending to support it.
-
-`dashboard view` remains a non-recording preview. Existing legacy
-`metrics-history.jsonl` rows stay untouched; never hand-edit, prune or import them
-as newly computed history. Describe methodology changes in the capture note.
+*Retired:* the collector no longer appends a snapshot row to
+`progress-tracker/metrics/metrics-history.jsonl` or renders
+`metrics/metrics-history.md` (`--note` and `--no-history` are gone).
+traust-core records every finding and decision with its time, so a past
+number is the view built at an earlier `as_of` (`/findings-trends`,
+`traust dashboard view … --as-of`). Rows already in the JSONL stay as they
+are; never hand-edit or prune them. When a run follows a methodology or
+pipeline change, say so when you report the numbers.
 
 ## Output
 
-`progress-tracker/metrics/dashboards/scoreboard/traust-metrics.{md,html,json}` — About, scale and coverage, findings and impact, empirical validation, delivery, corpus ownership and distinct exposure, systemic patterns, benchmark recall and separately measured harness maturity.
+`progress-tracker/metrics/dashboards/scoreboard/traust-metrics.{md,html,json}` — sections: About · Scale & coverage ·
+Findings & impact · Empirical validation · Delivery & adoption.
 
 ## Notes
 
-- **Deterministic calculation, immutable publication**: no model call produces a number.
-  Late ingestion, changed configuration or methodology can change a recomputation;
-  a captured report's bytes and numbers do not change.
-- Maturity reports the harness VERSION, revision, reachable commits, local release tags, first-party Python physical source lines and AST-defined test functions. These are checkout facts, not executed test results or audit effectiveness. Missing Git/history/tests or denied Git execution remain explicitly unknown; shallow/local-only limitations are rendered. `--as-of` never backdates this measurement.
+- **Deterministic at metric time**: like the dashboards, this skill only
+  replays recorded state — no model call participates in producing
+  a number, so reruns are reproducible and diffs are meaningful.
+- *Retired:* the maturity metrics (version, commits, releases, LoC, test
+  count) counted from the harness checkout; About stamps the traust-core version.
 - Severity counts quote the executive summary's totals (each finding once).
 
 ## Spend metrics (separate dashboard, not harvested here)

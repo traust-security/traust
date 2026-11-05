@@ -14,6 +14,11 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+
+from traust.lib.pending_decisions import Decision, skip_reason
+
+pytest.skip(skip_reason(Decision.LIVENESS_STATUS), allow_module_level=True)
+
 import yaml
 from traust_core.v1.context import Context
 from traust_core.v1.errors import ConfigError

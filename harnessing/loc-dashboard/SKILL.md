@@ -24,7 +24,7 @@ allowed-tools:
 > configured roots.
 
 
-Report measured lines-of-code coverage from traust-core's inventory and recorded code-facts scans. Portable HTML is script-free; a separate trusted local explorer consumes the JSON export for sorting, corpus-tree/language/size filters, bucket bars and language-mix strips.
+Report and visualise the lines-of-code coverage of the security-audit campaign from the lines traust-core has measured for each repository (the latest code-facts scan at its default-branch commit; traust-core's `LocView`), rendered as a single-file HTML dashboard.
 
 ## Input
 
@@ -38,8 +38,6 @@ Report measured lines-of-code coverage from traust-core's inventory and recorded
 | `open` | Open the resulting dashboard in the default browser when done. |
 | `summary` | After building, print a plain-text summary table to the conversation. |
 | `<product slug>` | Only that product's repositories (`--product`, repeatable; `--team-id <uuid>` for a team). |
-| `as-of <ISO timestamp>` | Recompute at an earlier recorded measurement (`--as-of`); requires a time zone. |
-| `compare-as-of <ISO timestamp>` | Compare against an earlier measurement (`--compare-as-of`); growth includes only repositories measured at both points. |
 | `first-party-divisor <number>` | Opt in to a labelled first-party estimate using an explicitly supplied finite positive divisor; no default is assumed. |
 | `explore` | Write and open the trusted local JSON explorer, then select `lines-of-code.json`. |
 
@@ -56,7 +54,6 @@ Report measured lines-of-code coverage from traust-core's inventory and recorded
 ```bash
 python3 -m traust.cli dashboard view loc \
     [--product <slug>]... [--team-id <uuid>]... \
-    [--as-of <ISO timestamp>] [--compare-as-of <earlier ISO timestamp>] \
     [--first-party-divisor <explicit positive divisor>] \
     --out <progress-tracker>/metrics/dashboards
 ```
@@ -64,7 +61,7 @@ python3 -m traust.cli dashboard view loc \
 What it does (traust-core's `LocView`, one `InsightService.publish`):
 
 1. Takes every repository in scope from the inventory (unique rows; no manifests, no dedupe by URL).
-2. Selects the observed default-branch head at `--as-of` (latest when omitted), then reads the latest code-facts scan at that commit no later than the selected time. A repository with no measurement is listed under "Not measured" with the reason; GitLab repositories are measured like any other. A recorded empty language list is a genuine zero; missing measurements are not zero.
+2. For each, reads the languages the latest code-facts scan measured at its default-branch commit (`CodeFactsService.language_stats`). A repository with no measurement is listed under "Not measured" with the reason (no default-branch commit, no scan, languages not measured, scan not completed); GitLab repositories are measured like any other.
 3. Counts measured lines, not byte estimates (the `BPL` table is retired).
 4. Sums lines by language, documentation languages apart, and names each repository's primary language.
 5. Writes:
@@ -91,7 +88,7 @@ If `summary` was requested, also print the per-bucket and top-10-language tables
 
 ### Step 4 — Interpretation note (include once per session)
 
-> Whole-repository measurements **may include** tests, fixtures and tooling. First-party/non-test LoC is not measured by this view. `--first-party-divisor` supports an explicit caller-selected estimate from measured code, not a recovered stored fact. No value is produced when no repository is measured. NEED(decision, Shaun): choose either (a) adopt the legacy 2.5 divisor with an approved calibration population/methodology, or (b) retain measured-only default and retire the automatic heuristic. Until that decision, an estimate is opt-in only; this implementation does not claim owner approval for either default.
+> Whole-repository measurements **may include** tests, fixtures and tooling. First-party/non-test LoC is not measured by this view. `--first-party-divisor` supports an explicit caller-selected estimate from measured code, not a recovered stored fact. No value is produced when no repository is measured. NEED(decision, Shaun): choose either (a) adopt the legacy 2.5 divisor with an approved calibration population/methodology, or (b) retain measured-only default and retire the automatic heuristic. Until that decision, an estimate is opt-in only.
 
 ---
 
@@ -141,10 +138,12 @@ The dashboard ends with the standard population block (in scope, with findings r
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| Many "Not measured" rows | No observed default head or qualifying code-facts scan by the selected time | Run/record the scan and rebuild. Missing measurements remain unknown, not zero. |
-| Exit 2: invalid timestamp/comparison | Missing time zone or comparison not earlier than the selected time | Supply zoned ISO timestamps and an earlier `--compare-as-of`. |
+| Many "Not measured" rows | No code-facts scan at the default-branch commit yet | Expected; they contribute 0 LoC. Run the scan, then rebuild. |
+| Exit 2: takes no as_of | `--as-of` passed | The view reads the latest measurement only; drop `--as-of`. |
+| Exit 2: no historical comparison | `--compare-as-of` passed | The view has no historical LoC read yet; drop `--compare-as-of`. |
 | Dashboard shows 0 repos | Unknown scope / empty inventory | Check `--product` against `traust products list`. |
 
 ## Trends
 
-Use `--as-of` and `--compare-as-of` to compare recorded measurements under current policy. Each repository's change is `null` unless measured at both points; aggregate changes cover only comparable repositories, with the baseline totals and measured counts stated separately. Coverage changes never masquerade as growth. This recomputation is distinct from an immutable as-reported snapshot; archive a published view when the originally reported bytes and methodology must survive future policy changes.
+*Retired:* no metrics-ledger snapshot or trend banner. The view stores
+nothing; it reads the latest measurement only (no `as_of` yet).
