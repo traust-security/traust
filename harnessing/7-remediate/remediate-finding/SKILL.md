@@ -12,13 +12,12 @@ allowed-tools:
   - Task
   - Bash(git diff:*)
   - Bash(git status:*)
-  - Bash(git checkout:*)
   - Bash(git log:*)
   - Bash(git -C * diff:*)
   - Bash(git -C * status:*)
   - Bash(git -C * log:*)
   # Read-only git only, `-C <dir>` forms included: no `git add` / `git
-  # commit` grant in any shape, by design (followup ask E). The agent never
+  # commit` / `git checkout` grant in any shape, by design (followup ask E). The agent never
   # creates git objects — push_fix.sh commits a file-level snapshot of the
   # worktree under a fixed machine identity (Phase 4d).
   - Bash(jq:*)

@@ -99,6 +99,17 @@ print(json.dumps(dict(zip(sys.argv[1::2], sys.argv[2::2]))))
 PY
 }
 
+# The clone `commit` is building, removed if it exits before finishing. The trap
+# names a function and the path stays in a variable: a path (from TMPDIR) is
+# never parsed as shell code.
+PARTIAL_CLONE=""
+remove_partial_clone() {
+  if [ -n "$PARTIAL_CLONE" ]; then
+    chmod -R u+w -- "$PARTIAL_CLONE" 2>/dev/null || true
+    rm -rf -- "$PARTIAL_CLONE"
+  fi
+}
+
 usage() {
   echo "usage: push_fix.sh commit <worktree> <audited-sha> <clone-source> <message-file>" >&2
   echo "       push_fix.sh push <fix-clone> <fork-url> <fix-branch> <fix-commit>" >&2
@@ -157,8 +168,8 @@ do_commit() {
   PDIR="$(mktemp -d "${TMPDIR:-/tmp}/traust-fix-clone.XXXXXX")"
   CLONE="$PDIR/repo"
   # a commit that fails part-way leaves no copy of the worktree behind
-  # shellcheck disable=SC2064  # the path is fixed now: the trap runs after do_commit returns
-  trap "chmod -R u+w '$PDIR' 2>/dev/null; rm -rf -- '$PDIR'" EXIT
+  PARTIAL_CLONE="$PDIR"
+  trap remove_partial_clone EXIT
   if [[ "$CLONE_SRC" == https://* ]]; then
     git_safe -c credential.helper= -c credential.helper="$GH_CRED_HELPER" \
       clone --quiet "$CLONE_SRC" "$CLONE" >&2
@@ -184,6 +195,11 @@ do_commit() {
     echo "[push_fix] snapshot matches the audited commit — nothing to commit; a patch that changed nothing means the flow went wrong" >&2
     exit 1
   fi
+  # GIT_AUTHOR_*/GIT_COMMITTER_* in the caller's environment outrank user.*
+  # config, so the fixed identity is set there too: no inherited name reaches
+  # the commit.
+  GIT_AUTHOR_NAME="$COMMITTER_NAME" GIT_AUTHOR_EMAIL="$COMMITTER_EMAIL" \
+  GIT_COMMITTER_NAME="$COMMITTER_NAME" GIT_COMMITTER_EMAIL="$COMMITTER_EMAIL" \
   git_safe -C "$CLONE" \
     -c "user.name=$COMMITTER_NAME" -c "user.email=$COMMITTER_EMAIL" \
     -c commit.gpgsign=false \
@@ -194,6 +210,7 @@ do_commit() {
   # committed): `push` only drives clones this script created.
   printf 'created_by=push_fix.sh\nbase=%s\nfix_commit=%s\n' "$SHA" "$HEAD_REV" \
     > "$PDIR/.traust-fix-clone"
+  PARTIAL_CLONE=""
   trap - EXIT
 
   emit_json clone "$CLONE" fix_commit "$HEAD_REV" base_commit "$SHA" \
