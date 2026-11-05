@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from traust_core.v1.context.compliance_precision import compliance_precision_markdown
 from traust_core.v1.models.vocabulary import ComplianceFramework
-from traust_core.v1.rendering.compliance_precision import compliance_precision_markdown
 
 from traust.cli._doors import parser, run
 from traust.context import load

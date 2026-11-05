@@ -39,8 +39,6 @@ from traust_core.v1.models.inventory import (
 )
 from traust_core.v1.models.onboarding import OnboardingRequest, RepositorySpec
 from traust_core.v1.models.values import GitSha, HttpsRepoUrl, ProductSlug, RepoPath
-from traust_core.v1.rendering.csv import csv_table
-from traust_core.v1.rendering.markdown import Table
 
 from traust.cli import _doors
 from traust.cli._doors import parser, run
@@ -273,8 +271,10 @@ def inventory_export(argv: list[str] | None = None) -> int:
         rows = _inventory_rows(core, args.pd_cache_dir)
         if args.format == "json":
             return [dict(zip(INVENTORY_COLUMNS, row, strict=True)) for row in rows]
-        table = Table(columns=INVENTORY_COLUMNS, rows=tuple(tuple(map(_cell, r)) for r in rows))
-        return csv_table(table).rstrip("\n")
+        exported = core.services().reporting.export_csv(
+            INVENTORY_COLUMNS, (tuple(map(_cell, r)) for r in rows)
+        )
+        return exported.rstrip("\n")
 
     return run(call)
 

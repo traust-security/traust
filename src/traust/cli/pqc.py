@@ -31,7 +31,6 @@ from traust_core.v1.models.vocabulary import (
     PqcReadinessBucket,
     PqcRemediationCategory,
 )
-from traust_core.v1.rendering.markdown import markdown_table
 
 from traust.cli import _doors
 from traust.cli._doors import parser, run
@@ -230,14 +229,14 @@ def worklist(argv: list[str] | None = None) -> int:
         core = load(args.config_home)
         entries = _sweep(core, args.config_home).worklist(_filter(core, args))
         if args.markdown:
-            table = markdown_table(
+            table = core.services().reporting.export_markdown(
                 ("Repository", "Commit", "Priority", "Route", "Reason"),
                 [
                     (e.repository, e.sha or "", e.priority_tier, e.route.value, e.reason or "")
                     for e in entries
                 ],
             )
-            return "# PQC sweep worklist\n\n" + "\n".join(table)
+            return "# PQC sweep worklist\n\n" + table.rstrip("\n")
         return [e.model_dump(mode="json") for e in entries]
 
     return run(call)

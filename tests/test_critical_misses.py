@@ -161,7 +161,7 @@ def test_recorded_misses_render_to_json_and_escaped_markdown(
         "",
     ]
     columns = [c.strip() for c in cells(hostile)]
-    assert len(columns) == 8 and columns[6] == "area_reported"
+    assert len(columns) == 8 and columns[6] == r"area\_reported"  # every cell is escaped
     escaped = (
         "a \\| b \\`tick\\` &lt;img src=x onerror=alert\\(1\\)&gt; "
         "\\[docs\\]\\(javascript:alert\\(1\\)\\)"

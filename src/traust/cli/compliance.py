@@ -28,7 +28,7 @@ from typing import Any, TypeVar
 from uuid import UUID
 
 import yaml
-from traust_core.v1.context import Services
+from traust_core.v1.context import DocsTarget, Services
 from traust_core.v1.errors import NotFoundError, ValidationError
 from traust_core.v1.models.artifacts import (
     AdrRegistryArtifact,
@@ -55,7 +55,6 @@ from traust_core.v1.models.vocabulary import (
     ComplianceFramework,
     ComplianceTargetKind,
 )
-from traust_core.v1.providers.tools.compliance_sources import DocsTarget
 
 from traust.cli import _doors
 from traust.cli._doors import parser, run

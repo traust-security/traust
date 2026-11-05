@@ -5,14 +5,13 @@ from __future__ import annotations
 
 import argparse
 import json
-from collections.abc import Sequence
+from collections.abc import Callable, Iterable, Sequence
 from datetime import datetime
 from pathlib import Path
 
 from traust_core.v1.errors import ValidationError
 from traust_core.v1.models.common import TimeWindow
 from traust_core.v1.models.detection_quality import CriticalMiss
-from traust_core.v1.rendering.markdown import markdown_table, markdown_text
 
 from traust.cli._doors import parser, run
 from traust.cli.groups._registry import OpSpec
@@ -38,9 +37,14 @@ def _window(args: argparse.Namespace) -> TimeWindow:
     return TimeWindow(start=args.start, end=args.end)
 
 
-def critical_miss_markdown(window: TimeWindow, misses: Sequence[CriticalMiss]) -> str:
+Table = Callable[[Sequence[str], Iterable[Sequence[str]]], str]
+
+
+def critical_miss_markdown(
+    window: TimeWindow, misses: Sequence[CriticalMiss], export_markdown: Table
+) -> str:
     """The misses as one table; titles come from audited reports and validity from recorded
-    decisions, so every text cell is escaped."""
+    decisions, so core's Markdown export escapes every cell."""
     lines = [
         "# Critical misses",
         "",
@@ -52,18 +56,17 @@ def critical_miss_markdown(window: TimeWindow, misses: Sequence[CriticalMiss]) -
         (
             str(m.repository_id),
             str(m.finding_id),
-            markdown_text(m.title),
+            m.title,
             m.found_at.isoformat(),
             str(m.found_by),
             str(m.missed_by),
             m.reason.value,
-            markdown_text(m.validity) if m.validity else "",
+            m.validity or "",
         )
         for m in misses
     ]
     columns = ("Repository", "Finding", "Title", "Found at", "Found by", "Missed by", "Reason")
-    lines += markdown_table((*columns, "Validity"), rows)
-    return "\n".join(lines) + "\n"
+    return "\n".join(lines) + "\n" + export_markdown((*columns, "Validity"), rows)
 
 
 def call(args: argparse.Namespace) -> int:
@@ -77,7 +80,10 @@ def call(args: argparse.Namespace) -> int:
             raise ValidationError("Markdown and JSON destinations must differ")
         out.parent.mkdir(parents=True, exist_ok=True)
         json_out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_text(critical_miss_markdown(window, misses), encoding="utf-8")
+        out.write_text(
+            critical_miss_markdown(window, misses, core.services().reporting.export_markdown),
+            encoding="utf-8",
+        )
         document = [m.model_dump(mode="json") for m in misses]
         json_out.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
         return {"markdown": str(out), "json": str(json_out), "recorded_misses": len(misses)}
