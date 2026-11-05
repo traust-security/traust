@@ -362,17 +362,12 @@ Continue with 1b, skipping all (A)/(B)/(C) detection below.
   Core records source kind and the scanner name/version from the supplied output.
   Do not supply an origin override; the first assessment's assessor owns origin
   grouping after later scans too.
-- **A recorded audit report given by path** (`*-security-audit.json`, as an
-  audit → triage flow may pass it): recording admitted its findings, so
-  they belong to (A), not (C). Use the assessment ID from its recording
-  receipt when the caller has it. Without one, check admission per finding
-  with `traust findings find <report.json> --label <report-local-id>
-  --repo-url <audited https URL>`. If any finding returns a `finding_id`,
-  stop and report that the report's findings are admitted natively and
-  need `/triage <assessment-id>` with the recording's assessment ID. Never
-  fall through to generic (C) triage for them: that would end without
-  recording a decision on findings Core already holds. Only when none is
-  admitted (or recording was refused) continue as (C).
+- **An audit report given by path** (`*-security-audit.json`, as an audit →
+  triage flow may pass it): triage it as (C) below. If the report was
+  recorded, its findings are also admitted natively, and they need
+  `/triage <assessment-id>` with the recording's assessment ID to get
+  decisions. A path alone can't establish which recording it was, so say so
+  in the terminal summary rather than guessing or stopping.
 - **(C) Anything else** (the formats below): triage it with the generic
   rules. There are no recorded findings to attach verdicts to, so 6e
   doesn't apply; say so in the terminal summary.

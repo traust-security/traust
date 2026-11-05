@@ -178,3 +178,18 @@ def test_a_catalog_base_image_row_without_a_url_is_listed_as_no_repository(tmp_p
     )
     with pytest.raises(ConfigError, match="empty or missing URL cell"):
         repository_inventory(inputs)
+
+
+@pytest.mark.parametrize(
+    "marker", ["N/A", "N/A - pending", "n/a (later)", "N/A ()", "N/A (x) extra"]
+)
+def test_only_the_catalogs_exact_base_image_marker_excuses_a_missing_url(
+    tmp_path: Path, marker: str
+) -> None:
+    inputs = tmp_path / "inputs"
+    (inputs / "catalog").mkdir(parents=True)
+    (inputs / "catalog" / "operator-repos.csv").write_text(
+        f"Component,GitHub Repository,GitHub URL\nruntime,{marker},\n"
+    )
+    with pytest.raises(ConfigError, match="empty or missing URL cell"):
+        repository_inventory(inputs)

@@ -43,6 +43,7 @@ try, in order).
 from __future__ import annotations
 
 import csv
+import re
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -156,6 +157,7 @@ def load_descriptor(inputs: Path | None) -> InventoryDescriptor:
 _REPO_URL = TypeAdapter(HttpsRepoUrl)
 _URL_COLUMNS = ("GitHub URL", "URL")
 _NO_REPOSITORY_COLUMN = "GitHub Repository"  # `N/A (<image>)` on a base-image row
+_BASE_IMAGE = re.compile(r"N/A \((?=\S)[^()]+\)")  # the catalog procedure's exact marker
 
 
 @dataclass(frozen=True)
@@ -210,7 +212,7 @@ def _no_repository(header: Sequence[str], row: Sequence[str]) -> bool:
     if _NO_REPOSITORY_COLUMN not in header:
         return False
     i = header.index(_NO_REPOSITORY_COLUMN)
-    return i < len(row) and row[i].strip().upper().startswith("N/A")
+    return i < len(row) and _BASE_IMAGE.fullmatch(row[i].strip()) is not None
 
 
 def _segment_urls(directory: Path) -> tuple[str, ...]:
