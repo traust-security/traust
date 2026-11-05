@@ -15,6 +15,7 @@ sweep     prescan a bounded batch; refused until a pqc-scan scanner exists (plan
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
 from uuid import UUID
 
@@ -230,6 +231,14 @@ def _fragment(raw: str) -> str:
 
 def _sweep(core: Context, chokepoints: list[str]) -> PqcSweep:
     """The sweep over the named chokepoints, with the Context's scanner."""
+    if not chokepoints:
+        # the list lives with the caller until core records it; a run that drops it
+        # still ranks, so say so rather than rank the chokepoints with the tail
+        print(
+            "pqc: no chokepoint tier: no --chokepoint given; every repository ranks "
+            "crypto-CWE then tail",
+            file=sys.stderr,
+        )
     return PqcSweep(
         core.services(),
         tuple(core.config.forge_hosts),

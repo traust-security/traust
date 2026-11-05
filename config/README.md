@@ -58,7 +58,7 @@ tree's, and it isn't a config-home file either: it's an adopter fact, to be reco
 once core has a home for it. Until then the caller names them per run with
 `traust pqc worklist|sweep --chokepoint <URL fragment>` (repeatable; the deployment's
 orchestrator passes its list). Without one, every repository ranks in the crypto-CWE and tail
-tiers.
+tiers, and the command says so on stderr.
 
 ## What ships with traust-core instead (not configurable)
 

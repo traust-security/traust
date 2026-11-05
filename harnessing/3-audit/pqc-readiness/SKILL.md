@@ -513,7 +513,7 @@ the roll-up below.)
 registered repository: chokepoint → crypto-CWE ground truth → tail, including
 repositories with no readiness assessment. Chokepoints are the deployment's own list,
 passed per run as repeatable `--chokepoint` repository URL fragments (case-insensitive);
-without one there is no chokepoint tier.
+without one there is no chokepoint tier, and the command says so on stderr.
 A repository with no registered commit routes to `access-request`. Access routing from
 observation outcomes (no-credentials → `access-request`, unreachable → `sbom-only`) needs
 the typed liveness status that waits on plan 15's decision 3.
