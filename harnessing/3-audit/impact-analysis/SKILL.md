@@ -268,7 +268,10 @@ what its silence means:
 commit that has one, it returns that SBOM unchanged. A later document replaces the
 recorded SBOM, and clears a scan's coverage. Nothing replaces a document with a
 scan, so record the scan first when you'll need absence evidence. For a commit that
-already holds a document SBOM, `--scan` (the deep scan) is the only further evidence.
+already holds a document SBOM, no command records that evidence. `impact analyze --scan`
+clones the commits still undecided and runs the language analyzer, which can settle a
+classification (`not_observed`, `affected`). It records an analysis, though, never a
+manifest SBOM with coverage, so the package's absence from the SBOM stays unproven.
 
 ### Step 3: Validate and review
 
