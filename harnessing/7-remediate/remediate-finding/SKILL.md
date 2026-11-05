@@ -356,10 +356,11 @@ have one form of guard each — neither is portfolio-wide assurance.
 
 ## Phase 4d — Deterministic commit
 
-Once the checks are green, the patch becomes a commit through a script,
+Once Phase 4 is done (the checks green, or a genuine compatibility break
+recorded as Phase 4 allows), the patch becomes a commit through a script,
 never through the agent's git (followup ask E — the same isolation SCI's
 worker applies). `push_fix.sh commit` snapshots the worktree's **files**
-(rsync, `.git` excluded — the worktree's `.git` is agent-adjacent and,
+(`.git` excluded — the worktree's `.git` is agent-adjacent and,
 per assessment 2026-07-31 C2, potentially tainted by hostile target test
 code; it is never read), lays the snapshot over a **fresh clone** at the
 recorded pre-agent base commit (SHA-verified after checkout, so the clone
