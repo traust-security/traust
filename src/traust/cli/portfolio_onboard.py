@@ -304,6 +304,10 @@ def _inventory_rows(core: Context, cache_dir: Path | None) -> list[tuple[object,
         if match.query is not None
     }
     rows = []
+    # NEED(core: bulk owners/products for inventory export): PortfolioService at the pinned core
+    # answers owners (`list_owners`) and shipping products (`list_products_of`) one repository at
+    # a time, with no list or by-ids variant, so this export makes two store queries per
+    # repository until core has one.
     for repo in repositories:
         assert repo.id is not None
         parts = urlsplit(repo.url)

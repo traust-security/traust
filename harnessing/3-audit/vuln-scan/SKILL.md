@@ -375,11 +375,8 @@ exactly as it does to files read from the checkout.
    `finding.id`, title, locations, cwes, severity) into a **baseline
    table** for Step 3 dedupe, and record `baseline_assessment_id` + the
    finding count for the output metadata. If there are none, distinguish
-   absent admitted findings from an absent code-audit assessment:
-   `secure_code` recording can store claims without native baseline rows,
-   unlike successful canonical `vuln_scan` recording. State that limitation;
-   an empty baseline is not clean
-   audit evidence. Recommend `/secure-code-audit` only when campaign-grade
+   absent admitted findings from an absent code-audit assessment; an empty
+   baseline is not clean audit evidence. Recommend `/secure-code-audit` only when campaign-grade
    audit coverage is actually missing.
 4. If no threat model and no `--focus`: do a **quick recon** — list the
    source tree, read entry points and dispatch code, and propose 3-10 focus
@@ -978,9 +975,6 @@ Tell the user:
      (C), without native decision recording.
    - No audit assessment? Recommend `/secure-code-audit <target>` for
      campaign-grade report coverage; this scan remains a leads artifact.
-     An existing secure-code assessment without separately admitted claims
-     has that profile's distinct handoff gap; do not infer it applies to
-     this successfully recorded canonical scan.
    - Repository not registered (Step 1.2 exit 2)? Say so, and ask to
      register it (`/add-inputs <repo-url> --product <slug>`): until then
      traust-core holds no threat model or baseline for it.
@@ -1075,17 +1069,14 @@ from
 `/security-review` command (MIT — see
 `LICENSES/MIT-claude-code-security-review.txt`).
 
-## Spend declaration (calibration tuple)
+## Spend declaration
 
 After this skill's report/artifact is written, declare the run's spend
-against the target so `estimate_scan` can calibrate per-skill cost
-models (contract: docs/model-routing.md; analysis:
-progress-tracker/metrics/estimate-calibration-analysis.md §F5):
+(contract: docs/model-routing.md):
 
 ```bash
 python3 -m traust.cli registry models spend --skill vuln-scan \
-    --model <python3 -m traust.cli registry models resolve vuln-scan> [--tokens-in <N>] [--tokens-out <N>] \
-    --repo <target-slug> --loc <target size, if known> [--batch <batch-id>]
+    --model <python3 -m traust.cli registry models resolve vuln-scan> [--tokens-in <N>] [--tokens-out <N>]
 ```
 
 Token counts are OPTIONAL and best-effort: pass them when the
@@ -1093,5 +1084,6 @@ orchestrator has them (Task results carry per-subagent usage),
 otherwise omit them — an agent cannot observe its own usage mid-run.
 **This row is a routing marker, not a cost claim**; actual per-lane
 cost is attributed from session transcripts by
-python3 -m traust.cli metrics attribute-spend. Never skip the row: an
-unattributed run is a calibration gap.
+python3 -m traust.cli metrics attribute-spend. Never skip the row. Do not
+pass `--repo`, `--loc`, `--batch` or `--note`: core's spend event has no
+field for them, so the declaration refuses them and records nothing.

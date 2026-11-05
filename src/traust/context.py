@@ -16,6 +16,7 @@ from typing import TypeVar
 import yaml
 from traust_core.v1.context import (
     TRAUST_CONFIG_HOME_DEFAULT,
+    TRAUST_CONFIG_HOME_ENV,
     Config,
     Context,
     Locations,
@@ -32,6 +33,17 @@ T = TypeVar("T")
 SLA_POLICY = SECURITY_PACK_DIR / "sla-policy.yaml"  # the default until one is recorded
 MODEL_REGISTRY = "model-registry.yaml"
 PQC_PRIORITY = "pqc-priority.yaml"  # optional: the PQC sweep's priority repositories
+# Where a priority file plausibly lands by mistake (another extension or separator, the template
+# copied without renaming, the tree's config/ layout inside the home). One there is refused, never
+# read as "no chokepoints".
+PQC_PRIORITY_MISPLACED = (
+    "pqc-priority.yml",
+    "pqc_priority.yaml",
+    "pqc_priority.yml",
+    "pqc-priority.example.yaml",
+    "config/pqc-priority.yaml",
+)
+PQC_PRIORITY_TEMPLATE = "config/pqc-priority.example.yaml"
 # Security-pack content (home: traust-pack-security): the pinned ATT&CK release and its mapping.
 _ATTACK = HARNESSING_DIR / "attack-coverage" / "tables"
 ATTACK_TABLES = (_ATTACK / "attack-techniques.json", _ATTACK / "attack-mapping.json")
@@ -207,12 +219,25 @@ def _register_spend(core: Context, registry: Path, invoices: Path | None) -> Non
 def pqc_priority(config_home: Path | None = None) -> tuple[str, ...]:
     """The deployment's PQC chokepoint repositories: ``chokepoints`` in
     ``<config home>/pqc-priority.yaml`` (template: config/pqc-priority.example.yaml), repository
-    URL fragments matched case-insensitively. No file, or no config home, is no chokepoint; a
-    file that is not a list of nonblank strings exits 2."""
+    URL fragments matched case-insensitively.
+
+    No file, or no config home, is no chokepoint tier, and a one-line notice on stderr says so,
+    naming the expected path. A priority file under a :data:`PQC_PRIORITY_MISPLACED` name in the
+    home, a ``pqc-priority.yaml`` that is not a file, or a file that is not a list of nonblank
+    strings exits 2."""
     home = resolve_config_home(config_home)
-    path = None if home is None else home / PQC_PRIORITY
-    if path is None or not path.is_file():
-        return ()
+    if home is None:
+        return _no_chokepoints(Path(f"${TRAUST_CONFIG_HOME_ENV}") / PQC_PRIORITY)
+    path = home / PQC_PRIORITY
+    wrong = [home / name for name in PQC_PRIORITY_MISPLACED if (home / name).exists()]
+    if path.exists() and not path.is_file():
+        wrong.insert(0, path)
+    if wrong:
+        error = ConfigError(f"{wrong[0]}: the PQC priority file must be the file {path}")
+        print(f"{PQC_PRIORITY} not resolvable: {error}", file=sys.stderr)
+        raise SystemExit(2) from error
+    if not path.is_file():
+        return _no_chokepoints(path)
 
     def read() -> tuple[str, ...]:
         try:
@@ -225,6 +250,15 @@ def pqc_priority(config_home: Path | None = None) -> tuple[str, ...]:
         return tuple(dict.fromkeys(c.strip() for c in found))
 
     return _guarded(PQC_PRIORITY, read)
+
+
+def _no_chokepoints(expected: Path) -> tuple[str, ...]:
+    print(
+        f"pqc: no chokepoint tier: no priority file at {expected} "
+        f"(template {PQC_PRIORITY_TEMPLATE})",
+        file=sys.stderr,
+    )
+    return ()
 
 
 def load_caller(core: Context) -> Principal:

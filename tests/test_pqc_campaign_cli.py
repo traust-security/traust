@@ -91,3 +91,64 @@ def test_pqc_priority_reads_the_config_home_file(tmp_path: Path) -> None:
     with pytest.raises(SystemExit) as refused:
         pqc_priority(tmp_path)
     assert refused.value.code == 2
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "pqc-priority.yml",
+        "pqc_priority.yaml",
+        "pqc_priority.yml",
+        "pqc-priority.example.yaml",
+        "config/pqc-priority.yaml",
+    ],
+)
+def test_a_misplaced_priority_file_is_refused_naming_where_it_belongs(
+    tmp_path: Path, name: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from traust.context import pqc_priority
+
+    misplaced = tmp_path / name
+    misplaced.parent.mkdir(parents=True, exist_ok=True)
+    misplaced.write_text("chokepoints: [gateway]\n")
+    with pytest.raises(SystemExit) as refused:
+        pqc_priority(tmp_path)
+    assert refused.value.code == 2
+    err = capsys.readouterr().err
+    assert (
+        f"{misplaced}: the PQC priority file must be the file {tmp_path / 'pqc-priority.yaml'}"
+        in err
+    )
+    (tmp_path / "pqc-priority.yaml").write_text("chokepoints: [gateway]\n")
+    with pytest.raises(SystemExit):  # beside the right file it is still refused, never ignored
+        pqc_priority(tmp_path)
+
+
+def test_a_priority_path_that_is_not_a_file_is_refused(tmp_path: Path) -> None:
+    from traust.context import pqc_priority
+
+    (tmp_path / "pqc-priority.yaml").mkdir()
+    with pytest.raises(SystemExit) as refused:
+        pqc_priority(tmp_path)
+    assert refused.value.code == 2
+
+
+def test_without_a_priority_file_the_pqc_commands_say_so_naming_the_path(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    home = tmp_path / "config"
+    home.mkdir()
+    core = Context(Config(home=tmp_path / "home"))
+    monkeypatch.setattr(pqc, "load", lambda _: core)
+    assert pqc.worklist(["--config-home", str(home)]) == 0
+    captured = capsys.readouterr()
+    assert json.loads(captured.out) == []
+    assert captured.err.splitlines() == [
+        f"pqc: no chokepoint tier: no priority file at {home / 'pqc-priority.yaml'} "
+        "(template config/pqc-priority.example.yaml)"
+    ]
+    (home / "pqc-priority.yaml").write_text("chokepoints: [gateway]\n")
+    assert pqc.worklist(["--config-home", str(home)]) == 0
+    assert capsys.readouterr().err == ""

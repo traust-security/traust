@@ -668,7 +668,7 @@ dispatch per row:
 #      output:   <repo>-vuln-findings.{json,md} beside the row's
 #                baseline report (where /triage finds them)
 #      spend:    model_registry.py spend --skill vuln-scan
-#                --batch drain-tranche-<week>
+#                (no --batch: core's spend event cannot store it)
 #      THEN, only if the row carries `threat_model_pr` (report-only):
 #        /threat-model pr <scratch>/clone --base <the anchor the
 #        resolver already returned> — SAME clone, no re-clone. Writes
@@ -682,7 +682,7 @@ dispatch per row:
 #                 an incomplete model's prose. Promoting a repo to full
 #                 `--apply` is a per-repo operator decision)
 #      spend:    model_registry.py spend --skill threat-model
-#                --batch drain-tranche-<week>
+#                (no --batch: core's spend event cannot store it)
 ```
 
 Orchestrator rules, non-negotiable:

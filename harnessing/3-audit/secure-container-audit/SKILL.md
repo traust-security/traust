@@ -676,17 +676,14 @@ This skill is designed to be driven headlessly (CI job, `Workflow` script, cron)
 - **Reference, don't restate** (same rule as `secure-code-audit` batch execution): batch prompts point at this file and `contracts/schemas/report.schema.json`, adding only target-specific context. Spot-check the first report of a new batch template against a known-good report before fanning out.
 - **Auth up front.** Verify registry credentials before the fan-out; a mid-batch auth failure poisons throughput.
 
-## Spend declaration (calibration tuple)
+## Spend declaration
 
 After this skill's report/artifact is written, declare the run's spend
-against the target so `estimate_scan` can calibrate per-skill cost
-models (contract: docs/model-routing.md; analysis:
-progress-tracker/metrics/estimate-calibration-analysis.md §F5):
+(contract: docs/model-routing.md):
 
 ```bash
 python3 -m traust.cli registry models spend --skill secure-container-audit \
-    --model <resolved model id> [--tokens-in <N>] [--tokens-out <N>] \
-    --repo <target-slug> --loc <target size, if known> [--batch <batch-id>]
+    --model <resolved model id> [--tokens-in <N>] [--tokens-out <N>]
 ```
 
 Token counts are OPTIONAL and best-effort: pass them when the
@@ -694,5 +691,6 @@ orchestrator has them (Task results carry per-subagent usage),
 otherwise omit them — an agent cannot observe its own usage mid-run.
 **This row is a routing marker, not a cost claim**; actual per-lane
 cost is attributed from session transcripts by
-python3 -m traust.cli metrics attribute-spend. Never skip the row: an
-unattributed run is a calibration gap.
+python3 -m traust.cli metrics attribute-spend. Never skip the row. Do not
+pass `--repo`, `--loc`, `--batch` or `--note`: core's spend event has no
+field for them, so the declaration refuses them and records nothing.
