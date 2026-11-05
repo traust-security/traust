@@ -14,13 +14,13 @@ allowed-tools:
   - Bash(git status:*)
   - Bash(git checkout:*)
   - Bash(git log:*)
-  - Bash(git -C:*)
-  # git -C fallback: this skill's commands are -C-shaped; prefix-scoped
-  # subcommand grants can't match them until the command shapes are
-  # reworked (P1-W4 residual, sandbox-adoption plan)
-  # No `git add` / `git commit` grants, by design (followup ask E): the
-  # agent never creates git objects — push_fix.sh commits a file-level
-  # snapshot of the worktree under a fixed machine identity (Phase 4d).
+  - Bash(git -C * diff:*)
+  - Bash(git -C * status:*)
+  - Bash(git -C * log:*)
+  # Read-only git only, `-C <dir>` forms included: no `git add` / `git
+  # commit` grant in any shape, by design (followup ask E). The agent never
+  # creates git objects — push_fix.sh commits a file-level snapshot of the
+  # worktree under a fixed machine identity (Phase 4d).
   - Bash(jq:*)
   - Bash(ls:*)
   - Bash(rg:*)
@@ -383,8 +383,10 @@ pushed.
 
 An empty diff is refused — a patch that changed nothing means the flow
 went wrong, not a no-op commit. Re-running after an iteration (Phase 4
-loop, a 5b REJECT) creates a fresh clone; keep the latest JSON and ignore
-earlier clones. The clone needs `GITHUB_TOKEN` in the environment (the
+loop) creates a fresh clone: first remove the previous one with
+`bash harnessing/7-remediate/remediate-finding/push_fix.sh discard <fix_clone>`
+(it holds a copy of the worktree, gitignored files included), then keep
+the new JSON. A commit that fails part-way removes its own clone. The clone needs `GITHUB_TOKEN` in the environment (the
 script clones the fork over https with the per-command env-reading
 credential helper — same isolation Phase 6 pushes with).
 
@@ -440,8 +442,9 @@ attack and isolates its reviewer; audit D1, plan P2.12). Before Phase 6:
    The reviewed diff is the exact commit Phase 6 pushes — same clone,
    same `HEAD`, bit for bit.
 3. **REJECT blocks the push.** Record `review: REJECT` + reason in the
-   remediation report, set status `checks_passed` (not pushed), and
-   stop — a human decides. ACCEPT: record `review: ACCEPT` +
+   remediation report, set status `checks_passed` (not pushed), remove
+   the clone (`push_fix.sh discard <fix_clone>`), and stop — a human
+   decides. ACCEPT: record `review: ACCEPT` +
    `style_score` in the report and proceed to Phase 6.
 
 ## Phase 6 — Push & record
@@ -450,12 +453,14 @@ Only after Phase 5b ACCEPT:
 
 ```bash
 bash harnessing/7-remediate/remediate-finding/push_fix.sh push \
-  <fix_clone> <fork_url> <fix_branch>
+  <fix_clone> <fork_url> <fix_branch> <fix_commit>
 python3 -m traust.cli remediation record <out>/<work-item>-remediation.json
 ```
 
 (`<fork_url>` and `<fix_branch>` come from the Phase 1 workspace descriptor;
-`<fix_clone>` from Phase 4d's JSON.) The script — never the agent — pushes
+`<fix_clone>` and `<fix_commit>` from Phase 4d's JSON. The script pushes that
+exact commit, the one the report names and 5b reviewed, and refuses if the
+clone's HEAD or its sentinel no longer name it.) The script — never the agent — pushes
 the deterministic commit from the pristine clone (never from the agent's
 worktree) to the fork by URL, with a per-command credential helper: the
 empty `-c credential.helper=` clears the list first, so the env-reading
@@ -554,7 +559,7 @@ analysis-results/remediations/<repo>/<work-item>/
 ```
 
 (The Phase 4d fix clone is a disposable mktemp directory outside this
-layout; `push_fix.sh push` removes it after the push.)
+layout; `push_fix.sh push` removes it after the push, `push_fix.sh discard` when it isn't pushed.)
 
 ---
 
