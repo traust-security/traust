@@ -175,8 +175,12 @@ it that an earlier audit of the repository missed (`area_reported` rows are for
 adjudication, not hits). Outputs are `CRITICAL-MISSES.{json,md,html}` under configured
 `analysis_results`. `--json-out <json>` selects the unchanged JSON-array export and,
 unless `--out <markdown>` is supplied, its Markdown/HTML siblings. An explicit Markdown
-path gets an HTML sibling; all output paths must be distinct. Both bounds are required
-and timezone-aware, with an exclusive end and a maximum span of 31 days. Core also bounds
+path gets an HTML sibling; all output paths must be distinct, including existing hard links.
+The complete set is staged before publication. Handled I/O failures restore the previous
+reports (or remove newly published files); if rollback also fails, the error identifies
+retained recovery directories. This is not a crash-atomic multi-file transaction.
+Both bounds are required and timezone-aware, with an exclusive end and a maximum span of
+31 days. Core also bounds
 the cumulative materialized input/related rows at 10,000; dense or oversized requests fail <!-- estate-data-ok: public Core API workload limits, not deployment data -->
 without partial exports and must use a narrower window. This is a row-materialization
 bound, not a database scan/sort or row-byte cap. Core owns the registered view, its schema

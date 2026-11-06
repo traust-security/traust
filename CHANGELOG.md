@@ -10,6 +10,9 @@ All notable changes to Traust are documented here.
   support explicit Markdown destinations and refuse colliding output paths.
 - Adopt merged Core window/scope handling and bounded critical-miss reads, with explicit
   refusal above 31 days or the cumulative input-record budget instead of partial exports.
+- Refuse hard-linked report destinations before writing. Stage the complete output set
+  and roll back handled publication failures; retain recovery files and identify their
+  locations if the filesystem also refuses rollback.
 
 ## [0.40.1]
 

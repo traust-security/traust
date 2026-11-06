@@ -180,7 +180,7 @@ def test_invalid_windows_refuse_before_creating_any_report(
     assert not destination.parent.exists()
 
 
-@pytest.mark.parametrize("alias", ["same", "relative", "symlink"])
+@pytest.mark.parametrize("alias", ["same", "relative", "symlink", "hardlink"])
 def test_output_collisions_do_not_overwrite_existing_data(
     core: Context, tmp_path: Path, alias: str
 ) -> None:
@@ -189,6 +189,9 @@ def test_output_collisions_do_not_overwrite_existing_data(
     if alias == "symlink":
         markdown = tmp_path / "alias.md"
         markdown.symlink_to(destination)
+    elif alias == "hardlink":
+        markdown = tmp_path / "alias.md"
+        markdown.hardlink_to(destination)
     elif alias == "relative":
         child = tmp_path / "child"
         child.mkdir()
@@ -200,3 +203,147 @@ def test_output_collisions_do_not_overwrite_existing_data(
     )
     assert destination.read_bytes() == b"original evidence"
     assert not markdown.with_suffix(".html").exists()
+
+
+@pytest.mark.parametrize("blocked", ["markdown", "html"])
+@pytest.mark.parametrize("existing", [False, True])
+def test_invalid_later_destination_preserves_the_entire_report_set(
+    core: Context, tmp_path: Path, blocked: str, existing: bool
+) -> None:
+    paths = {
+        "json": tmp_path / "critical.json",
+        "markdown": tmp_path / "critical.md",
+        "html": tmp_path / "critical.html",
+    }
+    originals = {}
+    for kind, path in paths.items():
+        if kind == blocked:
+            path.mkdir()
+        elif existing:
+            originals[path] = f"original {kind}".encode()
+            path.write_bytes(originals[path])
+    assert critical_misses.main(["--json-out", str(paths["json"]), *WINDOW]) == 2
+    for kind, path in paths.items():
+        if kind == blocked:
+            assert path.is_dir() and list(path.iterdir()) == []
+        elif existing:
+            assert path.read_bytes() == originals[path]
+        else:
+            assert not path.exists()
+
+
+@pytest.mark.parametrize("blocked", ["markdown", "html"])
+@pytest.mark.parametrize("existing", [False, True])
+def test_failed_later_replacement_rolls_back_the_entire_report_set(
+    core: Context, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, blocked: str, existing: bool
+) -> None:
+    report_dir = tmp_path / "reports"
+    report_dir.mkdir()
+    paths = {
+        "json": report_dir / "critical.json",
+        "markdown": report_dir / "critical.md",
+        "html": report_dir / "critical.html",
+    }
+    originals = {}
+    if existing:
+        for kind, path in paths.items():
+            originals[path] = f"original {kind}".encode()
+            path.write_bytes(originals[path])
+    replace = Path.replace
+    failed = False
+
+    def fail_later_destination(source: Path, target: str | Path) -> Path:
+        nonlocal failed
+        if Path(target) == paths[blocked] and not failed:
+            failed = True
+            raise PermissionError("destination became unwritable")
+        return replace(source, target)
+
+    monkeypatch.setattr(Path, "replace", fail_later_destination)
+    assert critical_misses.main(["--json-out", str(paths["json"]), *WINDOW]) == 2
+    assert failed
+    if existing:
+        assert {path: path.read_bytes() for path in paths.values()} == originals
+    else:
+        assert all(not path.exists() for path in paths.values())
+    assert set(report_dir.iterdir()) == set(originals)
+
+
+@pytest.mark.parametrize("failed_write", [2, 3])
+def test_staging_failure_does_not_publish_any_new_content(
+    core: Context, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failed_write: int
+) -> None:
+    report_dir = tmp_path / "reports"
+    report_dir.mkdir()
+    paths = [report_dir / f"critical.{suffix}" for suffix in ("json", "md", "html")]
+    originals = {path: f"original {path.suffix}".encode() for path in paths}
+    for path, content in originals.items():
+        path.write_bytes(content)
+    write_text = Path.write_text
+    writes = 0
+
+    def fail_later_stage(path: Path, *args, **kwargs) -> int:
+        nonlocal writes
+        if path.is_relative_to(report_dir):
+            writes += 1
+            if writes == failed_write:
+                raise OSError("staging disk is full")
+        return write_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "write_text", fail_later_stage)
+    assert critical_misses.main(["--json-out", str(paths[0]), *WINDOW]) == 2
+    assert writes == failed_write
+    assert {path: path.read_bytes() for path in paths} == originals
+    assert set(report_dir.iterdir()) == set(paths)
+
+
+def test_failed_rollback_retains_and_identifies_recoverable_originals(
+    core: Context, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+) -> None:
+    report_dir = tmp_path / "reports"
+    report_dir.mkdir()
+    paths = [report_dir / f"critical.{suffix}" for suffix in ("json", "md", "html")]
+    originals = {path: f"original {path.suffix}".encode() for path in paths}
+    for path, content in originals.items():
+        path.write_bytes(content)
+    replace = Path.replace
+    failed = False
+
+    def fail_publication_and_json_recovery(source: Path, target: str | Path) -> Path:
+        nonlocal failed
+        if Path(target) == paths[1] and not failed:
+            failed = True
+            raise PermissionError("Markdown publication refused")
+        if Path(target) == paths[0] and failed:
+            raise PermissionError("JSON rollback refused")
+        return replace(source, target)
+
+    monkeypatch.setattr(Path, "replace", fail_publication_and_json_recovery)
+    assert critical_misses.main(["--json-out", str(paths[0]), *WINDOW]) == 2
+    for path in paths[1:]:
+        assert path.read_bytes() == originals[path]
+    recoverable = [
+        path
+        for path in report_dir.rglob("*")
+        if path.is_file() and path.read_bytes() == originals[paths[0]]
+    ]
+    assert len(recoverable) == 1
+    assert str(recoverable[0].parent) in capsys.readouterr().err
+
+
+def test_successful_replacement_preserves_symlink_targets_and_private_permissions(
+    core: Context, tmp_path: Path
+) -> None:
+    target = tmp_path / "saved.json"
+    target.write_bytes(b"previous JSON")
+    target.chmod(0o600)
+    destination = tmp_path / "critical.json"
+    destination.symlink_to(target)
+    for suffix in ("md", "html"):
+        destination.with_suffix(f".{suffix}").write_bytes(b"previous human report")
+    assert critical_misses.main(["--json-out", str(destination), *WINDOW]) == 0
+    assert destination.is_symlink() and destination.resolve() == target
+    assert json.loads(target.read_bytes()) == []
+    assert target.stat().st_mode & 0o777 == 0o600
+    for suffix in ("md", "html"):
+        assert destination.with_suffix(f".{suffix}").read_bytes() != b"previous human report"
