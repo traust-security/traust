@@ -16,6 +16,8 @@ All notable changes to Traust are documented here.
 - Restore prior reports on cancellation during replacement and propagate the original interrupt/exit.
   Treat post-publication staging cleanup failures as warnings, without changing a
   committed export's success or masking an earlier publication failure.
+- Integrate development's newer Core and contracts revisions, preserving the native
+  critical-misses Insight view and explicit remediation work-item recording together.
 
 ## [0.40.1]
 

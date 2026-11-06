@@ -269,6 +269,12 @@ def property_evidence_(argv: list[str] | None = None) -> int:
 def record(argv: list[str] | None = None) -> int:
     ap = _parser("record", "Record a validated remediation report on its work item.")
     ap.add_argument("report", type=Path, help="the remediation report JSON")
+    ap.add_argument(
+        "--work-item",
+        type=uuid.UUID,
+        help="the work item this run prepared (the report doesn't name it; core refuses to "
+        "guess between a failed attempt and its retry)",
+    )
     args = ap.parse_args(argv)
 
     def call() -> dict:
@@ -280,6 +286,7 @@ def record(argv: list[str] | None = None) -> int:
             .remediation.record(
                 doc,
                 Provenance(run_id=uuid.uuid4(), source=SourceType.INTERACTIVE, occurred_at=when),
+                work_item_id=args.work_item,
             )
         )
         return made.model_dump(mode="json")
