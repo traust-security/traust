@@ -8,6 +8,8 @@ All notable changes to Traust are documented here.
   and contracts-owned ViewModel schema, without direct renderer imports or shims.
 - Preserve the existing JSON-array export and recorded-miss/adjudication semantics;
   support explicit Markdown destinations and refuse colliding output paths.
+- Adopt merged Core window/scope handling and bounded critical-miss reads, with explicit
+  refusal above 31 days or the cumulative input-record budget instead of partial exports.
 
 ## [0.40.1]
 

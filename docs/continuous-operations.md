@@ -176,8 +176,11 @@ adjudication, not hits). Outputs are `CRITICAL-MISSES.{json,md,html}` under conf
 `analysis_results`. `--json-out <json>` selects the unchanged JSON-array export and,
 unless `--out <markdown>` is supplied, its Markdown/HTML siblings. An explicit Markdown
 path gets an HTML sibling; all output paths must be distinct. Both bounds are required
-and timezone-aware, with an exclusive end. Core owns the registered view, its schema and
-human rendering; the operator command only materializes its results. Campaign directories
+and timezone-aware, with an exclusive end and a maximum span of 31 days. Core also bounds
+the cumulative materialized input/related rows at 10,000; dense or oversized requests fail <!-- estate-data-ok: public Core API workload limits, not deployment data -->
+without partial exports and must use a narrower window. This is a row-materialization
+bound, not a database scan/sort or row-byte cap. Core owns the registered view, its schema
+and human rendering; the operator command only materializes its results. Campaign directories
 (probe/matrix deltas, replay candidates, sample maps) are not read. This reports recorded
 findings, not advisory discovery or proof of clean coverage, and neither admits findings
 nor files tickets.

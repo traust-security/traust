@@ -164,6 +164,12 @@ def test_native_publication_preserves_population_provenance_and_safe_human_outpu
         ["--start", "2026-10-01T00:00:00", "--end", "2026-11-01T00:00:00"],
         ["--start", END.isoformat(), "--end", START.isoformat()],
         ["--start", START.isoformat(), "--end", START.isoformat()],
+        [
+            "--start",
+            START.isoformat(),
+            "--end",
+            (START + timedelta(days=31, microseconds=1)).isoformat(),
+        ],
     ],
 )
 def test_invalid_windows_refuse_before_creating_any_report(
