@@ -100,6 +100,9 @@ snapshot_files() {
   # make the snapshot follow a symlink out of the worktree or read a FIFO or a
   # device (/dev/zero reads forever): anything but a regular file, directory or
   # symlink fails the snapshot before a byte of it is read.
+  # Directory jobs retain identities, not descriptors. Reopening each component
+  # from the pinned root bounds the FD budget independently of nesting depth;
+  # a changed ancestor is refused, never followed through an absolute pathname.
   python3 - "$1" "$2" <<'PY'
 import errno, os, shutil, stat, sys
 src, dst = sys.argv[1:]
@@ -117,14 +120,16 @@ def copy_file(fd, d, mode):
     out = os.open(d, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
     try:
         while chunk := os.read(fd, 1 << 20):
-            os.write(out, chunk)
+            remaining = memoryview(chunk)
+            while remaining:
+                written = os.write(out, remaining)
+                if written <= 0:
+                    sys.exit(f"[push_fix] snapshot write made no progress: {d}")
+                remaining = remaining[written:]
         os.fchmod(out, stat.S_IMODE(mode))
     finally:
         os.close(out)
 
-def copy_dir(fd, s, d):
-    for name in sorted(os.listdir(fd)):
-        copy_entry(fd, name, os.path.join(s, name), os.path.join(d, name))
 
 def refuse(s):
     sys.exit(f"[push_fix] not a regular file, directory or symlink: {s}")
@@ -140,11 +145,11 @@ def copy_entry(parent, name, s, d):
         os.symlink(os.readlink(name, dir_fd=parent), d)
         return
     try:
-        mode = os.fstat(fd).st_mode
+        opened = os.fstat(fd)
+        mode = opened.st_mode
         if stat.S_ISDIR(mode):
             os.mkdir(d)
-            copy_dir(fd, s, d)
-            os.chmod(d, stat.S_IMODE(mode))
+            return (name, opened.st_dev, opened.st_ino), stat.S_IMODE(mode)
         elif stat.S_ISREG(mode):
             copy_file(fd, d, mode)
         else:
@@ -152,12 +157,49 @@ def copy_entry(parent, name, s, d):
     finally:
         os.close(fd)
 
-root = os.open(src, os.O_RDONLY | os.O_DIRECTORY)
+def open_dir(components):
+    fd = os.dup(root)
+    try:
+        for name, device, inode in components:
+            try:
+                child = os.open(name, OPEN, dir_fd=fd)
+            except OSError as e:
+                sys.exit(f"[push_fix] source directory changed during snapshot: {name}: {e}")
+            os.close(fd)
+            fd = child
+            opened = os.fstat(fd)
+            if not stat.S_ISDIR(opened.st_mode) or (opened.st_dev, opened.st_ino) != (device, inode):
+                sys.exit(f"[push_fix] source directory changed during snapshot: {name}")
+        return fd
+    except BaseException:
+        os.close(fd)
+        raise
+
+root = os.open(src, OPEN | os.O_DIRECTORY)
 try:
-    for name in sorted(os.listdir(root)):
-        if name == ".git":
+    if not stat.S_ISDIR(os.fstat(root).st_mode):
+        refuse(src)
+    # None marks a destination-mode job, applied only after its descendants.
+    pending = [((), dst, None)]
+    while pending:
+        components, directory, mode = pending.pop()
+        if components is None:
+            os.chmod(directory, mode)
             continue
-        copy_entry(root, name, os.path.join(src, name), os.path.join(dst, name))
+        parent = open_dir(components)
+        try:
+            for name in sorted(os.listdir(parent)):
+                if name == ".git" and not components:
+                    continue
+                s = os.path.join(src, *(part[0] for part in components), name)
+                d = os.path.join(directory, name)
+                child = copy_entry(parent, name, s, d)
+                if child is not None:
+                    identity, child_mode = child
+                    pending.append((None, d, child_mode))
+                    pending.append(((*components, identity), d, None))
+        finally:
+            os.close(parent)
 finally:
     os.close(root)
 PY

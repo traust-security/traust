@@ -17,6 +17,7 @@ import json
 import os
 import re
 import subprocess
+import textwrap
 from pathlib import Path
 
 import pytest
@@ -667,3 +668,169 @@ def test_a_symlink_to_a_directory_outside_is_committed_as_a_link_never_followed(
     entries = {line.split("\t")[1]: line.split()[0] for line in tree.splitlines()}
     assert entries["escape"] == "120000"  # the link itself
     assert not any(path.startswith("escape/") for path in entries)  # never its target's files
+
+
+def _snapshot_python_env(tmp_path, wt, code):
+    """Inject faults only into the real snapshot Python subprocess."""
+    injection = tmp_path / "python-injection"
+    injection.mkdir()
+    (injection / "sitecustomize.py").write_text(
+        "import os, sys\n"
+        f"if len(sys.argv) == 3 and sys.argv[0] == '-' and sys.argv[1] == {str(wt)!r}:\n"
+        f"    exec({textwrap.dedent(code)!r})\n"
+    )
+    return {"PYTHONPATH": os.pathsep.join((str(injection), os.environ.get("PYTHONPATH", "")))}
+
+
+def test_short_writes_preserve_every_committed_byte(tmp_path):
+    origin, base = _origin_with_base(tmp_path)
+    wt = _patched_worktree(origin, base, tmp_path)
+    content = bytes(range(256)) * 8193  # more than two source-read chunks
+    (wt / "payload.bin").write_bytes(content)
+    msg = tmp_path / "commit-message.txt"
+    msg.write_text(MSG)
+    env = _snapshot_python_env(
+        tmp_path,
+        wt,
+        """
+        original_write = os.write
+        def short_write(fd, data):
+            return original_write(fd, memoryview(data)[:65537])
+        os.write = short_write
+        """,
+    )
+    r = _script("commit", str(wt), base, str(origin), str(msg), env_extra=env)
+    assert r.returncode == 0, r.stderr
+    clone = json.loads(r.stdout.splitlines()[-1])["clone"]
+    try:
+        committed = subprocess.run(
+            ["git", "-C", clone, "show", "HEAD:payload.bin"], capture_output=True, check=True
+        ).stdout
+        assert len(committed) == len(content)
+        assert committed == content
+    finally:
+        _script("discard", clone)
+
+
+def test_zero_progress_write_refuses_the_commit_and_cleans_the_clone(tmp_path):
+    origin, base = _origin_with_base(tmp_path)
+    wt = _patched_worktree(origin, base, tmp_path)
+    msg = tmp_path / "commit-message.txt"
+    msg.write_text(MSG)
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    env = _snapshot_python_env(tmp_path, wt, "os.write = lambda fd, data: 0")
+    env["TMPDIR"] = str(scratch)
+    r = _script("commit", str(wt), base, str(origin), str(msg), env_extra=env)
+    assert r.returncode != 0
+    assert "write made no progress" in r.stderr
+    assert not r.stdout.strip()
+    assert list(scratch.iterdir()) == []
+
+
+def test_deep_worktree_commits_under_a_small_descriptor_limit(tmp_path):
+    origin, base = _origin_with_base(tmp_path)
+    wt = _patched_worktree(origin, base, tmp_path)
+    nested = wt
+    for _ in range(80):
+        nested /= "d"
+        nested.mkdir()
+    nested.chmod(0o750)
+    content = b"deep snapshot retains every byte\n"
+    (nested / "payload.bin").write_bytes(content)
+    (nested / "run.sh").write_text("#!/bin/sh\n")
+    (nested / "run.sh").chmod(0o755)
+    (nested / "link").symlink_to("payload.bin")
+    (nested / "ignored.log").write_text("not committed\n")
+    (wt / ".gitignore").write_text("*.log\n")
+    msg = tmp_path / "commit-message.txt"
+    msg.write_text(MSG)
+    env = _snapshot_python_env(
+        tmp_path,
+        wt,
+        """
+        import resource
+        resource.setrlimit(resource.RLIMIT_NOFILE, (32, resource.getrlimit(resource.RLIMIT_NOFILE)[1]))
+        """,
+    )
+    r = _script("commit", str(wt), base, str(origin), str(msg), env_extra=env)
+    assert r.returncode == 0, r.stderr
+    clone = json.loads(r.stdout.splitlines()[-1])["clone"]
+    relative = nested.relative_to(wt).as_posix()
+    try:
+        assert (Path(clone) / relative).stat().st_mode & 0o777 == 0o750
+        committed = subprocess.run(
+            ["git", "-C", clone, "show", f"HEAD:{relative}/payload.bin"],
+            capture_output=True,
+            check=True,
+        ).stdout
+        assert committed == content
+        tree = subprocess.run(
+            ["git", "-C", clone, "ls-tree", "HEAD", f"{relative}/"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+        entries = {line.split("\t")[1]: line.split()[0] for line in tree.splitlines()}
+        assert entries[f"{relative}/run.sh"] == "100755"
+        assert entries[f"{relative}/link"] == "120000"
+        assert f"{relative}/ignored.log" not in entries
+    finally:
+        _script("discard", clone)
+
+
+@pytest.mark.parametrize("replacement", ["symlink", "directory", "fifo", "file"])
+def test_a_swapped_ancestor_refuses_the_snapshot_without_reading_outside(tmp_path, replacement):
+    origin, base = _origin_with_base(tmp_path)
+    wt = _patched_worktree(origin, base, tmp_path)
+    branch = wt / "branch"
+    (branch / "deeper").mkdir(parents=True)
+    (branch / "deeper" / "payload.bin").write_bytes(b"original\n")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    secret = outside / "secret.txt"
+    secret.write_text("never read or modified\n")
+    marker = tmp_path / "swap-ran"
+    msg = tmp_path / "commit-message.txt"
+    msg.write_text(MSG)
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    env = _snapshot_python_env(
+        tmp_path,
+        wt,
+        f"""
+        original_open = os.open
+        branch_opens = 0
+        def swap_ancestor(path, flags, *args, **kwargs):
+            global branch_opens
+            if kwargs.get("dir_fd") is not None:
+                required = os.O_NOFOLLOW | os.O_NONBLOCK
+                assert flags & required == required
+            if path == "branch" and kwargs.get("dir_fd") is not None:
+                branch_opens += 1
+                if branch_opens == 2:
+                    os.rename({str(branch)!r}, {str(tmp_path / "original-branch")!r})
+                    replacement = {replacement!r}
+                    if replacement == "symlink":
+                        os.symlink({str(outside)!r}, {str(branch)!r})
+                    elif replacement == "directory":
+                        os.mkdir({str(branch)!r})
+                    elif replacement == "fifo":
+                        os.mkfifo({str(branch)!r})
+                    else:
+                        with open({str(branch)!r}, "wb") as stream:
+                            stream.write(b"not a directory")
+                    with open({str(marker)!r}, "w") as stream:
+                        stream.write("swapped")
+            return original_open(path, flags, *args, **kwargs)
+        os.open = swap_ancestor
+        """,
+    )
+    env["TMPDIR"] = str(scratch)
+    r = _script("commit", str(wt), base, str(origin), str(msg), env_extra=env)
+    assert marker.read_text() == "swapped"
+    assert r.returncode != 0
+    assert "source directory changed during snapshot" in r.stderr
+    assert not r.stdout.strip()
+    assert list(scratch.iterdir()) == []
+    assert secret.read_text() == "never read or modified\n"

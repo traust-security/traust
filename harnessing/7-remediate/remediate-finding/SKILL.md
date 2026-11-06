@@ -1,6 +1,6 @@
 ---
 name: remediate-finding
-description: Use when the user asks to remediate, patch, fix, or produce a code fix for a security finding from the audit campaign — creating a minimal reviewable patch on a private fork, running the repo's own build/test suite, and emitting a schema-validated remediation report.
+description: Use when the user asks to remediate, patch, fix, or produce a code fix for a security finding from the audit campaign — creating a minimal reviewable patch on a private fork, running the repo's own build/test suite, and emitting a schema-validated remediation report. File snapshots preserve complete writes and use bounded descriptors for deep worktrees without following source symlinks.
 metadata:
   harness.tier: "primary"
 allowed-tools:
@@ -380,6 +380,14 @@ because `assemble` builds the report (patch diff, files changed,
 `fork.fix_commit`) from committed state `audited_commit..HEAD` — pointing
 it at the clone makes the report describe exactly the commit that gets
 pushed.
+
+The snapshot retries short file writes until every byte is copied; a write that
+makes no progress aborts before committing. Deep trees do not retain one open
+descriptor per ancestor: directories are reopened component-by-component from a
+pinned root with no-follow, nonblocking opens and descriptor classification.
+A reopened directory must still have its recorded device/inode identity, or the
+snapshot is refused. Symlinks remain links, file/directory modes are preserved,
+and FIFOs, sockets and devices are refused without reading their contents.
 
 An empty diff is refused — a patch that changed nothing means the flow
 went wrong, not a no-op commit. Re-running after an iteration (Phase 4
