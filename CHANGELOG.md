@@ -2,6 +2,19 @@
 
 All notable changes to Traust are documented here.
 
+## [0.42.0]
+
+- Restore fixed-name compliance-precision JSON, Markdown and HTML exports through
+  Core's native Insight view and shared human renderers, preserving legacy flat
+  JSON and stdout's additional `flagged_checks`.
+- Expose the canonical compliance-precision dashboard wrapper with `--framework`
+  and `--precision-gate`. Keep recorded evidence read-only, inclusive gate flags
+  review-only, and unknown or empty populations unmeasured.
+- Share critical-misses' report-set publication policy with compliance precision:
+  reject colliding destinations, stage all reports together, restore previous
+  files on handled replacement failure or cancellation, retain and identify
+  recovery files if rollback fails, and warn separately on staging cleanup failure.
+
 ## [0.41.0]
 
 - Restore critical-misses Markdown and HTML through Core's registered Insight view
