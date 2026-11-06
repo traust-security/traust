@@ -23,7 +23,7 @@ from traust_core.v1.models.below_range import (
     GapReason,
 )
 from traust_core.v1.models.dependencies import AdvisoryRecord
-from traust_core.v1.models.identity import Principal
+from traust_core.v1.models.identity import IdentitySource, Principal
 from traust_core.v1.models.inventory import Repository, RepositoryRef
 from traust_core.v1.models.operations import OrderRequest, SessionTask, WorkerId
 from traust_core.v1.models.vocabulary import ActorKind
@@ -112,7 +112,12 @@ def estate(home: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Estat
     monkeypatch.setattr(BelowRangeService, "fetch", fetch)
     services = core.services()
     scan = services.below_range.scan(repo.id, tmp_path / "packets")
-    principal = Principal(identity="operator@example.com", kind=ActorKind.HUMAN, display="Operator")
+    principal = Principal(
+        identity="operator@example.com",
+        kind=ActorKind.HUMAN,
+        display="Operator",
+        verified_by=IdentitySource.OIDC,
+    )
     queued = services.ops.submit(
         OrderRequest(asset="below_range_review", priority=1, repository_id=repo.id), principal
     )
