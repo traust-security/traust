@@ -30,6 +30,7 @@ from traust_core.v1.providers.syft import MANIFESTS, SyftSbom
 from traust_core.v1.repositories.contract import SqlTraustUnitOfWork
 
 from traust.cli import check_fix_propagation, impact
+from traust.cli.__main__ import main
 from traust.context import load
 
 SHA = "a" * 40
@@ -126,6 +127,68 @@ def test_analyze_records_every_commit_the_sboms_reach(home: Path, tmp_path: Path
     assert summary["classifications"] == {"likely_affected": 1, "version_not_in_range": 1}
     assert summary["affected"] == []
     assert json.loads(run(impact.analyze, home, LODASH.identifier)[1]) == summary
+
+
+def test_grouped_analyze_records_every_package_in_a_commit_without_live_advisories(
+    tmp_path: Path,
+) -> None:
+    config = tmp_path / "offline-config"
+    config.mkdir()
+    (config / "traust.yaml").write_text(yaml.safe_dump({"home": str(tmp_path / "store")}))
+    advisory = tmp_path / "advisory.json"
+    advisory.write_text(
+        json.dumps(
+            {
+                "id": LODASH.identifier,
+                "affected": [
+                    {
+                        "package": {"ecosystem": "npm", "name": name},
+                        "ranges": [
+                            {
+                                "type": "SEMVER",
+                                "events": [{"introduced": "0"}, {"fixed": fixed}],
+                            }
+                        ],
+                    }
+                    for name, fixed in (("lodash", "4.17.21"), ("left-pad", "1.3.0"))
+                ],
+            }
+        )
+    )
+    manifest = tmp_path / "multi-package.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "bomFormat": "CycloneDX",
+                "components": [
+                    {"purl": "pkg:npm/lodash@4.17.20"},
+                    {"purl": "pkg:npm/left-pad@1.3.0"},
+                ],
+            }
+        )
+    )
+
+    def grouped(*argv: str) -> dict[str, Any]:
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = main(["impact", *argv, "--config-home", str(config)])
+        assert code == 0
+        return json.loads(out.getvalue())
+
+    grouped("sbom", str(manifest), "--repo-url", REPO, "--sha", SHA)
+    summary = grouped("analyze", LODASH.identifier, "--advisory-file", str(advisory))
+    assert (summary["commits"], summary["analyses"]) == (1, 2)
+    assert summary["classifications"] == {"likely_affected": 1, "version_not_in_range": 1}
+    exported = grouped("export", LODASH.identifier)
+    assert (exported["commits"], exported["analyses"]) == (1, 2)
+    by_package = {row["module"]: row for row in exported["repos"]}
+    assert set(by_package) == {"lodash", "left-pad"}
+    assert by_package["lodash"]["classification"] == "likely_affected"
+    assert by_package["left-pad"]["classification"] == "version_not_in_range"
+    assert {row["document"]["metadata"]["module"] for row in exported["repos"]} == {
+        "lodash",
+        "left-pad",
+    }
 
 
 def test_scan_checks_out_an_undecided_commit_at_its_sha_through_the_service(

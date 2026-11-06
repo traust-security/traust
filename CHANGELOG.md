@@ -14,6 +14,9 @@ All notable changes to Traust are documented here.
   reject colliding destinations, stage all reports together, restore previous
   files on handled replacement failure or cancellation, retain and identify
   recovery files if rollback fails, and warn separately on staging cleanup failure.
+- Complete the required Core dependency cutover by consuming every native impact
+  package result per commit, including rescanned results, rather than wrapping
+  the returned tuple as a single analysis.
 
 ## [0.41.0]
 
