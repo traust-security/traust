@@ -149,7 +149,7 @@ rows named in the last column are the backstop that makes a dead timer visible.
 | Rule-mining lane | weekly + post-wave | timer + drift row `rule-mining` (ledger changes >7d newer than the artifact) | python3 -m traust.cli sweep rule-lane, then the scheduled `/mine-ledger` session | never auto-files findings; rule promotion sits behind the mechanical test-and-calibrate gate; sweep hits route to `/triage` |
 | Ledger audit | weekly | timer | python3 -m traust.cli ledger audit (`LedgerService.audit`) | verifies every ledger layer against its stored events and signature, so an edit to stored decision events is found within a week (appends no longer re-verify the layer); a layer that fails or can't be verified degrades the order, never green |
 | CVE-replay FN monitor | *pending* | — | `traust sweep cve-replay` refuses: "CVE replay needs a traust-core decision (plan 15, decision 2)" | no timer until the decision lands; nothing is replayed or filed in the meantime |
-| Critical-miss report | after each campaign wave / triage refresh | operator | `traust sweep critical-misses --start <ts> --end <ts>` | Core's recorded critical misses for the window (`DetectionQualityService.critical_misses`) as JSON. No finding or ticket is created |
+| Critical-miss report | after each campaign wave / triage refresh | operator | `traust sweep critical-misses --start <ts> --end <ts>` | Core's registered critical-misses Insight view: recorded misses/adjudication rows as JSON, Markdown and HTML. No finding or ticket is created |
 | `/drift-watch` | on demand; recommended alongside every `/census`; scheduled by the orchestrator | operator / timer | python3 -m traust.cli dashboard view freshness | routes attention only — never auto-rebuilds, auto-advances a pin, or files a finding |
 | Census + repo-liveness refresh | at intake and before denominators are consumed | operator / intake flow | `portfolio observe` records forge availability; `/census` reads the census view | `traust portfolio liveness` refuses: "Liveness status needs a traust-core decision (plan 15, decision 3)" (the typed repo-liveness status needs a newer contracts pin); it never derives a status core did not record |
 | FP-precedent cache rebuild | formerly drift-triggered, no timer | former `fp-precedent-cache` drift row | retired: Core matches precedents on admitted native findings; `traust triage prepare` supplies them for triage Phase 2g. Canonical container/RPM/vulnerability-scan recording admits findings; secure-code recording does not | Human and sound machine context informs review, never automatic dismissal. Existing cache artifacts are not a rebuild; an assessment-only audit without admission is not a clean native batch |
@@ -172,10 +172,24 @@ Run `traust sweep critical-misses --start <timezone-aware timestamp> --end <time
 timestamp>` after a campaign wave, triage refresh or disposition refresh. It exports
 traust-core's recorded critical misses for that window: critical findings first reported in
 it that an earlier audit of the repository missed (`area_reported` rows are for
-adjudication, not hits). The output is `CRITICAL-MISSES.json` under configured
-`analysis_results`, or `--json-out <json>`; there is no Markdown table until core registers its Insight view (a priority follow-up). Both bounds are required. Campaign
-directories (probe/matrix deltas, replay candidates, sample maps) are not read: the export
-covers recorded findings only, and neither admits findings nor files tickets.
+adjudication, not hits). Outputs are `CRITICAL-MISSES.{json,md,html}` under configured
+`analysis_results`. `--json-out <json>` selects the unchanged JSON-array export and,
+unless `--out <markdown>` is supplied, its Markdown/HTML siblings. An explicit Markdown
+path gets an HTML sibling; all output paths must be distinct, including existing hard links.
+The complete set is staged before publication. I/O failures and cancellation during
+replacement restore prior reports (or remove newly published files); cancellation then propagates.
+If rollback also fails or is interrupted, the error identifies retained recovery directories.
+Staging cleanup errors warn with the affected directory but do not change a committed
+export's success or mask an earlier failure. This is not a crash-atomic multi-file transaction.
+Both bounds are required and timezone-aware, with an exclusive end and a maximum span of
+31 days. Core also bounds
+the cumulative materialized input/related rows at 10,000; dense or oversized requests fail <!-- estate-data-ok: public Core API workload limits, not deployment data -->
+without partial exports and must use a narrower window. This is a row-materialization
+bound, not a database scan/sort or row-byte cap. Core owns the registered view, its schema
+and human rendering; the operator command only materializes its results. Campaign directories
+(probe/matrix deltas, replay candidates, sample maps) are not read. This reports recorded
+findings, not advisory discovery or proof of clean coverage, and neither admits findings
+nor files tickets.
 
 ## Spend capture cadence — capture weekly, report monthly
 

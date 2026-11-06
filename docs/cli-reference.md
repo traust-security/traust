@@ -179,11 +179,25 @@ convert uninspectable deliverables and rerun the gate; there is no binary fallba
 - `traust sweep compliance-precision --framework <framework> --gate 0.5 --out-dir <dir>`
   exports field precision from recorded assessments as JSON (no Markdown until core registers its Insight view (a priority follow-up)). The inclusive gate
   flags checks for human demotion review; it does not run the evaluator twice or mutate checks.
-- `traust sweep critical-misses --start <ISO8601> --end <ISO8601> [--json-out <file>.json]`
-  exports the window's recorded critical misses (`DetectionQualityService.critical_misses`):
-  critical findings first reported in the window that an earlier audit of the repository
-  missed, as a JSON list (no Markdown table until core registers its Insight view (a priority follow-up)). Both
-  zoned window bounds are required; campaign directories are not read.
+- `traust sweep critical-misses --start <ISO8601> --end <ISO8601> [--json-out <file>.json] [--out <file>.md]`
+  publishes the `critical-misses` Insight view: critical findings first reported in the
+  window that an earlier audit missed. JSON retains its existing list shape; Markdown
+  and HTML come from Core's shared renderers. By default all three are written beside
+  `CRITICAL-MISSES.json` under `analysis_results`. `--json-out` selects the JSON path;
+  `--out` selects the exact Markdown path, with an HTML sibling. Destinations must be
+  distinct, including existing hard links. Reports are staged together; replacement
+  failures and cancellation before commit restore the previous files. Cancellation then propagates;
+  failed rollback retains recovery files and reports their locations. Staging cleanup
+  errors are separate warnings, not failed exports after publication has committed.
+  Both window bounds require time zones; the end is exclusive. Core permits
+  at most 31 days and 10,000 cumulative materialized input/related records; an oversized <!-- estate-data-ok: public Core API workload limits, not deployment data -->
+  or dense request fails without partial reports, so narrow the window when refused.
+  `area_reported` rows require adjudication, not automatic classification as misses.
+  Campaign directories are not read and no findings or tickets are created.
+  `traust dashboard view critical-misses --since <start> --until <end> --out <dir>`
+  publishes the structured `{window, misses}` ViewModel and the same human renders.
+  This is a global recorded-data window, not a historical `--as-of` reconstruction or
+  proof of clean coverage; unsupported scope filters are refused.
 - `traust sweep cve-replay monitor|candidates|trends|oracle` refuses: "CVE replay needs a
   traust-core decision (plan 15, decision 2)". It never reads a fallback.
 - `traust sweep emit --rule <rule> --sweeps-root <dir>` exports the cached candidate and

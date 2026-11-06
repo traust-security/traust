@@ -2,6 +2,22 @@
 
 All notable changes to Traust are documented here.
 
+## [0.41.0]
+
+- Restore critical-misses Markdown and HTML through Core's registered Insight view
+  and contracts-owned ViewModel schema, without direct renderer imports or shims.
+- Preserve the existing JSON-array export and recorded-miss/adjudication semantics;
+  support explicit Markdown destinations and refuse colliding output paths.
+- Adopt merged Core window/scope handling and bounded critical-miss reads, with explicit
+  refusal above 31 days or the cumulative input-record budget instead of partial exports.
+- Refuse hard-linked report destinations before writing. Stage the complete output set
+  and roll back handled publication failures; retain recovery files and identify their
+  locations if the filesystem also refuses rollback.
+- Restore prior reports on cancellation during replacement and propagate the original interrupt/exit.
+  Treat post-publication staging cleanup failures as warnings, without changing a
+  committed export's success or masking an earlier publication failure.
+- Integrate development's newer Core and contracts revisions, preserving the native
+  critical-misses Insight view and explicit remediation work-item recording together.
 ## [0.40.2]
 
 - Preserve every remediation snapshot byte across short writes and refuse a stalled
