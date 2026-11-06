@@ -301,6 +301,8 @@ def run(argv: list[str] | None = None) -> int:
             if order_id is not None and args.skill in REPORTING_SKILLS
             else None
         )
+        # the report the work item held before this attempt: only one this attempt recorded counts
+        held = None if reported is None else _work_item_report(reported, args)
     except ValueError:
         print(f"run {args.run_id}: {OrderReason.BAD_REQUEST}: not a run order id", file=sys.stderr)
         return answer(JobResult.failed(OrderReason.BAD_REQUEST))
@@ -354,9 +356,11 @@ def run(argv: list[str] | None = None) -> int:
                 f"run {args.run_id}: work-item report lookup: {type(e).__name__}", file=sys.stderr
             )
             return answer(_spent(JobResult.failed(OrderReason.RUNNER_CRASHED), usage))
-        if report is None:
+        # NEED(core: a remediation report names the order that recorded it): until then a retry
+        # of this order whose report already landed fails closed, like one that recorded nothing
+        if report is None or report == held:
             print(
-                f"run {args.run_id}: /{args.skill} recorded no report on work item {reported}",
+                f"run {args.run_id}: /{args.skill} recorded no new report on work item {reported}",
                 file=sys.stderr,
             )
             return answer(_spent(JobResult.failed(OrderReason.SESSION_OUTPUT_INVALID), usage))

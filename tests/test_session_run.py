@@ -491,27 +491,38 @@ def test_a_manual_or_non_recording_session_is_not_checked(
     assert result["outcome"] == "succeeded"
 
 
+OLD_REPORT = SimpleNamespace(id="manual-report")
+NEW_REPORT = SimpleNamespace(id="this-attempts-report")
+
+
 @pytest.mark.parametrize(
-    ("report", "outcome", "reason"),
+    ("before", "after", "outcome"),
     [
-        (SimpleNamespace(id="artifact"), "succeeded", None),
-        (None, "failed", "session-output-invalid"),
+        (None, NEW_REPORT, "succeeded"),
+        (None, None, "failed"),
+        (OLD_REPORT, OLD_REPORT, "failed"),  # a manual run's or another order's report
+        (OLD_REPORT, NEW_REPORT, "succeeded"),
     ],
-    ids=["recorded", "no report"],
+    ids=["recorded", "no report", "an earlier report only", "recorded over an earlier one"],
 )
-def test_an_ordered_fix_succeeds_only_when_its_work_item_holds_a_report(
+def test_an_ordered_fix_succeeds_only_when_this_attempt_recorded_its_report(
     processes: Processes,
     monkeypatch: pytest.MonkeyPatch,
-    report: SimpleNamespace | None,
+    before: SimpleNamespace | None,
+    after: SimpleNamespace | None,
     outcome: str,
-    reason: str | None,
 ) -> None:
     item = "6c703684-575d-43f9-8ad6-419be0241a14"
+    reports = iter([before, after])
     monkeypatch.setattr(session, "_ordered_work_item", lambda order, args: item)
-    monkeypatch.setattr(session, "_work_item_report", lambda work_item, args: report)
+    monkeypatch.setattr(session, "_work_item_report", lambda work_item, args: next(reports))
     _, result = run("--skill", "remediate-finding", "--role", "remediation", "--run-id", ORDER)
-    assert (result["outcome"], result.get("reason")) == (outcome, reason)
-    assert result["written"] == ([item] if report else [])
+    succeeded = outcome == "succeeded"
+    assert (result["outcome"], result.get("reason")) == (
+        outcome,
+        None if succeeded else "session-output-invalid",
+    )
+    assert result["written"] == ([item] if succeeded else [])
     assert processes.agent_call()[1]["env"]["TRAUST_RUN_ID"] == ORDER
 
 
