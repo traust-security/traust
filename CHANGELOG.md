@@ -2,6 +2,13 @@
 
 All notable changes to Traust are documented here.
 
+## [0.41.0]
+
+- Restore critical-misses Markdown and HTML through Core's registered Insight view
+  and contracts-owned ViewModel schema, without direct renderer imports or shims.
+- Preserve the existing JSON-array export and recorded-miss/adjudication semantics;
+  support explicit Markdown destinations and refuse colliding output paths.
+
 ## [0.40.1]
 
 - Register Core's native PQC scanner at the application composition root and retain

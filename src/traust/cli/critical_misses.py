@@ -7,9 +7,11 @@ import argparse
 import json
 from datetime import datetime
 from pathlib import Path
+from typing import cast
 
 from traust_core.v1.errors import ValidationError
 from traust_core.v1.models.common import TimeWindow
+from traust_core.v1.models.insight import CriticalMisses, ViewFilter, ViewName
 
 from traust.cli._doors import parser, run
 from traust.cli.groups._registry import OpSpec
@@ -19,6 +21,9 @@ from traust.context import analysis_results_dir, load
 def add_args(ap: argparse.ArgumentParser) -> None:
     ap.add_argument(
         "--json-out", type=Path, help="JSON destination (default: CRITICAL-MISSES.json)"
+    )
+    ap.add_argument(
+        "--out", type=Path, help="Markdown destination (default: beside JSON, with an HTML sibling)"
     )
     ap.add_argument("--start", type=datetime.fromisoformat, help="recorded findings window start")
     ap.add_argument(
@@ -40,12 +45,31 @@ def call(args: argparse.Namespace) -> int:
     def export() -> dict[str, str | int]:
         window = _window(args)
         core = load(args.config_home)
-        misses = core.services().detection_quality.critical_misses(window)
         json_out = args.json_out or analysis_results_dir(core) / "CRITICAL-MISSES.json"
-        json_out.parent.mkdir(parents=True, exist_ok=True)
-        document = [m.model_dump(mode="json") for m in misses]
-        json_out.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
-        return {"json": str(json_out), "recorded_misses": len(misses)}
+        markdown_out = args.out or json_out.with_suffix(".md")
+        html_out = markdown_out.with_suffix(".html")
+        paths = (json_out, markdown_out, html_out)
+        if len({path.resolve() for path in paths}) != len(paths):
+            raise ValidationError("JSON, Markdown and HTML destinations must be distinct")
+        rendered = core.services().insight.publish(
+            ViewName.CRITICAL_MISSES, ViewFilter(window=window)
+        )
+        model = cast(CriticalMisses, rendered.model)
+        outputs = {
+            json_out: json.dumps([miss.model_dump(mode="json") for miss in model.misses], indent=2)
+            + "\n",
+            markdown_out: rendered.markdown,
+            html_out: rendered.html,
+        }
+        for path, content in outputs.items():
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content, encoding="utf-8")
+        return {
+            "json": str(json_out),
+            "markdown": str(markdown_out),
+            "html": str(html_out),
+            "recorded_misses": len(model.misses),
+        }
 
     return run(export)
 
