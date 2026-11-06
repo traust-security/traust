@@ -315,6 +315,9 @@ def run(argv: list[str] | None = None) -> int:
         except (ValidationError, NotFoundError) as e:  # the order can't be run as it stands
             print(f"run {args.run_id}: {OrderReason.BAD_REQUEST}: {e}", file=sys.stderr)
             return answer(JobResult.failed(OrderReason.BAD_REQUEST))
+        except SystemExit:  # `load` exits on an unusable configuration rather than raising
+            print(f"run {args.run_id}: {OrderReason.BAD_REQUEST}: configuration", file=sys.stderr)
+            return answer(JobResult.failed(OrderReason.BAD_REQUEST))
         except (TraustError, OSError) as e:  # core or the store didn't answer: try again later
             print(f"run {args.run_id}: work-item lookup: {type(e).__name__}", file=sys.stderr)
             return answer(JobResult.failed(OrderReason.RUNNER_CRASHED))
