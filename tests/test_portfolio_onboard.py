@@ -129,7 +129,6 @@ def test_plan_prints_urls_ids_and_gaps(home: Path, doors: SimpleNamespace) -> No
     )
 
 
-
 @pytest.mark.parametrize(
     "argv,reason",
     [

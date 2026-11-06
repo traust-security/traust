@@ -15,13 +15,19 @@ from traust_core.v1.models.findings import CandidateFormat
 from traust_core.v1.models.identity import IdentitySource, Principal
 from traust_core.v1.models.observation import ComparisonStatus
 from traust_core.v1.models.operations import AssetName, JobResult, OrderRequest, WorkerId
-from traust_core.v1.models.pqc import PqcFilter, PqcScan, PqcScanFinding, PqcStamps
+from traust_core.v1.models.pqc import (
+    PqcFilter,
+    PqcScan,
+    PqcScanFinding,
+    PqcStamps,
+    PqcWorklistRoute,
+)
 from traust_core.v1.models.values import GitSha, HttpsRepoUrl
 from traust_core.v1.models.vocabulary import ActorKind, SourceType
 from traust_core.v1.providers.base import Acquisition, Readiness, Result
 
 from traust.lib.pending_decisions import Decision, skip_reason
-from traust.ops.pqc import PqcSweep, SweepRoute
+from traust.ops.pqc import PqcSweep
 
 AT = datetime(2026, 10, 24, tzinfo=UTC)
 SHA = "a" * 40
@@ -164,8 +170,7 @@ def test_ranked_worklist_deduplicates_repositories_and_routes_evidenced_residual
     unreachable_order = observation(
         services, unreachable.repository_id, JobResult.partly({ComparisonStatus.UNREACHABLE: 1})
     )
-    sweep = PqcSweep(services, ("github.com",), chokepoints=("oauth-gateway",))
-    entries = sweep.worklist(PqcFilter())
+    entries = services.pqc.worklist(PqcFilter(), chokepoints=("oauth-gateway",))
     assert len(entries) == 5
     assert [e.priority_tier for e in entries] == [
         "chokepoint",
@@ -175,10 +180,10 @@ def test_ranked_worklist_deduplicates_repositories_and_routes_evidenced_residual
         "tail",
     ]
     by_repo = {e.repository_id: e for e in entries}
-    assert by_repo[crypto.repository_id].route == SweepRoute.SOURCE
-    assert by_repo[tail.repository_id].route == SweepRoute.SOURCE
-    assert by_repo[denied.repository_id].route == SweepRoute.ACCESS_REQUEST
-    assert by_repo[unreachable.repository_id].route == SweepRoute.SBOM_ONLY
+    assert by_repo[crypto.repository_id].route == PqcWorklistRoute.SOURCE
+    assert by_repo[tail.repository_id].route == PqcWorklistRoute.SOURCE
+    assert by_repo[denied.repository_id].route == PqcWorklistRoute.ACCESS_REQUEST
+    assert by_repo[unreachable.repository_id].route == PqcWorklistRoute.SBOM_ONLY
     assert by_repo[denied.repository_id].access.unobserved == ComparisonStatus.NO_CREDENTIALS
     assert by_repo[unreachable.repository_id].access.unobserved == ComparisonStatus.UNREACHABLE
     assert by_repo[denied.repository_id].access.observed_at is not None
@@ -186,13 +191,13 @@ def test_ranked_worklist_deduplicates_repositories_and_routes_evidenced_residual
     assert services.ops.manifest(unreachable_order).degraded == {"unreachable": 1}
     routes = [e.route for e in entries]
     progress = (
-        routes.count(SweepRoute.ACCESS_REQUEST),
-        routes.count(SweepRoute.SBOM_ONLY),
+        routes.count(PqcWorklistRoute.ACCESS_REQUEST),
+        routes.count(PqcWorklistRoute.SBOM_ONLY),
         len(services.pqc.list_readiness(PqcFilter())),
     )
     assert progress == (1, 1, 0)
-    assert len(sweep.worklist(PqcFilter(repository_ref_ids=(tail.id,)))) == 1
-    assert sweep.worklist(PqcFilter(repository_ref_ids=())) == ()
+    assert len(services.pqc.worklist(PqcFilter(repository_ref_ids=(tail.id,)))) == 1
+    assert services.pqc.worklist(PqcFilter(repository_ref_ids=())) == ()
 
 
 def test_bounded_refresh_resumes_from_recorded_pack_stamps_and_releases_checkouts(
@@ -244,13 +249,13 @@ def test_success_without_availability_does_not_clear_access_failure(
     target = ref(core, "widget")
     services = core.services()
     observation(services, target.repository_id, JobResult.partly({"no-credentials": 1}))
-    [entry] = PqcSweep(services, ("github.com",)).worklist(PqcFilter())
+    [entry] = services.pqc.worklist(PqcFilter())
     assert entry.access.unobserved == ComparisonStatus.NO_CREDENTIALS
     observation(services, target.repository_id, JobResult.succeeded())
-    [current] = PqcSweep(services, ("github.com",)).worklist(PqcFilter())
+    [current] = services.pqc.worklist(PqcFilter())
     assert current.access.unobserved == ComparisonStatus.NO_CREDENTIALS
-    [entry] = PqcSweep(services, ("github.com",)).worklist(PqcFilter())
-    assert entry.route == SweepRoute.ACCESS_REQUEST
+    [entry] = services.pqc.worklist(PqcFilter())
+    assert entry.route == PqcWorklistRoute.ACCESS_REQUEST
     assert services.pqc.find(target.id) is None
 
 
