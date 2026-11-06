@@ -647,3 +647,23 @@ def test_a_socket_or_device_anywhere_fails_the_snapshot_before_it_is_read(tmp_pa
     assert r.returncode != 0
     assert "not a regular file, directory or symlink" in r.stderr
     assert "s.sock" in r.stderr
+
+
+def test_a_symlink_to_a_directory_outside_is_committed_as_a_link_never_followed(tmp_path):
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "secret.txt").write_text("not part of the fix\n")
+    origin, base = _origin_with_base(tmp_path)
+    wt = _patched_worktree(origin, base, tmp_path)
+    (wt / "escape").symlink_to(outside)
+    msg = tmp_path / "commit-message.txt"
+    msg.write_text(MSG)
+    r = _script("commit", str(wt), base, str(origin), str(msg))
+    assert r.returncode == 0, r.stderr
+    clone = json.loads(r.stdout.splitlines()[-1])["clone"]
+    tree = subprocess.run(
+        ["git", "-C", clone, "ls-tree", "-r", "HEAD"], capture_output=True, text=True, check=True
+    ).stdout
+    entries = {line.split("\t")[1]: line.split()[0] for line in tree.splitlines()}
+    assert entries["escape"] == "120000"  # the link itself
+    assert not any(path.startswith("escape/") for path in entries)  # never its target's files

@@ -94,11 +94,14 @@ snapshot_files() {
   # snapshot_files <worktree> <clone>: the `rsync -a --delete --exclude=/.git`
   # of the SCI worker. The clone's files (all but its .git) go, then the
   # worktree's (all but its top-level .git) are copied in: regular files with
-  # their modes, symlinks as links, directories walked. Any other entry, at any
-  # depth (a FIFO, a socket, a device node such as /dev/zero, which a copy
-  # would read forever), fails the snapshot before anything is read from it.
+  # their modes, symlinks as links, directories walked. Each entry is opened
+  # (O_NOFOLLOW, O_NONBLOCK) relative to its parent's descriptor and classified
+  # by fstat on what was opened, so target code swapping an entry mid-copy can't
+  # make the snapshot follow a symlink out of the worktree or read a FIFO or a
+  # device (/dev/zero reads forever): anything but a regular file, directory or
+  # symlink fails the snapshot before a byte of it is read.
   python3 - "$1" "$2" <<'PY'
-import os, shutil, stat, sys
+import errno, os, shutil, stat, sys
 src, dst = sys.argv[1:]
 for name in os.listdir(dst):
     if name != ".git":
@@ -108,24 +111,55 @@ for name in os.listdir(dst):
         else:
             os.unlink(path)
 
-def copy(s, d):
-    mode = os.lstat(s).st_mode
-    if stat.S_ISLNK(mode):
-        os.symlink(os.readlink(s), d)
-    elif stat.S_ISDIR(mode):
-        os.mkdir(d)
-        for name in os.listdir(s):
-            copy(os.path.join(s, name), os.path.join(d, name))
-        shutil.copystat(s, d, follow_symlinks=False)
-    elif stat.S_ISREG(mode):
-        shutil.copy2(s, d, follow_symlinks=False)
-    else:
-        sys.exit(f"[push_fix] not a regular file, directory or symlink: {s}")
+OPEN = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | getattr(os, "O_CLOEXEC", 0)
 
-for name in os.listdir(src):
-    if name == ".git":
-        continue
-    copy(os.path.join(src, name), os.path.join(dst, name))
+def copy_file(fd, d, mode):
+    out = os.open(d, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    try:
+        while chunk := os.read(fd, 1 << 20):
+            os.write(out, chunk)
+        os.fchmod(out, stat.S_IMODE(mode))
+    finally:
+        os.close(out)
+
+def copy_dir(fd, s, d):
+    for name in sorted(os.listdir(fd)):
+        copy_entry(fd, name, os.path.join(s, name), os.path.join(d, name))
+
+def refuse(s):
+    sys.exit(f"[push_fix] not a regular file, directory or symlink: {s}")
+
+def copy_entry(parent, name, s, d):
+    try:
+        fd = os.open(name, OPEN, dir_fd=parent)
+    except OSError as e:
+        if e.errno in (errno.ENXIO, errno.EOPNOTSUPP, errno.ENODEV):  # a socket or device
+            refuse(s)
+        if e.errno != errno.ELOOP:  # O_NOFOLLOW: ELOOP is a symlink
+            raise
+        os.symlink(os.readlink(name, dir_fd=parent), d)
+        return
+    try:
+        mode = os.fstat(fd).st_mode
+        if stat.S_ISDIR(mode):
+            os.mkdir(d)
+            copy_dir(fd, s, d)
+            os.chmod(d, stat.S_IMODE(mode))
+        elif stat.S_ISREG(mode):
+            copy_file(fd, d, mode)
+        else:
+            refuse(s)
+    finally:
+        os.close(fd)
+
+root = os.open(src, os.O_RDONLY | os.O_DIRECTORY)
+try:
+    for name in sorted(os.listdir(root)):
+        if name == ".git":
+            continue
+        copy_entry(root, name, os.path.join(src, name), os.path.join(dst, name))
+finally:
+    os.close(root)
 PY
 }
 
