@@ -534,11 +534,16 @@ def prepare(argv: list[str] | None = None) -> int:
     def call() -> str | None:
         services = load(args.config_home).services()
         work_item_id = args.work_item_id
-        if work_item_id is None:
-            order = services.ops.get(args.run_id)
-            if order.work_item_id is None:
+        if args.run_id is not None:
+            # under an order, the order decides which work item this run patches
+            ordered = services.ops.get(args.run_id).work_item_id
+            if ordered is None and work_item_id is None:
                 raise ValidationError(f"order {args.run_id} names no work item to prepare")
-            work_item_id = order.work_item_id
+            if ordered is not None and work_item_id not in (None, ordered):
+                raise ValidationError(
+                    f"order {args.run_id} runs work item {ordered}, not {work_item_id}"
+                )
+            work_item_id = work_item_id or ordered
         prepared = services.remediation.prepare(work_item_id)
         return _emit(prepared.model_dump_json(indent=2), args.out)
 

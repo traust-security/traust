@@ -299,6 +299,13 @@ def test_an_ordered_run_prepares_the_work_item_its_order_names(
     assert rc == 2 and "names no work item" in err
     with pytest.raises(SystemExit):  # neither a work item nor an order
         run(remediation.prepare, home)
+    doors.order.result = SimpleNamespace(work_item_id=ITEM.work_item_id)
+    other = uuid.uuid4()
+    rc, err = run(remediation.prepare, home, str(other), "--run-id", str(order_id))
+    assert rc == 2 and f"runs work item {ITEM.work_item_id}, not {other}" in err
+    assert doors.prepare.calls == [(ITEM.work_item_id,)]  # never the other one
+    rc, _ = run(remediation.prepare, home, str(ITEM.work_item_id), "--run-id", str(order_id))
+    assert rc == 0
 
 
 def test_record_refusals_are_exit_2(doors: SimpleNamespace, home: Path, tmp_path: Path) -> None:
