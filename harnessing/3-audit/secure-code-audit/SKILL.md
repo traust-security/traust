@@ -53,6 +53,8 @@ allowed-tools:
   - Bash(python *harnessing/3-audit/secure-code-audit/scripts/enumerate_route_guards.py:*)
   - Bash(python3 *harnessing/3-audit/secure-code-audit/scripts/probe_sanitizers.py:*)
   - Bash(python *harnessing/3-audit/secure-code-audit/scripts/probe_sanitizers.py:*)
+  - Bash(python3 *harnessing/3-audit/secure-code-audit/scripts/stamp_finding_identity.py:*)
+  - Bash(python *harnessing/3-audit/secure-code-audit/scripts/stamp_finding_identity.py:*)
   - Bash(python3 *-m traust.cli.check_citations:*)
   - Bash(python3 *-m traust.cli corpus finding-identity:*)
   - Bash(python3 *harnessing/3-audit/secure-code-audit/scripts/enrich_findings_cves.py:*)
@@ -1540,20 +1542,37 @@ If errors appear, read each error message, fix the JSON, and re-run the validato
 **Step 2b — Stamp the cross-scan finding identity (required):**
 
 ```bash
+# headless/worker lanes — python3 is denied there; harness-run executes
+# /harness scripts with the packaged runtime:
+harness-run harnessing/3-audit/secure-code-audit/scripts/stamp_finding_identity.py <path-to-report.json>
+
+# interactive lanes — the same script directly:
+python3 harnessing/3-audit/secure-code-audit/scripts/stamp_finding_identity.py <path-to-report.json>
+
+# the equivalent CLI door (interactive lanes only — unreachable in worker lanes):
 python3 -m traust.cli corpus finding-identity fingerprint <path-to-report.json> --write
 ```
 
 Deterministic and script-computed — **never model-authored**. It writes
 `finding.fingerprint` = `sha256(canonical repo URL | sorted lineless location
-paths | primary CWE)` for every finding.
+paths | primary CWE)` and `finding.fingerprint_algo` for every finding; the
+script wraps the same library the CLI door calls, so there is one
+implementation.
 
 This is not cosmetic. Cross-scan continuation, disposition carry-forward
 between scans, and the downstream platform's finding identity all key on this
-field; an unstamped report validates clean but is invisible to every one of
-them. It is schema-declared and pattern-constrained (`^[0-9a-f]{64}$`) but
-*optional*, so nothing else catches its absence — `validate_report.py` warns,
-and `--strict` makes it an error. Re-run this step after any edit that changes
-a finding's `locations` or `cwes`, since both feed the hash.
+field. **The platform's worker lanes stamp
+`metadata.additional.harness_version` on the report after the session, and the
+contracts schema then REQUIRES `fingerprint` on every finding** — an unstamped
+report validates clean in-session and still dies at the platform's gate with
+`findings/N: 'fingerprint' is a required property` (the scan-blocking failure
+of the 2026-11-06 dev-cluster E2E bring-up). On reports that declare no
+`harness_version` the field is schema-optional, so nothing else catches its
+absence — stamp it regardless; the consuming lane decides, not the writer.
+Re-run this step after any edit that changes a finding's `locations` or
+`cwes`, since both feed the hash, passing `--allow-identity-move` for the
+in-session re-stamp (an in-flight report has nothing referencing its stamps
+yet; recorded findings are never re-stamped through this door).
 
 **Step 3 — Run strict mode (recommended):**
 
