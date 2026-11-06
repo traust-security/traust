@@ -22,9 +22,17 @@ def _asset_for_lane(assets: dict, lane: str) -> str:
     return next(n for n, a in assets.items() if lane in a.get("trigger", {}).get("lanes", ()))
 
 
+# Assets whose orders a core door submits, never the router or the engine's planner.
+DOOR_SUBMITTED = {"remediate_finding": "POST /v1/remediations"}
+
+
 def test_the_security_pack_loads_and_every_source_asset_has_a_cadence() -> None:
     assets = _assets()
-    sources = [name for name, asset in assets.items() if not asset.get("deps")]
+    sources = [
+        name
+        for name, asset in assets.items()
+        if not asset.get("deps") and name not in DOOR_SUBMITTED
+    ]
     assert {"feeds_cache", "inventory_discovery"} <= set(sources)
     assert all(assets[name]["trigger"].get("every") is not None for name in sources)
 
@@ -44,7 +52,9 @@ def test_below_range_review_waits_for_the_verification_packets() -> None:
 def test_every_asset_has_a_trigger_freshness_and_runner_labels() -> None:
     raw = yaml.safe_load(PACK.read_text())["assets"]
     for name, asset in raw.items():
-        if name in DIRECT_PLANNED:
+        if name in DOOR_SUBMITTED:
+            assert not asset.get("trigger") and not asset.get("deps"), name
+        elif name in DIRECT_PLANNED:
             assert asset.get("deps") == DIRECT_PLANNED[name]
             assert not asset.get("trigger"), name
         else:
