@@ -323,7 +323,7 @@ Use when a fix has been written for a finding whose sink has an algebraic shape 
 
 ## remediate-finding
 
-Use when the user asks to remediate, patch, fix, or produce a code fix for a security finding from the audit campaign — creating a minimal reviewable patch on a private fork, running the repo's own build/test suite, and emitting a schema-validated remediation report.
+Use when the user asks to remediate, patch, fix, or produce a code fix for a security finding from the audit campaign — creating a minimal reviewable patch on a private fork, running the repo's own build/test suite, and emitting a schema-validated remediation report. File snapshots preserve complete writes and use bounded descriptors for deep worktrees without following source symlinks.
 
 - **Stage:** ⑦ Remediation
 - **Tier:** `primary`

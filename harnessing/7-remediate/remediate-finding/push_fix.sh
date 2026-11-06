@@ -94,11 +94,17 @@ snapshot_files() {
   # snapshot_files <worktree> <clone>: the `rsync -a --delete --exclude=/.git`
   # of the SCI worker. The clone's files (all but its .git) go, then the
   # worktree's (all but its top-level .git) are copied in: regular files with
-  # their modes, symlinks as links, directories walked. Any other entry, at any
-  # depth (a FIFO, a socket, a device node such as /dev/zero, which a copy
-  # would read forever), fails the snapshot before anything is read from it.
+  # their modes, symlinks as links, directories walked. Each entry is opened
+  # (O_NOFOLLOW, O_NONBLOCK) relative to its parent's descriptor and classified
+  # by fstat on what was opened, so target code swapping an entry mid-copy can't
+  # make the snapshot follow a symlink out of the worktree or read a FIFO or a
+  # device (/dev/zero reads forever): anything but a regular file, directory or
+  # symlink fails the snapshot before a byte of it is read.
+  # Directory jobs retain identities, not descriptors. Reopening each component
+  # from the pinned root bounds the FD budget independently of nesting depth;
+  # a changed ancestor is refused, never followed through an absolute pathname.
   python3 - "$1" "$2" <<'PY'
-import os, shutil, stat, sys
+import errno, os, shutil, stat, sys
 src, dst = sys.argv[1:]
 for name in os.listdir(dst):
     if name != ".git":
@@ -108,24 +114,94 @@ for name in os.listdir(dst):
         else:
             os.unlink(path)
 
-def copy(s, d):
-    mode = os.lstat(s).st_mode
-    if stat.S_ISLNK(mode):
-        os.symlink(os.readlink(s), d)
-    elif stat.S_ISDIR(mode):
-        os.mkdir(d)
-        for name in os.listdir(s):
-            copy(os.path.join(s, name), os.path.join(d, name))
-        shutil.copystat(s, d, follow_symlinks=False)
-    elif stat.S_ISREG(mode):
-        shutil.copy2(s, d, follow_symlinks=False)
-    else:
-        sys.exit(f"[push_fix] not a regular file, directory or symlink: {s}")
+OPEN = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | getattr(os, "O_CLOEXEC", 0)
 
-for name in os.listdir(src):
-    if name == ".git":
-        continue
-    copy(os.path.join(src, name), os.path.join(dst, name))
+def copy_file(fd, d, mode):
+    out = os.open(d, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    try:
+        while chunk := os.read(fd, 1 << 20):
+            remaining = memoryview(chunk)
+            while remaining:
+                written = os.write(out, remaining)
+                if written <= 0:
+                    sys.exit(f"[push_fix] snapshot write made no progress: {d}")
+                remaining = remaining[written:]
+        os.fchmod(out, stat.S_IMODE(mode))
+    finally:
+        os.close(out)
+
+
+def refuse(s):
+    sys.exit(f"[push_fix] not a regular file, directory or symlink: {s}")
+
+def copy_entry(parent, name, s, d):
+    try:
+        fd = os.open(name, OPEN, dir_fd=parent)
+    except OSError as e:
+        if e.errno in (errno.ENXIO, errno.EOPNOTSUPP, errno.ENODEV):  # a socket or device
+            refuse(s)
+        if e.errno != errno.ELOOP:  # O_NOFOLLOW: ELOOP is a symlink
+            raise
+        os.symlink(os.readlink(name, dir_fd=parent), d)
+        return
+    try:
+        opened = os.fstat(fd)
+        mode = opened.st_mode
+        if stat.S_ISDIR(mode):
+            os.mkdir(d)
+            return (name, opened.st_dev, opened.st_ino), stat.S_IMODE(mode)
+        elif stat.S_ISREG(mode):
+            copy_file(fd, d, mode)
+        else:
+            refuse(s)
+    finally:
+        os.close(fd)
+
+def open_dir(components):
+    fd = os.dup(root)
+    try:
+        for name, device, inode in components:
+            try:
+                child = os.open(name, OPEN, dir_fd=fd)
+            except OSError as e:
+                sys.exit(f"[push_fix] source directory changed during snapshot: {name}: {e}")
+            os.close(fd)
+            fd = child
+            opened = os.fstat(fd)
+            if not stat.S_ISDIR(opened.st_mode) or (opened.st_dev, opened.st_ino) != (device, inode):
+                sys.exit(f"[push_fix] source directory changed during snapshot: {name}")
+        return fd
+    except BaseException:
+        os.close(fd)
+        raise
+
+root = os.open(src, OPEN | os.O_DIRECTORY)
+try:
+    if not stat.S_ISDIR(os.fstat(root).st_mode):
+        refuse(src)
+    # None marks a destination-mode job, applied only after its descendants.
+    pending = [((), dst, None)]
+    while pending:
+        components, directory, mode = pending.pop()
+        if components is None:
+            os.chmod(directory, mode)
+            continue
+        parent = open_dir(components)
+        try:
+            for name in sorted(os.listdir(parent)):
+                if name == ".git" and not components:
+                    continue
+                s = os.path.join(src, *(part[0] for part in components), name)
+                d = os.path.join(directory, name)
+                child = copy_entry(parent, name, s, d)
+                if child is not None:
+                    identity, child_mode = child
+                    pending.append((None, d, child_mode))
+                    pending.append(((*components, identity), d, None))
+        finally:
+            os.close(parent)
+finally:
+    os.close(root)
 PY
 }
 

@@ -18,6 +18,11 @@ All notable changes to Traust are documented here.
   committed export's success or masking an earlier publication failure.
 - Integrate development's newer Core and contracts revisions, preserving the native
   critical-misses Insight view and explicit remediation work-item recording together.
+## [0.40.2]
+
+- Preserve every remediation snapshot byte across short writes and refuse a stalled
+  write before committing. Walk deep worktrees with a bounded descriptor budget,
+  checking reopened directory identities without following symlinks or special files.
 
 ## [0.40.1]
 
