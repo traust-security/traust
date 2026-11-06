@@ -2,6 +2,12 @@
 
 All notable changes to Traust are documented here.
 
+## [0.40.2]
+
+- Preserve every remediation snapshot byte across short writes and refuse a stalled
+  write before committing. Walk deep worktrees with a bounded descriptor budget,
+  checking reopened directory identities without following symlinks or special files.
+
 ## [0.40.1]
 
 - Register Core's native PQC scanner at the application composition root and retain
