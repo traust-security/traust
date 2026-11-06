@@ -536,3 +536,17 @@ def test_an_order_naming_no_work_item_is_refused_before_the_agent_starts(
     rc, result = run("--skill", "remediate-finding", "--role", "remediation", "--run-id", ORDER)
     assert (rc, result["outcome"], result["reason"]) == (1, "failed", "bad_request")
     assert processes.agent_calls() == []
+
+
+def test_a_lookup_core_cannot_answer_before_the_session_is_not_a_bad_request(
+    processes: Processes, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(session, "_ordered_work_item", lambda order, args: "work-item")
+
+    def unavailable(work_item: object, args: object) -> None:
+        raise ServiceError("core unavailable")
+
+    monkeypatch.setattr(session, "_work_item_report", unavailable)
+    rc, result = run("--skill", "remediate-finding", "--role", "remediation", "--run-id", ORDER)
+    assert (rc, result["outcome"], result["reason"]) == (1, "failed", "runner-crashed")
+    assert processes.agent_calls() == []

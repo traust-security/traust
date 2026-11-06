@@ -296,13 +296,6 @@ def run(argv: list[str] | None = None) -> int:
         order_id = _order_id(args.run_id)
         # what the order had before this attempt, to prefer this attempt's own below
         before = set() if order_id is None or kind is None else _recorded(order_id, kind, args)
-        reported = (
-            _ordered_work_item(order_id, args)
-            if order_id is not None and args.skill in REPORTING_SKILLS
-            else None
-        )
-        # the report the work item held before this attempt: only one this attempt recorded counts
-        held = None if reported is None else _work_item_report(reported, args)
     except ValueError:
         print(f"run {args.run_id}: {OrderReason.BAD_REQUEST}: not a run order id", file=sys.stderr)
         return answer(JobResult.failed(OrderReason.BAD_REQUEST))
@@ -313,6 +306,18 @@ def run(argv: list[str] | None = None) -> int:
     except (TraustError, OSError) as e:
         print(f"run {args.run_id}: {OrderReason.BAD_REQUEST}: {type(e).__name__}", file=sys.stderr)
         return answer(JobResult.failed(OrderReason.BAD_REQUEST))
+    reported = held = None
+    if order_id is not None and args.skill in REPORTING_SKILLS:
+        try:
+            reported = _ordered_work_item(order_id, args)
+            # the report the work item held before this attempt: only a new one counts below
+            held = _work_item_report(reported, args)
+        except (ValidationError, NotFoundError) as e:  # the order can't be run as it stands
+            print(f"run {args.run_id}: {OrderReason.BAD_REQUEST}: {e}", file=sys.stderr)
+            return answer(JobResult.failed(OrderReason.BAD_REQUEST))
+        except (TraustError, OSError) as e:  # core or the store didn't answer: try again later
+            print(f"run {args.run_id}: work-item lookup: {type(e).__name__}", file=sys.stderr)
+            return answer(JobResult.failed(OrderReason.RUNNER_CRASHED))
     env = {**os.environ, "CLAUDE_CONFIG_DIR": str(claude_dir(args.config_home))}
     # The record doors default to this order and home: a manual session inherits neither.
     env.pop(RUN_ORDER_ENV, None)
