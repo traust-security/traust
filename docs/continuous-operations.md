@@ -176,9 +176,11 @@ adjudication, not hits). Outputs are `CRITICAL-MISSES.{json,md,html}` under conf
 `analysis_results`. `--json-out <json>` selects the unchanged JSON-array export and,
 unless `--out <markdown>` is supplied, its Markdown/HTML siblings. An explicit Markdown
 path gets an HTML sibling; all output paths must be distinct, including existing hard links.
-The complete set is staged before publication. Handled I/O failures restore the previous
-reports (or remove newly published files); if rollback also fails, the error identifies
-retained recovery directories. This is not a crash-atomic multi-file transaction.
+The complete set is staged before publication. I/O failures and cancellation during
+replacement restore prior reports (or remove newly published files); cancellation then propagates.
+If rollback also fails or is interrupted, the error identifies retained recovery directories.
+Staging cleanup errors warn with the affected directory but do not change a committed
+export's success or mask an earlier failure. This is not a crash-atomic multi-file transaction.
 Both bounds are required and timezone-aware, with an exclusive end and a maximum span of
 31 days. Core also bounds
 the cumulative materialized input/related rows at 10,000; dense or oversized requests fail <!-- estate-data-ok: public Core API workload limits, not deployment data -->

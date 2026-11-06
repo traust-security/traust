@@ -13,6 +13,9 @@ All notable changes to Traust are documented here.
 - Refuse hard-linked report destinations before writing. Stage the complete output set
   and roll back handled publication failures; retain recovery files and identify their
   locations if the filesystem also refuses rollback.
+- Restore prior reports on cancellation during replacement and propagate the original interrupt/exit.
+  Treat post-publication staging cleanup failures as warnings, without changing a
+  committed export's success or masking an earlier publication failure.
 
 ## [0.40.1]
 

@@ -297,8 +297,13 @@ def test_staging_failure_does_not_publish_any_new_content(
     assert set(report_dir.iterdir()) == set(paths)
 
 
+@pytest.mark.parametrize("failure_kind", ["io-error", "cancelled", "cancelled-again"])
 def test_failed_rollback_retains_and_identifies_recoverable_originals(
-    core: Context, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+    core: Context,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture,
+    failure_kind: str,
 ) -> None:
     report_dir = tmp_path / "reports"
     report_dir.mkdir()
@@ -308,18 +313,35 @@ def test_failed_rollback_retains_and_identifies_recoverable_originals(
         path.write_bytes(content)
     replace = Path.replace
     failed = False
+    publication_failure = (
+        KeyboardInterrupt("publication cancelled")
+        if failure_kind == "cancelled"
+        else PermissionError("Markdown publication refused")
+    )
+    recovery_failure = (
+        KeyboardInterrupt("recovery cancelled")
+        if failure_kind == "cancelled-again"
+        else PermissionError("JSON rollback refused")
+    )
 
     def fail_publication_and_json_recovery(source: Path, target: str | Path) -> Path:
         nonlocal failed
         if Path(target) == paths[1] and not failed:
             failed = True
-            raise PermissionError("Markdown publication refused")
+            raise publication_failure
         if Path(target) == paths[0] and failed:
-            raise PermissionError("JSON rollback refused")
+            raise recovery_failure
         return replace(source, target)
 
     monkeypatch.setattr(Path, "replace", fail_publication_and_json_recovery)
-    assert critical_misses.main(["--json-out", str(paths[0]), *WINDOW]) == 2
+    if failure_kind == "io-error":
+        assert critical_misses.main(["--json-out", str(paths[0]), *WINDOW]) == 2
+    else:
+        with pytest.raises(KeyboardInterrupt) as raised:
+            critical_misses.main(["--json-out", str(paths[0]), *WINDOW])
+        assert raised.value is (
+            publication_failure if failure_kind == "cancelled" else recovery_failure
+        )
     for path in paths[1:]:
         assert path.read_bytes() == originals[path]
     recoverable = [
@@ -347,3 +369,129 @@ def test_successful_replacement_preserves_symlink_targets_and_private_permission
     assert target.stat().st_mode & 0o777 == 0o600
     for suffix in ("md", "html"):
         assert destination.with_suffix(f".{suffix}").read_bytes() != b"previous human report"
+
+
+@pytest.mark.parametrize("cleanup_index", [1, 2, 3])
+@pytest.mark.parametrize("outcome", ["success", "io-error", "cancelled"])
+def test_cleanup_failure_preserves_the_publication_outcome(
+    core: Context,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture,
+    cleanup_index: int,
+    outcome: str,
+) -> None:
+    seed_misses(core)
+    report_dir = tmp_path / "reports"
+    report_dir.mkdir()
+    paths = [report_dir / f"critical.{suffix}" for suffix in ("json", "md", "html")]
+    originals = {path: f"original {path.suffix}".encode() for path in paths}
+    for path, content in originals.items():
+        path.write_bytes(content)
+    remove_tree = critical_misses.shutil.rmtree
+    cleanup_attempts = 0
+    retained = None
+
+    def fail_one_cleanup(path: str | Path, *args, **kwargs) -> None:
+        nonlocal cleanup_attempts, retained
+        if Path(path).is_relative_to(report_dir):
+            cleanup_attempts += 1
+            if cleanup_attempts == cleanup_index:
+                retained = Path(path)
+                raise PermissionError("staging cleanup refused")
+        remove_tree(path, *args, **kwargs)
+
+    monkeypatch.setattr(critical_misses.shutil, "rmtree", fail_one_cleanup)
+    publication_error = (
+        KeyboardInterrupt("publication cancelled")
+        if outcome == "cancelled"
+        else OSError("report replacement refused")
+    )
+    if outcome != "success":
+        replace = Path.replace
+        failed = False
+
+        def fail_publication(source: Path, target: str | Path) -> Path:
+            nonlocal failed
+            if Path(target) == paths[1] and not failed:
+                failed = True
+                raise publication_error
+            return replace(source, target)
+
+        monkeypatch.setattr(Path, "replace", fail_publication)
+    if outcome == "cancelled":
+        with pytest.raises(KeyboardInterrupt) as raised:
+            critical_misses.main(["--json-out", str(paths[0]), *WINDOW])
+        assert raised.value is publication_error
+    else:
+        assert critical_misses.main(["--json-out", str(paths[0]), *WINDOW]) == (
+            0 if outcome == "success" else 2
+        )
+    captured = capsys.readouterr()
+    if outcome == "success":
+        assert json.loads(captured.out)["recorded_misses"] == 2
+        rows = json.loads(paths[0].read_bytes())
+        assert [row["title"] for row in rows] == [HOSTILE, "Already reported area"]
+        for path in paths[1:]:
+            assert all(row["finding_id"] in path.read_text() for row in rows)
+    else:
+        assert {path: path.read_bytes() for path in paths} == originals
+        if outcome == "io-error":
+            assert str(publication_error) in captured.err
+    assert retained is not None
+    assert str(retained) in captured.err
+    assert {path for path in report_dir.iterdir() if path.is_dir()} == {retained}
+
+
+@pytest.mark.parametrize("cancellation_type", [KeyboardInterrupt, SystemExit])
+@pytest.mark.parametrize(
+    ("phase", "existing"),
+    [
+        ("after-backup", True),
+        ("before-install", True),
+        ("after-install", True),
+        ("after-install", False),
+    ],
+)
+def test_cancellation_restores_reports_and_propagates_the_original_signal(
+    core: Context,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    cancellation_type: type[BaseException],
+    phase: str,
+    existing: bool,
+) -> None:
+    report_dir = tmp_path / "reports"
+    report_dir.mkdir()
+    paths = [report_dir / f"critical.{suffix}" for suffix in ("json", "md", "html")]
+    originals = {path: f"original {path.suffix}".encode() for path in paths}
+    if existing:
+        for path, content in originals.items():
+            path.write_bytes(content)
+    replace = Path.replace
+    cancellation = cancellation_type("publication cancelled")
+    interrupted = False
+
+    def cancel_publication(source: Path, target: str | Path) -> Path:
+        nonlocal interrupted
+        if not interrupted:
+            if phase == "after-backup" and source == paths[1]:
+                replace(source, target)
+                interrupted = True
+                raise cancellation
+            if phase != "after-backup" and Path(target) == paths[1]:
+                if phase == "after-install":
+                    replace(source, target)
+                interrupted = True
+                raise cancellation
+        return replace(source, target)
+
+    monkeypatch.setattr(Path, "replace", cancel_publication)
+    with pytest.raises(cancellation_type) as raised:
+        critical_misses.main(["--json-out", str(paths[0]), *WINDOW])
+    assert raised.value is cancellation
+    if existing:
+        assert {path: path.read_bytes() for path in paths} == originals
+    else:
+        assert all(not path.exists() for path in paths)
+    assert set(report_dir.iterdir()) == (set(paths) if existing else set())

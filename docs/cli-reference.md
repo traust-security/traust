@@ -185,9 +185,11 @@ convert uninspectable deliverables and rerun the gate; there is no binary fallba
   and HTML come from Core's shared renderers. By default all three are written beside
   `CRITICAL-MISSES.json` under `analysis_results`. `--json-out` selects the JSON path;
   `--out` selects the exact Markdown path, with an HTML sibling. Destinations must be
-  distinct, including existing hard links. Reports are staged together; handled publication
-  failures restore the previous files. Failed rollback retains recovery files and reports
-  their locations. Both window bounds require time zones; the end is exclusive. Core permits
+  distinct, including existing hard links. Reports are staged together; replacement
+  failures and cancellation before commit restore the previous files. Cancellation then propagates;
+  failed rollback retains recovery files and reports their locations. Staging cleanup
+  errors are separate warnings, not failed exports after publication has committed.
+  Both window bounds require time zones; the end is exclusive. Core permits
   at most 31 days and 10,000 cumulative materialized input/related records; an oversized <!-- estate-data-ok: public Core API workload limits, not deployment data -->
   or dense request fails without partial reports, so narrow the window when refused.
   `area_reported` rows require adjudication, not automatic classification as misses.

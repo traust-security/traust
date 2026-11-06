@@ -7,6 +7,7 @@ import argparse
 import json
 import shutil
 import stat
+import sys
 from datetime import datetime
 from pathlib import Path
 from tempfile import mkdtemp
@@ -69,8 +70,8 @@ def _write_reports(outputs: dict[Path, str]) -> None:
     """Stage the complete set; restore previous files after a handled publication failure."""
     directories: list[Path] = []
     staged: list[tuple[Path, Path, Path | None]] = []
-    changed: list[tuple[Path, Path | None]] = []
     retain_backups = False
+    committed = False
     try:
         for path, content in outputs.items():
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -83,34 +84,49 @@ def _write_reports(outputs: dict[Path, str]) -> None:
                 new.chmod(stat.S_IMODE(path.stat().st_mode))
                 backup = directory / "previous"
             staged.append((new, path, backup))
+        # Keep recovery files until replacement or restoration has definitely completed.
+        retain_backups = True
         try:
             for new, path, backup in staged:
                 if backup is not None:
                     path.replace(backup)
-                changed.append((path, backup))
                 new.replace(path)
-        except OSError as failure:
+        except BaseException:
             recovery_errors = []
-            for path, backup in reversed(changed):
+            for new, path, backup in reversed(staged):
                 try:
-                    if backup is None:
+                    # Inspect the files, not a post-rename flag: cancellation can arrive
+                    # after a rename succeeds but before Python records its completion.
+                    if backup is not None:
+                        if backup.exists():
+                            backup.replace(path)
+                    elif not new.exists():
                         path.unlink(missing_ok=True)
-                    else:
-                        backup.replace(path)
                 except OSError as recovery_error:
                     recovery_errors.append(f"{path}: {recovery_error}")
             if recovery_errors:
-                retain_backups = True
-                locations = ", ".join(str(directory) for directory in directories)
-                raise OSError(
-                    f"Report publication failed ({failure}); rollback incomplete: "
-                    f"{'; '.join(recovery_errors)}. Recovery files retained in: {locations}"
-                ) from failure
+                print(f"ERROR: rollback incomplete: {'; '.join(recovery_errors)}", file=sys.stderr)
+            else:
+                retain_backups = False
             raise
+        else:
+            committed = True
+            retain_backups = False
     finally:
-        if not retain_backups:
+        if retain_backups:
+            locations = ", ".join(str(directory) for directory in directories)
+            print(f"ERROR: recovery files retained in: {locations}", file=sys.stderr)
+        else:
             for directory in directories:
-                shutil.rmtree(directory)
+                try:
+                    shutil.rmtree(directory)
+                except OSError as cleanup_error:
+                    state = "committed" if committed else "did not commit"
+                    print(
+                        f"WARNING: report publication {state}; could not remove staging "
+                        f"directory {directory}: {cleanup_error}",
+                        file=sys.stderr,
+                    )
 
 
 def call(args: argparse.Namespace) -> int:
