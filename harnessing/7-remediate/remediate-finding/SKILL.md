@@ -454,10 +454,13 @@ Only after Phase 5b ACCEPT:
 ```bash
 bash harnessing/7-remediate/remediate-finding/push_fix.sh push \
   <fix_clone> <fork_url> <fix_branch> <fix_commit>
-python3 -m traust.cli remediation record <out>/<work-item>-remediation.json
+python3 -m traust.cli remediation record <out>/<work-item>-remediation.json \
+  --work-item <work-item>
 ```
 
-(`<fork_url>` and `<fix_branch>` come from the Phase 1 workspace descriptor;
+(`--work-item` names the item this run prepared: the report itself doesn't, and
+when a failed attempt and its retry both await a report, core records it on
+neither without it. `<fork_url>` and `<fix_branch>` come from the Phase 1 workspace descriptor;
 `<fix_clone>` and `<fix_commit>` from Phase 4d's JSON. The script pushes that
 exact commit, the one the report names and 5b reviewed, and refuses if the
 clone's HEAD or its sentinel no longer name it.) The script — never the agent — pushes

@@ -65,10 +65,12 @@ CANDIDATES = RepositoryCandidates(
 class Door:
     def __init__(self, result: Any) -> None:
         self.calls: list[tuple[Any, ...]] = []
+        self.keywords: list[dict[str, Any]] = []
         self.result = result
 
-    def __call__(self, *args: Any) -> Any:
+    def __call__(self, *args: Any, **keywords: Any) -> Any:
         self.calls.append(args)
+        self.keywords.append(keywords)
         if isinstance(self.result, Exception):
             raise self.result
         return self.result
@@ -233,6 +235,19 @@ def test_record_parses_the_report_and_records_it(
     assert (rc, out) == (0, ITEM.model_dump(mode="json"))
     [(doc, _)] = doors.record.calls
     assert isinstance(doc, RemediationArtifact)
+
+
+def test_record_names_the_work_item_the_run_prepared(
+    doors: SimpleNamespace, home: Path, tmp_path: Path
+) -> None:
+    report = tmp_path / "r.json"
+    report.write_text(
+        (FIXTURES / "remediation-report.json").read_text().replace("FINDING_ID", str(FINDING_ID))
+    )
+    assert run(remediation.record, home, str(report))[0] == 0
+    rc, _ = run(remediation.record, home, str(report), "--work-item", str(ITEM.work_item_id))
+    assert rc == 0
+    assert doors.record.keywords == [{"work_item_id": None}, {"work_item_id": ITEM.work_item_id}]
 
 
 def test_record_refusals_are_exit_2(doors: SimpleNamespace, home: Path, tmp_path: Path) -> None:
