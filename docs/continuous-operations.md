@@ -122,6 +122,32 @@ dropped.
 | Quarterly | class-sweep rotation at the measured FN classes; threshold re-derivation from router telemetry; recall benchmark; the threat-model calendar backstop completes one full pass |
 | Event-driven | External-report, methodology and CVE rows in `rescan-events.jsonl` (`rescan_event_intake`). A recorded release's major/minor change requests a source `threat-model-review`. The router's `release-passthrough` lane has an asset that refuses its order until traust-core has a release feed (NEED(release-passthrough)); release discovery from inventory files is retired. |
 
+### PQC fleet planning and bounded sweeps
+
+`traust pqc worklist` is Core's read-only worklist Insight report over recorded
+repositories, liveness and scan state. Its stdout remains the legacy JSON
+array; it creates no files by default. Optional `--markdown <path>.md` creates
+only Core-owned Markdown at that path and an `.html` sibling through shared
+publication helpers, without a JSON sidecar or changing stdout.
+
+For canonical dashboard wrapper JSON plus human exports, use
+`traust dashboard view pqc-worklist --out <directory>`. Scope it to at most one
+product with `--product <slug>` and optionally repeat
+`--repository-ref-id <uuid>` and `--chokepoint <URL fragment>`. Explicit refs
+intersect the selected product's shipped refs. The generic JSON wrapper carries
+`product_id`, `repository_ref_ids`, `chokepoints` and `entries`, not the legacy
+array. Unsupported scope, window and historical filters are refused.
+
+Chokepoints are run-local priorities, not a deployment configuration file.
+Without them the CLI still warns and uses crypto-CWE-then-tail ordering.
+Planning does not scan, check out source, ingest dependencies or probe liveness;
+unknown scan state does not establish readiness.
+
+`traust pqc sweep --limit <n>` remains native bounded orchestration using Core's
+worklist; `--after <next_cursor>` resumes and `--refresh` considers stale pack
+stamps. Scanner behavior, readiness scoring, liveness policy and configuration
+are unchanged by the reporting migration.
+
 ## Standing jobs — the complete inventory
 
 The table above covers the rescan loop's lanes. This inventory is the superset:
@@ -145,6 +171,7 @@ rows named in the last column are the backstop that makes a dead timer visible.
 | **Feed router** — security-data refresh (EPSS / KEV / vendor CVE and VEX feeds) | **daily** | timer | `python3 -m traust.cli feeds fetch --feed all` | Orchestrator-neutral ([routers.md](routers.md)), deliberately not bound to a CI pipeline in this repo. Snapshots every `tier: cached` source in traust-core's shipped `feeds.yaml` through traust-core (`ExposureService.refresh_feeds`: a `feed_snapshot` per source, the bytes in core's object store; `rh-cve` fetches only what published since its last snapshot). A dedicated job exists because consumer-triggered refresh only holds while something runs daily; without one the snapshots silently age. Every source in traust-core's shipped `feeds.yaml` is public. A source that fails keeps its last snapshot and the order is **degraded**, keyed by the source; one with no snapshot at all fails the order. **Backstop:** drift rows `feeds:*` at **48h** — one missed run plus slack; a threshold looser than the cadence it guards is how a dead job stays green |
 | Weekly diff-drain tranche | weekly | timer over the router's drain ordering | *retired*: `diff_scan_quarterly`'s pacing and approval in `packs/security/assets.yaml`, routed by `traust.ops.router`; until the cutover, dispatch from the worklist by lane (see *Standing weekly drain* below) | fail-closed selection (refuses a worklist >48h old or a second tranche per ISO week); dispatching is an operator decision informed by measured cost |
 | Threat-model re-model lanes | rides the router (daily) + the weekly tranche | change (`pr` stamp), major/minor release event, calendar backstop | `traust.ops.router` routes; the pack router schedules (the tranche script is retired); `/threat-model pr\|review` dispatches | **report-only** — no lane auto-applies an `update`. Drift row `threat-model` (held in lockstep with the lane's calendar threshold) is the dead-timer if the quarterly pool stops draining |
+| Remediation lane (`remediate_finding`) | per scheduled fix | core's scheduling door (`POST /v1/remediations`) submits one order naming its work item | `traust session run --skill remediate-finding` → `/remediate-finding`: `traust remediation prepare` and `record` default to the session's order | the report records through the order's lease (`RemediationService.record_order`) on the work item the order names, never another attempt |
 | Verify-remediation treadmill | weekly (worklist rebuilt per sweep) | timer | `traust remediation verify-sweep` → `/verify-remediation full-sweep` | verdicts gated by the verification schema + soundness lint; `traust remediation verify-record` records verdicts as decisions and regressions as findings |
 | Rule-mining lane | weekly + post-wave | timer + drift row `rule-mining` (ledger changes >7d newer than the artifact) | python3 -m traust.cli sweep rule-lane, then the scheduled `/mine-ledger` session | never auto-files findings; rule promotion sits behind the mechanical test-and-calibrate gate; sweep hits route to `/triage` |
 | Ledger audit | weekly | timer | python3 -m traust.cli ledger audit (`LedgerService.audit`) | verifies every ledger layer against its stored events and signature, so an edit to stored decision events is found within a week (appends no longer re-verify the layer); a layer that fails or can't be verified degrades the order, never green |

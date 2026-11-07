@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
+from typing import cast
 from uuid import UUID
 
 from traust_core.v1.context import Context
@@ -28,6 +29,7 @@ from traust_core.v1.models.artifacts import (
 )
 from traust_core.v1.models.common import ToolRequest
 from traust_core.v1.models.dependencies import NoManifestSbomError
+from traust_core.v1.models.insight import PqcWorklist, ViewFilter, ViewName
 from traust_core.v1.models.pqc import PqcDimension, PqcFilter
 from traust_core.v1.models.values import GitSha, HttpsRepoUrl
 from traust_core.v1.models.vocabulary import (
@@ -37,6 +39,7 @@ from traust_core.v1.models.vocabulary import (
 
 from traust.cli import _doors
 from traust.cli._doors import parser, run
+from traust.cli._report_files import report_paths, write_reports
 from traust.context import load
 from traust.ops.pqc import PqcSweep
 
@@ -268,9 +271,9 @@ def vendor_claims(argv: list[str] | None = None) -> int:
 
 
 def _chokepoint_arg(ap: argparse.ArgumentParser) -> None:
-    # NEED(core: recorded PQC chokepoints): which repositories are the estate's chokepoints is
-    # an adopter fact, recorded into core under the one-config-file plan, and neither core nor
-    # traust-contracts has a home for it yet; until one exists the caller names them per run.
+    # NEED(core: recorded PQC chokepoints): priority fragments remain per-run adopter facts;
+    # moving worklist ownership to Core did not provide a persistence/configuration home.
+    # Decision11 remains open; this reporting migration does not invent that configuration.
     ap.add_argument(
         "--chokepoint",
         action="append",
@@ -287,16 +290,19 @@ def _fragment(raw: str) -> str:
     return raw.strip()
 
 
-def _sweep(core: Context, chokepoints: list[str]) -> PqcSweep:
-    """The sweep over the named chokepoints, with the Context's scanner."""
+def _warn_chokepoints(chokepoints: list[str]) -> None:
     if not chokepoints:
-        # the list lives with the caller until core records it; a run that drops it
-        # still ranks, so say so rather than rank the chokepoints with the tail
+        # Omitting caller-owned priorities must remain visible.
         print(
             "pqc: no chokepoint tier: no --chokepoint given; every repository ranks "
             "crypto-CWE then tail",
             file=sys.stderr,
         )
+
+
+def _sweep(core: Context, chokepoints: list[str]) -> PqcSweep:
+    """The sweep over the named chokepoints, with the Context's scanner."""
+    _warn_chokepoints(chokepoints)
     return PqcSweep(
         core.services(),
         tuple(core.config.forge_hosts),
@@ -310,12 +316,33 @@ def worklist(argv: list[str] | None = None) -> int:
         "worklist", "One entry per repository, priority-tiered from inventory.", buckets=False
     )
     _chokepoint_arg(ap)
+    ap.add_argument(
+        "--markdown", type=Path, help="write the Core Markdown report and an HTML sibling"
+    )
     args = ap.parse_args(argv)
 
     def call() -> object:
         core = load(args.config_home)
-        entries = _sweep(core, args.chokepoint).worklist(_filter(core, args))
-        return [e.model_dump(mode="json") for e in entries]
+        scope = _filter(core, args)
+        _warn_chokepoints(args.chokepoint)
+        paths = (
+            report_paths((args.markdown, args.markdown.with_suffix(".html")))
+            if args.markdown is not None
+            else None
+        )
+        rendered = core.services().insight.publish(
+            ViewName.PQC_WORKLIST,
+            ViewFilter(
+                product_ids=(scope.product_id,) if scope.product_id is not None else (),
+                repository_ref_ids=scope.repository_ref_ids,
+                pqc_chokepoints=tuple(dict.fromkeys(args.chokepoint)),
+            ),
+        )
+        model = cast(PqcWorklist, rendered.model)
+        if paths is not None:
+            markdown_path, html_path = paths
+            write_reports({markdown_path: rendered.markdown, html_path: rendered.html})
+        return [entry.model_dump(mode="json") for entry in model.entries]
 
     return run(call)
 
