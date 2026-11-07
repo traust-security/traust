@@ -38,7 +38,7 @@ projections.
 | Field | Required | Description |
 |---|---|---|
 | `id` | Yes | Globally-unique **scan-scoped** ID `{REPO_SLUG}-{SHORTSHA}-{NNN}`. Provenance to an exact commit; unique across the corpus. Never reuse across scans. |
-| `fingerprint` | No (script-set) | **Cross-scan identity**: `sha256(canonical repo URL \| sorted lineless location paths \| primary CWE)`. Computed by python3 -m traust.cli corpus finding-identity (`fingerprint`/`backfill`) — never authored by the model, and the only implementation: consumers read this stamp and fail closed when it is absent. Correlates the same vulnerability across re-scans; the `rebaseline` command maps a superseded report's IDs to their successors via layer `metadata.finding_aliases`. A change to the recipe is a change to `ALGO_VERSION` paired with a re-stamp migration, never a silent regeneration. |
+| `fingerprint` | Yes on harness-versioned reports (script-set) | **Cross-scan identity**: `sha256(canonical repo URL \| sorted lineless location paths \| primary CWE)`. Computed by the finding-identity stamping step — python3 -m traust.cli corpus finding-identity (`fingerprint`/`backfill`) interactively, or the lane-portable harnessing/3-audit/secure-code-audit/scripts/stamp_finding_identity.py where python3 is denied (headless worker lanes) — never authored by the model, and the only implementation: consumers read this stamp and fail closed when it is absent. A report declaring `metadata.additional.harness_version` (the platform's worker lanes stamp it after the session) MUST carry the fingerprint on every finding — the contracts schema enforces it, and an unstamped report dies at the platform gate. Correlates the same vulnerability across re-scans; the `rebaseline` command maps a superseded report's IDs to their successors via layer `metadata.finding_aliases`. A change to the recipe is a change to `ALGO_VERSION` paired with a re-stamp migration, never a silent regeneration. |
 | `title` | Yes | Short description (≥5 chars). |
 | `severity` | Yes | `critical` \| `high` \| `medium` \| `low` \| `informational`. |
 | `cwes` | Yes | ≥1 `CWE-NNN` identifiers; the first is the primary (feeds the fingerprint). |
@@ -178,6 +178,9 @@ projections.
    errors required.
 2. Fingerprint: python3 -m traust.cli corpus finding-identity fingerprint <report.json> --write
    (deterministic; safe — fingerprints are outside the claim-hash fields).
+   Headless worker lanes (python3 denied): harness-run
+   harnessing/3-audit/secure-code-audit/scripts/stamp_finding_identity.py <report.json>
+   — the same stamping step, runnable through the /harness wrapper.
 3. On a full re-audit of an already-audited repo:
    python3 -m traust.cli corpus finding-identity rebaseline <old.json> <new.json> <layer.json>
    so the disposition ledger's history transfers (fingerprint matches auto-map;
