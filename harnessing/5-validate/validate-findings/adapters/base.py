@@ -73,6 +73,15 @@ class StepResult:
         return {k: v for k, v in asdict(self).items() if v not in (None, "")}
 
 
+class BlockedCommand(str):
+    """A vetting refusal, distinct from untrusted process stderr."""
+
+    def __new__(cls, reason: str):
+        value = super().__new__(cls, f"[step blocked: {reason}]")
+        value.reason = reason
+        return value
+
+
 class AdapterBase:
     """Base class — subclasses override the verb tables and preflight()."""
 
@@ -224,7 +233,7 @@ class AdapterBase:
             profile = se.profile(self._SAFE_EXEC_PROFILE)
             v = se.vet_command_string(cmd, profile, allowed_hosts=self._curl_hosts)
             if not v.ok:
-                return 126, "", f"[step blocked: {v.reason}]"
+                return 126, "", BlockedCommand(v.reason)
             # single command or approved pipeline — both execute
             # natively under safe_exec (scrubbed env, no shell)
             return se.run_segments(

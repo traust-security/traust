@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import datetime as dt
 import importlib.util
+import json
 import sys
 from types import SimpleNamespace
 
@@ -117,6 +118,17 @@ def test_browser_timestamp_boundary_uses_core_scope(tmp_path):
     target = _run.ValidationTarget(url="http://victim.example.com/x")
     assert scope.permits(action, target, as_of=deadline - dt.timedelta(microseconds=1))
     assert not scope.permits(action, target, as_of=deadline)
+
+
+def test_browser_report_preserves_date_and_exact_expiry(tmp_path):
+    deadline = dt.datetime(2099, 1, 2, 3, 4, 5, tzinfo=dt.UTC)
+    scope = _targets(tmp_path, expires=f"'{deadline.isoformat()}'").scope
+    audit = tmp_path / "audit.jsonl"
+    audit.write_text("")
+    path = _run.ReportBuilder(scope, "fixture").build([], {}, audit, tmp_path, None)
+    metadata = json.loads(path.read_text())["metadata"]
+    assert metadata["expires"] == "2099-01-02"
+    assert metadata["additional"]["validation_producer"]["expires_at"] == deadline.isoformat()
 
 
 def test_credentials_stay_out_of_core_scope(tmp_path):

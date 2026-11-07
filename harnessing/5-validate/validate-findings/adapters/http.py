@@ -12,7 +12,7 @@ import time
 from collections.abc import Iterator
 from dataclasses import asdict
 from http.cookies import SimpleCookie
-from typing import Protocol
+from typing import NamedTuple, Protocol
 from urllib.parse import urlsplit
 
 from traust_core.v1.models.validation import origin as http_origin
@@ -30,6 +30,13 @@ from .credentials import redact_credentials
 
 class AuditSink(Protocol):
     def append(self, **fields: object) -> None: ...
+
+
+class HttpResult(NamedTuple):
+    code: int
+    output: str
+    error: str
+    status: str | None
 
 
 class HttpExecutor:
@@ -165,6 +172,7 @@ class HttpExecutor:
         ca_bundle: str | None = None,
         insecure_tls: bool = False,
         context: str | None = None,
+        require_tunnel: bool = False,
     ) -> tuple[int, str, str]:
         if insecure_tls:
             cluster = self.scope.clusters.get(context)
@@ -184,6 +192,8 @@ class HttpExecutor:
         if not verdict.ok:
             raise PermissionError("HTTP execution policy denied the request")
         tunnel = self._tunnel_address
+        if require_tunnel and not tunnel:
+            raise RuntimeError("owned port-forward is no longer running")
         if tunnel and tunnel[0] != host:
             raise PermissionError("HTTP host does not match the owned tunnel")
         if tunnel and (self._tunnel_process is None or self._tunnel_process.poll() is not None):
@@ -243,7 +253,7 @@ class HttpExecutor:
     def _headers(headers: dict[str, str]) -> tuple[str, ...]:
         return tuple(f"{name}: {value}" for name, value in headers.items())
 
-    def execute(self, context: str, probe: HttpProbe) -> tuple[int, str, str]:
+    def execute(self, context: str, probe: HttpProbe) -> HttpResult:
         endpoint = self.resolver.resolve(context, probe)
         if endpoint.context != context:
             raise PermissionError("resolved HTTP context does not match the selected context")
@@ -273,9 +283,19 @@ class HttpExecutor:
             "PATCH": "patch",
             "DELETE": "delete",
         }[probe.method]
+        direct_origin = (
+            {"url": endpoint.origin}
+            if endpoint.resource == "http_targets" and endpoint.namespace is None
+            else {}
+        )
         for verb in ("port-forward+http", method_verb):
             self.resolver.authorize(
-                endpoint.context, endpoint.namespace, endpoint.resource, endpoint.name or None, verb
+                endpoint.context,
+                endpoint.namespace,
+                endpoint.resource,
+                endpoint.name or None,
+                verb,
+                **direct_origin,
             )
         if (probe.authenticate or probe.csrf) and not endpoint.credentials:
             raise PermissionError("credentials and sessions are not authorized for this endpoint")
@@ -303,11 +323,14 @@ class HttpExecutor:
                 endpoint.resource,
                 endpoint.name or None,
                 "get",
+                **direct_origin,
             )
         self.audit.append(event="http-endpoint", endpoint=asdict(endpoint))
         token = self.token(endpoint, probe)
         headers = dict(probe.headers)
-        secrets = [value for value in headers.values() if value]
+        # Only the fixed synthetic spoof marker is public; arbitrary header values
+        # can be credentials regardless of their names.
+        secrets = [value for value in headers.values() if value and value != "vf-spoof-canary"]
         if token:
             headers["Authorization"] = f"Bearer {token}"
             secrets.append(token)
@@ -315,6 +338,7 @@ class HttpExecutor:
             "ca_bundle": policy.ca_bundle,
             "insecure_tls": policy.insecure_tls,
             "context": context,
+            "require_tunnel": bool(endpoint.remote_port),
         }
         connection = (
             self.tunnel(endpoint)
@@ -397,7 +421,22 @@ class HttpExecutor:
                 "-w",
                 "\nvf-http-status:%{http_code}",
             ]
-            code, output, error = self.curl(args, host, self._headers(headers), **tls)
+            for attempt in range(3):
+                code, output, error = self.curl(args, host, self._headers(headers), **tls)
+                # Curl 7 means no connection was established, so no HTTP request
+                # was sent. Never replay a mutating request or a response failure.
+                if not (
+                    code == 7
+                    and endpoint.remote_port
+                    and probe.method in {"GET", "HEAD", "OPTIONS"}
+                    and attempt < 2
+                ):
+                    break
+                time.sleep(attempt + 1)
+        # Extract the curl-owned trailer before redacting arbitrary secrets or
+        # appending stderr, neither of which is safe input for status parsing.
+        match = re.search(r"\nvf-http-status:(\d{3})\Z", output)
+        status = match.group(1) if match else None
         for secret in sorted(set(secrets), key=len, reverse=True):
             output = output.replace(secret, "[REDACTED]")
             error = error.replace(secret, "[REDACTED]")
@@ -407,4 +446,4 @@ class HttpExecutor:
             r"\1: [REDACTED]",
             output,
         )
-        return code, redact_credentials(output), redact_credentials(error)
+        return HttpResult(code, redact_credentials(output), redact_credentials(error), status)

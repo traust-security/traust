@@ -306,9 +306,19 @@ class ReportBuilder:
                 "version": "0.1.0",
                 "engagement": self._scope.engagement,
                 "authorized_by": self._scope.authorized_by,
-                "expires": (self._scope.expires_at or self._scope.expires).isoformat()
-                if self._scope.expires_at or self._scope.expires
+                "expires": (
+                    self._scope.expires
+                    or (self._scope.expires_at.date() if self._scope.expires_at else None)
+                ).isoformat()
+                if self._scope.expires or self._scope.expires_at
                 else None,
+                "additional": {
+                    "validation_producer": {
+                        "expires_at": self._scope.expires_at.isoformat(),
+                    }
+                }
+                if self._scope.expires_at
+                else {},
                 "environment": self._scope.environment,
                 "layer": "1-bare-app",
             },

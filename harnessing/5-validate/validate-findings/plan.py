@@ -251,9 +251,7 @@ def _curl_step(sid: str, f: Finding, body: str, scope: Scope) -> Step | None:
             **({"port": port} if port is not None else {}),
             "http": probe.model_dump(mode="json"),
         },
-        classification="destructive"
-        if method == "DELETE"
-        else ("mutating" if method in {"POST", "PUT", "PATCH"} else "safe"),
+        classification="destructive" if method in {"POST", "PUT", "PATCH", "DELETE"} else "safe",
         expected=f.attack_pattern or f.title,
         summary=f.title,
     )
@@ -1177,9 +1175,7 @@ def _http_adapted_step(
             "http": probe.model_dump(mode="json"),
         },
         cmd=None,
-        classification="destructive"
-        if method == "DELETE"
-        else ("mutating" if method in {"POST", "PUT", "PATCH"} else "safe"),
+        classification="destructive" if method in {"POST", "PUT", "PATCH", "DELETE"} else "safe",
         expected=f.attack_pattern or f.title,
         summary=f"HTTP probe {method} {path} ({probe.mode})",
     )
@@ -1202,8 +1198,37 @@ def _spoof_adapted_step(sid: str, f: Finding, scope: Scope, tm) -> Step | None:
     coords = _resolve_http_coords(f, tm) or ("GET", "/", None)
     s = _http_adapted_step(sid, f, scope, tm, force_coords=(coords[0], coords[1]))
     if not s:
-        return None
-    s.target["http"]["headers"] = {header: "vf-spoof-canary" for header in dict.fromkeys(hdrs)}
+        return Step(
+            id=sid,
+            technique="skip",
+            adapter="k8s",
+            verb="noop",
+            finding_ref=f.id,
+            skip="spoof-probe-unavailable",
+            summary=f.title,
+        )
+    if __package__:
+        from .http_endpoints import HttpProbe
+    else:
+        from http_endpoints import HttpProbe
+    try:
+        probe = HttpProbe.model_validate(
+            {
+                **s.target["http"],
+                "headers": {header: "vf-spoof-canary" for header in dict.fromkeys(hdrs)},
+            }
+        )
+    except ValueError:
+        return Step(
+            id=sid,
+            technique="skip",
+            adapter="k8s",
+            verb="noop",
+            finding_ref=f.id,
+            skip="spoof-header-adapter-owned",
+            summary=f.title,
+        )
+    s.target["http"] = probe.model_dump(mode="json")
     s.expected = f"upstream reflects/honours spoofed {hdrs[0]} — {f.attack_pattern or f.title}"
     s.summary = f"header-spoof probe {','.join(dict.fromkeys(hdrs))} ({','.join(f.cwes)})"
     return s
@@ -1460,9 +1485,13 @@ def build_plan(
         cls = ad.classify(s.verb, s.payload, s.cmd)
         if _cls_rank.get(cls, 0) >= _cls_rank.get(s.classification, 0):
             s.classification = cls
+        http = s.target.get("http")
+        # Manual PoCs may supply their own structured target and claim a
+        # lower classification; these writes also lack compensation.
+        if isinstance(http, dict) and http.get("method", "GET") not in ("GET", "HEAD", "OPTIONS"):
+            s.classification = "destructive"
         if s.classification == "destructive" and not permit_destructive:
             s.skip = "destructive-not-permitted"
-        http = s.target.get("http")
         namespaces = (
             http.get("namespaces") or [s.target.get("namespace")]
             if isinstance(http, dict)
@@ -1491,6 +1520,14 @@ def build_plan(
                         name=name,
                         image=s.target.get("image"),
                         artifact=s.target.get("artifact"),
+                        **(
+                            {"url": http.get("url")}
+                            if s.adapter == "k8s"
+                            and s.verb == "port-forward+http"
+                            and isinstance(http, dict)
+                            and http.get("mode") == "direct"
+                            else {}
+                        ),
                     )
                 )
                 if not ok:

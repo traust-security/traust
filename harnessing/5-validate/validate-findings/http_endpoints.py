@@ -210,6 +210,8 @@ class EndpointResolver:
         resource: str,
         name: str | None = None,
         verb: str = "get",
+        *,
+        url: str | None = None,
     ) -> None:
         allowed, reason = self.scope.is_in_scope(
             Action(
@@ -219,6 +221,7 @@ class EndpointResolver:
                 resource=resource,
                 name=name,
                 verb=verb,
+                url=url,
             )
         )
         if not allowed:
@@ -317,7 +320,16 @@ class EndpointResolver:
     def _http_authorize(self, endpoint: Endpoint, probe: HttpProbe) -> None:
         for verb in ("port-forward+http", _METHOD_VERBS[probe.method]):
             self.authorize(
-                endpoint.context, endpoint.namespace, endpoint.resource, endpoint.name or None, verb
+                endpoint.context,
+                endpoint.namespace,
+                endpoint.resource,
+                endpoint.name or None,
+                verb,
+                url=(
+                    endpoint.origin
+                    if endpoint.resource == "http_targets" and endpoint.namespace is None
+                    else None
+                ),
             )
 
     def resolve(self, context: str, probe: HttpProbe) -> Endpoint:
@@ -417,6 +429,7 @@ class EndpointResolver:
     def route(self, context: str, probe: HttpProbe) -> Endpoint:
         cluster = self.scope.clusters[context]
         candidates = []
+        unauthorized = False
         seen = set()
         requested_origin = origin(probe.url) if probe.url is not None else None
         for namespace in probe.namespaces:
@@ -471,7 +484,10 @@ class EndpointResolver:
                         if matching:
                             credentials = any(g.credentials for g in matching)
                     if credentials is None:
-                        raise PermissionError("discovered route destination is not authorized")
+                        if name is not None:
+                            raise PermissionError("discovered route destination is not authorized")
+                        unauthorized = True
+                        continue
                     identity = (namespace, route_name)
                     if identity in seen:
                         continue
@@ -487,6 +503,8 @@ class EndpointResolver:
                             credentials,
                         )
                     )
+        if not candidates and unauthorized:
+            raise PermissionError("discovered route destination is not authorized")
         return self.unique(candidates)
 
     def service(self, context: str, probe: HttpProbe) -> Endpoint:

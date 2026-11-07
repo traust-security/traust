@@ -298,17 +298,14 @@ def run(
         http = (step.get("target") or {}).get("http")
         if isinstance(http, dict):
             method = http.get("method", "GET")
-            severity = {
-                "GET": "safe",
-                "HEAD": "safe",
-                "OPTIONS": "safe",
-                "POST": "mutating",
-                "PUT": "mutating",
-                "PATCH": "mutating",
-                "DELETE": "destructive",
-            }.get(method, "destructive")
-            ranks = {"safe": 0, "mutating": 1, "destructive": 2}
-            cls = max((cls, severity), key=lambda value: ranks.get(value, 2))
+            # Structured HTTP probes have no supported compensation. Even a
+            # POST, PUT or PATCH therefore needs destructive authorization.
+            if method not in ("GET", "HEAD", "OPTIONS") or cls not in (
+                "safe",
+                "mutating",
+                "destructive",
+            ):
+                cls = "destructive"
             step["classification"] = cls
 
         # pre-skipped in plan

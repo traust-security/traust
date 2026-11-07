@@ -1089,7 +1089,7 @@ class TestStepFromPoc:
         assert step.target["http"]["url"] == "https://app.example:8443"
         assert step.target["http"]["path"] == "/api/test?q=1"
         assert step.target["http"]["method"] == "PATCH"
-        assert step.classification == "mutating"
+        assert step.classification == "destructive"
 
     @pytest.mark.parametrize("mode", ["direct", "route"])
     def test_curl_without_explicit_port_serializes_as_valid_plan(self, tmp_path, mode):
@@ -1187,7 +1187,7 @@ class TestStepFromPoc:
         )
         finding.pocs = [poc]
         normalized = Normalized(target_name="test", source_dir="/tmp", findings=[finding])
-        steps, _ = build_plan(normalized, scope, chained=False, novel=False)
+        steps, _ = build_plan(normalized, scope, chained=False, novel=False, permit_destructive=True)
         step = next(s for s in steps if s.finding_ref == finding.id)
         assert step.technique == "replay" and step.cmd is None and step.skip is None
         probe = HttpProbe.model_validate(step.target["http"])
@@ -1483,7 +1483,7 @@ class TestAdaptedStep:
         assert step.target["path"] == "/api/dev-console/webhooks/a"
         assert step.target["namespace"] == "openshift-console"
         assert step.cmd is None
-        assert step.classification == "mutating"
+        assert step.classification == "destructive"
         assert step.target["http"]["method"] == "POST"
         assert step.target["http"]["path"] == "/api/dev-console/webhooks/a"
         assert step.target["http"]["authenticate"] is False
@@ -1784,6 +1784,7 @@ class TestBuildPlan:
         assert all(s.technique == "skip" for s in fp)
 
     def test_header_spoof_is_not_replaced_by_generic_http_probe(self):
+        from http_endpoints import HttpProbe
         from traust_core.v1.models.validation import HttpDiscovery
 
         finding = Finding(
@@ -1810,6 +1811,193 @@ class TestBuildPlan:
         assert planned[0].target["http"]["headers"] == {"X-Forwarded-User": "vf-spoof-canary"}
         assert planned[0].target["http"]["mode"] == "route"
         assert planned[0].cmd is None and planned[0].skip is None
+        assert HttpProbe.model_validate(planned[0].target["http"]).headers == {
+            "X-Forwarded-User": "vf-spoof-canary"
+        }
+
+    @pytest.mark.parametrize(
+        "header",
+        [
+            "X-Auth-Request-User",
+            "X-Forwarded-Access-Token",
+            "X-Api-Key",
+            "X-Forwarded-User and X-Api-Key",
+        ],
+    )
+    def test_adapter_owned_spoof_headers_are_explicitly_skipped(self, tmp_path, monkeypatch, header):
+        from unittest.mock import Mock
+
+        import execute
+
+        finding = Finding(
+            id="F3",
+            title=f"{header} spoof",
+            severity="high",
+            cwes=["CWE-200", "CWE-290"],
+            description="GET /api/v1/profile",
+            triage_verdict="needs_review",
+        )
+        normalized = Normalized(target_name="test", source_dir="/tmp", findings=[finding])
+        scope = Scope(modes={"explicit"})
+        scope.clusters["lab"] = ClusterScope(
+            context="lab",
+            api="https://api.example",
+            namespaces=["app"],
+            explicit_namespaces={"app"},
+            http_discovery=HttpDiscovery.model_validate(
+                {"routes": [{"namespace": "app", "domains": ["apps.example"]}]}
+            ),
+        )
+        steps, _ = build_plan(normalized, scope, chained=False, novel=False)
+        planned = [step for step in steps if step.finding_ref == finding.id]
+        assert len(planned) == 1
+        step = planned[0]
+        assert step.technique == "skip"
+        assert step.skip == "spoof-header-adapter-owned"
+        assert step.triage_was_needs_review is True
+        assert "http" not in step.target
+
+        plan_path = tmp_path / "plan.json"
+        plan_path.write_text(json.dumps({"steps": [step.to_dict()]}))
+        new_adapter = Mock()
+        monkeypatch.setattr(execute, "new_adapter", new_adapter)
+        results, audit = run(plan_path, scope, tmp_path, second_pass_novel=False)
+        assert results[0].verdict == "not_attempted"
+        assert results[0].scope_reason == "spoof-header-adapter-owned"
+        assert json.loads(audit.path.read_text())["verdict"] == "not_attempted"
+        new_adapter.assert_not_called()
+
+    def test_unavailable_spoof_probe_is_not_replaced_by_generic_adaptation(self):
+        finding = Finding(
+            id="F3",
+            title="X-Forwarded-User spoof",
+            severity="high",
+            cwes=["CWE-200", "CWE-348"],
+            description="GET /api/v1/profile",
+        )
+        normalized = Normalized(target_name="test", source_dir="/tmp", findings=[finding])
+        steps, _ = build_plan(normalized, Scope(), chained=False, novel=False)
+        planned = [step for step in steps if step.finding_ref == finding.id]
+        assert len(planned) == 1
+        assert planned[0].technique == "skip"
+        assert planned[0].skip == "spoof-probe-unavailable"
+
+    @pytest.mark.parametrize("method", ["GET", "POST", "PUT", "PATCH", "DELETE"])
+    @pytest.mark.parametrize("source", ["poc", "adapted"])
+    @pytest.mark.parametrize("permit_destructive", [False, True])
+    def test_http_plan_requires_opt_in_for_uncompensated_writes(
+        self, method, source, permit_destructive
+    ):
+        finding = Finding(
+            id="F4",
+            title="HTTP endpoint exposure",
+            severity="high",
+            cwes=["CWE-200"],
+            description=f"{method} /api/test",
+            pocs=(
+                [PoC("bash", f"curl -X {method} https://app.example/api/test", "evidence")]
+                if source == "poc"
+                else []
+            ),
+        )
+        normalized = Normalized(target_name="test", source_dir="/tmp", findings=[finding])
+        scope = Scope(modes={"explicit"})
+        scope.clusters["lab"] = ClusterScope(
+            context="lab",
+            api="https://api.example",
+            namespaces=["app"],
+            explicit_namespaces={"app"},
+            http_discovery=HttpDiscovery.model_validate(
+                {"routes": [{"namespace": "app", "domains": ["apps.example"]}]}
+            ),
+        )
+        scope.http_targets = (HttpTarget(context="lab", host="app.example", namespace="app"),)
+        steps, _ = build_plan(
+            normalized, scope, chained=False, novel=False, permit_destructive=permit_destructive
+        )
+        planned = [step for step in steps if step.finding_ref == finding.id]
+        assert len(planned) == 1
+        step = planned[0]
+        assert step.technique == ("replay" if source == "poc" else "adapted")
+        assert step.target["http"]["method"] == method
+        assert step.classification == ("safe" if method == "GET" else "destructive")
+        assert step.skip == (
+            "destructive-not-permitted" if method != "GET" and not permit_destructive else None
+        )
+
+    @pytest.mark.parametrize("method", ["POST", "PUT", "PATCH", "DELETE"])
+    @pytest.mark.parametrize("permit_destructive", [False, True])
+    def test_manual_structured_http_write_is_classified_before_review(
+        self, tmp_path, monkeypatch, method, permit_destructive
+    ):
+        import plan
+
+        pytest.importorskip("yaml")
+        monkeypatch.setattr(plan, "_resolve_manual_pocs_dir", lambda: tmp_path)
+        (tmp_path / "F4.yaml").write_text(
+            json.dumps(
+                {
+                    "verb": "port-forward+http",
+                    "classification": "safe",
+                    "target": {
+                        "context": "lab",
+                        "namespace": "app",
+                        "resource": "http_targets",
+                        "http": {
+                            "mode": "direct",
+                            "url": "https://app.example",
+                            "method": method,
+                            "namespaces": ["app"],
+                        },
+                    },
+                }
+            )
+        )
+        finding = Finding(id="F4", title="Manual HTTP check", severity="high")
+        normalized = Normalized(target_name="test", source_dir="/tmp", findings=[finding])
+        scope = Scope(modes={"explicit"})
+        scope.clusters["lab"] = ClusterScope(
+            context="lab", api="https://api.example", namespaces=["app"], explicit_namespaces={"app"}
+        )
+        steps, _ = build_plan(
+            normalized, scope, chained=False, novel=False, permit_destructive=permit_destructive
+        )
+        planned = [step for step in steps if step.finding_ref == finding.id]
+        assert len(planned) == 1
+        assert planned[0].technique == "replay"
+        assert planned[0].classification == "destructive"
+        assert planned[0].skip == (None if permit_destructive else "destructive-not-permitted")
+
+    def test_namespace_less_direct_poc_precheck_uses_exact_origin(self, monkeypatch):
+        finding = Finding(
+            id="F5",
+            title="Direct HTTP endpoint",
+            severity="high",
+            pocs=[PoC("bash", "curl https://app.example:8443/api/test", "evidence")],
+        )
+        normalized = Normalized(target_name="test", source_dir="/tmp", findings=[finding])
+        scope = Scope(modes={"explicit"})
+        scope.clusters["lab"] = ClusterScope(
+            context="lab", api="https://api.example", namespaces=["app"], explicit_namespaces={"app"}
+        )
+        scope.http_targets = (HttpTarget(context="lab", host="app.example"),)
+        actions = []
+        original = scope.is_in_scope
+
+        def capture(action):
+            actions.append(action)
+            return original(action)
+
+        monkeypatch.setattr(scope, "is_in_scope", capture)
+        steps, _ = build_plan(normalized, scope, chained=False, novel=False)
+        planned = [step for step in steps if step.finding_ref == finding.id]
+        assert len(planned) == 1
+        assert planned[0].technique == "replay"
+        assert planned[0].skip is None
+        assert planned[0].target["http"]["url"] == "https://app.example:8443"
+        direct_actions = [action for action in actions if action.resource == "http_targets"]
+        assert direct_actions
+        assert all(action.url == "https://app.example:8443" for action in direct_actions)
 
     def test_unnamed_node_probe_prechecks_the_scoped_list(self):
         from traust_core.v1.models.validation import HttpDiscovery
@@ -1978,6 +2166,129 @@ class TestExecuteRun:
         )
         assert results[0].verdict == "not_attempted"
         assert "destructive" in results[0].scope_reason
+
+    @pytest.mark.parametrize("method", ["GET", "HEAD", "OPTIONS", "POST", "PUT", "PATCH", "DELETE"])
+    @pytest.mark.parametrize("declared", ["safe", "mutating"])
+    @pytest.mark.parametrize("permit_destructive", [False, True])
+    def test_structured_http_write_requires_runtime_opt_in(
+        self, tmp_path, monkeypatch, method, declared, permit_destructive
+    ):
+        from unittest.mock import Mock
+
+        from adapters.http import HttpExecutor
+        from http_endpoints import Endpoint, EndpointResolver
+
+        scope = Scope(modes={"explicit"})
+        scope.clusters["lab"] = ClusterScope(
+            context="lab", api="https://api.example", namespaces=["app"], explicit_namespaces={"app"}
+        )
+        scope.http_targets = (HttpTarget(context="lab", host="app.example", namespace="app"),)
+        endpoint = Endpoint(
+            "https://app.example", "lab", "app", "http_targets", "", resolved_api="https://api.example"
+        )
+        monkeypatch.setattr(EndpointResolver, "resolve", lambda *_: endpoint)
+        curl = Mock(return_value=(0, "ok\nvf-http-status:200", ""))
+        monkeypatch.setattr(HttpExecutor, "curl", curl)
+        step = {
+            "id": "http",
+            "adapter": "k8s",
+            "verb": "port-forward+http",
+            "classification": declared,
+            "target": {
+                "context": "lab",
+                "namespace": "app",
+                "resource": "http_targets",
+                "http": {
+                    "mode": "direct",
+                    "url": "https://app.example",
+                    "method": method,
+                    "path": "/api/test",
+                    "namespaces": ["app"],
+                },
+            },
+        }
+        plan_path = tmp_path / "plan.json"
+        plan_path.write_text(json.dumps({"steps": [step]}))
+        results, audit = run(
+            plan_path, scope, tmp_path, permit_destructive=permit_destructive, second_pass_novel=False
+        )
+        result = results[0]
+        is_write = method in {"POST", "PUT", "PATCH", "DELETE"}
+        assert result.classification == ("destructive" if is_write else declared)
+        if is_write and not permit_destructive:
+            assert result.verdict == "not_attempted"
+            assert result.scope_reason == "destructive-not-permitted"
+            curl.assert_not_called()
+        else:
+            assert result.verdict not in {"blocked_by_scope", "not_attempted"}
+            curl.assert_called_once()
+            args = curl.call_args.args[0]
+            if method == "HEAD":
+                assert "--head" in args
+            else:
+                assert args[args.index("-X") + 1] == method
+        audit_records = [json.loads(line) for line in audit.path.read_text().splitlines()]
+        assert audit_records[-1]["classification"] == result.classification
+
+    @pytest.mark.parametrize(
+        "method,denied_verb",
+        [("POST", "create"), ("PUT", "update"), ("PATCH", "patch"), ("DELETE", "delete")],
+    )
+    def test_destructive_opt_in_does_not_override_http_scope(
+        self, tmp_path, monkeypatch, method, denied_verb
+    ):
+        from unittest.mock import Mock
+
+        from adapters.http import HttpExecutor
+        from http_endpoints import Endpoint, EndpointResolver
+
+        scope = Scope(modes={"explicit"})
+        scope.clusters["lab"] = ClusterScope(
+            context="lab",
+            api="https://api.example",
+            namespaces=["app"],
+            explicit_namespaces={"app"},
+            verbs_denied=[denied_verb],
+        )
+        endpoint = Endpoint(
+            "https://app.example", "lab", "app", "http_targets", "", resolved_api="https://api.example"
+        )
+        monkeypatch.setattr(EndpointResolver, "resolve", lambda *_: endpoint)
+        curl = Mock()
+        monkeypatch.setattr(HttpExecutor, "curl", curl)
+        plan_path = tmp_path / "plan.json"
+        plan_path.write_text(
+            json.dumps(
+                {
+                    "steps": [
+                        {
+                            "id": "http",
+                            "adapter": "k8s",
+                            "verb": "port-forward+http",
+                            "classification": "safe",
+                            "target": {
+                                "context": "lab",
+                                "namespace": "app",
+                                "resource": "http_targets",
+                                "http": {
+                                    "mode": "direct",
+                                    "url": "https://app.example",
+                                    "method": method,
+                                    "namespaces": ["app"],
+                                },
+                            },
+                        }
+                    ]
+                }
+            )
+        )
+        results, _ = run(
+            plan_path, scope, tmp_path, permit_destructive=True, second_pass_novel=False
+        )
+        assert results[0].classification == "destructive"
+        assert results[0].verdict == "blocked_by_scope"
+        assert denied_verb in results[0].scope_reason
+        curl.assert_not_called()
 
 
 # ======================================================================

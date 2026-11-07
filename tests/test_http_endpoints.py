@@ -10,7 +10,10 @@ import yaml
 from http_endpoints import EndpointResolver, HttpProbe
 from http_policy_io import configure_http_targets, expiry_date
 from scope import Action, ClusterScope, OffLimit, Scope
+from traust_core.v1.errors import ForbiddenError
+from traust_core.v1.models.artifacts import SchemaView
 from traust_core.v1.models.validation import HttpDiscovery, HttpTarget, hostname, origin
+from traust_core.v1.services.validation import _authorize_http_step
 
 API = "https://api.example:6443"
 
@@ -228,6 +231,55 @@ def test_route_discovery_requires_domain_boundary(scope):
     assert endpoint.origin == "http://console.apps.example"
 
 
+@pytest.mark.parametrize("stray_first", [True, False])
+def test_route_listing_excludes_ungranted_hosts(scope, stray_first):
+    scope.clusters["lab"].http_discovery = HttpDiscovery.model_validate(
+        {"routes": [{"namespace": "app", "domains": ["apps.example"], "credentials": True}]}
+    )
+    stray = route("outside.example")
+    stray["metadata"]["name"] = "stray"
+    approved = route("console.apps.example")
+    items = [stray, approved] if stray_first else [approved, stray]
+    endpoint = EndpointResolver(scope, runner({"items": items}), "oc").resolve(
+        "lab", HttpProbe(namespaces=("app",))
+    )
+    assert endpoint.name == "console"
+    assert endpoint.origin == "http://console.apps.example"
+    assert endpoint.credentials is True
+
+
+def test_route_listing_only_ungranted_hosts_is_denied(scope):
+    scope.clusters["lab"].http_discovery = HttpDiscovery.model_validate(
+        {"routes": [{"namespace": "app", "domains": ["apps.example"]}]}
+    )
+    with pytest.raises(PermissionError, match="not authorized"):
+        EndpointResolver(scope, runner({"items": [route("outside.example")]}), "oc").resolve(
+            "lab", HttpProbe(namespaces=("app",))
+        )
+
+
+def test_named_route_with_ungranted_host_is_denied(scope):
+    scope.clusters["lab"].http_discovery = HttpDiscovery.model_validate(
+        {"routes": [{"namespace": "app", "domains": ["apps.example"]}]}
+    )
+    with pytest.raises(PermissionError, match="not authorized"):
+        EndpointResolver(scope, runner(route("outside.example")), "oc").resolve(
+            "lab", HttpProbe(name="console", namespaces=("app",))
+        )
+
+
+def test_route_listing_still_rejects_multiple_authorized_candidates(scope):
+    scope.clusters["lab"].http_discovery = HttpDiscovery.model_validate(
+        {"routes": [{"namespace": "app", "domains": ["apps.example"]}]}
+    )
+    other = route("other.apps.example")
+    other["metadata"]["name"] = "other"
+    with pytest.raises(RuntimeError, match="found 2"):
+        EndpointResolver(
+            scope, runner({"items": [route("console.apps.example"), other]}), "oc"
+        ).resolve("lab", HttpProbe(namespaces=("app",)))
+
+
 def test_deny_applies_before_named_route_query(scope):
     scope.http_targets = (
         HttpTarget(
@@ -302,14 +354,138 @@ def test_direct_target_and_api_restriction(scope):
         )
 
 
+@pytest.mark.parametrize("namespace", ["app", None])
+def test_direct_probe_matches_core_approval_and_binding(scope, namespace):
+    scope.http_targets = (HttpTarget(context="lab", host="console.example", credentials=True),)
+    probe = HttpProbe(
+        mode="direct", url="https://console.example", namespaces=(namespace,) if namespace else ()
+    )
+    step = SchemaView(
+        [],
+        {
+            "adapter": "k8s",
+            "verb": "port-forward+http",
+            "classification": "safe",
+            "target": {
+                "context": "lab",
+                "namespace": namespace,
+                "resource": "http_targets",
+                "http": probe.model_dump(mode="json"),
+            },
+        },
+        "step",
+    )
+    _authorize_http_step(step, scope._core_scope(), datetime.datetime.now(datetime.UTC))
+    endpoint = EndpointResolver(scope, runner(), "oc").resolve("lab", probe)
+    assert endpoint.origin == "https://console.example"
+    assert endpoint.namespace == namespace
+    assert endpoint.credentials is True
+
+
+def test_namespace_less_direct_probe_still_requires_core_host_grant(scope):
+    scope.http_targets = (HttpTarget(context="lab", host="other.example"),)
+    probe = HttpProbe(mode="direct", url="https://console.example")
+    step = SchemaView(
+        [],
+        {
+            "adapter": "k8s",
+            "verb": "port-forward+http",
+            "classification": "safe",
+            "target": {
+                "context": "lab",
+                "resource": "http_targets",
+                "http": probe.model_dump(mode="json"),
+            },
+        },
+        "step",
+    )
+    with pytest.raises(ForbiddenError):
+        _authorize_http_step(step, scope._core_scope(), datetime.datetime.now(datetime.UTC))
+    with pytest.raises(PermissionError, match="not explicitly authorized"):
+        EndpointResolver(scope, runner(), "oc").resolve("lab", probe)
+
+
+@pytest.mark.parametrize(
+    "restriction,reason",
+    [
+        ("host", "not explicitly authorized"),
+        ("binding", "explicitly declared"),
+        ("selected", "selected"),
+        ("expired", "expired"),
+        ("namespace", "namespace"),
+        ("action", "port-forward\\+http"),
+        ("method", "delete"),
+        ("off_limits", "off_limits"),
+    ],
+)
+@pytest.mark.parametrize("namespace", ["app", None])
+def test_direct_probe_preserves_policy_checks(scope, restriction, reason, namespace):
+    scope.http_targets = (HttpTarget(context="lab", host="console.example"),)
+    probe = HttpProbe(
+        mode="direct",
+        url="https://console.example",
+        namespaces=(namespace,) if namespace else (),
+        method="DELETE",
+    )
+    if restriction == "host":
+        probe = probe.model_copy(update={"url": "https://other.example"})
+    elif restriction == "binding":
+        scope.explicit_contexts = frozenset()
+    elif restriction == "selected":
+        scope.selected_contexts = ("other",)
+    elif restriction == "expired":
+        scope.expires = datetime.date.today() - datetime.timedelta(days=1)
+    elif restriction == "namespace":
+        probe = probe.model_copy(update={"namespaces": ("other",)})
+    elif restriction == "action":
+        scope.clusters["lab"].verbs_denied = ["port-forward+http"]
+    elif restriction == "method":
+        scope.clusters["lab"].verbs_denied = ["delete"]
+    else:
+        scope.off_limits = [OffLimit(resource="http_targets", verb="delete")]
+    with pytest.raises(PermissionError, match=reason):
+        EndpointResolver(scope, runner(), "oc").resolve("lab", probe)
+
+
+@pytest.mark.parametrize(
+    "target",
+    [
+        HttpTarget(context="other", host="console.example"),
+        HttpTarget(context="lab", host="console.example", namespace="other"),
+        HttpTarget(context="lab", host="console.example", resource="routes"),
+        HttpTarget(context="lab", host="console.example", name="other"),
+    ],
+)
+@pytest.mark.parametrize("namespace", ["app", None])
+def test_direct_probe_does_not_use_mismatched_target_grant(scope, target, namespace):
+    scope.http_targets = (target,)
+    with pytest.raises(PermissionError, match="not explicitly authorized"):
+        EndpointResolver(scope, runner(), "oc").resolve(
+            "lab",
+            HttpProbe(
+                mode="direct",
+                url="https://console.example",
+                namespaces=(namespace,) if namespace else (),
+            ),
+        )
+
+
 @pytest.mark.parametrize("method", ["GET", "HEAD"])
 @pytest.mark.parametrize("path", ["/healthz", "/livez", "/readyz", "/version"])
-def test_api_health_request_carries_actual_resolved_api(scope, method, path):
+@pytest.mark.parametrize("namespace", ["app", None])
+def test_api_health_request_carries_actual_resolved_api(scope, method, path, namespace):
     scope.clusters["lab"].api = "https://API.EXAMPLE:6443"
     scope.http_targets = (HttpTarget(context="lab", host="api.example"),)
     command = runner()
     endpoint = EndpointResolver(scope, command, "oc").resolve(
-        "lab", HttpProbe(mode="direct", url=API, namespaces=("app",), method=method, path=path)
+        "lab",
+        HttpProbe(
+            mode="direct",
+            url=API,
+            namespaces=(namespace,) if namespace else (),
+            method=method,
+            path=path,
+        ),
     )
     assert endpoint.resolved_api == API
     command.assert_called_once()
@@ -324,11 +500,19 @@ def test_api_health_request_carries_actual_resolved_api(scope, method, path):
         (API, "GET", "/"),
     ],
 )
-def test_api_origin_method_and_exact_path_are_required(scope, url, method, path):
+@pytest.mark.parametrize("namespace", ["app", None])
+def test_api_origin_method_and_exact_path_are_required(scope, url, method, path, namespace):
     scope.http_targets = (HttpTarget(context="lab", host="api.example"),)
     with pytest.raises(PermissionError, match="health and version"):
         EndpointResolver(scope, runner(), "oc").resolve(
-            "lab", HttpProbe(mode="direct", url=url, namespaces=("app",), method=method, path=path)
+            "lab",
+            HttpProbe(
+                mode="direct",
+                url=url,
+                namespaces=(namespace,) if namespace else (),
+                method=method,
+                path=path,
+            ),
         )
 
 

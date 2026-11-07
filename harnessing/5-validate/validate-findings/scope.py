@@ -143,6 +143,7 @@ class Action:
     selector: str | None = None  # pod label selector
     artifact: str | None = None  # wasm artifact path
     extra: tuple = ()  # adapter-specific freeform
+    url: str | None = None  # exact origin for a structured direct HTTP probe
 
     def describe(self) -> str:
         parts = [f"{self.adapter}/{self.verb}"]
@@ -477,12 +478,21 @@ class Scope:
 
         # 3. adapter-specific allow
         if a.adapter == "k8s":
-            cs = self.clusters.get(a.context) or self.clusters.get("__current__")
+            direct_http = a.resource == "http_targets" and a.namespace is None and a.url is not None
+            cs = self.clusters.get(a.context)
+            if not direct_http and cs is None:
+                cs = self.clusters.get("__current__")
             if cs is None:
                 return False, f"context '{a.context}' not in scope"
+            if direct_http and (not a.context or not self.http_context_allowed(a.context)):
+                return False, "HTTP probes require a selected, explicitly declared context"
             if a.verb in cs.verbs_denied:
                 return False, f"verb '{a.verb}' denied for context '{cs.context}'"
-            if not cs.ns_allowed(a.namespace) and not self._http_node_granted(a):
+            if (
+                not direct_http
+                and not cs.ns_allowed(a.namespace)
+                and not self._http_node_granted(a)
+            ):
                 return False, f"namespace '{a.namespace}' not in scope for context '{cs.context}'"
             if (
                 a.image
@@ -491,13 +501,17 @@ class Scope:
             ):
                 return False, f"image '{a.image}' not in scope"
             decision = self._core_scope().decide(
-                ValidationAction(kind=ValidationActionKind.K8S, verb=a.verb),
+                ValidationAction(
+                    kind=ValidationActionKind.HTTP if direct_http else ValidationActionKind.K8S,
+                    verb=a.verb,
+                ),
                 ValidationTarget(
-                    context=a.context,
+                    context=a.context if direct_http else cs.context,
                     namespace=a.namespace,
                     resource=a.resource,
                     name=a.name,
                     image=a.image,
+                    url=a.url if direct_http else None,
                 ),
                 as_of=_dt.datetime.now().astimezone(),
             )

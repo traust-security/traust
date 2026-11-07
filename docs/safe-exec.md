@@ -129,12 +129,16 @@ whenever possible. Finding-controlled probes cannot enable this exception.
 
 Simple literal curl PoCs become structured direct or Route probes only when an
 explicit target or Route discovery domain authorizes the host and selected
-context. Route replay binds the resolved Route to the original scheme, host and
-port. Unsupported curl commands are recorded as not attempted, not run through
-a shell or adapted by guessing their semantics.
+context. A namespace-less direct target needs an exact host grant and pinned
+API, not a wildcard Kubernetes namespace grant. Route replay binds the resolved
+Route to the original scheme, host and port. Unsupported curl commands are
+recorded as not attempted, not run through a shell or adapted by guessing
+their semantics.
 
 HTTP plans contain `target.http` instead of shell programs. GET, HEAD and OPTIONS
-are safe; POST, PUT and PATCH are mutating; DELETE is destructive. Authentication
+are safe; POST, PUT, PATCH and DELETE require destructive opt-in because these
+structured probes have no authorized rollback. A tunneled safe request can retry
+connection refusal twice; write requests are never retried. Authentication
 requires an explicit credential grant, and creating a ServiceAccount token requires
 the matching resource and verb authorization. CSRF/session initialization must
 actually succeed; authenticated probes require both an operator-configured

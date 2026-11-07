@@ -20,7 +20,7 @@ try:
 except ImportError:  # pragma: no cover
     _yaml = None
 
-from .base import AdapterBase, Fingerprint, StepResult, step_get
+from .base import AdapterBase, BlockedCommand, Fingerprint, StepResult, step_get
 from .credentials import redact_credentials
 
 
@@ -198,6 +198,7 @@ class K8sAdapter(AdapterBase):
         evidence: list[dict] = []
         observed = ""
         rc = 1
+        http_status = None
 
         if verb == "apply-manifest":
             raw = getattr(step, "payload", None) or step.get("payload", "")
@@ -223,7 +224,11 @@ class K8sAdapter(AdapterBase):
             # Re-run in a one-shot tools pod in the same namespace so service
             # DNS / NetworkPolicy scope match.  ROSA clusters carry the global
             # pull secret for registry.redhat.io, so support-tools is pullable.
-            if self._CMD_NOT_FOUND_RE.search(observed) and ns_args:
+            if (
+                not isinstance(err, BlockedCommand)
+                and self._CMD_NOT_FOUND_RE.search(observed)
+                and ns_args
+            ):
                 audit.append(
                     event="exec-tools-fallback",
                     step=sid,
@@ -327,7 +332,7 @@ class K8sAdapter(AdapterBase):
             ):
                 return _unresolved("CSRF session precondition is not satisfied")
             try:
-                rc, out, err = HttpExecutor(self, scope, kb, audit).execute(
+                rc, out, err, http_status = HttpExecutor(self, scope, kb, audit).execute(
                     target.get("context"), probe
                 )
                 observed = (out + err).strip()
@@ -356,6 +361,7 @@ class K8sAdapter(AdapterBase):
             # via a tools-pod in the same namespace (V050-REGRESSION §3).
             if (
                 verb == "raw"
+                and not isinstance(err, BlockedCommand)
                 and self._CMD_NOT_FOUND_RE.search(observed)
                 and not self._POC_PLACEHOLDER_RE.search(observed)
             ):
@@ -455,7 +461,18 @@ class K8sAdapter(AdapterBase):
             )
 
         expected = step_get(step, "expected", "")
-        verdict = "blocked_by_scope" if rc == 126 else self._verdict(verb, rc, observed, expected)
+        if isinstance(err, BlockedCommand):
+            verdict = "blocked_by_scope"
+        elif verb == "port-forward+http" and (rc or not http_status or http_status == "000"):
+            verdict = "inconclusive"
+        else:
+            verdict = self._verdict(
+                verb,
+                rc,
+                out if verb == "port-forward+http" else observed,
+                expected,
+                http_status=http_status,
+            )
         err_tag = ""
         if (
             verdict == "inconclusive"
@@ -478,7 +495,7 @@ class K8sAdapter(AdapterBase):
             observed=observed_out,
             evidence=evidence,
             error=err_tag,
-            scope_reason="HTTP execution policy denied the request" if rc == 126 else "",
+            scope_reason=err.reason if isinstance(err, BlockedCommand) else "",
             finding_ref=step_get(step, "finding_ref"),
             novel_ref=step_get(step, "novel_ref"),
             duration_ms=int((time.monotonic() - t0) * 1000),
@@ -690,7 +707,9 @@ class K8sAdapter(AdapterBase):
         return {t for t in toks if t not in cls._STOP}
 
     @classmethod
-    def _verdict(cls, verb: str, rc: int, observed: str, expected: str) -> str:
+    def _verdict(
+        cls, verb: str, rc: int, observed: str, expected: str, *, http_status: str | None = None
+    ) -> str:
         """Decide confirmed / refuted / inconclusive for a single step.
 
         The decision is **verb-aware** and consults the plan step's
@@ -705,6 +724,12 @@ class K8sAdapter(AdapterBase):
           3. ``expected``-token match in observed → confirmed.
           4. Verb default.
         """
+        if verb == "port-forward+http":
+            if http_status is None:
+                status_match = re.search(r"(?:vf-http-status:|\b)(\d{3})\s*$", observed.strip())
+                http_status = status_match.group(1) if status_match else None
+            if rc or http_status == "000":
+                return "inconclusive"
         ok = rc == 0
         # Strip port-forward chatter so the curl body is what we classify.
         observed = cls._PF_CHATTER_RE.sub("", observed)
@@ -863,10 +888,7 @@ class K8sAdapter(AdapterBase):
                 ):
                     return "confirmed"
                 return "inconclusive"
-            # Pull the trailing status code emitted by --write-out
-            # (either bare ``200`` or ``vf-http-status:200``).
-            m = re.search(r"(?:vf-http-status:|\b)(\d{3})\s*$", observed.strip())
-            code = m.group(1) if m else None
+            code = http_status
             if code == "000" or "could not resolve" in obs or "connection refused" in obs:
                 return "inconclusive"  # endpoint unreachable — no signal
             if code in ("401", "403"):
