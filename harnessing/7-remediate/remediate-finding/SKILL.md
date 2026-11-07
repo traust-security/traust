@@ -94,7 +94,10 @@ one for confirmed, open findings with `traust remediation open --repo-url
 <url>` names the oldest one waiting; `traust remediation candidates --product
 <slug>` lists, per repository, the confirmed, open findings no work item covers
 yet — running many is the security pack's remediation lane, not this skill).
-`traust remediation prepare
+Run by that lane (`remediate_finding`, an order core's scheduling door
+submitted), you are given no id: the order names the work item, and
+`traust session run` sets `$TRAUST_RUN_ID` to the order, so `traust
+remediation prepare` with no argument prepares that item. `traust remediation prepare
 <work-item>` prints:
 
 | Field | Meaning |
@@ -126,6 +129,8 @@ the cited source before patching anything.
 
 ```bash
 bash harnessing/7-remediate/remediate-finding/run_one.sh <work-item>
+# run by the remediation lane (under a run order): no id, the order names it
+bash harnessing/7-remediate/remediate-finding/run_one.sh
 ```
 
 This:
@@ -462,13 +467,19 @@ Only after Phase 5b ACCEPT:
 ```bash
 bash harnessing/7-remediate/remediate-finding/push_fix.sh push \
   <fix_clone> <fork_url> <fix_branch> <fix_commit>
+# run by the remediation lane (under a run order): the order names the work item
+python3 -m traust.cli remediation record <out>/<work-item>-remediation.json
+# run by hand: name the work item you prepared
 python3 -m traust.cli remediation record <out>/<work-item>-remediation.json \
   --work-item <work-item>
 ```
 
-(`--work-item` names the item this run prepared: the report itself doesn't, and
+(Under a run order (`$TRAUST_RUN_ID` set) `record` records through the order's
+lease, on the work item the order names, and refuses `--work-item`. By hand,
+`--work-item` names the item this run prepared: the report itself doesn't, and
 when a failed attempt and its retry both await a report, core records it on
-neither without it. `<fork_url>` and `<fix_branch>` come from the Phase 1 workspace descriptor;
+neither without it. The lane fails the order when the session ends without the
+report recorded. `<fork_url>` and `<fix_branch>` come from the Phase 1 workspace descriptor;
 `<fix_clone>` and `<fix_commit>` from Phase 4d's JSON. The script pushes that
 exact commit, the one the report names and 5b reviewed, and refuses if the
 clone's HEAD or its sentinel no longer name it.) The script — never the agent — pushes

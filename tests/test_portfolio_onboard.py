@@ -134,7 +134,12 @@ def test_onboard_prints_the_result(home: Path, doors: SimpleNamespace) -> None:
     rc, out = run(portfolio_onboard.onboard, home, "--product", "example", "--repo", REPO)
     assert (rc, out) == (
         0,
-        {"product_id": str(PRODUCT_ID), "repository_ids": [str(REPO_ID)], "order_ids": []},
+        {
+            "product_id": str(PRODUCT_ID),
+            "repository_ids": [str(REPO_ID)],
+            "order_ids": [],
+            "skipped": [],
+        },
     )
 
 

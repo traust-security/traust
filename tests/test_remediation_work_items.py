@@ -20,6 +20,7 @@ from traust_core.v1.context import Context
 from traust_core.v1.errors import ConflictError, ValidationError
 from traust_core.v1.models.artifacts import RemediationArtifact
 from traust_core.v1.models.common import Page
+from traust_core.v1.models.identity import Principal
 from traust_core.v1.models.remediation import (
     Fork,
     RemediationDraft,
@@ -28,11 +29,12 @@ from traust_core.v1.models.remediation import (
     WorkItemFilter,
 )
 from traust_core.v1.models.values import HttpsRepoUrl
-from traust_core.v1.models.vocabulary import RemediationStatus
+from traust_core.v1.models.vocabulary import ActorKind, RemediationStatus, SourceType
 
 from traust.cli import remediation
 
 FIXTURES = Path(__file__).parent / "fixtures" / "remediation"
+RUNNER = Principal(identity="runner", kind=ActorKind.MACHINE, display="runner")
 REPO = "https://github.com/example-org/example-service"
 SHA = "0123456789abcdef0123456789abcdef01234567"
 REPO_ID, REF_ID, ITEM_ID, FINDING_ID = (uuid.uuid4() for _ in range(4))
@@ -84,6 +86,9 @@ def doors(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
         resolve_fork=Door(FORK),
         record_progress=Door(ITEM),
         record=Door(ITEM),
+        record_order=Door(ITEM),
+        prepare=Door(SimpleNamespace(model_dump_json=lambda indent=None: '{"prepared": true}')),
+        order=Door(SimpleNamespace(work_item_id=ITEM.work_item_id)),
         register_ref=Door(SimpleNamespace(id=REF_ID)),
         assemble=Door(DRAFT),
         candidates=Door([CANDIDATES]),
@@ -95,6 +100,8 @@ def doors(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
             resolve_fork=stub.resolve_fork,
             record_progress=stub.record_progress,
             record=stub.record,
+            record_order=stub.record_order,
+            prepare=stub.prepare,
             assemble=stub.assemble,
             candidates=stub.candidates,
         ),
@@ -106,7 +113,10 @@ def doors(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
             register_ref=stub.register_ref,
         ),
     )
+    services.ops = SimpleNamespace(get=stub.order)
     monkeypatch.setattr(Context, "services", lambda self: services)
+    monkeypatch.setattr(remediation, "load_caller", lambda core: RUNNER)
+    monkeypatch.delenv("TRAUST_RUN_ID", raising=False)
     return stub
 
 
@@ -248,6 +258,54 @@ def test_record_names_the_work_item_the_run_prepared(
     rc, _ = run(remediation.record, home, str(report), "--work-item", str(ITEM.work_item_id))
     assert rc == 0
     assert doors.record.keywords == [{"work_item_id": None}, {"work_item_id": ITEM.work_item_id}]
+
+
+def test_an_ordered_run_records_through_its_order(
+    doors: SimpleNamespace, home: Path, tmp_path: Path
+) -> None:
+    report = tmp_path / "r.json"
+    report.write_text(
+        (FIXTURES / "remediation-report.json").read_text().replace("FINDING_ID", str(FINDING_ID))
+    )
+    order_id = uuid.uuid4()
+    rc, out = run(remediation.record, home, str(report), "--run-id", str(order_id))
+    assert (rc, out) == (0, ITEM.model_dump(mode="json"))
+    [(doc, provenance, bound_to, principal)] = doors.record_order.calls
+    assert isinstance(doc, RemediationArtifact) and (bound_to, principal) == (order_id, RUNNER)
+    assert (provenance.run_id, provenance.source) == (order_id, SourceType.TRIAGE_REPORT)
+    assert doors.record.calls == []
+    with pytest.raises(SystemExit):  # the order names the work item: never both
+        run(
+            remediation.record,
+            home,
+            str(report),
+            "--run-id",
+            str(order_id),
+            "--work-item",
+            str(ITEM.work_item_id),
+        )
+
+
+def test_an_ordered_run_prepares_the_work_item_its_order_names(
+    doors: SimpleNamespace, home: Path
+) -> None:
+    order_id = uuid.uuid4()
+    rc, out = run(remediation.prepare, home, "--run-id", str(order_id))
+    assert (rc, out) == (0, {"prepared": True})
+    assert doors.order.calls == [(order_id,)]
+    assert doors.prepare.calls == [(ITEM.work_item_id,)]
+    doors.order.result = SimpleNamespace(work_item_id=None)
+    rc, err = run(remediation.prepare, home, "--run-id", str(order_id))
+    assert rc == 2 and "names no work item" in err
+    with pytest.raises(SystemExit):  # neither a work item nor an order
+        run(remediation.prepare, home)
+    doors.order.result = SimpleNamespace(work_item_id=ITEM.work_item_id)
+    other = uuid.uuid4()
+    rc, err = run(remediation.prepare, home, str(other), "--run-id", str(order_id))
+    assert rc == 2 and f"runs work item {ITEM.work_item_id}, not {other}" in err
+    assert doors.prepare.calls == [(ITEM.work_item_id,)]  # never the other one
+    rc, _ = run(remediation.prepare, home, str(ITEM.work_item_id), "--run-id", str(order_id))
+    assert rc == 0
 
 
 def test_record_refusals_are_exit_2(doors: SimpleNamespace, home: Path, tmp_path: Path) -> None:

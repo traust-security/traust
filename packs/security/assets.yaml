@@ -257,6 +257,14 @@ assets:
     freshness: {fail: 14d}
     runner: {labels: [deterministic]}
 
+  remediate_finding:  # skill session: /remediate-finding on the work item its order names
+    # Core's scheduling door (POST /v1/remediations) submits these orders, so no trigger or deps.
+    # The session reads the work item from the order and records through the order's lease.
+    model: {role: remediation}
+    run: [python3, -m, traust.cli, session, run, --skill, remediate-finding, --role, "{role}", --run-id, "{run_id}", --worker, "{worker}"]
+    priority: 45
+    runner: {labels: [llm]}
+
   verify_remediation:  # skill session: traust remediation verify-sweep → /verify-remediation full-sweep
     model: {role: verification-verdict}
     run: [python3, -m, traust.cli, session, run, --skill, verify-remediation, --role, "{role}", --run-id, "{run_id}", --, full-sweep]

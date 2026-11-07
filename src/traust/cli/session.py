@@ -40,6 +40,7 @@ from traust_core.v1.context import TRAUST_CONFIG_HOME_ENV, CheckoutRequest, Cont
 from traust_core.v1.errors import NotFoundError, ServiceError, TraustError, ValidationError
 from traust_core.v1.models.assessment import Assessment, AssessmentKind, DiffRefused
 from traust_core.v1.models.base import Dto
+from traust_core.v1.models.common import ArtifactRef
 from traust_core.v1.models.operations import (
     JobResult,
     ModelName,
@@ -76,6 +77,8 @@ RECORDING_SKILLS = {
     "vuln-scan": AssessmentKind.VULN_SCAN_CANONICAL,
     "cloud-config-audit": AssessmentKind.CLOUD_CONFIG_CANONICAL,
 }
+# Skills whose ordered session must leave a report on the work item its order names.
+REPORTING_SKILLS = frozenset({"remediate-finding"})
 
 
 class _Tokens(Dto):
@@ -303,6 +306,21 @@ def run(argv: list[str] | None = None) -> int:
     except (TraustError, OSError) as e:
         print(f"run {args.run_id}: {OrderReason.BAD_REQUEST}: {type(e).__name__}", file=sys.stderr)
         return answer(JobResult.failed(OrderReason.BAD_REQUEST))
+    reported = held = None
+    if order_id is not None and args.skill in REPORTING_SKILLS:
+        try:
+            reported = _ordered_work_item(order_id, args)
+            # the report the work item held before this attempt: only a new one counts below
+            held = _work_item_report(reported, args)
+        except (ValidationError, NotFoundError) as e:  # the order can't be run as it stands
+            print(f"run {args.run_id}: {OrderReason.BAD_REQUEST}: {e}", file=sys.stderr)
+            return answer(JobResult.failed(OrderReason.BAD_REQUEST))
+        except SystemExit:  # `load` exits on an unusable configuration rather than raising
+            print(f"run {args.run_id}: {OrderReason.BAD_REQUEST}: configuration", file=sys.stderr)
+            return answer(JobResult.failed(OrderReason.BAD_REQUEST))
+        except (TraustError, OSError) as e:  # core or the store didn't answer: try again later
+            print(f"run {args.run_id}: work-item lookup: {type(e).__name__}", file=sys.stderr)
+            return answer(JobResult.failed(OrderReason.RUNNER_CRASHED))
     env = {**os.environ, "CLAUDE_CONFIG_DIR": str(claude_dir(args.config_home))}
     # The record doors default to this order and home: a manual session inherits neither.
     env.pop(RUN_ORDER_ENV, None)
@@ -335,6 +353,26 @@ def run(argv: list[str] | None = None) -> int:
     if done.returncode != 0:
         print(f"run {args.run_id}: session exited {done.returncode}", file=sys.stderr)
         return answer(_spent(JobResult.failed(OrderReason.RUNNER_CRASHED), usage))
+    if reported is not None:
+        try:
+            report = _work_item_report(reported, args)
+        except SystemExit:
+            print(f"run {args.run_id}: {OrderReason.BAD_REQUEST}: configuration", file=sys.stderr)
+            return answer(_spent(JobResult.failed(OrderReason.BAD_REQUEST), usage))
+        except (TraustError, OSError) as e:
+            print(
+                f"run {args.run_id}: work-item report lookup: {type(e).__name__}", file=sys.stderr
+            )
+            return answer(_spent(JobResult.failed(OrderReason.RUNNER_CRASHED), usage))
+        # NEED(core: a remediation report names the order that recorded it): until then a retry
+        # of this order whose report already landed fails closed, like one that recorded nothing
+        if report is None or report == held:
+            print(
+                f"run {args.run_id}: /{args.skill} recorded no new report on work item {reported}",
+                file=sys.stderr,
+            )
+            return answer(_spent(JobResult.failed(OrderReason.SESSION_OUTPUT_INVALID), usage))
+        return answer(_spent(JobResult.succeeded(written=(str(reported),)), usage))
     if order_id is not None and kind is not None:
         try:
             recorded = _recorded(order_id, kind, args)
@@ -369,6 +407,18 @@ def order_assessments(order_id: UUID, config_home: Path | None) -> list[Assessme
 def _recorded(order_id: UUID, kind: AssessmentKind, args: argparse.Namespace) -> set[str]:
     """The ids of the order's assessments of `kind`."""
     return {str(a.id) for a in order_assessments(order_id, args.config_home) if a.kind == kind}
+
+
+def _ordered_work_item(order_id: UUID, args: argparse.Namespace) -> UUID:
+    """The work item the order runs; an order naming none can't be run."""
+    order = load(args.config_home).services().ops.get(order_id)
+    if order.work_item_id is None:
+        raise ValidationError(f"order {order_id} names no work item")
+    return order.work_item_id
+
+
+def _work_item_report(work_item_id: UUID, args: argparse.Namespace) -> ArtifactRef | None:
+    return load(args.config_home).services().remediation.get(work_item_id).report
 
 
 def _spent(result: JobResult, usage: tuple[ModelUsage, ...]) -> JobResult:
