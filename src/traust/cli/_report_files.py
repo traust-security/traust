@@ -1,4 +1,4 @@
-"""Validate report destinations and publish staged report sets with rollback recovery."""
+"""Report-set destination validation, private staging and recoverable publication."""
 
 from __future__ import annotations
 
@@ -41,7 +41,7 @@ def write_reports(outputs: dict[Path, str]) -> None:
     try:
         for path, content in outputs.items():
             path.parent.mkdir(parents=True, exist_ok=True)
-            directory = Path(mkdtemp(prefix=".report-files-", dir=path.parent))
+            directory = Path(mkdtemp(prefix=".traust-report-", dir=path.parent))
             directories.append(directory)
             new = directory / "new"
             new.write_text(content, encoding="utf-8")

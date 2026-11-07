@@ -203,8 +203,25 @@ convert uninspectable deliverables and rerun the gate; there is no binary fallba
   named rule pack's recorded scans against confirmed true positives
   (`DetectionQualityService.calibrate`); record the scans first. It scans nothing itself.
 - `traust sweep compliance-precision --framework <framework> --gate 0.5 --out-dir <dir>`
-  exports field precision from recorded assessments as JSON (no Markdown until core registers its Insight view (a priority follow-up)). The inclusive gate
-  flags checks for human demotion review; it does not run the evaluator twice or mutate checks.
+  publishes Core's native `compliance-precision` Insight view and writes the fixed
+  `compliance-precision.json`, `compliance-precision.md` and `compliance-precision.html`
+  files under `<dir>`. Markdown and HTML use Core's shared renderers. The JSON file
+  preserves the legacy flat calibration model (`framework`, `assessments`, `checks`,
+  `gate`); stdout preserves that model plus `flagged_checks`.
+  This is a read-only analysis of recorded compliance evidence, deduplicated by digest
+  and filtered to the requested framework: automatic not-satisfied checks supply
+  firings, and attributed human overrides supply dismissals. It runs no scans or
+  evaluator passes and changes no checks or evidence. Precision at or below the
+  inclusive gate (default `0.5`) flags checks for human demotion review only, never
+  automatic demotion. Unknown or empty populations remain unmeasured; a check with
+  no firings has null precision, not perfect precision or proof of clean coverage.
+  `traust dashboard view compliance-precision --framework <framework> --precision-gate 0.5 --out <dir>`
+  exports the canonical `{calibration: {...}}` ViewModel wrapper as JSON and the
+  same human renders, rather than the sweep command's legacy flat JSON. Framework
+  is required; the precision gate is optional, finite and within `[0, 1]`.
+  Unsupported scope filters are refused; these two options are only supported by
+  the compliance-precision view. The sweep's three fixed reports share the staged
+  report-set recovery policy described below for critical misses.
 - `traust sweep critical-misses --start <ISO8601> --end <ISO8601> [--json-out <file>.json] [--out <file>.md]`
   publishes the `critical-misses` Insight view: critical findings first reported in the
   window that an earlier audit missed. JSON retains its existing list shape; Markdown
