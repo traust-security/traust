@@ -169,6 +169,14 @@ def add_safe_exec_args(ap) -> None:
         )
         p.add_argument("--timeout", type=int, default=120)
         p.add_argument("--cwd", default=None)
+        p.add_argument(
+            "--allowed-host",
+            action="append",
+            default=[],
+            dest="allowed_hosts",
+            metavar="HOST",
+            help="authorize an additional curl host for this invocation (repeatable)",
+        )
         p.add_argument("cmd", nargs="*", help="argv form (after --)")
     sub.add_parser("list-profiles", help="list configured safe_exec profiles")
 
@@ -180,8 +188,9 @@ def call_safe_exec(args) -> int:
         if args.safe_exec_mode == "list-profiles":
             for name, profile in sorted(safe_exec.profiles.items()):
                 print(
-                    f"{name:18s} allow={sorted(profile.allow)} "
-                    f"pipelines={profile.allow_pipelines} — {profile.description}"
+                    f"{name:18s} posture={profile.posture} allow={sorted(profile.allow)} "
+                    f"pipelines={profile.allow_pipelines} "
+                    f"curl_hosts={len(profile.curl_allowed_hosts)} — {profile.description}"
                 )
             return 0
         profile = safe_exec.profile(args.profile)
@@ -194,10 +203,11 @@ def call_safe_exec(args) -> int:
         print("pass either --string or argv, not both", file=sys.stderr)
         return 2
     cmd = args.string if args.string is not None else args.cmd
+    allowed_hosts = tuple(args.allowed_hosts or ())
     if isinstance(cmd, str):
-        verdict = safe_exec.vet_command_string(cmd, profile)
+        verdict = safe_exec.vet_command_string(cmd, profile, allowed_hosts=allowed_hosts)
     else:
-        verdict = safe_exec.validate_argv(list(cmd), profile)
+        verdict = safe_exec.validate_argv(list(cmd), profile, allowed_hosts=allowed_hosts)
 
     if args.safe_exec_mode == "check":
         if verdict.ok:
@@ -220,7 +230,11 @@ def call_safe_exec(args) -> int:
         [tuple(shlex.split(cmd))] if isinstance(cmd, str) else [tuple(cmd)]
     )
     rc, out, err = safe_exec.run_segments(
-        segments, profile, timeout=args.timeout, cwd=Path(args.cwd) if args.cwd else None
+        segments,
+        profile,
+        timeout=args.timeout,
+        cwd=Path(args.cwd) if args.cwd else None,
+        allowed_hosts=allowed_hosts,
     )
     sys.stdout.write(out or "")
     sys.stderr.write(err or "")

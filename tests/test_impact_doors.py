@@ -157,6 +157,91 @@ def test_scan_checks_out_an_undecided_commit_at_its_sha_through_the_service(
     assert json.loads(out)["classifications"] == {"likely_affected": 1}
 
 
+@pytest.mark.parametrize("scan", [False, True], ids=["sbom-only", "checkout"])
+def test_analyze_records_every_prepared_package_and_version(
+    home: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, scan: bool
+) -> None:
+    underscore = AffectedPackage(
+        ecosystem=Ecosystem.NPM,
+        name="underscore",
+        spans=(AffectedSpan(introduced=Version("0"), fixed=Version("1.13.0")),),
+    )
+    advisory = LODASH.model_copy(update={"affected": (*LODASH.affected, underscore)})
+
+    def record(self: Lookup, identifier: AdvisoryIdentifier) -> Result[AdvisoryRecord | None]:
+        found = advisory if identifier == advisory.identifier else None
+        return Result(found, Acquisition(provider="osv", acquired_at=datetime.now(UTC)))
+
+    monkeypatch.setattr(Lookup, "record", record)
+    document = tmp_path / "multi-sbom.json"
+    document.write_text(
+        json.dumps(
+            {
+                "bomFormat": "CycloneDX",
+                "components": [
+                    {"purl": "pkg:npm/lodash@4.17.21"},
+                    {"purl": "pkg:npm/lodash@4.17.20"},
+                    {"purl": "pkg:npm/underscore@1.12.0"},
+                ],
+            }
+        )
+    )
+    assert run(impact.sbom, home, str(document), "--repo-url", REPO, "--sha", SHA)[0] == 0
+
+    asked: list[CheckoutRequest] = []
+    released: list[Path] = []
+
+    def checkout(self: MirrorCheckout, request: CheckoutRequest) -> Result[Workspace]:
+        asked.append(request)
+        path = tmp_path / "repo"
+        path.mkdir()
+        (path / "app.js").write_text("require('lodash'); require('underscore');\n")
+        return Result(
+            Workspace(repo=request.repo, sha=request.ref, path=path, provider=self.name),
+            Acquisition(provider=self.name, acquired_at=datetime.now(UTC)),
+        )
+
+    def release(self: MirrorCheckout, workspace: Workspace) -> None:
+        released.append(workspace.path)
+
+    monkeypatch.setattr(MirrorCheckout, "checkout", checkout)
+    monkeypatch.setattr(MirrorCheckout, "release", release)
+    rc, out = run(
+        impact.analyze,
+        home,
+        LODASH.identifier,
+        "--repo-url",
+        REPO,
+        "--sha",
+        SHA,
+        "--feature-desc",
+        "templates from user input",
+        *(["--scan"] if scan else []),
+    )
+    summary = json.loads(out)
+    assert rc == 0 and summary["commits"] == 1 and summary["analyses"] == 3
+    assert sum(summary["classifications"].values()) == 3
+    assert summary["classifications"].get("version_not_in_range") == 1
+    assert [(str(item.repo), str(item.ref)) for item in asked] == ([(REPO, SHA)] if scan else [])
+    assert released == ([tmp_path / "repo"] if scan else [])
+
+    rc, exported = run(impact.export, home, LODASH.identifier)
+    rows = json.loads(exported)["repos"]
+    assert rc == 0 and len(rows) == 3
+    expected = {("lodash", "4.17.20"), ("lodash", "4.17.21"), ("underscore", "1.12.0")}
+    assert {(row["module"], row["version"]) for row in rows} == expected
+    scopes = [row["document"]["metadata"]["preparation_scope"] for row in rows]
+    assert len({scope["digest"] for scope in scopes}) == 1
+    assert all(
+        {(member["module"], member["version"]) for member in scope["members"]} == expected
+        for scope in scopes
+    )
+    assert all(
+        row["document"]["metadata"]["feature_description"] == "templates from user input"
+        for row in rows
+    )
+
+
 def test_one_commit_by_url_and_sha(home: Path, tmp_path: Path) -> None:
     unrelated = tmp_path / "sbom-unrelated.json"
     unrelated.write_text(

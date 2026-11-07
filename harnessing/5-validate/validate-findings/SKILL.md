@@ -125,10 +125,19 @@ Run `python harnessing/5-validate/validate-findings/scope.py` semantics:
 3. **Hard denies** (always refused regardless of flags or `--auto --destructive`):
    - Any entry in `targets.yaml#off_limits`.
    - Any namespace matching `kube-system`, `openshift-etcd`, `openshift-kube-apiserver*`, `openshift-authentication*` **unless explicitly listed** in mode-1 `clusters[].namespaces`.
-   - `expires` date in the past.
+   - An expired `expires` date or timezone-aware datetime lease.
 4. **Preflight** every bound target via the adapter's `preflight()` to capture a fingerprint (cluster version, node count, image digest, WASM sha256). The fingerprint goes into `validation.json#metadata.target_fingerprint` so results are reproducible.
 
 Every executed step is logged with the scope-check outcome. A `blocked_by_scope` verdict is a **result**, not an error — it tells the reader the PoC would have crossed a boundary the engagement does not permit.
+
+HTTP endpoint and discovery grants are explicit engagement-only; inline and
+inferred scope cannot authorize destinations or credentials. Structured probes
+resolve the selected context and API, check the resource and HTTP method, and
+use an owned Service/Pod tunnel where needed. Exact Route grants do not require
+discovery. Credentials, CSRF and authenticated-session preconditions must
+actually be satisfied, or the result is inconclusive. Refusals are
+`blocked_by_scope`; neither outcome is evidence of refutation. See
+[safe-exec.md](../../../docs/safe-exec.md#structured-http-validation).
 
 ---
 
@@ -300,6 +309,11 @@ For each non-FP finding, convert extracted PoCs into one or more steps:
 | Shell against a pod | `k8s / exec` |
 | WASM invoke / hostcall | `wasm / invoke-export` |
 | No literal PoC | `technique: adapted` — synthesize a minimal probe from `cwes` + `locations` (e.g. CWE-918 ⇒ SSRF callback to a harness-controlled listener) |
+
+Adapted HTTP probes carry `target.http`, not generated shell programs. Review
+the destination, method, authentication and session requirements in the plan;
+write methods are mutating and DELETE is destructive. Structured steps cannot
+carry command or rollback text.
 
 ### 2b. Chained steps (`chain.py`)
 
@@ -510,7 +524,7 @@ still requires the scope and review gates below.
 - **Destructive opt-in**: steps that delete data, kill pods, exhaust resources, or cannot be rolled back require `--destructive` AND must not match `off_limits`.
 - **Rollback**: `apply-manifest` and `create-cr` auto-delete what they created; `patch-cr` captures pre-image and restores it; `exec`/`network-probe` have no rollback (classified accordingly).
 - **Audit trail**: `validation-audit.jsonl` is append-only; the report embeds its sha256 so tampering is detectable.
-- **Expiry**: `targets.yaml#expires` in the past aborts before Phase 1.
+- **Expiry**: `targets.yaml#expires` is checked before live work and again for each scoped action. Date-only deadlines are inclusive; datetime leases expire at the specified instant.
 - **Listener isolation**: SSRF/callback probes bind a listener on `127.0.0.1` and reach it via `kubectl port-forward` reverse — no external egress required or permitted.
 
 ---

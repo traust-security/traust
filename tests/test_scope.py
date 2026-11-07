@@ -5,9 +5,12 @@ scope guard that gates every live action in the validate-findings harness.
 """
 
 import datetime as _dt
+import json
 
 import pytest
+from execute import _step_actions
 from scope import Action, ClusterScope, OffLimit, Scope
+from traust_core.v1.models.validation import HttpTarget, ValidationActionKind, ValidationScope
 
 from traust.paths import skill_dir
 
@@ -164,6 +167,180 @@ def test_unknown_context(lab_scope):
     assert "context" in reason
 
 
+def test_namespace_only_inline_scope_passes_resolved_context_to_core(monkeypatch):
+    scope = Scope().merge_inline(namespaces=["app"])
+    seen_contexts = []
+    decide = ValidationScope.decide
+
+    def record_decision(core_scope, action, target, *, as_of):
+        seen_contexts.append(target.context)
+        return decide(core_scope, action, target, as_of=as_of)
+
+    monkeypatch.setattr(ValidationScope, "decide", record_decision)
+    actions, error = _step_actions(
+        {"adapter": "k8s", "verb": "get", "target": {"namespace": "app", "resource": "pods"}}
+    )
+    assert error is None
+    assert len(actions) == 1 and actions[0].context is None
+    allowed, reason = scope.is_in_scope(actions[0])
+    assert allowed, reason
+    assert seen_contexts == ["__current__"]
+
+
+def test_current_context_does_not_bypass_other_scope_restrictions():
+    scope = Scope().merge_inline(namespaces=["app", "kube-system"])
+    current = scope.clusters["__current__"]
+    assert not scope.is_in_scope(Action(adapter="k8s", verb="get", namespace="other"))[0]
+    assert not scope.is_in_scope(Action(adapter="k8s", verb="get", namespace=None))[0]
+    allowed, reason = scope.is_in_scope(Action(adapter="k8s", verb="get", namespace="kube-system"))
+    assert not allowed and "control-plane" in reason
+    current.verbs_denied = ["delete"]
+    allowed, reason = scope.is_in_scope(Action(adapter="k8s", verb="delete", namespace="app"))
+    assert not allowed and "verb" in reason
+    scope.off_limits = [OffLimit(context="__current__", namespace="app", verb="get")]
+    allowed, reason = scope.is_in_scope(Action(adapter="k8s", verb="get", namespace="app"))
+    assert not allowed and "off_limits" in reason
+
+
+def test_contextless_plan_does_not_choose_an_arbitrary_named_cluster():
+    scope = Scope().merge_inline(contexts=["lab"], namespaces=["app"])
+    actions, error = _step_actions(
+        {"adapter": "k8s", "verb": "get", "target": {"namespace": "app", "resource": "pods"}}
+    )
+    assert error is None
+    allowed, reason = scope.is_in_scope(actions[0])
+    assert not allowed and "context" in reason
+
+
+def _direct_scope():
+    return Scope(
+        modes={"explicit"},
+        clusters={
+            "lab": ClusterScope(
+                context="lab", api="https://api.example:6443", namespaces=["app"]
+            ),
+            "__current__": ClusterScope(context="__current__", namespaces=["*"]),
+        },
+        explicit_contexts=frozenset({"lab"}),
+        selected_contexts=("lab",),
+        http_targets=(HttpTarget(context="lab", host="console.example"),),
+    )
+
+
+def test_namespace_less_direct_action_uses_core_http_policy(monkeypatch):
+    scope = _direct_scope()
+    seen = []
+    decide = ValidationScope.decide
+
+    def record_decision(core_scope, action, target, *, as_of):
+        seen.append((action, target))
+        return decide(core_scope, action, target, as_of=as_of)
+
+    monkeypatch.setattr(ValidationScope, "decide", record_decision)
+    allowed, reason = scope.is_in_scope(
+        Action(
+            adapter="k8s",
+            verb="get",
+            context="lab",
+            resource="http_targets",
+            url="https://console.example",
+        )
+    )
+    assert allowed, reason
+    assert len(seen) == 1
+    action, target = seen[0]
+    assert action.kind == ValidationActionKind.HTTP
+    assert target.context == "lab" and target.namespace is None
+    assert target.resource == "http_targets" and target.url == "https://console.example"
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"url": None},
+        {"url": "https://other.example"},
+        {"url": "https://console.example/path"},
+        {"context": None},
+        {"context": "other"},
+        {"context": "__current__"},
+        {"resource": "pods"},
+        {"namespace": "other"},
+        {"verb": "exec"},
+    ],
+)
+def test_direct_action_does_not_expand_other_scope(changes):
+    scope = _direct_scope()
+    fields = {
+        "adapter": "k8s",
+        "verb": "get",
+        "context": "lab",
+        "resource": "http_targets",
+        "url": "https://console.example",
+    }
+    fields.update(changes)
+    assert not scope.is_in_scope(Action(**fields))[0]
+
+
+@pytest.mark.parametrize(
+    "verb", ["port-forward+http", "get", "create", "update", "patch", "delete"]
+)
+def test_direct_action_permits_only_granted_http_verbs(verb):
+    allowed, reason = _direct_scope().is_in_scope(
+        Action(
+            adapter="k8s",
+            verb=verb,
+            context="lab",
+            resource="http_targets",
+            url="https://console.example",
+        )
+    )
+    assert allowed, reason
+
+
+@pytest.mark.parametrize("restriction", ["binding", "selection", "api", "expiry", "verb", "deny"])
+def test_direct_action_preserves_core_and_local_denials(restriction):
+    scope = _direct_scope()
+    if restriction == "binding":
+        scope.explicit_contexts = frozenset()
+    elif restriction == "selection":
+        scope.selected_contexts = ("other",)
+    elif restriction == "api":
+        scope.clusters["lab"].api = None
+    elif restriction == "expiry":
+        scope.expires = _dt.date.today() - _dt.timedelta(days=1)
+    elif restriction == "verb":
+        scope.clusters["lab"].verbs_denied = ["get"]
+    else:
+        scope.off_limits = [OffLimit(resource="http_targets", verb="get")]
+    assert not scope.is_in_scope(
+        Action(
+            adapter="k8s",
+            verb="get",
+            context="lab",
+            resource="http_targets",
+            url="https://console.example",
+        )
+    )[0]
+
+
+def test_non_http_kubernetes_action_remains_a_core_kubernetes_action(monkeypatch):
+    scope = Scope().merge_inline(contexts=["lab"], namespaces=["*"])
+    seen = []
+    decide = ValidationScope.decide
+
+    def record_decision(core_scope, action, target, *, as_of):
+        seen.append((action, target))
+        return decide(core_scope, action, target, as_of=as_of)
+
+    monkeypatch.setattr(ValidationScope, "decide", record_decision)
+    allowed, reason = scope.is_in_scope(
+        Action(adapter="k8s", verb="get", context="lab", resource="pods", url="https://x.example")
+    )
+    assert allowed, reason
+    action, target = seen[0]
+    assert action.kind == ValidationActionKind.K8S and target.url is None
+
+
 def test_verb_denied():
     s = Scope()
     s.clusters["lab"] = ClusterScope(
@@ -251,6 +428,122 @@ def test_modes_additive_union():
     s.merge_inferred({"clusters": {"lab": ["tenant-b"]}})
     assert s.is_in_scope(Action(adapter="k8s", verb="get", context="lab", namespace="tenant-a"))[0]
     assert s.is_in_scope(Action(adapter="k8s", verb="get", context="lab", namespace="tenant-b"))[0]
+
+
+def test_namespace_hints_round_trip_without_granting_scope(tmp_path):
+    targets = tmp_path / "targets.yaml"
+    targets.write_text(
+        "clusters:\n"
+        "  - context: lab\n"
+        "    namespaces: [allowed]\n"
+        "    namespace_hints: [allowed, outside, kube-system]\n"
+        "off_limits:\n"
+        "  - namespace: allowed\n",
+        encoding="utf-8",
+    )
+    scope = Scope.from_targets_file(targets)
+    cluster = scope.clusters["lab"]
+    assert cluster.namespace_hints == ["allowed", "outside", "kube-system"]
+    assert cluster.namespaces == ["allowed"]
+    assert cluster.explicit_namespaces == {"allowed"}
+    assert (
+        json.loads(scope.to_json())["clusters"]["lab"]["namespace_hints"] == cluster.namespace_hints
+    )
+    for namespace in cluster.namespace_hints:
+        allowed, _ = scope.is_in_scope(
+            Action(
+                adapter="k8s",
+                context="lab",
+                namespace=namespace,
+                resource="routes",
+                verb="get",
+            )
+        )
+        assert not allowed
+
+
+@pytest.mark.parametrize(
+    "hints",
+    [
+        "app",
+        None,
+        {"name": "app"},
+        [None],
+        [True],
+        [42],
+        [["app"]],
+        [""],
+        ["*"],
+        ["app-*"],
+        ["Upper"],
+        ["-app"],
+        ["app-"],
+        ["app.example"],
+        ["a" * 64],
+        ["é"],
+    ],
+)
+def test_malformed_namespace_hints_fail_closed(tmp_path, hints):
+    targets = tmp_path / "targets.yaml"
+    targets.write_text(
+        json.dumps(
+            {"clusters": [{"context": "lab", "namespaces": ["allowed"], "namespace_hints": hints}]}
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="namespace_hints"):
+        Scope.from_targets_file(targets)
+
+
+@pytest.mark.parametrize("hints", [[], ["a", "1", "app-1", "a" * 63]])
+def test_concrete_namespace_hints_do_not_extend_scope(tmp_path, hints):
+    targets = tmp_path / "targets.yaml"
+    targets.write_text(
+        json.dumps(
+            {"clusters": [{"context": "lab", "namespaces": ["allowed"], "namespace_hints": hints}]}
+        ),
+        encoding="utf-8",
+    )
+    scope = Scope.from_targets_file(targets)
+    assert scope.clusters["lab"].namespace_hints == hints
+    assert scope.clusters["lab"].namespaces == ["allowed"]
+    assert scope.clusters["lab"].explicit_namespaces == {"allowed"}
+    for hint in hints:
+        allowed, _ = scope.is_in_scope(
+            Action(
+                adapter="k8s",
+                context="lab",
+                namespace=hint,
+                resource="routes",
+                verb="get",
+            )
+        )
+        assert not allowed
+
+
+def test_wildcard_scope_still_honors_off_limits_for_hints(tmp_path):
+    targets = tmp_path / "targets.yaml"
+    targets.write_text(
+        "clusters:\n"
+        "  - context: lab\n"
+        "    namespaces: ['*']\n"
+        "    namespace_hints: [allowed, denied]\n"
+        "off_limits:\n"
+        "  - namespace: denied\n",
+        encoding="utf-8",
+    )
+    scope = Scope.from_targets_file(targets)
+    for namespace, expected in (("allowed", True), ("denied", False)):
+        allowed, _ = scope.is_in_scope(
+            Action(
+                adapter="k8s",
+                context="lab",
+                namespace=namespace,
+                resource="routes",
+                verb="get",
+            )
+        )
+        assert allowed is expected
 
 
 # ---------------------------------------------------------------------------

@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import argparse
 import json
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 import pydantic
@@ -23,6 +23,8 @@ from traust_core.v1.models.common import ToolRequest
 from traust_core.v1.models.dependencies import NoImageSbomError, NoManifestSbomError
 from traust_core.v1.models.validation import (
     ClusterScope,
+    HttpDiscovery,
+    HttpTarget,
     OffLimit,
     ScopeBindingMode,
     ValidationScope,
@@ -123,22 +125,43 @@ def engagement_scope(path: Path) -> ValidationScope:
 
 
 def _scope(data: dict) -> ValidationScope:
-    expires = data.get("expires")
-    return ValidationScope(
-        expires=date.fromisoformat(str(expires)) if expires else None,
+    expiry_date = None
+    expiry_instant = None
+    if "expires" in data:
+        value = str(data["expires"])
+        try:
+            expiry_date = date.fromisoformat(value)
+        except ValueError:
+            expiry_instant = datetime.fromisoformat(value)
+            if expiry_instant.tzinfo is None or expiry_instant.utcoffset() is None:
+                raise ValueError("engagement expiry datetime must include a timezone") from None
+    scope = ValidationScope(
+        engagement=data.get("engagement"),
+        authorized_by=data.get("authorized_by"),
+        environment=data.get("environment"),
+        expires=expiry_date,
+        expires_at=expiry_instant,
         modes=frozenset({ScopeBindingMode.EXPLICIT}),
         clusters=tuple(
             ClusterScope(
                 context=c["context"],
+                api=c.get("api"),
+                http_discovery=(
+                    HttpDiscovery.model_validate(c["http_discovery"])
+                    if c.get("http_discovery") is not None
+                    else None
+                ),
                 namespaces=tuple(str(n) for n in c.get("namespaces", [])),
                 verbs_denied=frozenset(str(v) for v in c.get("verbs_denied", [])),
                 explicit_namespaces=frozenset(str(n) for n in c.get("namespaces", [])),
             )
             for c in data.get("clusters", [])
         ),
+        http_targets=tuple(HttpTarget.model_validate(t) for t in data.get("http_targets", [])),
         off_limits=tuple(OffLimit(**rule) for rule in data.get("off_limits", [])),
         images=tuple(data.get("images", [])),
     )
+    return ValidationScope.bind(explicit=scope)
 
 
 def cluster(argv: list[str] | None = None) -> int:

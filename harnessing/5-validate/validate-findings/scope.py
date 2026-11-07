@@ -17,9 +17,31 @@ from __future__ import annotations
 import datetime as _dt
 import fnmatch
 import json
+import re
 from collections.abc import Iterable
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
+
+from traust_core.v1.models.validation import (
+    ClusterScope as CoreClusterScope,
+)
+from traust_core.v1.models.validation import (
+    HttpDiscovery,
+    HttpTarget,
+    ValidationAction,
+    ValidationActionKind,
+    ValidationScope,
+    ValidationTarget,
+)
+from traust_core.v1.models.validation import (
+    OffLimit as CoreOffLimit,
+)
+from traust_core.v1.models.vocabulary import ScopeBindingMode
+
+if __package__:
+    from .http_policy_io import parse_expiry
+else:
+    from http_policy_io import parse_expiry
 
 try:
     import yaml
@@ -121,6 +143,7 @@ class Action:
     selector: str | None = None  # pod label selector
     artifact: str | None = None  # wasm artifact path
     extra: tuple = ()  # adapter-specific freeform
+    url: str | None = None  # exact origin for a structured direct HTTP probe
 
     def describe(self) -> str:
         parts = [f"{self.adapter}/{self.verb}"]
@@ -146,6 +169,8 @@ class ClusterScope:
     namespaces: list[str] = field(default_factory=list)  # globs OK; [] => none
     verbs_denied: list[str] = field(default_factory=list)
     explicit_namespaces: set[str] = field(default_factory=set)  # mode-1 literal entries
+    http_discovery: HttpDiscovery = field(default_factory=HttpDiscovery)
+    namespace_hints: list[str] = field(default_factory=list)  # observations, never grants
 
     def ns_allowed(self, ns: str | None) -> bool:
         if ns is None:
@@ -192,8 +217,12 @@ class Scope:
     engagement: str | None = None
     authorized_by: str | None = None
     expires: _dt.date | None = None
+    expires_at: _dt.datetime | None = None
     environment: str | None = None
     clusters: dict[str, ClusterScope] = field(default_factory=dict)
+    explicit_contexts: frozenset[str] | None = None
+    selected_contexts: tuple[str, ...] = ()
+    http_targets: tuple[HttpTarget, ...] = ()
     containers: list[str] = field(default_factory=list)  # name globs
     container_runtimes: list[str] = field(default_factory=list)
     wasm_artifacts: list[str] = field(default_factory=list)
@@ -223,18 +252,38 @@ class Scope:
         s.engagement = data.get("engagement")
         s.authorized_by = data.get("authorized_by")
         s.environment = data.get("environment")
-        if exp := data.get("expires"):
-            s.expires = exp if isinstance(exp, _dt.date) else _dt.date.fromisoformat(str(exp))
+        if "expires" in data:
+            parsed = parse_expiry(str(data["expires"]))
+            if isinstance(parsed, _dt.datetime):
+                s.expires_at = parsed
+                s.expires = parsed.date()
+            else:
+                s.expires = parsed
         for c in data.get("clusters", []):
             ns = [str(n) for n in c.get("namespaces", [])]
+            hints = c.get("namespace_hints", [])
+            if not isinstance(hints, list) or any(
+                not isinstance(hint, str)
+                or not re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", hint)
+                for hint in hints
+            ):
+                raise ValueError("namespace_hints must be a list of concrete DNS-1123 namespaces")
             cs = ClusterScope(
                 context=c["context"],
                 api=c.get("api"),
                 namespaces=ns,
                 verbs_denied=[str(v) for v in c.get("verbs_denied", [])],
                 explicit_namespaces=set(ns),
+                namespace_hints=hints,
+                http_discovery=HttpDiscovery.model_validate(c.get("http_discovery") or {}),
             )
+            if cs.context in s.clusters:
+                raise ValueError("duplicate cluster context in targets")
             s.clusters[cs.context] = cs
+        s.explicit_contexts = frozenset(s.clusters)
+        s.http_targets = tuple(HttpTarget.model_validate(t) for t in data.get("http_targets", []))
+        if any(target.context not in s.clusters for target in s.http_targets):
+            raise ValueError("HTTP target context must be explicitly declared in clusters")
         for c in data.get("containers", []):
             s.container_runtimes.append(c.get("runtime", "podman"))
             s.containers.extend(c.get("name_patterns", []))
@@ -262,8 +311,12 @@ class Scope:
         containers: Iterable[str] = (),
         wasm: Iterable[str] = (),
     ) -> Scope:
+        if self.explicit_contexts is None:
+            self.explicit_contexts = frozenset(self.clusters if "explicit" in self.modes else ())
         contexts = list(contexts)
         namespaces = list(namespaces)
+        if contexts:
+            self.selected_contexts = tuple(contexts)
         if contexts or namespaces or images or pods or containers or wasm:
             self.modes.add("inline")
         for ctx in contexts or ([None] if namespaces else []):
@@ -279,6 +332,8 @@ class Scope:
 
     def merge_inferred(self, inferred: dict) -> Scope:
         """Lowest precedence: only adds entries not already present."""
+        if self.explicit_contexts is None:
+            self.explicit_contexts = frozenset(self.clusters if "explicit" in self.modes else ())
         self.modes.add("inferred")
         for ctx, ns_list in inferred.get("clusters", {}).items():
             cs = self.clusters.setdefault(ctx, ClusterScope(context=ctx))
@@ -297,6 +352,77 @@ class Scope:
         return self
 
     # ----- evaluation ---------------------------------------------------
+
+    def expired(self) -> bool:
+        now = _dt.datetime.now(_dt.UTC)
+        if self.expires_at is not None:
+            if self.expires_at.tzinfo is None or self.expires_at.utcoffset() is None:
+                raise ValueError("engagement expiry datetime must include a timezone")
+            return now >= self.expires_at
+        return self.expires is not None and _dt.date.today() > self.expires
+
+    def http_context_allowed(self, context: str) -> bool:
+        if "explicit" not in self.modes:
+            return False
+        explicit = self.explicit_contexts if self.explicit_contexts is not None else self.clusters
+        return context in explicit and (
+            not self.selected_contexts or context in self.selected_contexts
+        )
+
+    def curl_hosts(self) -> tuple[str, ...]:
+        hosts = {
+            cluster.api
+            for context, cluster in self.clusters.items()
+            if cluster.api and self.http_context_allowed(context)
+        }
+        hosts.update(
+            target.host for target in self.http_targets if self.http_context_allowed(target.context)
+        )
+        return tuple(sorted(hosts))
+
+    def _http_node_granted(self, a: Action) -> bool:
+        cs = self.clusters.get(a.context)
+        grant = cs.http_discovery.nodes if cs and self.http_context_allowed(cs.context) else None
+        return bool(
+            grant is not None
+            and a.namespace is None
+            and a.resource == "nodes"
+            and a.verb in {"get", "list", "port-forward+http"}
+            and (not grant.names or a.name in grant.names)
+        )
+
+    def _core_scope(self) -> ValidationScope:
+        explicit = (
+            (self.explicit_contexts if self.explicit_contexts is not None else self.clusters)
+            if "explicit" in self.modes
+            else ()
+        )
+        return ValidationScope(
+            engagement=self.engagement,
+            authorized_by=self.authorized_by,
+            environment=self.environment,
+            expires=None if self.expires_at else self.expires,
+            expires_at=self.expires_at,
+            modes=frozenset(ScopeBindingMode(mode) for mode in self.modes),
+            clusters=tuple(
+                CoreClusterScope(
+                    context=cluster.context,
+                    namespaces=tuple(cluster.namespaces),
+                    verbs_denied=frozenset(cluster.verbs_denied),
+                    explicit_namespaces=frozenset(cluster.explicit_namespaces),
+                    api=cluster.api if cluster.context in explicit else None,
+                    http_discovery=(
+                        cluster.http_discovery if cluster.context in explicit else None
+                    ),
+                )
+                for cluster in self.clusters.values()
+            ),
+            http_targets=tuple(
+                target for target in self.http_targets if target.context in explicit
+            ),
+            off_limits=tuple(CoreOffLimit(**asdict(rule)) for rule in self.off_limits),
+            images=tuple(self.images),
+        )
 
     @property
     def binding_mode(self) -> str:
@@ -317,6 +443,8 @@ class Scope:
             # else on a control-plane cluster resource needs mode-1 "*".
             if a.resource in CONTROL_PLANE_CLUSTER_RESOURCES and a.verb not in READONLY_VERBS:
                 cs = self.clusters.get(a.context) or self.clusters.get("__current__")
+                if a.verb == "port-forward+http" and self._http_node_granted(a):
+                    return None
                 if cs and "*" in cs.explicit_namespaces:
                     return None
                 return (
@@ -335,8 +463,9 @@ class Scope:
 
     def is_in_scope(self, a: Action) -> tuple[bool, str]:
         # 0. expiry
-        if self.expires and _dt.date.today() > self.expires:
-            return False, f"engagement expired {self.expires.isoformat()}"
+        if self.expired():
+            expiry = self.expires_at or self.expires
+            return False, f"engagement expired {expiry.isoformat()}"
 
         # 1. off_limits — hard deny, wins over everything
         for ol in self.off_limits:
@@ -349,12 +478,21 @@ class Scope:
 
         # 3. adapter-specific allow
         if a.adapter == "k8s":
-            cs = self.clusters.get(a.context) or self.clusters.get("__current__")
+            direct_http = a.resource == "http_targets" and a.namespace is None and a.url is not None
+            cs = self.clusters.get(a.context)
+            if not direct_http and cs is None:
+                cs = self.clusters.get("__current__")
             if cs is None:
                 return False, f"context '{a.context}' not in scope"
+            if direct_http and (not a.context or not self.http_context_allowed(a.context)):
+                return False, "HTTP probes require a selected, explicitly declared context"
             if a.verb in cs.verbs_denied:
                 return False, f"verb '{a.verb}' denied for context '{cs.context}'"
-            if not cs.ns_allowed(a.namespace):
+            if (
+                not direct_http
+                and not cs.ns_allowed(a.namespace)
+                and not self._http_node_granted(a)
+            ):
                 return False, f"namespace '{a.namespace}' not in scope for context '{cs.context}'"
             if (
                 a.image
@@ -362,6 +500,23 @@ class Scope:
                 and not any(fnmatch.fnmatch(a.image, p) for p in self.images)
             ):
                 return False, f"image '{a.image}' not in scope"
+            decision = self._core_scope().decide(
+                ValidationAction(
+                    kind=ValidationActionKind.HTTP if direct_http else ValidationActionKind.K8S,
+                    verb=a.verb,
+                ),
+                ValidationTarget(
+                    context=a.context if direct_http else cs.context,
+                    namespace=a.namespace,
+                    resource=a.resource,
+                    name=a.name,
+                    image=a.image,
+                    url=a.url if direct_http else None,
+                ),
+                as_of=_dt.datetime.now().astimezone(),
+            )
+            if not decision.allowed:
+                return False, decision.reason
             return True, "ok"
 
         if a.adapter == "container":
@@ -462,17 +617,24 @@ class Scope:
         d = {
             "engagement": self.engagement,
             "authorized_by": self.authorized_by,
-            "expires": self.expires.isoformat() if self.expires else None,
+            "expires": (self.expires_at or self.expires).isoformat()
+            if self.expires_at or self.expires
+            else None,
+            "expires_at": self.expires_at.isoformat() if self.expires_at else None,
             "environment": self.environment,
             "binding_mode": self.binding_mode,
+            "selected_contexts": self.selected_contexts,
             "clusters": {
                 k: {
                     "api": v.api,
                     "namespaces": v.namespaces,
+                    "namespace_hints": v.namespace_hints,
                     "verbs_denied": v.verbs_denied,
+                    "http_discovery": v.http_discovery.model_dump(mode="json"),
                 }
                 for k, v in self.clusters.items()
             },
+            "http_targets": [target.model_dump(mode="json") for target in self.http_targets],
             "containers": self.containers,
             "wasm_artifacts": self.wasm_artifacts,
             "images": self.images,

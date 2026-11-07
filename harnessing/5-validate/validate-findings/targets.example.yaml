@@ -11,20 +11,49 @@
 engagement: ODR-validation-2026-06
 authorized_by: you@example.com
 environment: lab          # 'lab' is required for --auto to be honoured
-expires: 2026-07-01       # harness aborts if today > expires
+expires: 2026-07-01       # date is valid through this day; or use an aware ISO datetime
+                          # e.g. "2099-07-01T14:00:00Z" for an exact lease deadline
 
 # --- Kubernetes / OpenShift ---------------------------------------------
 clusters:
   - context: lab-hub                       # kubeconfig context name
-    api: https://api.hub.lab.example:6443  # informational only
+    api: https://api.hub.lab.example:6443  # must match the selected kubeconfig API
     namespaces:
       - ramen-ops
       - ramen-system
       - openshift-dr-*                     # globs OK
     verbs_denied: [delete]                 # even in-scope, never delete
+    # Route domains and Node networks constrain discovery, not the entire cluster.
+    http_discovery:
+      routes:
+        - namespace: ramen-system
+          names: [ramen]
+          domains: [apps.hub.lab.example]
+          credentials: false
+      nodes:
+        names: [worker-0]
+        networks: [10.0.128.0/24, "fd00:128::/64"]
+        address_types: [InternalIP]
+        credentials: false
+      port_forward_credentials: false
+      # ca_bundle: /etc/traust/lab-ca.pem     # preferred: verify the endpoint certificate
+      # insecure_tls: true                    # lab only; credentials may be intercepted
+      # Authenticated probes also require session_check_path and an identity marker.
+      # session_check_path: /api/whoami
+      # session_check_contains: expected-user
 
   - context: lab-spoke-1
     namespaces: ["*"]                      # full namespace access on spoke
+
+# Exact hosts may be used without discovery. Pin a Route's namespace,
+# resource and name to resolve it directly without listing routes.
+http_targets:
+  - context: lab-hub
+    host: ramen.apps.hub.lab.example
+    namespace: ramen-system
+    resource: routes
+    name: ramen
+    credentials: false
 
 # --- Running containers (podman/docker) ---------------------------------
 containers:

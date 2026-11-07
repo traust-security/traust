@@ -1,6 +1,7 @@
 """Real producer bytes respect the existing validation artifact contract."""
 
 import json
+from datetime import UTC, date, datetime
 
 import pytest
 from adapters import StepResult
@@ -11,8 +12,8 @@ from traust_core.v1.errors import DocumentError
 from traust_core.v1.models.artifacts import ValidationArtifact
 
 
-def produce(*, verdict="confirmed", reason="", controls=None):
-    scope = Scope(environment="lab")
+def produce(*, verdict="confirmed", reason="", controls=None, scope=None):
+    scope = scope or Scope(environment="lab")
     scope.modes.add("explicit")
     scope.clusters["fixture"] = ClusterScope(context="fixture", namespaces=["fixture"])
     normalized = Normalized(
@@ -74,6 +75,21 @@ def test_writer_gates_real_bytes_and_preserves_declared_and_auxiliary_meaning(tm
     assert producer["findings"][0]["surface"] == "ci-build"
     assert raw["metadata"]["target_attestation"]["fingerprint"] == {"target": "fixture"}
     assert markdown.is_file()
+
+
+def test_precise_lease_expiry_survives_recording(tmp_path):
+    scope = Scope(
+        environment="lab",
+        expires=date(2099, 1, 2),
+        expires_at=datetime(2099, 1, 2, 3, 4, 5, tzinfo=UTC),
+    )
+    path, _ = write(produce(scope=scope), tmp_path, "fixture")
+    artifact = ValidationArtifact.parse(path.read_bytes())
+    metadata = json.loads(artifact.payload)["metadata"]
+    assert metadata["expires"] == "2099-01-02"
+    assert (
+        metadata["additional"]["validation_producer"]["expires_at"] == "2099-01-02T03:04:05+00:00"
+    )
 
 
 def test_invalid_final_report_does_not_write_either_companion(tmp_path):

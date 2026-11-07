@@ -2,6 +2,7 @@
 progress-tracker/plans/harness-security-remediation-plan.md."""
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -28,30 +29,80 @@ from adapters.base import AdapterBase
     ],
 )
 def test_vet_shell_string_blocks(cmd, frag):
-    _argv, reason = AdapterBase._vet_shell_string(cmd)
+    _argv, reason = AdapterBase()._vet_shell_string(cmd)
     assert reason and frag in reason, (cmd, reason)
 
 
 def test_vet_shell_string_allows_legit():
-    argv, reason = AdapterBase._vet_shell_string(
-        'curl -sk https://api.x:6443/healthz -d \'{"a":"b;c"}\''
+    adapter = AdapterBase()
+    adapter.bind_scope(SimpleNamespace(curl_hosts=lambda: ("api.x",)))
+    argv, reason = adapter._vet_shell_string(
+        'curl -sS https://api.x:6443/healthz -d \'{"a":"b;c"}\''
     )
     assert not reason and argv[0] == "curl"
-    argv, reason = AdapterBase._vet_shell_string("oc get pods -o json | jq '.items[0]'")
+    argv, reason = adapter._vet_shell_string("oc get pods -o json | jq '.items[0]'")
     assert not reason and argv is None  # approved pipeline
+    _argv, reason = adapter._vet_shell_string("curl -k https://api.x:6443/healthz")
+    assert reason and "-k" in reason
 
 
 def test_run_blocks_instead_of_crashing():
-    rc, _out, err = AdapterBase._run("python3 -c 'print(1)'")
+    rc, _out, err = AdapterBase()._run("python3 -c 'print(1)'")
     assert rc == 126 and "step blocked" in err
 
 
 def test_string_steps_vet_against_core_shipped_profiles_in_an_empty_home(tmp_path, monkeypatch):
     monkeypatch.setenv("TRAUST_CONFIG_HOME", str(tmp_path))
-    monkeypatch.setattr(AdapterBase, "_safe_exec_policy", None)
-    assert AdapterBase._vet_shell_string("oc get pods") == (["oc", "get", "pods"], "")
-    _argv, reason = AdapterBase._vet_shell_string("sh -c evil")
+    adapter = AdapterBase()
+    assert adapter._vet_shell_string("oc get pods") == (["oc", "get", "pods"], "")
+    _argv, reason = adapter._vet_shell_string("sh -c evil")
     assert "never grantable" in reason
+
+
+def test_adapter_host_grants_are_per_instance():
+    first, second = AdapterBase(), AdapterBase()
+    first.bind_scope(SimpleNamespace(curl_hosts=lambda: ("first.example",)))
+    second.bind_scope(SimpleNamespace(curl_hosts=lambda: ("second.example",)))
+    assert not first._vet_shell_string("curl https://first.example/")[1]
+    assert second._vet_shell_string("curl https://first.example/")[1]
+    assert not second._vet_shell_string("curl https://second.example/")[1]
+
+
+def test_http_kube_runner_excludes_proxy_and_target_config(monkeypatch):
+    import adapters.base as base
+
+    calls = []
+
+    class Runner:
+        def __init__(self, allowed, *, keep_env):
+            calls.append((allowed, keep_env))
+
+        def run(self, argv, **kwargs):
+            calls.append((argv, kwargs))
+            return SimpleNamespace(returncode=0, stdout=b"ok", stderr=b"")
+
+    monkeypatch.setattr(base, "ProcessRunner", Runner)
+    assert AdapterBase()._run_http_kube(["kubectl", "get", "pods"]) == (0, "ok", "")
+    assert calls[0] == ({"oc", "kubectl"}, ("PATH", "HOME", "KUBECONFIG", "LANG", "LC_ALL"))
+    assert calls[1][1]["max_output_bytes"] == 4 * 1024 * 1024
+
+
+def test_http_kube_env_is_context_scoped():
+    from traust_core.v1.models.validation import HttpDiscovery
+
+    adapter = AdapterBase()
+    adapter.bind_scope(
+        SimpleNamespace(
+            curl_hosts=lambda: (),
+            clusters={
+                "lab": SimpleNamespace(http_discovery=HttpDiscovery(kube_env=("AUTH_TOKEN",)))
+            },
+        )
+    )
+    assert "AUTH_TOKEN" in adapter._http_kube_env_names("lab")
+    assert "AUTH_TOKEN" not in adapter._http_kube_env_names("other")
+    with pytest.raises(ValueError):
+        HttpDiscovery(kube_env=("HTTPS_PROXY",))
 
 
 def test_classify_ifs_evasion_not_safe():

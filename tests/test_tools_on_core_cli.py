@@ -173,6 +173,7 @@ def safe_exec_args(mode: str, profile: str = "go-scan", cmd=(), string=None, con
         cmd=list(cmd),
         timeout=30,
         cwd=None,
+        allowed_hosts=[],
     )
 
 
@@ -224,6 +225,25 @@ def test_safe_exec_lists_profiles_and_names_a_missing_one(capsys) -> None:
 def test_safe_exec_in_an_empty_home_lists_core_shipped_profiles(tmp_path: Path, capsys) -> None:
     assert util.call_safe_exec(safe_exec_args("list-profiles", config_home=tmp_path)) == 0
     assert any(line.startswith("go-scan ") for line in capsys.readouterr().out.splitlines())
+
+
+def test_safe_exec_passes_per_invocation_hosts_to_core(monkeypatch, capsys) -> None:
+    calls = []
+
+    class Policy:
+        def profile(self, name):
+            return name
+
+        def validate_argv(self, argv, profile, *, allowed_hosts):
+            calls.append((argv, profile, allowed_hosts))
+            return SimpleNamespace(ok=True)
+
+    monkeypatch.setattr(util, "load", lambda config_home: SimpleNamespace(safe_exec=Policy()))
+    args = safe_exec_args("check", "validation-step", ["curl", "https://lab.example/"])
+    args.allowed_hosts = ["lab.example"]
+    assert util.call_safe_exec(args) == 0
+    assert calls == [(["curl", "https://lab.example/"], "validation-step", ("lab.example",))]
+    assert capsys.readouterr().out == "OK\n"
 
 
 def test_the_doctor_checks_each_profile_tool_on_the_core_toolchain(

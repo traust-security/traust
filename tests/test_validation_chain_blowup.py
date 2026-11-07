@@ -84,6 +84,7 @@ class _Scope:
     engagement = None
     authorized_by = None
     expires = None
+    expires_at = None
 
     def target_environment(self):
         return "lab-hub-1"

@@ -24,13 +24,13 @@ except ImportError:  # pragma: no cover
 
 if __package__:
     from . import soundness
-    from .adapters import StepResult, get_adapter, kubeargv
+    from .adapters import StepResult, kubeargv, new_adapter
     from .novel import diff_surfaces, probe_steps
     from .scope import Action, Scope
 else:
     sys.path.insert(0, str(Path(__file__).parent))
     import soundness
-    from adapters import StepResult, get_adapter, kubeargv
+    from adapters import StepResult, kubeargv, new_adapter
     from novel import diff_surfaces, probe_steps
     from scope import Action, Scope
 
@@ -56,6 +56,24 @@ def _load_plan(path: Path) -> dict:
     if yaml and path.suffix in (".yaml", ".yml"):
         return yaml.safe_load(text)
     return json.loads(text)
+
+
+def _redact_http_target(target: dict) -> dict:
+    """Do not persist probe header values or URL query parameters in the audit."""
+    if not isinstance(target, dict) or not isinstance(target.get("http"), dict):
+        return target
+    target = dict(target)
+    http = dict(target["http"])
+    if isinstance(http.get("headers"), dict):
+        http["headers"] = {name: "[REDACTED]" for name in http["headers"]}
+    for key in ("path", "url"):
+        value = http.get(key)
+        if isinstance(value, str) and "?" in value:
+            http[key] = value.split("?", 1)[0] + "?[REDACTED]"
+    if isinstance(target.get("path"), str) and "?" in target["path"]:
+        target["path"] = target["path"].split("?", 1)[0] + "?[REDACTED]"
+    target["http"] = http
+    return target
 
 
 def _step_action(step: dict) -> Action:
@@ -87,6 +105,17 @@ def _step_actions(step: dict) -> tuple[list[Action], str | None]:
     actions = [base_action]
     if base_action.adapter != "k8s":
         return actions, None
+    http = (step.get("target") or {}).get("http")
+    if http is not None:
+        if base_action.verb != "port-forward+http":
+            return actions, "structured HTTP target requires port-forward+http"
+        if step.get("cmd") or step.get("rollback") or step.get("payload"):
+            return actions, "structured HTTP steps cannot carry command, payload or rollback text"
+        # The resolver checks every concrete resource and actual HTTP verb;
+        # a discovery hint is not an action against an unspecified object.
+        return [], None
+    if base_action.verb == "port-forward+http":
+        return actions, "HTTP steps require an authorized structured target"
     cmd = step.get("cmd") or ""
     if not cmd:
         return actions, None
@@ -113,7 +142,7 @@ def _step_actions(step: dict) -> tuple[list[Action], str | None]:
                     context=base_action.context,
                     namespace=ns,
                     resource=k.resource or base_action.resource,
-                    name=base_action.name,
+                    name=None if k.resource in {"node", "nodes"} else base_action.name,
                     image=base_action.image,
                 )
             )
@@ -159,13 +188,18 @@ def _load_evidence(r: StepResult, artifacts_dir: Path) -> str:
     return r.observed or ""
 
 
-def preflight(scope):
+def preflight(scope, *, config_home: Path | None = None):
     """Capture target fingerprints for ``metadata.target_fingerprint``.
 
     run.py calls this as ``ex.preflight(scope)`` (it always has — the
     function just never existed, so fingerprints came back empty).
     Delegates to each bound adapter's own ``preflight()``.
     """
+    safe_exec = None
+    if config_home is not None:
+        from traust.context import load
+
+        safe_exec = load(config_home).safe_exec
     fps = []
     seen = set()
     bound = []
@@ -180,7 +214,11 @@ def preflight(scope):
             continue
         seen.add(name)
         with contextlib.suppress(Exception):
-            fps.extend(get_adapter(name).preflight(scope))
+            adapter = new_adapter(name)
+            adapter.bind_scope(scope)
+            if safe_exec is not None:
+                adapter.bind_safe_exec(safe_exec)
+            fps.extend(adapter.preflight(scope))
     return fps
 
 
@@ -191,7 +229,24 @@ def run(
     *,
     permit_destructive: bool = False,
     second_pass_novel: bool = True,
+    config_home: Path | None = None,
 ) -> tuple[list[StepResult], AuditLog]:
+    adapters = {}
+    safe_exec = None
+    if config_home is not None:
+        from traust.context import load
+
+        safe_exec = load(config_home).safe_exec
+
+    def get_adapter(name):
+        if name not in adapters:
+            adapter = new_adapter(name)
+            adapter.bind_scope(scope)
+            if safe_exec is not None:
+                adapter.bind_safe_exec(safe_exec)
+            adapters[name] = adapter
+        return adapters[name]
+
     plan = _load_plan(plan_path)
     steps: list[dict] = list(plan.get("steps", []))
     artifacts_dir = out_dir / "artifacts"
@@ -215,6 +270,7 @@ def run(
         if flag:
             res.verdict = gated
             res.soundness_flag = flag
+        res.target = _redact_http_target(res.target)
         results.append(res)
         done[res.step_id] = res
         audit.append(
@@ -239,6 +295,18 @@ def run(
         sid = step["id"]
         verb = step.get("verb", "")
         cls = step.get("classification", "safe")
+        http = (step.get("target") or {}).get("http")
+        if isinstance(http, dict):
+            method = http.get("method", "GET")
+            # Structured HTTP probes have no supported compensation. Even a
+            # POST, PUT or PATCH therefore needs destructive authorization.
+            if method not in ("GET", "HEAD", "OPTIONS") or cls not in (
+                "safe",
+                "mutating",
+                "destructive",
+            ):
+                cls = "destructive"
+            step["classification"] = cls
 
         # pre-skipped in plan
         if step.get("skip") and verb != "placeholder":
@@ -367,7 +435,11 @@ def run(
             )
 
         # rollback mutating steps immediately after evidence capture
-        if cls == "mutating":
+        if (
+            cls == "mutating"
+            and http is None
+            and res.verdict not in {"blocked_by_scope", "not_attempted"}
+        ):
             try:
                 ok_rb, rb_out = adapter.rollback(step, res)
             except Exception as e:

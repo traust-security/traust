@@ -9,12 +9,17 @@ Produces:  ordered list of plan steps (recon → replay → chained → novel)
 
 from __future__ import annotations
 
+import fnmatch
 import json
 import re
+import shlex
 import sys
 from dataclasses import asdict, dataclass, field
 from itertools import count
 from pathlib import Path
+from urllib.parse import urlsplit
+
+from traust_core.v1.models.validation import origin
 
 try:
     import yaml
@@ -75,9 +80,181 @@ class Step:
 K8S_KIND_RE = re.compile(r"^\s*kind:\s*([A-Za-z][A-Za-z0-9]*)\s*$", re.MULTILINE)
 K8S_NS_RE = re.compile(r"^\s*namespace:\s*['\"]?([a-z0-9][a-z0-9-]*)['\"]?\s*$", re.MULTILINE)
 KUBECTL_RE = re.compile(r"^\s*(kubectl|oc)\s+", re.MULTILINE)
-CURL_RE = re.compile(r"^\s*curl\s+", re.MULTILINE)
+CURL_RE = re.compile(r"(?:^|[;&|])\s*(?:[^\s;&|]*/)?curl(?:\s|$)", re.MULTILINE)
+WRAPPED_CURL_RE = re.compile(
+    r"(?:^|[;&|])\s*(?:(?:[^\s;&|]*/)?"
+    r"(?:env|sh|bash|dash|ash|ksh|zsh|fish|csh|tcsh|busybox|sudo|command|timeout)\b|"
+    r"[A-Za-z_][A-Za-z0-9_]*=)[^\n]*\bcurl\b",
+    re.MULTILINE,
+)
+REMOTE_CURL_RE = re.compile(
+    r"(?:^|[;&|])\s*(?:[^\s;&|]*/)?(?:kubectl|oc|docker|podman)\b"
+    r"[^\n]*\b(?:exec|run|rsh|debug)\b[^\n]*\bcurl\b",
+    re.MULTILINE,
+)
 PODMAN_RE = re.compile(r"^\s*(podman|docker)\s+exec\s+", re.MULTILINE)
 WASM_RE = re.compile(r"\b(wasmtime|wasmedge|wasm-tools)\b")
+
+
+def _has_curl_command(body: str) -> bool:
+    # Check both spellings: an even backslash pair leaves a real newline,
+    # while a shell removes an escaped newline before parsing.
+    normalized = re.sub(r"\\\r?\n", "", body)
+    return any(
+        pattern.search(text)
+        for text in (body, normalized)
+        for pattern in (CURL_RE, WRAPPED_CURL_RE, REMOTE_CURL_RE)
+    )
+
+
+def _curl_step(sid: str, f: Finding, body: str, scope: Scope) -> Step | None:
+    """Translate only simple, exact direct or named-Route requests."""
+    body = body.strip()
+    if f.preconditions or any(c in body for c in "\n\r;$`|&<>\\"):
+        return None
+    claim = " ".join([f.title or "", f.description or "", f.attack_pattern or ""])
+    if re.search(
+        r"(?i)\bauthenticated\b|\brequires?\s+auth(?:entication)?\b|"
+        r"\bauthentication\s+(?:is\s+)?required\b|\blogged[- ]in\b|"
+        r"\bconsole user\b|\blow[- ]privilege user\b|"
+        r"\bcsrf\b|cross[- ]site request forgery",
+        claim,
+    ):
+        return None
+    try:
+        args = shlex.split(body)
+    except ValueError:
+        return None
+    if not args or args.pop(0) != "curl":
+        return None
+    method, url = "GET", None
+    method_set = False
+    while args:
+        arg = args.pop(0)
+        if arg in {"-s", "-S", "-sS", "-Ss", "--silent", "--show-error"}:
+            continue
+        if arg in {"-X", "--request"} and args and not method_set:
+            method, method_set = args.pop(0), True
+        elif arg in {"-I", "--head"} and not method_set:
+            method, method_set = "HEAD", True
+        elif arg == "--url" and args and url is None:
+            url = args.pop(0)
+        elif not arg.startswith("-") and url is None:
+            url = arg
+        else:
+            return None
+    if (
+        not url
+        or any(ord(c) <= 32 or ord(c) == 127 for c in url)
+        or method not in {"GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"}
+    ):
+        return None
+    try:
+        parsed = urlsplit(url)
+        scheme, host, _ = origin(f"{parsed.scheme}://{parsed.netloc}")
+        if (
+            "#" in url
+            or parsed.username
+            or parsed.password
+            or any(c in parsed.path or c in parsed.query for c in "{}[]")
+        ):
+            return None
+    except ValueError:
+        return None
+    if len(scope.selected_contexts) == 1:
+        ctx = scope.selected_contexts[0]
+    elif not scope.selected_contexts and len(scope.clusters) == 1:
+        ctx = next(iter(scope.clusters))
+    else:
+        return None
+    if not scope.http_context_allowed(ctx):
+        return None
+    matches = set()
+    for target in scope.http_targets:
+        if target.context != ctx or target.host != host:
+            continue
+        if target.resource in (None, "http_targets") and target.name is None:
+            matches.add(("direct", target.namespace, None))
+        elif target.resource == "routes" and target.namespace and target.name:
+            matches.add(("route", target.namespace, target.name))
+    method_verb = {
+        "GET": "get",
+        "HEAD": "get",
+        "OPTIONS": "get",
+        "POST": "create",
+        "PUT": "update",
+        "PATCH": "patch",
+        "DELETE": "delete",
+    }[method]
+    discovered: dict[str, set[str | None]] = {}
+    cluster = scope.clusters.get(ctx)
+    for grant in cluster.http_discovery.routes if cluster else ():
+        if not grant.accepts(grant.names[0] if grant.names else "", host):
+            continue
+        for route_name in grant.names or (None,):
+            if all(
+                scope.is_in_scope(
+                    Action(
+                        adapter="k8s",
+                        context=ctx,
+                        namespace=grant.namespace,
+                        resource="routes",
+                        name=route_name,
+                        verb=verb,
+                    )
+                )[0]
+                for verb in ("get" if route_name else "list", "port-forward+http", method_verb)
+            ):
+                discovered.setdefault(grant.namespace, set()).add(route_name)
+    for namespace, names in discovered.items():
+        if any(mode == "route" and ns == namespace for mode, ns, _ in matches):
+            continue
+        name = next(iter(names)) if len(names) == 1 else None
+        matches.add(("route", namespace, name))
+    if len(matches) != 1:
+        return None
+    mode, namespace, name = next(iter(matches))
+    port = parsed.port
+    path = parsed.path or "/"
+    if "?" in url:
+        path += "?" + parsed.query
+    if __package__:
+        from .http_endpoints import HttpProbe
+    else:
+        from http_endpoints import HttpProbe
+    try:
+        probe = HttpProbe(
+            mode=mode,
+            method=method,
+            path=path,
+            scheme=scheme,
+            port=port,
+            url=f"{parsed.scheme}://{parsed.netloc}",
+            name=name,
+            namespaces=(namespace,) if namespace else (),
+        )
+    except ValueError:
+        return None
+    return Step(
+        id=sid,
+        technique="replay",
+        adapter="k8s",
+        verb="port-forward+http",
+        finding_ref=f.id,
+        target={
+            "context": ctx,
+            "namespace": namespace,
+            "resource": "routes" if mode == "route" else "http_targets",
+            **({"name": name} if name else {}),
+            "method": method,
+            "path": path,
+            **({"port": port} if port is not None else {}),
+            "http": probe.model_dump(mode="json"),
+        },
+        classification="destructive" if method in {"POST", "PUT", "PATCH", "DELETE"} else "safe",
+        expected=f.attack_pattern or f.title,
+        summary=f.title,
+    )
 
 
 def _step_from_poc(sid: str, f: Finding, poc, scope: Scope) -> Step | None:
@@ -122,6 +299,8 @@ def _step_from_poc(sid: str, f: Finding, poc, scope: Scope) -> Step | None:
             ),
             summary=f.title,
         )
+    if _has_curl_command(body):
+        return _curl_step(sid, f, body, scope)
     if KUBECTL_RE.search(body):
         ctx = next(iter(scope.clusters), "__current__")
         ns_m = re.search(r"-n\s+([a-z0-9-]+)", body)
@@ -132,18 +311,6 @@ def _step_from_poc(sid: str, f: Finding, poc, scope: Scope) -> Step | None:
             verb="raw",
             finding_ref=f.id,
             target={"context": ctx, "namespace": ns_m.group(1) if ns_m else None},
-            cmd=body,
-            expected=f.attack_pattern or f.title,
-            summary=f.title,
-        )
-    if CURL_RE.search(body):
-        return Step(
-            id=sid,
-            technique="replay",
-            adapter="k8s",
-            verb="port-forward+http",
-            finding_ref=f.id,
-            target={"context": next(iter(scope.clusters), "__current__")},
             cmd=body,
             expected=f.attack_pattern or f.title,
             summary=f.title,
@@ -855,203 +1022,142 @@ def _http_adapted_step(
         method, path, port = coords
     # ``/api/x/{a,b,c}`` → pick the first variant so curl resolves.
     path = re.sub(r"\{([^,}]+)(?:,[^}]*)?\}", r"\1", path, count=2)
-    ctx = next(iter(scope.clusters), "__current__")
-    cs = scope.clusters.get(ctx)
-    nss = (
-        sorted(cs.explicit_namespaces)
-        if cs and cs.explicit_namespaces
-        else [p for p in (cs.namespaces if cs else []) if "*" not in p]
-    )
-    ns = nss[0] if nss else ""
-    ns_list = " ".join(nss) or ns
-    hint = _svc_hint(f)
-    # H4: hostNetwork-only listener — port-forward targets the pod
-    # netns, so a host-namespace socket isn't reachable that way.
-    # Probe from the node itself via ``oc debug node``.
-    # r4 refinement: trigger ONLY on the TITLE (descriptions of CSI
-    # findings routinely mention "hostNetwork: true on the node
-    # DaemonSet" as context while the claim is about the controller's
-    # in-pod listener — H4 v1 hijacked 10 such findings) AND only
-    # when a concrete port was extracted (defaulting to 8080 is
-    # never right; it produced connection-refused on every node).
-    if port and re.search(
-        r"(?i)\bhostNetwork\b|node IP|node.s primary interface"
-        r"|bound (?:directly )?on the node",
-        f.title or "",
-    ):
-        hp = port
-        cmd = (
-            f"NODE=$(oc --context {ctx} get node -o name | head -1); "
-            f"oc --context {ctx} debug $NODE -- chroot /host "
-            f"curl -sS --max-time 10 http://127.0.0.1:{hp}{path} "
-            f"-w '\\nvf-http-status:%{{http_code}}'"
-        )
-        return Step(
-            id=sid,
-            technique="adapted",
-            adapter="k8s",
-            verb="port-forward+http",
-            finding_ref=f.id,
-            target={"context": ctx, "namespace": ns, "method": method, "path": path, "port": hp},
-            cmd=cmd,
-            classification="mutating",
-            expected=f.attack_pattern or f.title,
-            rollback="# debug pod auto-removed on exit",
-            summary=f"hostNetwork node-debug probe {method} :{hp}{path}",
-        )
-    # H1: admin/debug paths and the monitoring CO are NOT router-
-    # exposed — Route-first selection hits the HAProxy "503 Application
-    # is not available" page for all 11 monitoring findings.  Skip the
-    # Route loop entirely and go straight to port-forward against a
-    # Service whose name matches the source-repo hint.
-    skip_route = bool(
-        re.search(r"^/debug/|^/-/|/api/v\d+/admin", path) or "openshift-monitoring" in nss
-    )
-    # r4 refinement: the static _SVC_HINT_RE matched generic words
-    # ("router", "webhook") that appear in finding text as feature
-    # names, not service names.  When skip_route is set (port-forward-
-    # only path), the repo-derived hint is the right selector
-    # (prometheus → "prometheus", thanos → "thanos", etc.); the
-    # generic regex hint sent every monitoring probe to
-    # vf-no-svc-in-scope:router.  Same for console findings: the
-    # title's "webhook" is a feature, the svc is "console".
-    if skip_route or hint in ("webhook", "router", "kube-rbac-proxy"):
-        hint = _svc_hint(f, repo_only=True)
-    # Route-first (core-OCP web components are Route-exposed); fall back to
-    # an inline port-forward against the first Service in the namespace.
-    # The bearer token is a short-lived low-privilege one — matches the
-    # "any authenticated user" precondition typical of these findings.
-    #
-    # CSRF round-trip: prime a cookie jar with GET / (Authorization header
-    # set so console's auth handler issues the csrf-token cookie), then
-    # replay the probe with -b jar + X-CSRFToken header.  Harmless on
-    # endpoints without CSRF (header ignored, jar empty).  Avoids the
-    # false ``refuted`` from `403 invalid CSRFToken` seen in the
-    # core-ocp-4.22 console pilot.
-    probe = (
-        "JAR=$(mktemp); "
-        'curl -sk -c "$JAR" "$BASE/" -o /dev/null; '
-        r'CSRF=$(awk "/[Cc][Ss][Rr][Ff]/ {print \$NF; exit}" "$JAR"); '
-        'rm -f "$JAR"; '
-        # Send ONLY the csrf cookie — replaying the full jar can include an
-        # anonymous session cookie that overrides the bearer header
-        # (observed on openshift-console: full-jar → 401, csrf-only → auth
-        # falls through to bearer).
-        # --compressed: some endpoints (oauth-apiserver) return gzip and
-        # the adapter chokes on the raw bytes.
-        f'curl -sk --compressed -X {method} "$BASE{path}" '
-        '  -H "Authorization: Bearer $T" '
-        '  -H "Cookie: csrf-token=$CSRF" '
-        '  -H "X-CSRFToken: $CSRF" -H "X-CSRF-Token: $CSRF" '
-        "  -w '\\nvf-http-status:%{http_code}'"
-    )
-    # Token: for /metrics paths use the prometheus-k8s SA (it has the
-    # ClusterRole that kube-rbac-proxy SARs against — kube:admin OAuth
-    # paradoxically fails SAR with ``resource=`` empty).  Otherwise
-    # prefer VF_OAUTH_TOKEN, fall back to a low-priv SA token.
-    token_block = (
-        (
-            f'T="$(oc --context {ctx} -n openshift-monitoring '
-            f'create token prometheus-k8s --duration=10m 2>/dev/null)"; '
-            f'[ -z "$T" ] && '
-            if path.rstrip("/").endswith("/metrics")
-            else ""
-        )
-        + f'T="${{T:-${{VF_OAUTH_TOKEN:-$(oc --context {ctx} -n {ns} '
-        f'create token default --duration=10m 2>/dev/null)}}}}"; '
-    )
-    # Route selection — by component-name hint only.  H5: NO first-route
-    # fallback when $HINT is non-empty (a wrong-component Route produced
-    # 3 false-confirms in storage/* — INCONCLUSIVE-FIX-PLAN §H5).
-    route_block = (
-        f"for N in {ns_list}; do "
-        f"  R=$(oc --context {ctx} -n $N get route "
-        f"       -o jsonpath='{{range .items[*]}}{{.metadata.name}} "
-        f'{{.spec.host}}{{"\\n"}}{{end}}\' 2>/dev/null); '
-        f'  [ -z "$R" ] && continue; '
-        f'  if [ -n "$HINT" ]; then '
-        f'    H=$(echo "$R" | grep -iE -- "$HINT" | head -1 '
-        f"| awk '{{print $2}}'); "
-        f'  else H=$(echo "$R" | head -1 '
-        f"| awk '{{print $2}}'); fi; "
-        f'  [ -n "$H" ] && break; '
-        f"done; "
-    )
-    # Service selection + port-forward.  H3: when the finding names a
-    # specific port, forward to THAT containerPort (kubectl resolves
-    # svc→pod targetPort by number).  H5: NO first-svc fallback when
-    # $HINT is set — emit ``vf-no-svc-in-scope:$HINT`` instead so the
-    # verdict layer can route to infra/manual instead of a junk 404.
-    # r4: emit one line per (svc, port, targetPort) so H3's port-match
-    # scans every exposed port (prometheus-k8s exposes 9091/9092 but the
-    # claim is :9090 → previously no-match → vf-no-svc-in-scope).
-    # go-template is used (jsonpath has no nested-range variable bind).
-    # When a port is named, port-forward to the POD (selector-matched)
-    # so a containerPort that isn't surfaced in the Service still works.
-    # Probe https first, retry plain http on TLS-handshake/000 — most
-    # pprof/admin/gossip listeners are plaintext-only.
-    svc_tpl = (
-        r"{{range .items}}{{$n:=.metadata.name}}"
-        r"{{range .spec.ports}}"
-        r'{{$n}} {{.port}} {{.targetPort}}{{"\n"}}'
-        r"{{end}}{{end}}"
-    )
-    svc_block = (
-        f"for N in {ns_list}; do "
-        f"  SV=$(oc --context {ctx} -n $N get svc "
-        f"      -o go-template='{svc_tpl}' 2>/dev/null); "
-        f'  [ -z "$SV" ] && continue; '
-        + (
-            f"  L=$(echo \"$SV\" | awk -v p={port} '$2==p||$3==p{{print; exit}}'); "
-            if port
-            else "  L=; "
-        )
-        + '  [ -z "$L" ] && [ -n "$HINT" ] && '
-        '    L=$(echo "$SV" | grep -iE -- "$HINT" | head -1); '
-        '  [ -z "$L" ] && [ -z "$HINT" ] && '
-        '    L=$(echo "$SV" | head -1); '
-        "  S=$(echo $L | awk '{print $1}'); "
-        "  P=$(echo $L | awk '{print $2}'); "
-        '  [ -n "$S" ] && break; '
-        "done; "
-        + (
-            (
-                f"P={port}; "
-                f"SEL=$(oc --context {ctx} -n $N get svc $S "
-                f"-o go-template="
-                f"'{{{{range $k,$v := .spec.selector}}}}"
-                f"{{{{$k}}}}={{{{$v}}}},{{{{end}}}}' 2>/dev/null "
-                f"| sed 's/,$//'); "
-                f'POD=$(oc --context {ctx} -n $N get pod -l "$SEL" '
-                f"-o name 2>/dev/null | head -1); "
-                f'TGT="${{POD:-svc/$S}}"; '
-            )
-            if port
-            else 'TGT="svc/$S"; '
-        )
-        + f'if [ -z "$S" ]; then '
-        f'  echo "vf-no-svc-in-scope:$HINT"; '
-        f"  printf '\\nvf-http-status:000'; "
-        f"else "
-        f'  oc --context {ctx} -n $N port-forward "$TGT" '
-        f'    18443:"$P" >/dev/null 2>&1 & PF=$!; sleep 2; '
-        f'  OUT=$(BASE="https://127.0.0.1:18443"; {probe}); '
-        f'  case "$OUT" in *vf-http-status:000*) '
-        f'    OUT=$(BASE="http://127.0.0.1:18443"; {probe});; esac; '
-        f'  echo "$OUT"; '
-        f"  kill $PF 2>/dev/null; "
-        f"fi"
-    )
-    if skip_route:
-        cmd = f'HINT="{hint}"; H=; S=; ' + token_block + svc_block
+    if scope.selected_contexts:
+        ctx = scope.selected_contexts[0]
+    elif len(scope.clusters) == 1:
+        ctx = next(iter(scope.clusters))
     else:
-        cmd = (
-            f'HINT="{hint}"; H=; S=; '
-            + route_block
-            + token_block
-            + f'if [ -n "$H" ]; then BASE="https://$H"; {probe}; '
-            f"else " + svc_block + "; fi"
+        return None
+    cs = scope.clusters.get(ctx)
+    nss = set(cs.explicit_namespaces or cs.namespaces) if cs else set()
+    if cs:
+        nss.update(cs.namespace_hints)
+        nss.update(grant.namespace for grant in cs.http_discovery.routes)
+        nss.update(
+            target.namespace
+            for target in scope.http_targets
+            if target.context == ctx
+            and target.resource == "routes"
+            and target.name
+            and target.namespace
         )
+    nss = {ns for ns in nss if isinstance(ns, str) and re.fullmatch(r"[a-z0-9][a-z0-9-]*", ns)}
+    if __package__:
+        from .http_endpoints import HttpProbe
+    else:
+        from http_endpoints import HttpProbe
+
+    node = bool(
+        port
+        and re.search(
+            r"(?i)\bhostNetwork\b|node IP|node.s primary interface|bound (?:directly )?on the node",
+            f.title or "",
+        )
+    )
+    method_verb = {
+        "GET": "get",
+        "HEAD": "get",
+        "OPTIONS": "get",
+        "POST": "create",
+        "PUT": "update",
+        "PATCH": "patch",
+        "DELETE": "delete",
+    }.get(method)
+    service = bool(
+        re.search(r"^/debug/|^/-/|/api/v\d+/admin", path)
+        or (
+            cs
+            and "openshift-monitoring" in nss
+            and scope.http_context_allowed(ctx)
+            and any(
+                fnmatch.fnmatchcase("openshift-monitoring", pattern)
+                for pattern in cs.explicit_namespaces
+            )
+            and method_verb
+            and all(
+                scope.is_in_scope(
+                    Action(
+                        adapter="k8s",
+                        verb=verb,
+                        context=ctx,
+                        namespace="openshift-monitoring",
+                        resource="services",
+                    )
+                )[0]
+                for verb in ("port-forward+http", method_verb)
+            )
+        )
+    )
+    resource = "services" if service else "routes"
+    namespaces = (
+        tuple(
+            namespace
+            for namespace in sorted(nss)
+            if scope.http_context_allowed(ctx)
+            and cs
+            and (
+                any(fnmatch.fnmatchcase(namespace, pattern) for pattern in cs.explicit_namespaces)
+                if service
+                else (
+                    any(grant.namespace == namespace for grant in cs.http_discovery.routes)
+                    or any(
+                        target.context == ctx
+                        and target.namespace == namespace
+                        and target.resource == "routes"
+                        and target.name
+                        for target in scope.http_targets
+                    )
+                )
+            )
+            and method_verb
+            and all(
+                scope.is_in_scope(
+                    Action(
+                        adapter="k8s",
+                        verb=verb,
+                        context=ctx,
+                        namespace=namespace,
+                        resource=resource,
+                    )
+                )[0]
+                for verb in ("port-forward+http", method_verb)
+            )
+        )
+        if not node
+        else ()
+    )
+    ns = namespaces[0] if len(namespaces) == 1 else None
+    hint = _svc_hint(f)
+    if service or hint in {"webhook", "router", "kube-rbac-proxy"}:
+        hint = _svc_hint(f, repo_only=True)
+    claim = " ".join([f.title or "", f.description or "", f.attack_pattern or "", *f.preconditions])
+    authenticated = bool(
+        re.search(
+            r"(?i)(?<!un)authenticated\s+(?:user|caller|attacker|client)|"
+            r"\blogged[- ]in\b|\bconsole user\b|\blow[- ]privilege user\b",
+            claim,
+        )
+    )
+    node_grant = cs.http_discovery.nodes if node and cs else None
+    node_name = node_grant.names[0] if node_grant and len(node_grant.names) == 1 else None
+    csrf = bool(re.search(r"(?i)\bcsrf\b|cross[- ]site request forgery", claim))
+    if csrf and not re.search(r"(?i)unauthenticated|without authentication", claim):
+        authenticated = True
+    try:
+        probe = HttpProbe(
+            mode="node" if node else "service" if service else "route",
+            method=method,
+            path=path,
+            port=port,
+            namespaces=namespaces,
+            hint=hint,
+            name=node_name,
+            authenticate=authenticated,
+            csrf=csrf,
+            service_account="prometheus-k8s" if path.rstrip("/").endswith("/metrics") else None,
+        )
+    except ValueError:
+        return None
     return Step(
         id=sid,
         technique="adapted",
@@ -1060,17 +1166,18 @@ def _http_adapted_step(
         finding_ref=f.id,
         target={
             "context": ctx,
-            "namespace": ns,
+            "namespace": None if node else ns,
+            **({"name": node_name} if node_name else {}),
+            "resource": "nodes" if node else "services" if service else "routes",
             "method": method,
             "path": path,
             **({"port": port} if port else {}),
+            "http": probe.model_dump(mode="json"),
         },
-        cmd=cmd,
+        cmd=None,
+        classification="destructive" if method in {"POST", "PUT", "PATCH", "DELETE"} else "safe",
         expected=f.attack_pattern or f.title,
-        summary=f"HTTP probe {method} {path}"
-        + (f" :{port}" if port else "")
-        + (" [pf-only]" if skip_route else "")
-        + f" (adapted from {','.join(sorted(set(f.cwes) & HTTP_CWES))})",
+        summary=f"HTTP probe {method} {path} ({probe.mode})",
     )
 
 
@@ -1091,14 +1198,37 @@ def _spoof_adapted_step(sid: str, f: Finding, scope: Scope, tm) -> Step | None:
     coords = _resolve_http_coords(f, tm) or ("GET", "/", None)
     s = _http_adapted_step(sid, f, scope, tm, force_coords=(coords[0], coords[1]))
     if not s:
-        return None
-    inject = " ".join(f'-H "{h}: vf-spoof-canary"' for h in dict.fromkeys(hdrs))
-    s.cmd = s.cmd.replace(
-        '-H "Authorization: Bearer $T"', f'-H "Authorization: Bearer $T" {inject}', 1
-    )
-    s.cmd = s.cmd.replace(
-        '-H "Authorization: Bearer $T"', f'-H "Authorization: Bearer $T" {inject}', 1
-    )
+        return Step(
+            id=sid,
+            technique="skip",
+            adapter="k8s",
+            verb="noop",
+            finding_ref=f.id,
+            skip="spoof-probe-unavailable",
+            summary=f.title,
+        )
+    if __package__:
+        from .http_endpoints import HttpProbe
+    else:
+        from http_endpoints import HttpProbe
+    try:
+        probe = HttpProbe.model_validate(
+            {
+                **s.target["http"],
+                "headers": {header: "vf-spoof-canary" for header in dict.fromkeys(hdrs)},
+            }
+        )
+    except ValueError:
+        return Step(
+            id=sid,
+            technique="skip",
+            adapter="k8s",
+            verb="noop",
+            finding_ref=f.id,
+            skip="spoof-header-adapter-owned",
+            summary=f.title,
+        )
+    s.target["http"] = probe.model_dump(mode="json")
     s.expected = f"upstream reflects/honours spoofed {hdrs[0]} — {f.attack_pattern or f.title}"
     s.summary = f"header-spoof probe {','.join(dict.fromkeys(hdrs))} ({','.join(f.cwes)})"
     return s
@@ -1232,6 +1362,7 @@ def build_plan(
                 )
                 continue
             made = False
+            unsupported_curl = False
             for poc in f.pocs:
                 s = _step_from_poc("__tmp__", f, poc, scope)
                 if s:
@@ -1241,6 +1372,22 @@ def build_plan(
                     steps.append(s)
                     finding_step.setdefault(f.id, s.id)
                     made = True
+                elif _has_curl_command(poc.body):
+                    steps.append(
+                        Step(
+                            id=sid(),
+                            technique="skip",
+                            adapter="k8s",
+                            verb="noop",
+                            finding_ref=f.id,
+                            skip="unsupported-curl-poc",
+                            summary=f.title,
+                            triage_was_needs_review=True if needs_review else None,
+                        )
+                    )
+                    unsupported_curl = True
+            if unsupported_curl and not made:
+                continue
             if not made:
                 s_id = sid()
                 # H10: rbac before secret-scan.  RBAC is now strongly
@@ -1251,8 +1398,8 @@ def build_plan(
                 # them via an unrelated cert/secret in the namespace.
                 s = (
                     _manual_poc_step(s_id, f, scope)
-                    or _http_adapted_step(s_id, f, scope, n.threat_model)
                     or _spoof_adapted_step(s_id, f, scope, n.threat_model)
+                    or _http_adapted_step(s_id, f, scope, n.threat_model)
                     or _rbac_adapted_step(s_id, f, scope)
                     or _secret_adapted_step(s_id, f, scope)
                     or _adapted_step(s_id, f, scope)
@@ -1338,22 +1485,53 @@ def build_plan(
         cls = ad.classify(s.verb, s.payload, s.cmd)
         if _cls_rank.get(cls, 0) >= _cls_rank.get(s.classification, 0):
             s.classification = cls
+        http = s.target.get("http")
+        # Manual PoCs may supply their own structured target and claim a
+        # lower classification; these writes also lack compensation.
+        if isinstance(http, dict) and http.get("method", "GET") not in ("GET", "HEAD", "OPTIONS"):
+            s.classification = "destructive"
         if s.classification == "destructive" and not permit_destructive:
             s.skip = "destructive-not-permitted"
-        ok, reason = scope.is_in_scope(
-            Action(
-                adapter=s.adapter,
-                verb=s.verb,
-                context=s.target.get("context"),
-                namespace=s.target.get("namespace"),
-                resource=s.target.get("resource"),
-                name=s.target.get("name"),
-                image=s.target.get("image"),
-                artifact=s.target.get("artifact"),
-            )
+        namespaces = (
+            http.get("namespaces") or [s.target.get("namespace")]
+            if isinstance(http, dict)
+            else [s.target.get("namespace")]
         )
-        if not ok:
-            s.skip = s.skip or f"blocked_by_scope: {reason}"
+        names = [s.target.get("name")]
+        scope_verb = s.verb
+        if isinstance(http, dict) and http.get("mode") == "node" and not names[0]:
+            cluster = scope.clusters.get(s.target.get("context"))
+            grant = cluster.http_discovery.nodes if cluster else None
+            if grant and grant.names:
+                names = list(grant.names)
+            elif grant is not None:
+                # The list is the only pre-resolution action; the resolver
+                # reauthorizes every concrete node and method before probing.
+                scope_verb = "list"
+        for namespace in namespaces:
+            for name in names:
+                ok, reason = scope.is_in_scope(
+                    Action(
+                        adapter=s.adapter,
+                        verb=scope_verb,
+                        context=s.target.get("context"),
+                        namespace=namespace,
+                        resource=s.target.get("resource"),
+                        name=name,
+                        image=s.target.get("image"),
+                        artifact=s.target.get("artifact"),
+                        **(
+                            {"url": http.get("url")}
+                            if s.adapter == "k8s"
+                            and s.verb == "port-forward+http"
+                            and isinstance(http, dict)
+                            and http.get("mode") == "direct"
+                            else {}
+                        ),
+                    )
+                )
+                if not ok:
+                    s.skip = s.skip or f"blocked_by_scope: {reason}"
 
     return steps, chains
 

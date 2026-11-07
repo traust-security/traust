@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import datetime as dt
 import importlib.util
+import json
 import sys
 from types import SimpleNamespace
 
@@ -90,6 +91,44 @@ def test_from_file_reads_engagement_and_expiry(tmp_path):
     scope = _targets(tmp_path).scope
     assert (scope.engagement, scope.authorized_by, scope.environment) == ("lab-1", "shaun", "lab")
     assert scope.expires == dt.date(2999, 1, 1)
+
+
+@pytest.mark.parametrize("value", ["null", "''", "'not-a-date'", "'2099-01-01T12:00:00'"])
+def test_browser_rejects_invalid_or_naive_expiry(tmp_path, value):
+    with pytest.raises(ValueError):
+        _targets(tmp_path, expires=value)
+
+
+def test_browser_precise_expiry_is_preserved_and_enforced_per_action(tmp_path):
+    now = dt.datetime.now(dt.UTC)
+    targets = _targets(tmp_path, expires=f"'{(now + dt.timedelta(minutes=5)).isoformat()}'")
+    assert targets.scope.expires_at == now + dt.timedelta(minutes=5)
+    adapter = _FakeAdapter()
+    executor = PlanExecutor(adapter, targets, _RecordingAudit())
+    assert executor._execute_step(_step(), tmp_path, destructive=False).verdict == "confirmed"
+    targets.scope = targets.scope.model_copy(update={"expires_at": now - dt.timedelta(seconds=1)})
+    result = executor._execute_step(_step(), tmp_path, destructive=False)
+    assert result.verdict == "blocked_by_scope" and "expired" in result.observed
+
+
+def test_browser_timestamp_boundary_uses_core_scope(tmp_path):
+    deadline = dt.datetime(2099, 1, 2, 3, 4, 5, tzinfo=dt.timezone(dt.timedelta(hours=3)))
+    scope = _targets(tmp_path, expires=f"'{deadline.isoformat()}'").scope
+    action = _run.ValidationAction(kind=_run.ValidationActionKind.BROWSER, verb="navigate")
+    target = _run.ValidationTarget(url="http://victim.example.com/x")
+    assert scope.permits(action, target, as_of=deadline - dt.timedelta(microseconds=1))
+    assert not scope.permits(action, target, as_of=deadline)
+
+
+def test_browser_report_preserves_date_and_exact_expiry(tmp_path):
+    deadline = dt.datetime(2099, 1, 2, 3, 4, 5, tzinfo=dt.UTC)
+    scope = _targets(tmp_path, expires=f"'{deadline.isoformat()}'").scope
+    audit = tmp_path / "audit.jsonl"
+    audit.write_text("")
+    path = _run.ReportBuilder(scope, "fixture").build([], {}, audit, tmp_path, None)
+    metadata = json.loads(path.read_text())["metadata"]
+    assert metadata["expires"] == "2099-01-02"
+    assert metadata["additional"]["validation_producer"]["expires_at"] == deadline.isoformat()
 
 
 def test_credentials_stay_out_of_core_scope(tmp_path):

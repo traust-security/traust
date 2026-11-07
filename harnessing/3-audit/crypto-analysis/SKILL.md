@@ -84,6 +84,9 @@ crypto probes usually target) need explicit mode-1 listing, denied
 namespaces are skipped and recorded (the command gates and records: the
 census's `scope` and `gaps`, and a scope log line per decision), and zero
 in-scope namespaces yields an empty fail-closed census, never a probe.
+The same targets file can carry a date-only expiry or a timezone-aware ISO
+datetime lease; a timestamp expires at its exact instant. Naive or malformed
+timestamps are refused. Core checks the live deadline for each cluster action.
 
 | Tier | Command | Keyed by | What it proves |
 |---|---|---|---|

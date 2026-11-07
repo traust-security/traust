@@ -25,6 +25,12 @@ This answers: "Is the app *inherently* vulnerable, or does it rely on external m
 | Lab | OCP cluster / docker containers | docker-compose (app + attacker + playwright) |
 | Evidence | Logs, manifests, WASM output | HAR, screenshots, DOM state, cookies |
 
+Browser targets may specify an `expires` date (valid through that date) or a
+timezone-aware ISO datetime (valid until that instant). Naive or malformed
+timestamps are refused, and each browser action rechecks the current deadline.
+Reports keep `metadata.expires` date-only and preserve a precise deadline in
+`metadata.additional.validation_producer.expires_at`.
+
 ## Usage
 
 ### Layer 1-2: Local (all severities)

@@ -346,6 +346,7 @@ def build_validation_json(
             "target_attestation": target_attestation,
             "additional": {
                 "validation_producer": {
+                    **({"expires_at": scope.expires_at.isoformat()} if scope.expires_at else {}),
                     "not_attempted_by_reason": dict(not_attempted_by_reason),
                     "by_surface": dict(
                         Counter(getattr(f, "surface", "runtime") for f in n.findings)

@@ -63,7 +63,6 @@ def test_traust_impact_analyze_help():
         check=False,
     )
     assert proc.returncode == 0
-    assert "Assess every commit an advisory reaches" in proc.stdout
     assert "--config-home" in proc.stdout
 
 

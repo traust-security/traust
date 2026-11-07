@@ -6,8 +6,8 @@ package  the advisories affecting one package version, as their source lists the
 sbom     a commit's manifest SBOM (CycloneDX / SPDX JSON from syft or osv-scanner), or syft over a
          checkout of the commit when no document is given
 symbols  the functions the advisory's fix touched: published, or mined from its fix commits
-analyze  every commit the advisory reaches (or one): evidence, classification, an `impact`
-         assessment each, and a dependency finding for each `affected` commit
+analyze  every commit the advisory reaches (or one): an `impact` assessment per prepared
+         package/version, and a dependency finding for each `affected` result
 sweep    which known advisories touch the recorded SBOMs at all, each with its `analyze` argv
 document a registered feed source's document for one identifier (NVD, Red Hat CSAF or VEX, ...)
 enrich   EPSS and KEV on the CVE-bearing items of findings/candidates artifacts, with the
@@ -171,7 +171,7 @@ def symbols(argv: list[str] | None = None) -> int:
 
 
 def analyze(argv: list[str] | None = None) -> int:
-    ap = _parser("analyze", "Assess every commit an advisory reaches, or one, and record each.")
+    ap = _parser("analyze", "Assess and record each advisory package/version per reached commit.")
     ap.add_argument("advisory")
     _advisory_files(ap)
     ap.add_argument("--repo-url", help="assess only this repository's commit (with --sha)")
@@ -217,8 +217,8 @@ def analyze(argv: list[str] | None = None) -> int:
         judged = [s.strip() for s in args.symbols.split(",") if s.strip()]
         recorded = []
         for ref_id in commits:
-            # Core prepares one commit against the advisory (one analysis per commit).
-            prepared = (exposure.prepare(advisory_id, ref_id, judged=judged),)
+            # Prepare every package/version for this commit as one scope.
+            prepared = exposure.prepare(advisory_id, ref_id, judged=judged)
             if args.scan and any(
                 p.evidence.classification(p.package.ecosystem) in UNDECIDED for p in prepared
             ):
@@ -230,7 +230,7 @@ def analyze(argv: list[str] | None = None) -> int:
                     )
                 ).data
                 try:
-                    prepared = (exposure.prepare(advisory_id, ref_id, workspace.path, judged),)
+                    prepared = exposure.prepare(advisory_id, ref_id, workspace.path, judged)
                 finally:
                     services.checkouts.release(workspace)
             for item in prepared:

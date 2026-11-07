@@ -611,3 +611,172 @@ def test_receipt_does_not_repeat_untrusted_observations(recording, capsys):
     assert "rationale" not in receipt["findings"][0]
     (saved,) = load(recording["config"]).services().findings.history(recording["finding_id"])
     assert secret in saved.rationale
+
+
+def test_generated_http_plan_round_trips_through_core(recording, tmp_path):
+    import yaml
+    from ingest import Finding
+    from plan import _http_adapted_step, write_plan
+    from scope import ClusterScope, Scope
+    from traust_core.v1.errors import ForbiddenError, ValidationError
+    from traust_core.v1.models.artifacts import ValidationPlanArtifact
+    from traust_core.v1.models.identity import IdentitySource, Principal
+    from traust_core.v1.models.validation import HttpDiscovery, HttpTarget
+    from traust_core.v1.models.vocabulary import ActorKind, ValidationApprovalMode
+
+    policy = HttpDiscovery.model_validate(
+        {
+            "routes": [
+                {
+                    "namespace": "app",
+                    "names": ["web"],
+                    "domains": ["apps.example"],
+                    "credentials": True,
+                }
+            ],
+            "nodes": {
+                "names": ["node-0"],
+                "networks": ["10.0.0.0/24"],
+                "address_types": ["InternalIP"],
+                "credentials": True,
+            },
+            "port_forward_credentials": True,
+            "kube_env": ["AUTH_TOKEN"],
+            "ca_bundle": "/etc/traust/lab-ca.pem",
+            "insecure_tls": True,
+            "session_check_path": "/whoami",
+            "session_check_contains": "user: alice",
+        }
+    )
+    scope = Scope(
+        engagement="authorized-lab",
+        authorized_by="Security",
+        environment="lab",
+        expires_at=datetime(2099, 1, 2, 3, 4, 5, tzinfo=UTC),
+        modes={"explicit"},
+    )
+    scope.clusters["lab"] = ClusterScope(
+        context="lab",
+        api="https://api.example:6443",
+        namespaces=["app"],
+        explicit_namespaces={"app"},
+        http_discovery=policy,
+    )
+    scope.http_targets = (
+        HttpTarget(
+            host="web.apps.example",
+            context="lab",
+            namespace="app",
+            resource="routes",
+            name="web",
+            credentials=True,
+        ),
+    )
+    finding = Finding(
+        id="f001",
+        title="HTTP metrics endpoint",
+        severity="high",
+        cwes=["CWE-200"],
+        description="GET /metrics",
+        preconditions=["authenticated user"],
+    )
+    step = _http_adapted_step("step-001", finding, scope, tm=None)
+    assert step is not None
+    assert step.target["http"]["authenticate"] is True
+    plan_path = write_plan([step], [], tmp_path / "plan.yaml", target_name="fixture", scope=scope)
+    generated = yaml.safe_load(plan_path.read_text())
+    artifact = ValidationPlanArtifact.from_document(generated)
+    validation = load(recording["config"]).services().validation
+    ref = validation.plan(artifact)
+    saved = validation.get_plan(ref.id)
+    assert saved.payload == artifact.payload
+    assert json.loads(saved.payload)["steps"][0]["target"]["http"] == step.target["http"]
+    principal = Principal(
+        identity="reviewer@example.com",
+        kind=ActorKind.HUMAN,
+        display="Reviewer",
+        verified_by=IdentitySource.LOCAL_USER,
+    )
+    complete = scope._core_scope()
+    incomplete = complete.model_copy(
+        update={
+            "http_targets": (),
+            "clusters": (complete.clusters[0].model_copy(update={"http_discovery": None}),),
+        }
+    )
+    with pytest.raises((ForbiddenError, ValidationError)):
+        validation.authorize(
+            ref.id, incomplete, principal, confirmed=True, mode=ValidationApprovalMode.INTERACTIVE
+        )
+    with pytest.raises((ForbiddenError, ValidationError)):
+        validation.authorize(
+            ref.id,
+            complete.model_copy(update={"environment": "production"}),
+            principal,
+            confirmed=True,
+            mode=ValidationApprovalMode.INTERACTIVE,
+        )
+    approval = validation.authorize(
+        ref.id,
+        complete,
+        principal,
+        confirmed=True,
+        mode=ValidationApprovalMode.INTERACTIVE,
+    )
+    authorized = json.loads(validation.get_authorization(approval.id).payload)
+    assert authorized["plan_id"] == str(ref.id)
+    assert authorized["plan_digest"] == ref.digest
+    snapshot = authorized["scope"]
+    assert datetime.fromisoformat(snapshot["expires_at"]) == scope.expires_at
+    assert snapshot["clusters"][0]["api"] == "https://api.example:6443"
+    assert snapshot["clusters"][0]["http_discovery"] == policy.model_dump(mode="json")
+    assert snapshot["http_targets"] == [
+        target.model_dump(mode="json") for target in scope.http_targets
+    ]
+
+
+def test_anonymous_service_plan_approval_needs_no_http_host_grant(recording, tmp_path):
+    import yaml
+    from ingest import Finding
+    from plan import _http_adapted_step, write_plan
+    from scope import ClusterScope, Scope
+    from traust_core.v1.models.artifacts import ValidationPlanArtifact
+    from traust_core.v1.models.identity import IdentitySource, Principal
+    from traust_core.v1.models.vocabulary import ActorKind, ValidationApprovalMode
+
+    scope = Scope(engagement="authorized-lab", environment="lab", modes={"explicit"})
+    scope.clusters["lab"] = ClusterScope(
+        context="lab",
+        api="https://api.example:6443",
+        namespaces=["app"],
+        explicit_namespaces={"app"},
+    )
+    finding = Finding(
+        id="f002",
+        title="HTTP debug endpoint",
+        severity="high",
+        cwes=["CWE-200"],
+        description="GET /debug/pprof/",
+    )
+    step = _http_adapted_step("step-002", finding, scope, tm=None)
+    assert step is not None and step.target["http"]["mode"] == "service"
+    path = write_plan([step], [], tmp_path / "service.yaml", target_name="fixture", scope=scope)
+    artifact = ValidationPlanArtifact.from_document(yaml.safe_load(path.read_text()))
+    validation = load(recording["config"]).services().validation
+    ref = validation.plan(artifact)
+    principal = Principal(
+        identity="reviewer@example.com",
+        kind=ActorKind.HUMAN,
+        display="Reviewer",
+        verified_by=IdentitySource.LOCAL_USER,
+    )
+    approval = validation.authorize(
+        ref.id,
+        scope._core_scope(),
+        principal,
+        confirmed=True,
+        mode=ValidationApprovalMode.INTERACTIVE,
+    )
+    assert (
+        json.loads(validation.get_authorization(approval.id).payload)["scope"]["http_targets"] == []
+    )
