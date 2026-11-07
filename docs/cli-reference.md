@@ -340,6 +340,9 @@ advisories without fixes remain visible with `fix_available: false`.
 `impact_argv` arrays retain offline file arguments; execute them as vectors.
 `analyze` records each reached ecosystem/module/installed version independently,
 returning unique `commits`, `analyses`, classification counts and affected finding IDs.
+When `--scan` is needed for any packet of a commit, the checkout is acquired once
+and the whole package/version set is prepared again together. The recorded
+packets share that final preparation scope; no first-packet shortcut is used.
 
 ### Advisory fleet export and verification scope
 

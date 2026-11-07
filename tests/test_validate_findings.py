@@ -72,6 +72,7 @@ from report import (
     write,
 )
 from scope import ClusterScope, Scope
+from traust_core.v1.models.validation import HttpDiscovery, HttpTarget
 
 # ======================================================================
 # INGEST
@@ -1053,16 +1054,389 @@ class TestStepFromPoc:
         assert step is not None
         assert step.verb == "raw"
 
-    def test_curl_http(self):
-        f = Finding(id="F1", title="test", severity="high")
-        poc = PoC(
-            lang="bash", body="curl http://localhost:8080/debug/pprof", source_field="evidence"
-        )
+    def test_curl_as_manifest_content_or_resource_name_is_not_an_http_command(self):
+        finding = Finding(id="F1", title="test", severity="high")
         scope = Scope()
-        scope.clusters["lab"] = ClusterScope(context="lab", namespaces=["*"])
+        scope.clusters["lab"] = ClusterScope(context="lab", namespaces=["app"])
+        manifest = PoC(
+            "yaml",
+            "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: curl\n"
+            "data:\n  command: 'curl https://example.test'",
+            "evidence",
+        )
+        kubectl = PoC("bash", "kubectl get pod curl -n app", "evidence")
+        assert _step_from_poc("s1", finding, manifest, scope).verb == "apply-manifest"
+        assert _step_from_poc("s2", finding, kubectl, scope).verb == "raw"
+
+    def test_curl_http_preserves_destination_method_and_path(self):
+        f = Finding(id="F1", title="HTTP exposure", severity="high")
+        poc = PoC(
+            lang="bash",
+            body="curl -sS -X PATCH 'https://app.example:8443/api/test?q=1'\n",
+            source_field="evidence",
+        )
+        scope = Scope(modes={"explicit"}, selected_contexts=("second",))
+        scope.clusters["first"] = ClusterScope(context="first", namespaces=["*"])
+        scope.clusters["second"] = ClusterScope(
+            context="second", namespaces=["app"], explicit_namespaces={"app"}
+        )
+        scope.http_targets = (HttpTarget(context="second", host="app.example", namespace="app"),)
         step = _step_from_poc("s1", f, poc, scope)
+        assert step is not None and step.technique == "replay"
+        assert step.cmd is None and step.payload is None
+        assert step.target["context"] == "second"
+        assert step.target["resource"] == "http_targets"
+        assert step.target["http"]["url"] == "https://app.example:8443"
+        assert step.target["http"]["path"] == "/api/test?q=1"
+        assert step.target["http"]["method"] == "PATCH"
+        assert step.classification == "mutating"
+
+    @pytest.mark.parametrize("mode", ["direct", "route"])
+    def test_curl_without_explicit_port_serializes_as_valid_plan(self, tmp_path, mode):
+        from traust_core.v1.models.artifacts import ValidationPlanArtifact
+
+        yaml = pytest.importorskip("yaml")
+        finding = Finding(id="F1", title="HTTP exposure", severity="high")
+        scope = Scope(modes={"explicit"})
+        scope.clusters["lab"] = ClusterScope(
+            context="lab", namespaces=["app"], explicit_namespaces={"app"}
+        )
+        scope.http_targets = (
+            HttpTarget(
+                context="lab",
+                host="app.example",
+                namespace="app",
+                resource="routes" if mode == "route" else "http_targets",
+                name="web" if mode == "route" else None,
+            ),
+        )
+        poc = PoC("bash", "curl https://app.example/api/test", "evidence")
+        step = _step_from_poc("s1", finding, poc, scope)
         assert step is not None
-        assert step.verb == "port-forward+http"
+        path = write_plan([step], [], tmp_path / "plan.yaml", target_name="test", scope=scope)
+        document = yaml.safe_load(path.read_text(encoding="utf-8"))
+        target = document["steps"][0]["target"]
+        assert "port" not in target
+        assert target["http"]["port"] is None
+        ValidationPlanArtifact.from_document(document)
+
+    def test_curl_exact_route_replay_resolves_without_discovery(self):
+        from http_endpoints import EndpointResolver, HttpProbe
+
+        finding = Finding(id="F1", title="HTTP exposure", severity="high")
+        poc = PoC("bash", "curl -X POST 'https://app.example:8443/api/test?q=1'", "evidence")
+        scope = Scope(modes={"explicit"}, selected_contexts=("lab",))
+        scope.clusters["lab"] = ClusterScope(
+            context="lab",
+            api="https://api.example:6443",
+            namespaces=["*"],
+            explicit_namespaces={"*"},
+        )
+        scope.http_targets = (
+            HttpTarget(
+                context="lab", host="app.example", namespace="app", resource="routes", name="web"
+            ),
+        )
+        step = _step_from_poc("s1", finding, poc, scope)
+        assert step is not None and step.technique == "replay" and step.cmd is None
+        assert step.target["resource"] == "routes" and step.target["name"] == "web"
+        probe = HttpProbe.model_validate(step.target["http"])
+        assert probe.mode == "route" and probe.namespaces == ("app",) and probe.name == "web"
+        assert probe.method == "POST" and probe.path == "/api/test?q=1"
+        assert probe.url == "https://app.example:8443" and probe.port == 8443
+
+        calls = []
+
+        def runner(argv, **kwargs):
+            calls.append(argv)
+            if "config" in argv:
+                obj = {"clusters": [{"cluster": {"server": "https://api.example:6443"}}]}
+            else:
+                obj = {
+                    "metadata": {"name": "web", "namespace": "app", "uid": "route-1"},
+                    "spec": {"host": "app.example", "tls": {}},
+                }
+            return 0, json.dumps(obj), ""
+
+        endpoint = EndpointResolver(scope, runner, "oc").resolve("lab", probe)
+        assert endpoint.origin == "https://app.example:8443"
+        assert calls[-1][-4:] == ["routes", "web", "-o", "json"]
+
+    def test_curl_domain_grant_resolves_only_requested_route(self):
+        from http_endpoints import EndpointResolver, HttpProbe
+
+        finding = Finding(id="F1", title="HTTP exposure", severity="high")
+        poc = PoC("bash", "curl -X PATCH 'https://web.apps.example/api/x?q=1'", "evidence")
+        scope = Scope(modes={"explicit"}, selected_contexts=("lab",))
+        scope.clusters["lab"] = ClusterScope(
+            context="lab",
+            api="https://api.example:6443",
+            namespaces=["*"],
+            explicit_namespaces={"*"},
+            http_discovery=HttpDiscovery.model_validate(
+                {"routes": [{"namespace": "app", "domains": ["apps.example"]}]}
+            ),
+        )
+        scope.clusters["other"] = ClusterScope(
+            context="other",
+            namespaces=["*"],
+            explicit_namespaces={"*"},
+            http_discovery=HttpDiscovery.model_validate(
+                {"routes": [{"namespace": "other", "domains": ["apps.example"]}]}
+            ),
+        )
+        finding.pocs = [poc]
+        normalized = Normalized(target_name="test", source_dir="/tmp", findings=[finding])
+        steps, _ = build_plan(normalized, scope, chained=False, novel=False)
+        step = next(s for s in steps if s.finding_ref == finding.id)
+        assert step.technique == "replay" and step.cmd is None and step.skip is None
+        probe = HttpProbe.model_validate(step.target["http"])
+        assert step.target["context"] == "lab" and step.target["namespace"] == "app"
+        assert probe.mode == "route" and probe.name is None and probe.namespaces == ("app",)
+        assert probe.method == "PATCH" and probe.path == "/api/x?q=1"
+        assert probe.url == "https://web.apps.example" and probe.port is None
+
+        def runner(argv, **kwargs):
+            if "config" in argv:
+                obj = {"clusters": [{"cluster": {"server": "https://api.example:6443"}}]}
+            else:
+                obj = {
+                    "items": [
+                        {
+                            "metadata": {"name": "other", "namespace": "app", "uid": "other-1"},
+                            "spec": {"host": "outside.example", "tls": {}},
+                        },
+                        {
+                            "metadata": {"name": "web", "namespace": "app", "uid": "web-1"},
+                            "spec": {"host": "web.apps.example", "tls": {}},
+                        },
+                        {
+                            "metadata": {"name": "more", "namespace": "app", "uid": "more-1"},
+                            "spec": {"host": "other.apps.example", "tls": {}},
+                        },
+                    ]
+                }
+            return 0, json.dumps(obj), ""
+
+        endpoint = EndpointResolver(scope, runner, "oc").resolve("lab", probe)
+        assert endpoint.origin == "https://web.apps.example"
+        assert endpoint.name == "web" and endpoint.namespace == "app"
+
+    def test_curl_domain_grants_enforce_boundaries_scope_and_ambiguity(self):
+        from scope import OffLimit
+
+        finding = Finding(id="F1", title="HTTP exposure", severity="high")
+        scope = Scope(modes={"explicit"})
+        scope.clusters["lab"] = ClusterScope(
+            context="lab",
+            namespaces=["*"],
+            explicit_namespaces={"*"},
+            http_discovery=HttpDiscovery.model_validate(
+                {
+                    "routes": [
+                        {"namespace": "app", "domains": ["apps.example"]},
+                        {"namespace": "other", "domains": ["apps.example"]},
+                    ]
+                }
+            ),
+        )
+        poc = PoC("bash", "curl https://web.apps.example/api/test", "evidence")
+        assert _step_from_poc("s1", finding, poc, scope) is None
+        scope.off_limits.append(OffLimit(namespace="other"))
+        step = _step_from_poc("s1", finding, poc, scope)
+        assert step is not None and step.target["namespace"] == "app"
+        bad = PoC("bash", "curl https://web.apps.example.evil/api/test", "evidence")
+        assert _step_from_poc("s2", finding, bad, scope) is None
+        scope.clusters["lab"].verbs_denied.append("get")
+        assert _step_from_poc("s3", finding, poc, scope) is None
+
+    def test_curl_route_rejects_changed_host_even_if_discovery_grants_it(self):
+        from http_endpoints import EndpointResolver, HttpProbe
+
+        finding = Finding(id="F1", title="HTTP exposure", severity="high")
+        scope = Scope(modes={"explicit"})
+        scope.clusters["lab"] = ClusterScope(
+            context="lab",
+            api="https://api.example:6443",
+            namespaces=["app"],
+            explicit_namespaces={"app"},
+            http_discovery=HttpDiscovery.model_validate(
+                {"routes": [{"namespace": "app", "names": ["web"], "domains": ["apps.example"]}]}
+            ),
+        )
+        scope.http_targets = (
+            HttpTarget(
+                context="lab",
+                host="original.apps.example",
+                namespace="app",
+                resource="routes",
+                name="web",
+            ),
+        )
+        poc = PoC("bash", "curl https://original.apps.example/api/test", "evidence")
+        step = _step_from_poc("s1", finding, poc, scope)
+        assert step is not None
+
+        def runner(argv, **kwargs):
+            if "config" in argv:
+                obj = {"clusters": [{"cluster": {"server": "https://api.example:6443"}}]}
+            else:
+                obj = {
+                    "metadata": {"name": "web", "namespace": "app", "uid": "route-1"},
+                    "spec": {"host": "changed.apps.example", "tls": {}},
+                }
+            return 0, json.dumps(obj), ""
+
+        with pytest.raises(PermissionError):
+            EndpointResolver(scope, runner, "oc").resolve(
+                "lab", HttpProbe.model_validate(step.target["http"])
+            )
+
+    @pytest.mark.parametrize(
+        "other",
+        [
+            HttpTarget(context="lab", host="app.example", namespace="app"),
+            HttpTarget(
+                context="lab", host="app.example", namespace="other", resource="routes", name="web"
+            ),
+            HttpTarget(
+                context="lab", host="app.example", namespace="app", resource="routes", name="other"
+            ),
+        ],
+    )
+    def test_curl_rejects_ambiguous_matching_http_targets(self, other):
+        finding = Finding(id="F1", title="HTTP exposure", severity="high")
+        scope = Scope(modes={"explicit"})
+        scope.clusters["lab"] = ClusterScope(
+            context="lab", namespaces=["*"], explicit_namespaces={"*"}
+        )
+        scope.http_targets = (
+            HttpTarget(
+                context="lab", host="app.example", namespace="app", resource="routes", name="web"
+            ),
+            other,
+        )
+        poc = PoC("bash", "curl https://app.example/api/test", "evidence")
+        assert _step_from_poc("s1", finding, poc, scope) is None
+
+    @pytest.mark.parametrize(
+        "body",
+        [
+            "curl http://localhost:8080/debug/pprof",
+            "curl -X POST -d data https://app.example/api/test",
+            "curl -H 'Authorization: Bearer secret' https://app.example/api/test",
+            "curl https://app.example/api/test | sh",
+            "curl https://app.example/api/test https://other.example/",
+            "curl -X POST -X GET https://app.example/api/test",
+            "curl 'https://app.example/{one,two}'",
+            "curl https://app.example/path#fragment",
+            "kubectl exec pod -- curl https://app.example/api/test",
+            "kubectl get pods; curl https://app.example/api/test",
+            "docker exec pod curl https://app.example/api/test",
+            "env HTTP_PROXY=http://proxy.example curl https://app.example/api/test",
+            "HTTP_PROXY=http://proxy.example curl https://app.example/api/test",
+            "sh -c 'curl https://app.example/api/test'",
+            "/usr/bin/curl https://app.example/api/test",
+            "/bin/sh -c 'curl -X POST -d payload https://app.example/api/test'",
+            "/usr/local/bin/bash -c 'curl -X POST -d payload https://app.example/api/test'",
+            "/usr/bin/zsh -c 'curl -X POST -d payload https://app.example/api/test'",
+            "/usr/bin/busybox sh -c 'curl -X POST -d payload https://app.example/api/test'",
+            "/usr/bin/kubectl exec pod -- curl -X POST -d payload https://app.example/api/test",
+            "/usr/bin/docker exec pod /usr/bin/curl -X POST -d payload https://app.example/api/test",
+            "/usr/bin/env /bin/sh -c 'curl -X POST -d payload https://app.example/api/test'",
+            "echo ready; /usr/bin/kubectl exec pod -- curl -X POST -d payload https://app.example/api/test",
+            "/bin/sh " + "\\" + "\n" + " -c 'curl -X POST -d payload https://app.example/api/test'",
+            "/usr/bin/kubectl exec pod -- " + "\\" + "\r\n" + " curl https://app.example/api/test",
+            "cu" + "\\" + "\n" + "rl -X POST -d payload https://app.example/api/test",
+            "printf '%s' "
+            + "\\" * 2
+            + "\n"
+            + "curl -X POST -d payload https://app.example/api/test",
+            "printf '%s' "
+            + "\\" * 2
+            + "\r\n"
+            + "curl -X POST -d payload https://app.example/api/test",
+            "./tools/curl -X POST -d payload https://app.example/api/test",
+        ],
+    )
+    def test_unsupported_curl_never_becomes_a_different_probe(self, body, tmp_path):
+        finding = Finding(
+            id="F1",
+            title="HTTP exposure",
+            severity="high",
+            cwes=["CWE-200"],
+            description="GET /api/unrelated",
+            pocs=[PoC("bash", body, "evidence")],
+        )
+        scope = Scope(modes={"explicit"})
+        scope.clusters["lab"] = ClusterScope(
+            context="lab", namespaces=["app"], explicit_namespaces={"app"}
+        )
+        scope.http_targets = (HttpTarget(context="lab", host="app.example", namespace="app"),)
+        normalized = Normalized(target_name="test", source_dir="/tmp", findings=[finding])
+        steps, _ = build_plan(normalized, scope, chained=False, novel=False)
+        planned = [step for step in steps if step.finding_ref == "F1"]
+        assert len(planned) == 1
+        assert planned[0].skip == "unsupported-curl-poc"
+        assert planned[0].cmd is None and planned[0].technique == "skip"
+        assert "http" not in planned[0].target
+        assert not any(step.technique == "adapted" for step in planned)
+        path = write_plan(planned, [], tmp_path / "plan.yaml", target_name="fixture", scope=scope)
+        results, _ = run(path, scope, tmp_path, second_pass_novel=False)
+        assert len(results) == 1
+        assert results[0].verdict == "not_attempted"
+        assert results[0].scope_reason == "unsupported-curl-poc"
+
+    def test_unsupported_curl_is_recorded_even_with_another_replay(self):
+        finding = Finding(
+            id="F1",
+            title="HTTP exposure",
+            severity="high",
+            cwes=["CWE-200"],
+            pocs=[
+                PoC("bash", "kubectl get pod app -n app", "evidence"),
+                PoC("bash", "curl -d data https://app.example/api", "evidence"),
+                PoC("bash", "sh -c 'curl https://app.example/api'", "evidence"),
+            ],
+        )
+        scope = Scope(modes={"explicit"})
+        scope.clusters["lab"] = ClusterScope(
+            context="lab", namespaces=["app"], explicit_namespaces={"app"}
+        )
+        normalized = Normalized(target_name="test", source_dir="/tmp", findings=[finding])
+        steps, _ = build_plan(normalized, scope, chained=False, novel=False)
+        planned = [step for step in steps if step.finding_ref == finding.id]
+        assert sum(step.verb == "raw" and step.technique == "replay" for step in planned) == 1
+        assert sum(step.skip == "unsupported-curl-poc" for step in planned) == 2
+        assert not any(step.technique == "adapted" for step in planned)
+
+    @pytest.mark.parametrize("preconditions", [["authenticated user"], ["arbitrary setup"]])
+    def test_curl_does_not_drop_or_fabricate_preconditions(self, preconditions):
+        finding = Finding(
+            id="F1", title="HTTP exposure", severity="high", preconditions=preconditions
+        )
+        scope = Scope(modes={"explicit"})
+        scope.clusters["lab"] = ClusterScope(context="lab", namespaces=["app"])
+        scope.http_targets = (HttpTarget(context="lab", host="app.example", namespace="app"),)
+        poc = PoC("bash", "curl https://app.example/api/test", "evidence")
+        assert _step_from_poc("s1", finding, poc, scope) is None
+        finding.pocs = [poc]
+        normalized = Normalized(target_name="test", source_dir="/tmp", findings=[finding])
+        steps, _ = build_plan(normalized, scope, chained=False, novel=False)
+        planned = [step for step in steps if step.finding_ref == finding.id]
+        assert len(planned) == 1 and planned[0].skip == "unsupported-curl-poc"
+        assert not planned[0].preconditions
+
+    @pytest.mark.parametrize(
+        "claim", ["authenticated session", "CSRF attack", "requires authentication"]
+    )
+    def test_curl_does_not_drop_identity_requirements_from_claim(self, claim):
+        finding = Finding(id="F1", title=claim, severity="high")
+        scope = Scope(modes={"explicit"})
+        scope.clusters["lab"] = ClusterScope(context="lab", namespaces=["app"])
+        scope.http_targets = (HttpTarget(context="lab", host="app.example", namespace="app"),)
+        poc = PoC("bash", "curl https://app.example/api/test", "evidence")
+        assert _step_from_poc("s1", finding, poc, scope) is None
 
     def test_no_match(self):
         f = Finding(id="F1", title="test", severity="high")
@@ -1093,11 +1467,14 @@ class TestAdaptedStep:
             cwes=["CWE-918"],
             description="POST /api/dev-console/webhooks/{a,b,c} fetches caller URL",
         )
-        scope = Scope()
+        scope = Scope(modes={"explicit"})
         scope.clusters["lab"] = ClusterScope(
             context="lab",
             namespaces=["openshift-console"],
             explicit_namespaces={"openshift-console"},
+            http_discovery=HttpDiscovery.model_validate(
+                {"routes": [{"namespace": "openshift-console", "domains": ["apps.example"]}]}
+            ),
         )
         step = _http_adapted_step("s1", f, scope, tm=None)
         assert step is not None
@@ -1105,7 +1482,262 @@ class TestAdaptedStep:
         assert step.verb == "port-forward+http"
         assert step.target["path"] == "/api/dev-console/webhooks/a"
         assert step.target["namespace"] == "openshift-console"
-        assert "vf-http-status" in step.cmd
+        assert step.cmd is None
+        assert step.classification == "mutating"
+        assert step.target["http"]["method"] == "POST"
+        assert step.target["http"]["path"] == "/api/dev-console/webhooks/a"
+        assert step.target["http"]["authenticate"] is False
+
+    def test_authenticated_csrf_claim_keeps_preconditions(self):
+        finding = Finding(
+            id="F2",
+            title="CSRF by authenticated user on HTTP endpoint",
+            severity="high",
+            cwes=["CWE-200"],
+            description="POST /api/v1/action",
+        )
+        scope = Scope()
+        scope.clusters["lab"] = ClusterScope(context="lab", namespaces=["app"])
+        step = _http_adapted_step("s2", finding, scope, tm=None)
+        assert step is not None and step.cmd is None
+        assert step.target["http"]["authenticate"] is True
+        assert step.target["http"]["csrf"] is True
+
+    def test_http_planner_respects_context_selection(self):
+        finding = Finding(
+            id="F3",
+            title="HTTP exposure",
+            severity="high",
+            cwes=["CWE-200"],
+            description="GET /metrics",
+        )
+        scope = Scope(modes={"explicit"})
+        scope.clusters["first"] = ClusterScope(context="first", namespaces=["one"])
+        scope.clusters["second"] = ClusterScope(
+            context="second",
+            namespaces=["two"],
+            explicit_namespaces={"two"},
+            http_discovery=HttpDiscovery.model_validate(
+                {"routes": [{"namespace": "two", "domains": ["apps.example"]}]}
+            ),
+        )
+        assert _http_adapted_step("s3", finding, scope, tm=None) is None
+        scope.selected_contexts = ("second",)
+        step = _http_adapted_step("s3", finding, scope, tm=None)
+        assert step is not None
+        assert step.target["context"] == "second"
+        assert step.target["http"]["namespaces"] == ["two"]
+
+    def test_http_planner_retains_multiple_namespace_candidates(self):
+        finding = Finding(
+            id="F4",
+            title="HTTP exposure",
+            severity="high",
+            cwes=["CWE-200"],
+            description="GET /metrics",
+        )
+        scope = Scope(modes={"explicit"})
+        scope.clusters["lab"] = ClusterScope(
+            context="lab",
+            namespaces=["app-a", "app-b"],
+            explicit_namespaces={"app-a", "app-b"},
+            http_discovery=HttpDiscovery.model_validate(
+                {
+                    "routes": [
+                        {"namespace": "app-a", "domains": ["apps.example"]},
+                        {"namespace": "app-b", "domains": ["apps.example"]},
+                    ]
+                }
+            ),
+        )
+        step = _http_adapted_step("s4", finding, scope, tm=None)
+        assert step is not None
+        assert step.target["namespace"] is None
+        assert step.target["http"]["namespaces"] == ["app-a", "app-b"]
+
+    def test_exact_route_namespace_resolves_without_discovery(self):
+        from http_endpoints import EndpointResolver, HttpProbe
+
+        finding = Finding(
+            id="F5",
+            title="HTTP exposure",
+            severity="high",
+            cwes=["CWE-200"],
+            description="GET /api/v1/test",
+        )
+        scope = Scope(modes={"explicit"}, selected_contexts=("lab",))
+        scope.clusters["other"] = ClusterScope(context="other", namespaces=["*"])
+        scope.clusters["lab"] = ClusterScope(
+            context="lab",
+            api="https://api.example:6443",
+            namespaces=["*"],
+            explicit_namespaces={"*"},
+        )
+        scope.http_targets = (
+            HttpTarget(
+                context="lab", host="app.example", namespace="app", resource="routes", name="app"
+            ),
+            HttpTarget(
+                context="other",
+                host="other.example",
+                namespace="other",
+                resource="routes",
+                name="other",
+            ),
+        )
+        normalized = Normalized(target_name="test", source_dir="/tmp", findings=[finding])
+        steps, _ = build_plan(normalized, scope, chained=False, novel=False)
+        step = next(s for s in steps if s.finding_ref == finding.id)
+        assert step.skip is None and step.target["context"] == "lab"
+        assert step.target["http"]["namespaces"] == ["app"]
+
+        calls = []
+
+        def runner(argv, **kwargs):
+            calls.append(argv)
+            if "config" in argv:
+                obj = {"clusters": [{"cluster": {"server": "https://api.example:6443"}}]}
+            else:
+                obj = {
+                    "metadata": {"name": "app", "namespace": "app", "uid": "route-1"},
+                    "spec": {"host": "app.example"},
+                }
+            return 0, json.dumps(obj), ""
+
+        endpoint = EndpointResolver(scope, runner, "oc").resolve(
+            "lab", HttpProbe.model_validate(step.target["http"])
+        )
+        assert endpoint.origin == "http://app.example"
+        assert calls[-1][-4:] == ["routes", "app", "-o", "json"]
+
+    def test_hints_cannot_grant_or_suppress_allowed_candidates(self):
+        from scope import OffLimit
+
+        finding = Finding(
+            id="F6",
+            title="HTTP exposure",
+            severity="high",
+            cwes=["CWE-200"],
+            description="GET /api/v1/test",
+        )
+        scope = Scope(modes={"explicit"})
+        scope.clusters["lab"] = ClusterScope(
+            context="lab",
+            namespaces=["allowed"],
+            explicit_namespaces={"allowed"},
+            namespace_hints=["allowed", "outside", "no-grant", "blocked", "bad*"],
+            http_discovery=HttpDiscovery.model_validate(
+                {
+                    "routes": [
+                        {"namespace": "allowed", "domains": ["apps.example"]},
+                        {"namespace": "outside", "domains": ["apps.example"]},
+                        {"namespace": "blocked", "domains": ["apps.example"]},
+                    ]
+                }
+            ),
+        )
+        scope.off_limits.append(OffLimit(namespace="blocked"))
+        normalized = Normalized(target_name="test", source_dir="/tmp", findings=[finding])
+        steps, _ = build_plan(normalized, scope, chained=False, novel=False)
+        step = next(s for s in steps if s.finding_ref == finding.id)
+        assert step.skip is None
+        assert step.target["http"]["namespaces"] == ["allowed"]
+
+        scope.clusters["lab"].namespaces = ["*"]
+        scope.clusters["lab"].explicit_namespaces = {"*"}
+        step = _http_adapted_step("s1", finding, scope, tm=None)
+        assert step is not None
+        assert step.target["http"]["namespaces"] == ["allowed", "outside"]
+
+    def test_candidates_respect_actual_http_method_denies(self):
+        from scope import OffLimit
+
+        finding = Finding(
+            id="F8",
+            title="HTTP endpoint",
+            severity="high",
+            cwes=["CWE-200"],
+            description="POST /api/action",
+        )
+        scope = Scope(modes={"explicit"})
+        scope.clusters["lab"] = ClusterScope(
+            context="lab",
+            namespaces=["*"],
+            explicit_namespaces={"*"},
+            namespace_hints=["allowed", "denied"],
+            http_discovery=HttpDiscovery.model_validate(
+                {
+                    "routes": [
+                        {"namespace": "allowed", "domains": ["apps.example"]},
+                        {"namespace": "denied", "domains": ["apps.example"]},
+                    ]
+                }
+            ),
+        )
+        scope.off_limits.append(OffLimit(namespace="denied", resource="routes", verb="create"))
+        step = _http_adapted_step("s1", finding, scope, tm=None)
+        assert step is not None and step.target["http"]["method"] == "POST"
+        assert step.target["http"]["namespaces"] == ["allowed"]
+
+    def test_wildcard_service_uses_scoped_hints_without_loopback_grant(self):
+        from scope import OffLimit
+
+        finding = Finding(
+            id="F7",
+            title="HTTP debug endpoint",
+            severity="high",
+            cwes=["CWE-200"],
+            description="GET /debug/pprof/",
+        )
+        scope = Scope(modes={"explicit"})
+        scope.clusters["lab"] = ClusterScope(
+            context="lab",
+            namespaces=["*"],
+            explicit_namespaces={"*"},
+            namespace_hints=["app", "denied"],
+        )
+        scope.off_limits.append(OffLimit(namespace="denied"))
+        step = _http_adapted_step("s1", finding, scope, tm=None)
+        assert step is not None
+        assert step.target["http"]["mode"] == "service"
+        assert step.target["http"]["namespaces"] == ["app"]
+        assert not scope.http_targets
+
+    def test_wildcard_monitoring_hint_selects_only_authorized_service(self):
+        from scope import OffLimit
+
+        finding = Finding(
+            id="F9",
+            title="HTTP metrics endpoint",
+            severity="high",
+            cwes=["CWE-200"],
+            description="GET /metrics",
+        )
+        scope = Scope(modes={"explicit"})
+        scope.clusters["lab"] = ClusterScope(
+            context="lab",
+            namespaces=["*"],
+            explicit_namespaces={"*"},
+            namespace_hints=["openshift-monitoring"],
+        )
+        step = _http_adapted_step("s1", finding, scope, tm=None)
+        assert step is not None
+        assert step.target["http"]["mode"] == "service"
+        assert step.target["http"]["namespaces"] == ["openshift-monitoring"]
+
+        scope.off_limits.append(OffLimit(namespace="openshift-monitoring"))
+        step = _http_adapted_step("s2", finding, scope, tm=None)
+        assert step is not None
+        assert "openshift-monitoring" not in step.target["http"]["namespaces"]
+        assert step.target["http"]["mode"] == "route"
+
+        scope.off_limits.clear()
+        scope.clusters["lab"].namespaces = ["app"]
+        scope.clusters["lab"].explicit_namespaces = {"app"}
+        step = _http_adapted_step("s3", finding, scope, tm=None)
+        assert step is not None
+        assert "openshift-monitoring" not in step.target["http"]["namespaces"]
+        assert step.target["http"]["mode"] == "route"
 
     def test_unknown_cwe_no_step(self):
         f = Finding(id="F1", title="test", severity="low", cwes=["CWE-999"])
@@ -1150,6 +1782,60 @@ class TestBuildPlan:
         steps, _ = build_plan(n, scope, chained=False, novel=False)
         fp = [s for s in steps if s.finding_ref == "F2"]
         assert all(s.technique == "skip" for s in fp)
+
+    def test_header_spoof_is_not_replaced_by_generic_http_probe(self):
+        from traust_core.v1.models.validation import HttpDiscovery
+
+        finding = Finding(
+            id="F3",
+            title="X-Forwarded-User spoof",
+            severity="high",
+            cwes=["CWE-200", "CWE-290"],
+            description="GET /api/v1/profile",
+        )
+        normalized = Normalized(target_name="test", source_dir="/tmp", findings=[finding])
+        scope = Scope(modes={"explicit"})
+        scope.clusters["lab"] = ClusterScope(
+            context="lab",
+            api="https://api.example",
+            namespaces=["app"],
+            explicit_namespaces={"app"},
+            http_discovery=HttpDiscovery.model_validate(
+                {"routes": [{"namespace": "app", "domains": ["apps.example"]}]}
+            ),
+        )
+        steps, _ = build_plan(normalized, scope, chained=False, novel=False)
+        planned = [step for step in steps if step.finding_ref == finding.id]
+        assert len(planned) == 1
+        assert planned[0].target["http"]["headers"] == {"X-Forwarded-User": "vf-spoof-canary"}
+        assert planned[0].target["http"]["mode"] == "route"
+        assert planned[0].cmd is None and planned[0].skip is None
+
+    def test_unnamed_node_probe_prechecks_the_scoped_list(self):
+        from traust_core.v1.models.validation import HttpDiscovery
+
+        finding = Finding(
+            id="F4",
+            title="hostNetwork HTTP listener on 10250",
+            severity="high",
+            cwes=["CWE-200"],
+            description="GET /metrics",
+        )
+        normalized = Normalized(target_name="test", source_dir="/tmp", findings=[finding])
+        scope = Scope(modes={"explicit"})
+        scope.clusters["lab"] = ClusterScope(
+            context="lab",
+            api="https://api.example",
+            namespaces=["app"],
+            explicit_namespaces={"app"},
+            http_discovery=HttpDiscovery.model_validate({"nodes": {"networks": ["10.0.0.0/24"]}}),
+        )
+        steps, _ = build_plan(normalized, scope, chained=False, novel=False)
+        planned = [step for step in steps if step.finding_ref == finding.id]
+        assert len(planned) == 1
+        assert planned[0].target["http"]["mode"] == "node"
+        assert planned[0].target["http"]["name"] is None
+        assert planned[0].skip is None
 
     def test_novel_placeholder(self, simple_inputs):
         n, scope = simple_inputs
@@ -1565,24 +2251,6 @@ class TestK8sVerdict:
 
 
 class TestK8sNormalizers:
-    def test_curl_double_brace_repaired(self):
-        out = K8sAdapter._normalize_curl(
-            "curl -s -o /dev/null -w '%{{http_code}}' http://127.0.0.1:8080/"
-        )
-        assert "%{http_code}" in out
-        assert "{{http_code}}" not in out
-
-    def test_curl_writeout_appended(self):
-        out = K8sAdapter._normalize_curl("curl -s http://127.0.0.1:8080/")
-        assert "%{http_code}" in out
-
-    def test_curl_no_change_if_present(self):
-        cmd = "curl -s -w '%{http_code}' http://x/"
-        assert K8sAdapter._normalize_curl(cmd) == cmd
-
-    def test_non_curl_passthrough(self):
-        assert K8sAdapter._normalize_curl("wget http://x/") == "wget http://x/"
-
     def test_manifest_drops_prose_doc(self):
         raw = "This is a description with a colon: oops\n---\napiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: x\n"
         out = K8sAdapter._normalize_manifest(raw)

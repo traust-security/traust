@@ -83,13 +83,25 @@ class Targets:
     def from_file(cls, path: Path) -> Targets:
         data = _load(path) or {}
         meta = data.get("metadata", data.get("meta", {}))
-        expires = meta.get("expires") or data.get("expires")
+        has_expiry = "expires" in meta or "expires" in data
+        raw_expiry = meta["expires"] if "expires" in meta else data.get("expires")
+        expiry_date = None
+        expiry_instant = None
+        if has_expiry:
+            value = str(raw_expiry)
+            try:
+                expiry_date = dt.date.fromisoformat(value)
+            except ValueError:
+                expiry_instant = dt.datetime.fromisoformat(value)
+                if expiry_instant.tzinfo is None or expiry_instant.utcoffset() is None:
+                    raise ValueError("engagement expiry datetime must include a timezone") from None
         browser = data.get("browser", [])
         scope = ValidationScope(
             engagement=meta.get("engagement") or data.get("engagement"),
             authorized_by=meta.get("authorized_by") or data.get("authorized_by"),
             environment=meta.get("environment") or data.get("environment", "lab"),
-            expires=dt.date.fromisoformat(expires) if isinstance(expires, str) else expires,
+            expires=expiry_date,
+            expires_at=expiry_instant,
             modes=frozenset({ScopeBindingMode.EXPLICIT}),
             browser=tuple(
                 BrowserTarget(
@@ -192,7 +204,7 @@ class PlanExecutor:
             decision = self._targets.scope.decide(
                 ValidationAction(kind=ValidationActionKind.BROWSER, verb=verb),
                 ValidationTarget(url=url),
-                as_of=dt.date.today(),
+                as_of=dt.datetime.now().astimezone(),
             )
         except (PydanticValidationError, CoreValidationError) as e:
             # A malformed verb or URL is blocked and audited, never a crash:
@@ -294,7 +306,9 @@ class ReportBuilder:
                 "version": "0.1.0",
                 "engagement": self._scope.engagement,
                 "authorized_by": self._scope.authorized_by,
-                "expires": self._scope.expires.isoformat() if self._scope.expires else None,
+                "expires": (self._scope.expires_at or self._scope.expires).isoformat()
+                if self._scope.expires_at or self._scope.expires
+                else None,
                 "environment": self._scope.environment,
                 "layer": "1-bare-app",
             },
@@ -357,7 +371,9 @@ def main(argv: list[str] | None = None) -> int:
     targets = Targets.from_file(config.targets_path)
     scope = targets.scope
 
-    if scope.expires and dt.date.today() > scope.expires:
+    if (scope.expires_at and dt.datetime.now(dt.UTC) >= scope.expires_at) or (
+        scope.expires and dt.date.today() > scope.expires
+    ):
         print("ERROR: engagement expired", file=sys.stderr)
         return 1
 
@@ -370,7 +386,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"  Plan: {config.plan_path.name}")
     print(f"  Targets: {config.targets_path.name}")
     print(f"  Engagement: {scope.engagement}")
-    print(f"  Expires: {scope.expires}")
+    print(f"  Expires: {scope.expires_at or scope.expires}")
     print()
 
     with BrowserAdapter() as adapter:

@@ -5,6 +5,7 @@ scope guard that gates every live action in the validate-findings harness.
 """
 
 import datetime as _dt
+import json
 
 import pytest
 from scope import Action, ClusterScope, OffLimit, Scope
@@ -251,6 +252,122 @@ def test_modes_additive_union():
     s.merge_inferred({"clusters": {"lab": ["tenant-b"]}})
     assert s.is_in_scope(Action(adapter="k8s", verb="get", context="lab", namespace="tenant-a"))[0]
     assert s.is_in_scope(Action(adapter="k8s", verb="get", context="lab", namespace="tenant-b"))[0]
+
+
+def test_namespace_hints_round_trip_without_granting_scope(tmp_path):
+    targets = tmp_path / "targets.yaml"
+    targets.write_text(
+        "clusters:\n"
+        "  - context: lab\n"
+        "    namespaces: [allowed]\n"
+        "    namespace_hints: [allowed, outside, kube-system]\n"
+        "off_limits:\n"
+        "  - namespace: allowed\n",
+        encoding="utf-8",
+    )
+    scope = Scope.from_targets_file(targets)
+    cluster = scope.clusters["lab"]
+    assert cluster.namespace_hints == ["allowed", "outside", "kube-system"]
+    assert cluster.namespaces == ["allowed"]
+    assert cluster.explicit_namespaces == {"allowed"}
+    assert (
+        json.loads(scope.to_json())["clusters"]["lab"]["namespace_hints"] == cluster.namespace_hints
+    )
+    for namespace in cluster.namespace_hints:
+        allowed, _ = scope.is_in_scope(
+            Action(
+                adapter="k8s",
+                context="lab",
+                namespace=namespace,
+                resource="routes",
+                verb="get",
+            )
+        )
+        assert not allowed
+
+
+@pytest.mark.parametrize(
+    "hints",
+    [
+        "app",
+        None,
+        {"name": "app"},
+        [None],
+        [True],
+        [42],
+        [["app"]],
+        [""],
+        ["*"],
+        ["app-*"],
+        ["Upper"],
+        ["-app"],
+        ["app-"],
+        ["app.example"],
+        ["a" * 64],
+        ["é"],
+    ],
+)
+def test_malformed_namespace_hints_fail_closed(tmp_path, hints):
+    targets = tmp_path / "targets.yaml"
+    targets.write_text(
+        json.dumps(
+            {"clusters": [{"context": "lab", "namespaces": ["allowed"], "namespace_hints": hints}]}
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="namespace_hints"):
+        Scope.from_targets_file(targets)
+
+
+@pytest.mark.parametrize("hints", [[], ["a", "1", "app-1", "a" * 63]])
+def test_concrete_namespace_hints_do_not_extend_scope(tmp_path, hints):
+    targets = tmp_path / "targets.yaml"
+    targets.write_text(
+        json.dumps(
+            {"clusters": [{"context": "lab", "namespaces": ["allowed"], "namespace_hints": hints}]}
+        ),
+        encoding="utf-8",
+    )
+    scope = Scope.from_targets_file(targets)
+    assert scope.clusters["lab"].namespace_hints == hints
+    assert scope.clusters["lab"].namespaces == ["allowed"]
+    assert scope.clusters["lab"].explicit_namespaces == {"allowed"}
+    for hint in hints:
+        allowed, _ = scope.is_in_scope(
+            Action(
+                adapter="k8s",
+                context="lab",
+                namespace=hint,
+                resource="routes",
+                verb="get",
+            )
+        )
+        assert not allowed
+
+
+def test_wildcard_scope_still_honors_off_limits_for_hints(tmp_path):
+    targets = tmp_path / "targets.yaml"
+    targets.write_text(
+        "clusters:\n"
+        "  - context: lab\n"
+        "    namespaces: ['*']\n"
+        "    namespace_hints: [allowed, denied]\n"
+        "off_limits:\n"
+        "  - namespace: denied\n",
+        encoding="utf-8",
+    )
+    scope = Scope.from_targets_file(targets)
+    for namespace, expected in (("allowed", True), ("denied", False)):
+        allowed, _ = scope.is_in_scope(
+            Action(
+                adapter="k8s",
+                context="lab",
+                namespace=namespace,
+                resource="routes",
+                verb="get",
+            )
+        )
+        assert allowed is expected
 
 
 # ---------------------------------------------------------------------------

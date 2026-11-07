@@ -7,7 +7,7 @@ import contextlib
 import io
 import json
 from collections.abc import Iterator, Sequence
-from datetime import date
+from datetime import UTC, date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -210,10 +210,40 @@ def test_cluster_after_the_engagement_expired_execs_nothing(
     assert census["scope"][0]["decision"]["reason"] == "engagement expired 2020-01-01"
 
 
+def test_cluster_after_precise_lease_expiry_execs_nothing(
+    home: Path, process: FakeProcess, tmp_path: Path
+) -> None:
+    expiry = datetime.now(UTC) - timedelta(minutes=1)
+    rc, census, _ = cluster(home, targets(tmp_path, expires=expiry.isoformat()), "app")
+    assert rc == 0 and process.calls == []
+    assert not census["scope"][0]["decision"]["allowed"]
+
+
 @pytest.mark.parametrize(
     "body",
-    ["clusters: [", "clusters: [{namespaces: [app]}]", "off_limits: [{colour: red}]"],
-    ids=["not-yaml", "cluster-without-context", "unknown-off-limit-field"],
+    [
+        "clusters: [",
+        "clusters: [{namespaces: [app]}]",
+        "off_limits: [{colour: red}]",
+        "expires: null",
+        "expires: ''",
+        "expires: '2099-01-01T12:00:00'",
+        "expires: 'not-a-time'",
+        "clusters: [{context: lab, api: 'https://a.example'}, "
+        "{context: lab, api: 'https://b.example'}]",
+        "clusters: [{context: lab}]\nhttp_targets: [{host: x.example, context: other}]",
+    ],
+    ids=[
+        "not-yaml",
+        "cluster-without-context",
+        "unknown-off-limit-field",
+        "null-expiry",
+        "empty-expiry",
+        "naive-expiry",
+        "malformed-expiry",
+        "conflicting-http-api",
+        "undeclared-http-target-context",
+    ],
 )
 def test_cluster_refuses_a_malformed_targets_file(
     home: Path, process: FakeProcess, tmp_path: Path, body: str
@@ -260,7 +290,22 @@ def test_engagement_scope_reads_the_validate_findings_example() -> None:
     exec_ = ValidationAction(kind=ValidationActionKind.K8S, verb="exec")
     on = ValidationTarget(context="lab-hub", namespace="ramen-ops")
     assert scope.expires == date(2026, 7, 1)
+    hub = next(cluster for cluster in scope.clusters if cluster.context == "lab-hub")
+    assert hub.api == "https://api.hub.lab.example:6443"
+    assert hub.http_discovery.routes[0].domains == ("apps.hub.lab.example",)
+    assert scope.http_targets[0].host == "ramen.apps.hub.lab.example"
     assert scope.permits(exec_, on, as_of=date(2026, 6, 30))
     assert not scope.permits(
         exec_, on.model_copy(update={"namespace": "openshift-etcd"}), as_of=date(2026, 6, 30)
     )
+
+
+def test_engagement_scope_keeps_aware_timestamp_and_exact_boundary(tmp_path: Path) -> None:
+    deadline = datetime(2099, 1, 2, 3, 4, 5, tzinfo=timezone(timedelta(hours=3)))
+    scope = crypto.engagement_scope(targets(tmp_path, expires=deadline.isoformat()))
+    action = ValidationAction(kind=ValidationActionKind.K8S, verb="exec")
+    target = ValidationTarget(context="lab", namespace="app")
+    assert scope.expires_at == deadline
+    assert scope.permits(action, target, as_of=deadline - timedelta(microseconds=1))
+    assert not scope.permits(action, target, as_of=deadline)
+    assert not scope.permits(action, target, as_of=deadline + timedelta(microseconds=1))

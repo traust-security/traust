@@ -11,6 +11,8 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import ClassVar
 
+from traust_core.v1.providers.process import ProcessRunner, ProcessTimeout
+
 from traust.context import load
 
 from .credentials import redact_credentials
@@ -99,7 +101,18 @@ class AdapterBase:
     DESTRUCTIVE_VERBS: ClassVar[set[str]] = {"delete", "scale-zero", "kill", "fuzz-import"}
 
     def __init__(self):
-        pass
+        self._safe_exec_policy = None
+        self._curl_hosts: tuple[str, ...] = ()
+        self._scope = None
+
+    def bind_scope(self, scope) -> None:
+        """Bind per-run execution grants without leaking them to another adapter run."""
+        self._curl_hosts = tuple(scope.curl_hosts())
+        self._scope = scope
+
+    def bind_safe_exec(self, policy) -> None:
+        """Use the policy from the run's selected Core context."""
+        self._safe_exec_policy = policy
 
     # ----- classification ---------------------------------------------
 
@@ -186,40 +199,37 @@ class AdapterBase:
         }
     )
 
-    _safe_exec_policy = None
+    def _safe_exec(self):
+        if self._safe_exec_policy is None:
+            self._safe_exec_policy = load().safe_exec
+        return self._safe_exec_policy
 
-    @classmethod
-    def _safe_exec(cls):
-        if cls._safe_exec_policy is None:
-            cls._safe_exec_policy = load().safe_exec
-        return cls._safe_exec_policy
-
-    @classmethod
-    def _vet_shell_string(cls, cmd: str) -> tuple[list[str] | None, str]:
-        """Vet a PoC-derived command string via safe_exec. Returns
-        (argv, "") for a pipeless command, (None, "") for an approved
-        pipeline, or (None, reason) when rejected."""
-        se = cls._safe_exec()
-        v = se.vet_command_string(cmd, se.profile(cls._SAFE_EXEC_PROFILE))
+    def _vet_shell_string(self, cmd: str) -> tuple[list[str] | None, str]:
+        """Vet a PoC-derived command without invoking a shell."""
+        se = self._safe_exec()
+        v = se.vet_command_string(
+            cmd, se.profile(self._SAFE_EXEC_PROFILE), allowed_hosts=self._curl_hosts
+        )
         if not v.ok:
             return None, v.reason
         if len(v.segments) == 1:
             return list(v.segments[0]), ""
         return None, ""  # approved pipeline
 
-    @classmethod
     def _run(
-        cls, cmd: str | list[str], *, timeout: int = 120, input_: str | None = None
+        self, cmd: str | list[str], *, timeout: int = 120, input_: str | None = None
     ) -> tuple[int, str, str]:
         if isinstance(cmd, str):
-            se = cls._safe_exec()
-            profile = se.profile(cls._SAFE_EXEC_PROFILE)
-            v = se.vet_command_string(cmd, profile)
+            se = self._safe_exec()
+            profile = se.profile(self._SAFE_EXEC_PROFILE)
+            v = se.vet_command_string(cmd, profile, allowed_hosts=self._curl_hosts)
             if not v.ok:
                 return 126, "", f"[step blocked: {v.reason}]"
             # single command or approved pipeline — both execute
             # natively under safe_exec (scrubbed env, no shell)
-            return se.run_segments(v.segments, profile, timeout=timeout, input_=input_)
+            return se.run_segments(
+                v.segments, profile, timeout=timeout, input_=input_, allowed_hosts=self._curl_hosts
+            )
         argv = cmd
         try:
             proc = subprocess.run(
@@ -234,6 +244,40 @@ class AdapterBase:
             err = e.stderr.decode() if isinstance(e.stderr, bytes) else (e.stderr or "")
             return 124, out, err + f"\n[timeout after {timeout}s]"
         return proc.returncode, proc.stdout, proc.stderr
+
+    def _http_kube_env_names(self, context: str) -> tuple[str, ...]:
+        names = ("PATH", "HOME", "KUBECONFIG", "LANG", "LC_ALL")
+        clusters = getattr(self._scope, "clusters", {})
+        cluster = clusters.get(context)
+        if cluster is not None:
+            names += tuple(cluster.http_discovery.kube_env)
+        return tuple(dict.fromkeys(names))
+
+    def _run_http_kube(
+        self, argv: list[str], *, timeout: int = 120, input_: str | None = None
+    ) -> tuple[int, str, str]:
+        """Run adapter-authored discovery without ambient proxy or routing overrides."""
+        context = next((arg.partition("=")[2] for arg in argv if arg.startswith("--context=")), "")
+        runner = ProcessRunner({"oc", "kubectl"}, keep_env=self._http_kube_env_names(context))
+        try:
+            result = runner.run(
+                argv,
+                stdin=input_.encode() if input_ is not None else None,
+                check=False,
+                timeout_seconds=timeout,
+                max_output_bytes=4 * 1024 * 1024,
+            )
+        except ProcessTimeout as exc:
+            return (
+                124,
+                exc.stdout.decode(errors="replace"),
+                (exc.stderr.decode(errors="replace") + f"\n[timeout after {timeout}s]"),
+            )
+        return (
+            result.returncode,
+            result.stdout.decode(errors="replace"),
+            result.stderr.decode(errors="replace"),
+        )
 
     # ----- artifact storage -------------------------------------------
     @classmethod

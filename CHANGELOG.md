@@ -2,6 +2,24 @@
 
 All notable changes to Traust are documented here.
 
+## Unreleased
+
+- Replace shell-generated HTTP validation probes with structured, explicitly scoped
+  endpoint resolution, method authorization and adapter-owned service tunnels.
+  Retain credential/session preconditions, redaction, and validation recording gates.
+- Bind safe-exec curl hosts per engagement and expose per-invocation CLI host grants;
+  prevent untrusted proxy and routing overrides without granting loopback globally.
+- Preserve the explicit lab-only TLS verification exception for authorized HTTP
+  probes and tunnels; verification remains the default and its risk is documented.
+- Preserve and enforce timezone-aware engagement lease timestamps for live
+  validation, browser probes and crypto-cluster, retaining exact report deadlines.
+- Apply pinned API restrictions to HTTP session and identity requests, and use
+  non-authorizing namespace hints to resolve explicitly scoped candidates.
+- Refuse unsupported curl PoCs behind path-qualified wrappers instead of
+  substituting an unrelated adapted HTTP request.
+- Record every Core-prepared advisory package/version per commit, including all
+  packets after a single optional checkout, without losing preparation scope.
+
 ## [0.41.0]
 
 - Restore critical-misses Markdown and HTML through Core's registered Insight view

@@ -110,7 +110,7 @@ def main(argv: list[str]) -> int:
     )
     if scope.environment != "lab":
         ap.error("unattended execution requires targets.yaml environment: lab")
-    if scope.expires is not None and dt.date.today() > scope.expires:
+    if scope.expired():
         ap.error("the authorized engagement has expired")
 
     # ---- Credentials-needed (from operand setup) -----------------------
@@ -146,12 +146,14 @@ def main(argv: list[str]) -> int:
     fingerprints = []
     if hasattr(ex, "preflight"):
         try:
-            fingerprints = ex.preflight(scope)  # type: ignore[attr-defined]
+            fingerprints = ex.preflight(scope, config_home=args.config_home)
         except Exception as e:
             print(f"[run] WARN: preflight failed: {e}", file=sys.stderr)
 
     # ---- Phase 4: execute (Phase 3 review gate skipped — --auto) -------
-    results, audit = ex.run(plan_path, scope, out, permit_destructive=args.destructive)
+    results, audit = ex.run(
+        plan_path, scope, out, permit_destructive=args.destructive, config_home=args.config_home
+    )
     by_verdict = {}
     for r in results:
         by_verdict[r.verdict] = by_verdict.get(r.verdict, 0) + 1

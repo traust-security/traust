@@ -13,6 +13,8 @@ import threading
 import time
 from pathlib import Path
 
+from traust_core.v1.errors import ServiceError
+
 try:
     import yaml as _yaml
 except ImportError:  # pragma: no cover
@@ -28,6 +30,39 @@ def _kbin() -> str:
         if shutil.which(b):
             return b
     return "kubectl"
+
+
+def _http_target_error(target: dict, probe) -> str | None:
+    """A discovery request may narrow, never contradict, its declared target."""
+    resource = {
+        "route": "routes",
+        "service": "services",
+        "node": "nodes",
+        "direct": "http_targets",
+    }[probe.mode]
+    if not target.get("context") or target.get("resource") != resource:
+        return "HTTP mode and declared target resource must match"
+    namespace = target.get("namespace")
+    if probe.mode == "node":
+        if namespace is not None or probe.namespaces:
+            return "node HTTP targets cannot declare a namespace"
+    elif probe.mode in {"route", "service"}:
+        if not probe.namespaces:
+            return "namespaced HTTP discovery requires declared namespaces"
+        if len(probe.namespaces) == 1 and namespace != probe.namespaces[0]:
+            return "HTTP probe namespace does not match the declared target"
+        if len(probe.namespaces) > 1 and namespace is not None:
+            return "multiple HTTP candidate namespaces require an unspecified target namespace"
+    elif len(probe.namespaces) > 1 or namespace != (
+        probe.namespaces[0] if probe.namespaces else None
+    ):
+        return "direct HTTP namespace does not match the declared target"
+    if target.get("name") != probe.name:
+        return "HTTP probe name does not match the declared target"
+    for field in ("method", "path", "port"):
+        if field in target and target[field] != getattr(probe, field):
+            return f"HTTP probe {field} does not match the declared target"
+    return None
 
 
 class K8sAdapter(AdapterBase):
@@ -78,9 +113,18 @@ class K8sAdapter(AdapterBase):
     # ----- preflight ---------------------------------------------------
 
     def preflight(self, scope) -> list[Fingerprint]:
+        if __package__ and "." in __package__:
+            from ..scope import Action
+        else:
+            from scope import Action
+
         kb = _kbin()
         out: list[Fingerprint] = []
         for ctx in scope.clusters:
+            if scope.selected_contexts and ctx not in scope.selected_contexts:
+                continue
+            if scope.expired():
+                break
             ctx_args = [] if ctx == "__current__" else ["--context", ctx]
             rc, ver, _ = self._run([kb, *ctx_args, "version", "-o", "json"])
             details = {}
@@ -96,11 +140,15 @@ class K8sAdapter(AdapterBase):
                     }
                 except json.JSONDecodeError:
                     pass
-            rc2, nodes, _ = self._run(
-                [kb, *ctx_args, "get", "nodes", "-o", "jsonpath={.items[*].metadata.name}"]
+            allowed, _ = scope.is_in_scope(
+                Action(adapter="k8s", context=ctx, resource="nodes", name=None, verb="list")
             )
-            if rc2 == 0:
-                details["nodes"] = len(nodes.split())
+            if allowed and not scope.expired():
+                rc2, nodes, _ = self._run(
+                    [kb, *ctx_args, "get", "nodes", "-o", "jsonpath={.items[*].metadata.name}"]
+                )
+                if rc2 == 0:
+                    details["nodes"] = len(nodes.split())
             out.append(Fingerprint(adapter="k8s", identity=ctx, version=version, details=details))
         return out
 
@@ -223,28 +271,80 @@ class K8sAdapter(AdapterBase):
             evidence.append(self._save_artifact(artifacts_dir, sid, "stdout", observed))
 
         elif verb == "port-forward+http":
-            # The plan embeds the curl; assume the operator already runs a
-            # port-forward in another terminal, or run inline against svc.
-            cmd = getattr(step, "cmd", None) or step.get("cmd", "")
-            # v0.6.2: PoCs hard-code a local port (commonly 18088). With
-            # 16 products × N steps running concurrently on one host, 37
-            # findings hit `bind: address already in use` (S2R2 #53).
-            # Rewrite the local port to a per-step ephemeral port.
-            cmd = self._uniquify_local_port(cmd, sid)
-            cmd = self._normalize_curl(cmd)
-            rc, out, err = self._run(cmd)
-            observed = (out + err).strip()
-            # Retry on connection-refused: 43 inconclusives were operand pods
-            # that exist but aren't listening yet (RESIDUAL §E). Two retries
-            # with backoff before giving up — cheap, and turns transient
-            # not-ready into a real verdict.
-            for _attempt in range(2):
-                if not self._CONN_REFUSED_RE.search(observed):
-                    break
-                audit.append(event="http-retry", step=sid, attempt=_attempt + 1)
-                time.sleep(15)
-                rc, out, err = self._run(cmd)
+            if (
+                target.get("http") is None
+                or step_get(step, "cmd")
+                or step_get(step, "rollback")
+                or step_get(step, "payload")
+            ):
+                return StepResult(
+                    step_id=sid,
+                    adapter="k8s",
+                    verb=verb,
+                    target=target,
+                    classification=cls,
+                    verdict="blocked_by_scope",
+                    scope_reason=(
+                        "HTTP execution requires a structured target without command, "
+                        "payload or rollback"
+                    ),
+                    finding_ref=step_get(step, "finding_ref"),
+                    novel_ref=step_get(step, "novel_ref"),
+                )
+            if __package__ and "." in __package__:
+                from ..http_endpoints import HttpProbe
+            else:
+                from http_endpoints import HttpProbe
+            from .http import HttpExecutor
+
+            try:
+                probe = HttpProbe.model_validate(target["http"])
+            except ValueError:
+                return _unresolved("invalid structured HTTP probe")
+            if reason := _http_target_error(target, probe):
+                return StepResult(
+                    step_id=sid,
+                    adapter="k8s",
+                    verb=verb,
+                    target=target,
+                    classification=cls,
+                    verdict="blocked_by_scope",
+                    scope_reason=reason,
+                    finding_ref=step_get(step, "finding_ref"),
+                    novel_ref=step_get(step, "novel_ref"),
+                )
+            expected = step_get(step, "expected", "") or ""
+            requires_identity = re.search(
+                r"\bauthenticated\b|logged[- ]in|console user|low[- ]privilege user"
+                r"|low[- ]priv|any user with",
+                expected,
+                re.IGNORECASE,
+            )
+            if requires_identity and not probe.authenticate:
+                return _unresolved("authenticated caller precondition is not satisfied")
+            if not probe.csrf and re.search(
+                r"\bcsrf\b|cross[- ]site request forgery", expected, re.IGNORECASE
+            ):
+                return _unresolved("CSRF session precondition is not satisfied")
+            try:
+                rc, out, err = HttpExecutor(self, scope, kb, audit).execute(
+                    target.get("context"), probe
+                )
                 observed = (out + err).strip()
+            except PermissionError as exc:
+                return StepResult(
+                    step_id=sid,
+                    adapter="k8s",
+                    verb=verb,
+                    target=target,
+                    classification=cls,
+                    verdict="blocked_by_scope",
+                    scope_reason=str(exc),
+                    finding_ref=step_get(step, "finding_ref"),
+                    novel_ref=step_get(step, "novel_ref"),
+                )
+            except (ValueError, RuntimeError, TimeoutError, OSError, ServiceError):
+                return _unresolved("HTTP target resolution or request failed")
             evidence.append(self._save_artifact(artifacts_dir, sid, "http", observed))
 
         elif verb in ("raw", "get", "describe"):
@@ -355,7 +455,7 @@ class K8sAdapter(AdapterBase):
             )
 
         expected = step_get(step, "expected", "")
-        verdict = self._verdict(verb, rc, observed, expected)
+        verdict = "blocked_by_scope" if rc == 126 else self._verdict(verb, rc, observed, expected)
         err_tag = ""
         if (
             verdict == "inconclusive"
@@ -378,6 +478,7 @@ class K8sAdapter(AdapterBase):
             observed=observed_out,
             evidence=evidence,
             error=err_tag,
+            scope_reason="HTTP execution policy denied the request" if rc == 126 else "",
             finding_ref=step_get(step, "finding_ref"),
             novel_ref=step_get(step, "novel_ref"),
             duration_ms=int((time.monotonic() - t0) * 1000),
@@ -427,76 +528,6 @@ class K8sAdapter(AdapterBase):
         return super().rollback(step, result)
 
     # ----- payload / cmd normalizers -----------------------------------
-
-    @staticmethod
-    def _uniquify_local_port(cmd: str, sid: str) -> str:
-        """Rewrite hard-coded local port-forward ports to a per-step
-        ephemeral port to avoid bind collisions across concurrent runs.
-
-        v0.6.3 C1: handles all of
-          * ``port-forward ... <LOCAL>:<REMOTE>`` (one or more pairs)
-          * ``port-forward ... :<REMOTE>``       (kubectl auto-assign —
-            we *fix* a local port so the curl on the next line knows
-            where to connect)
-        and rewrites every ``localhost|127.0.0.1|[::1]:<LOCAL>`` (or, in
-        the auto-assign case, ``:<REMOTE>``) reference to the new port.
-        New ports are derived deterministically from the step id
-        (20000-60999) so re-runs are reproducible.
-        """
-        if not cmd or "port-forward" not in cmd:
-            return cmd
-        # Locate the port-forward invocation line so we only rewrite
-        # its argv tokens (not e.g. a URL on the same line).
-        pf = re.search(r"\bport-forward\b[^\n;&|]*", cmd)
-        if not pf:
-            return cmd
-        pf_seg = pf.group(0)
-        # All LOCAL:REMOTE / :REMOTE argv tokens on that line.
-        pairs = list(re.finditer(r"(?<=\s)(\d{2,5})?:(\d{1,5})\b", pf_seg))
-        if not pairs:
-            return cmd
-        base = 20000 + (abs(hash(sid)) % 41000)
-        rewrites: list[tuple[str, str]] = []  # (old_local_or_remote, new_local)
-        new_seg = pf_seg
-        # Replace right-to-left so earlier match offsets stay valid.
-        for i, m in reversed(list(enumerate(pairs))):
-            new_local = str(base + i)
-            old_local = m.group(1)
-            remote = m.group(2)
-            # In auto-assign form curl most likely targets :REMOTE.
-            rewrites.append((old_local or remote, new_local))
-            new_seg = new_seg[: m.start()] + new_local + ":" + remote + new_seg[m.end() :]
-        cmd = cmd[: pf.start()] + new_seg + cmd[pf.end() :]
-        for old, new in rewrites:
-            if old == new:
-                continue
-            cmd = re.sub(
-                r"\b(localhost|127\.0\.0\.1|\[::1\]):" + re.escape(old) + r"\b", r"\1:" + new, cmd
-            )
-        return cmd
-
-    @staticmethod
-    def _normalize_curl(cmd: str) -> str:
-        """Repair the ``--write-out`` format and guarantee the HTTP
-        status code is observable.
-
-        v0.4.2 leaked ``%{{http_code}}`` (Python ``str.format`` escaping
-        that was never applied) to curl, which parsed it as the unknown
-        variable ``{http_code`` and emitted a literal ``}`` instead of
-        the status — 273 ``port-forward+http`` steps lost their only
-        signal.  This also covers replay PoCs whose curl had no ``-w``
-        at all, by appending one so ``_verdict()`` always sees a
-        trailing 3-digit code.
-        """
-        if not cmd or "curl" not in cmd:
-            return cmd
-        # Undo accidental double-brace escaping anywhere in the cmd.
-        cmd = cmd.replace("%{{http_code}}", "%{http_code}")
-        cmd = re.sub(r"%\{\{([a-z_]+)\}\}", r"%{\1}", cmd)
-        # Ensure a write-out is present so the status code is captured.
-        if "%{http_code}" not in cmd:
-            cmd = cmd.rstrip() + " -w '\\nvf-http-status:%{http_code}\\n'"
-        return cmd
 
     @staticmethod
     def _normalize_manifest(payload: str) -> str:
@@ -649,13 +680,6 @@ class K8sAdapter(AdapterBase):
     # not evidence either way on the finding. (~8 findings.)
     _PSA_BLOCKED_RE = re.compile(
         r"would violate PodSecurity|violates PodSecurity",
-        re.IGNORECASE,
-    )
-    # Transient not-ready: pod/service exists but isn't accepting connections.
-    # Retried with backoff in port-forward+http (RESIDUAL-INCONCLUSIVE §E).
-    _CONN_REFUSED_RE = re.compile(
-        r"connection refused|curl: \(7\)|Could not connect to server|"
-        r"dial tcp[^:]*: connect:|i/o timeout",
         re.IGNORECASE,
     )
 

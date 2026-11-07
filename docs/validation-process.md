@@ -44,6 +44,13 @@ stored source/finding bindings and the actual producer run's provenance. It does
 not discover baselines, reinterpret source labels as UUIDs, walk source paths,
 authenticate a machine as a human, or write a second ledger/state format.
 
+When publishing and approving a structured HTTP plan, Core's immutable scope
+snapshot carries the explicit context API, targets and discovery grants,
+credential permissions, TLS/session policy and lease deadline. Anonymous
+Service tunnels require the explicit namespace/resource authorization, not a
+blanket loopback or Route/Node host grant. Approval does not replace the live
+resolver's per-resource, method and destination checks.
+
 Core's `ValidationObservations.soundness` owns the policy;
 legacy executor/report adapters translate observations into those models, not a
 second app implementation of the rules.
@@ -102,9 +109,10 @@ instant before execution. For external producers, supply their original run
 provenance instead of creating a new UUID/time on each import. Source references
 stay opaque report labels; every source report and finding needs a validated
 binding. The report's original source IDs survive planner-local multi-repo prefixes.
-Auxiliary surface/credential counts live under
-`metadata.additional.validation_producer`, while the declared
-`not_attempted_reason` retains skip causes. Chain context is bounded; transcripts
+Auxiliary surface/credential counts and an exact datetime lease expiry, when
+present, live under `metadata.additional.validation_producer`; the schema's
+`metadata.expires` remains date-only. The declared `not_attempted_reason` retains
+skip causes. Chain context is bounded; transcripts
 are not multiplied across every chain.
 
 ### Credential-safe execution evidence
