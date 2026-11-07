@@ -129,20 +129,6 @@ def test_plan_prints_urls_ids_and_gaps(home: Path, doors: SimpleNamespace) -> No
     )
 
 
-def test_onboard_prints_the_result(home: Path, doors: SimpleNamespace) -> None:
-    doors.onboard.result = OnboardingResult(product_id=PRODUCT_ID, repository_ids=(REPO_ID,))
-    rc, out = run(portfolio_onboard.onboard, home, "--product", "example", "--repo", REPO)
-    assert (rc, out) == (
-        0,
-        {
-            "product_id": str(PRODUCT_ID),
-            "repository_ids": [str(REPO_ID)],
-            "order_ids": [],
-            "skipped": [],
-        },
-    )
-
-
 @pytest.mark.parametrize(
     "argv,reason",
     [

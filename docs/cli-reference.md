@@ -92,13 +92,39 @@ coverage, and an empty package result is not a verified source zero-hit.
 The single-commit command is not a fleet campaign; sweeps require an explicit
 bounded selection.
 
-### PQC sweep provider and refresh
+### PQC worklist Insight report and sweep
 
-`traust pqc worklist` discovers registered repositories without requiring a
-readiness report. `traust pqc sweep --limit <n>` processes a bounded batch;
-`--after <next_cursor>` resumes the batch and `--refresh` also considers stale
-scanner/rules stamps. Name run priorities with repeatable
-`--chokepoint <URL fragment>`; no config-home priority file is read.
+`traust pqc worklist` reads Core's ranked worklist of registered repositories
+without requiring a readiness report. Stdout remains the legacy JSON **array**
+of entries, including nullable ref, access and scan state; no files are created
+by default. `--markdown <path>.md` additionally publishes Core-owned Markdown
+at that exact path and an `.html` sibling through shared publication helpers,
+with no JSON sidecar and no change to stdout.
+
+Name run priorities with repeatable `--chokepoint <URL fragment>`; no config-home
+priority file is read. Omitting chokepoints retains the CLI warning and ranks
+crypto-CWE repositories before the remaining tail. Worklist generation only
+reads recorded data: it does not scan, check out source, ingest dependencies,
+probe liveness or infer readiness from missing scan state.
+
+The generic report door exposes the canonical wrapper, not the legacy array:
+
+```bash
+traust dashboard view pqc-worklist --product <slug> \
+  --repository-ref-id <ref-uuid> --chokepoint <URL-fragment> --out <directory>
+```
+
+Use `--product <slug>` for at most one product; repeat
+`--repository-ref-id` and `--chokepoint` to select refs and priorities. Explicit
+refs intersect the selected product's shipped refs. Unsupported scope, window
+and historical filters are refused. Generic dashboard JSON exports contain
+`product_id`, `repository_ref_ids`, `chokepoints` and `entries`, alongside Core's
+Markdown and HTML exports.
+
+`traust pqc sweep --limit <n>` remains native bounded scan orchestration using
+Core's worklist. `--after <next_cursor>` resumes the batch and `--refresh` also
+considers stale scanner/rules stamps. This report migration does not change
+scanner behavior, readiness scoring, liveness policy or deployment configuration.
 
 The loader registers Core's provider through `Context.register_pqc_scanner`,
 using `skill_dir("pqc-readiness")` to locate `bin/pqc-scan` and `rules/`.

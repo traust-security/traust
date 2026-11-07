@@ -2,6 +2,20 @@
 
 All notable changes to Traust are documented here.
 
+## [0.42.0]
+
+- Publish the ranked PQC worklist as a Core-owned Insight report while preserving
+  `pqc worklist`'s legacy JSON-array stdout and no-files default.
+- Add optional `pqc worklist --markdown <path>` publication of Core Markdown and
+  its HTML sibling only, through shared safe publication helpers.
+- Expose `dashboard view pqc-worklist` with single-product, repository-ref and
+  run-local chokepoint scope; generic JSON exports retain the canonical wrapper.
+- Keep the no-chokepoint warning and native bounded, resumable sweep orchestration
+  over Core's worklist, without scanner, scoring, liveness or configuration changes.
+- Complete the required Core dependency cutover by consuming every native impact
+  package result per commit, including rescanned results, rather than wrapping
+  the returned tuple as a single analysis.
+
 ## [0.41.0]
 
 - Restore critical-misses Markdown and HTML through Core's registered Insight view

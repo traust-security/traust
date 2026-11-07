@@ -122,6 +122,32 @@ dropped.
 | Quarterly | class-sweep rotation at the measured FN classes; threshold re-derivation from router telemetry; recall benchmark; the threat-model calendar backstop completes one full pass |
 | Event-driven | External-report, methodology and CVE rows in `rescan-events.jsonl` (`rescan_event_intake`). A recorded release's major/minor change requests a source `threat-model-review`. The router's `release-passthrough` lane has an asset that refuses its order until traust-core has a release feed (NEED(release-passthrough)); release discovery from inventory files is retired. |
 
+### PQC fleet planning and bounded sweeps
+
+`traust pqc worklist` is Core's read-only worklist Insight report over recorded
+repositories, liveness and scan state. Its stdout remains the legacy JSON
+array; it creates no files by default. Optional `--markdown <path>.md` creates
+only Core-owned Markdown at that path and an `.html` sibling through shared
+publication helpers, without a JSON sidecar or changing stdout.
+
+For canonical dashboard wrapper JSON plus human exports, use
+`traust dashboard view pqc-worklist --out <directory>`. Scope it to at most one
+product with `--product <slug>` and optionally repeat
+`--repository-ref-id <uuid>` and `--chokepoint <URL fragment>`. Explicit refs
+intersect the selected product's shipped refs. The generic JSON wrapper carries
+`product_id`, `repository_ref_ids`, `chokepoints` and `entries`, not the legacy
+array. Unsupported scope, window and historical filters are refused.
+
+Chokepoints are run-local priorities, not a deployment configuration file.
+Without them the CLI still warns and uses crypto-CWE-then-tail ordering.
+Planning does not scan, check out source, ingest dependencies or probe liveness;
+unknown scan state does not establish readiness.
+
+`traust pqc sweep --limit <n>` remains native bounded orchestration using Core's
+worklist; `--after <next_cursor>` resumes and `--refresh` considers stale pack
+stamps. Scanner behavior, readiness scoring, liveness policy and configuration
+are unchanged by the reporting migration.
+
 ## Standing jobs — the complete inventory
 
 The table above covers the rescan loop's lanes. This inventory is the superset:

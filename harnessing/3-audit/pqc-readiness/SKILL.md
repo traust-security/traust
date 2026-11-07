@@ -7,6 +7,7 @@ description: >-
   app, consulting capability notes for version meaning. Reports keep unknown
   effort size separate from independently evidenced external blocking.
   Layer-1 evidence comes from Core's native source/SBOM prescan and persisted facts.
+  Fleet selection uses Core's read-only worklist Insight report; bounded sweeps remain native orchestration.
 argument-hint: "<repo-dir-or-url> [--from-facts PATH]"
 user-invocable: true
 metadata:
@@ -133,6 +134,26 @@ manufacture a clean scan.
 `prepare` returns the commit's recorded facts, its Layer-2 route and its prior
 report. This single-target procedure is not authorization for a fleet campaign;
 use only the explicitly selected scope.
+
+For explicitly authorized fleet planning, `traust pqc worklist` reads Core's
+ranked worklist without scanning, checking out source or changing recorded
+state. Stdout is the legacy JSON array and no files are written by default.
+Optional `--markdown <path>.md` writes only Core-owned Markdown and its `.html`
+sibling, without a JSON sidecar or any change to stdout.
+
+Repeat `--chokepoint <URL fragment>` for run-local priorities; absent
+chokepoints retain the CLI warning and crypto-CWE-then-tail ordering, not a
+new configuration default. For canonical wrapper JSON and human exports, use
+`traust dashboard view pqc-worklist --out <directory>` with at most one
+`--product <slug>`, repeatable
+`--repository-ref-id <uuid>` and repeatable `--chokepoint <fragment>`.
+The wrapper carries `product_id`, `repository_ref_ids`, `chokepoints` and
+`entries`; it is not the legacy array. Product and explicit ref scopes intersect.
+
+`traust pqc sweep --limit <n> [--after <cursor>] [--refresh]` remains bounded,
+resumable native scan orchestration using Core's worklist. The report does not
+change scanner behavior, readiness scoring, liveness policy or deployment
+configuration; missing recorded scan state remains unknown, not readiness.
 
 **Zero-hit gate:** empty source facts without
 `coverage.no_crypto_detected_assertion` mean coverage is unproven — stop.

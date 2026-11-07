@@ -17,7 +17,7 @@ from traust_core.v1.providers.clock import FixedClock
 from traust_core.v1.repositories.contract import SqlTraustUnitOfWork
 
 from tests.test_products_doors import _postgres
-from traust.cli import critical_misses
+from traust.cli import _report_files, critical_misses
 
 NOW = datetime(2026, 10, 20, tzinfo=UTC)
 START = datetime(2026, 10, 1, tzinfo=UTC)
@@ -388,7 +388,7 @@ def test_cleanup_failure_preserves_the_publication_outcome(
     originals = {path: f"original {path.suffix}".encode() for path in paths}
     for path, content in originals.items():
         path.write_bytes(content)
-    remove_tree = critical_misses.shutil.rmtree
+    remove_tree = _report_files.shutil.rmtree
     cleanup_attempts = 0
     retained = None
 
@@ -401,7 +401,7 @@ def test_cleanup_failure_preserves_the_publication_outcome(
                 raise PermissionError("staging cleanup refused")
         remove_tree(path, *args, **kwargs)
 
-    monkeypatch.setattr(critical_misses.shutil, "rmtree", fail_one_cleanup)
+    monkeypatch.setattr(_report_files.shutil, "rmtree", fail_one_cleanup)
     publication_error = (
         KeyboardInterrupt("publication cancelled")
         if outcome == "cancelled"

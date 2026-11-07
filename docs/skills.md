@@ -186,7 +186,7 @@ Use when the user asks whether an operator runs with least privilege, what SCCs/
 
 ## pqc-readiness
 
-Assess a repository's post-quantum TLS readiness. Use when asked whether a repo can negotiate ML-KEM hybrid TLS, who controls that choice, or to emit a pqc-readiness report. Walks the TLS control chain from platform down to app, consulting capability notes for version meaning. Reports keep unknown effort size separate from independently evidenced external blocking. Layer-1 evidence comes from Core's native source/SBOM prescan and persisted facts.
+Assess a repository's post-quantum TLS readiness. Use when asked whether a repo can negotiate ML-KEM hybrid TLS, who controls that choice, or to emit a pqc-readiness report. Walks the TLS control chain from platform down to app, consulting capability notes for version meaning. Reports keep unknown effort size separate from independently evidenced external blocking. Layer-1 evidence comes from Core's native source/SBOM prescan and persisted facts. Fleet selection uses Core's read-only worklist Insight report; bounded sweeps remain native orchestration.
 
 - **Stage:** ③ Audit
 - **Tier:** `primary`

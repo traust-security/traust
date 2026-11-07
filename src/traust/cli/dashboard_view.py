@@ -21,6 +21,7 @@ from traust_core.v1.models.insight import ExecutivePanel, ViewFilter, ViewName
 
 from traust.cli import _doors
 from traust.cli._doors import parser, run, when
+from traust.cli.pqc import _fragment
 from traust.context import load
 from traust.ops.materializers import write_view
 
@@ -49,6 +50,20 @@ def main(argv: list[str] | None = None) -> int:
 
 def _scope_flags(ap: Any) -> None:
     ap.add_argument("--product", action="append", default=[], help="a product slug (repeatable)")
+    ap.add_argument(
+        "--repository-ref-id",
+        action="append",
+        type=uuid.UUID,
+        help="a registered commit ID; omitted means all (repeatable)",
+    )
+    ap.add_argument(
+        "--chokepoint",
+        action="append",
+        default=[],
+        type=_fragment,
+        metavar="URL_FRAGMENT",
+        help="a PQC worklist priority repository URL fragment (repeatable)",
+    )
     ap.add_argument("--team-id", action="append", default=[], type=uuid.UUID, help="(repeatable)")
     ap.add_argument(
         "--category",
@@ -97,6 +112,27 @@ def _decimal(value: str) -> Decimal:
 
 
 def _scope(services: Any, args: Any) -> ViewFilter:
+    if args.view == ViewName.PQC_WORKLIST:
+        unsupported = (
+            "team_id",
+            "category",
+            "as_of",
+            "since",
+            "until",
+            "compare_as_of",
+            "first_party_divisor",
+            "artifact_id",
+            "assessment_id",
+            "report_stem",
+            "panel",
+            "sla_policy",
+            "invoice",
+        )
+        for flag in unsupported:
+            if getattr(args, flag):
+                raise ValidationError(
+                    f"--{flag.replace('_', '-')} is not supported by pqc-worklist"
+                )
     if args.compare_as_of is not None:
         # traust-core's LocView reads the latest measurement only: no historical LoC read yet.
         raise ValidationError("--compare-as-of: the loc view has no historical comparison")
@@ -106,6 +142,10 @@ def _scope(services: Any, args: Any) -> ViewFilter:
     until = when(args.until) or as_of or datetime.now(UTC)
     return ViewFilter(
         product_ids=tuple(p.id for p in _doors.products(services, args.product)),
+        repository_ref_ids=(
+            None if args.repository_ref_id is None else tuple(args.repository_ref_id)
+        ),
+        pqc_chokepoints=tuple(args.chokepoint),
         team_ids=tuple(args.team_id),
         categories=tuple(args.category),
         as_of=as_of,

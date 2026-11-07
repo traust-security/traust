@@ -217,8 +217,8 @@ def analyze(argv: list[str] | None = None) -> int:
         judged = [s.strip() for s in args.symbols.split(",") if s.strip()]
         recorded = []
         for ref_id in commits:
-            # Core prepares one commit against the advisory (one analysis per commit).
-            prepared = (exposure.prepare(advisory_id, ref_id, judged=judged),)
+            # Core prepares every applicable package for this commit.
+            prepared = exposure.prepare(advisory_id, ref_id, judged=judged)
             if args.scan and any(
                 p.evidence.classification(p.package.ecosystem) in UNDECIDED for p in prepared
             ):
@@ -230,7 +230,7 @@ def analyze(argv: list[str] | None = None) -> int:
                     )
                 ).data
                 try:
-                    prepared = (exposure.prepare(advisory_id, ref_id, workspace.path, judged),)
+                    prepared = exposure.prepare(advisory_id, ref_id, workspace.path, judged)
                 finally:
                     services.checkouts.release(workspace)
             for item in prepared:
