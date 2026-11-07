@@ -18,6 +18,7 @@ from traust_core.v1.errors import ValidationError
 from traust_core.v1.models.artifacts import SlaPolicyArtifact
 from traust_core.v1.models.common import TimeBucket, TimeWindow
 from traust_core.v1.models.insight import ExecutivePanel, ViewFilter, ViewName
+from traust_core.v1.models.vocabulary import ComplianceFramework
 
 from traust.cli import _doors
 from traust.cli._doors import parser, run, when
@@ -102,6 +103,16 @@ def _scope_flags(ap: Any) -> None:
         type=Path,
         help="the spend view's billed amounts: CSV period,amount_usd[,note]",
     )
+    ap.add_argument(
+        "--framework",
+        choices=[f.value for f in ComplianceFramework],
+        help="required compliance framework for compliance-precision",
+    )
+    ap.add_argument(
+        "--precision-gate",
+        type=float,
+        help="compliance-precision review gate, inclusive (default: Core's default gate)",
+    )
 
 
 def _decimal(value: str) -> Decimal:
@@ -112,6 +123,8 @@ def _decimal(value: str) -> Decimal:
 
 
 def _scope(services: Any, args: Any) -> ViewFilter:
+    if args.view == ViewName.COMPLIANCE_PRECISION and args.until is not None:
+        raise ValidationError("--until is not supported by compliance-precision")
     if args.view == ViewName.PQC_WORKLIST:
         unsupported = (
             "team_id",
@@ -156,6 +169,8 @@ def _scope(services: Any, args: Any) -> ViewFilter:
         report_stem=args.report_stem,
         executive_panels=tuple(ExecutivePanel(p) for p in args.panel),
         first_party_divisor=args.first_party_divisor,
+        framework=None if args.framework is None else ComplianceFramework(args.framework),
+        precision_gate=args.precision_gate,
     )
 
 
@@ -173,6 +188,12 @@ def sla_policy(argv: list[str] | None = None) -> int:
 
 
 def _core(view: ViewName, args: Any) -> Context:
+    if view is ViewName.COMPLIANCE_PRECISION and (
+        args.sla_policy is not None or args.invoice is not None
+    ):
+        raise ValidationError(
+            "--sla-policy and --invoice are not supported by compliance-precision"
+        )
     core = load(args.config_home, sla_policy=args.sla_policy, invoices=args.invoice)
     if view is ViewName.FRESHNESS:
         # freshness reads the feed snapshots. NEED(core: feeds registered lazily by name)

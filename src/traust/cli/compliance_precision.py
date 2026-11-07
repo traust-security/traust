@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import cast
 
+from traust_core.v1.models.insight import CompliancePrecision, ViewFilter, ViewName
 from traust_core.v1.models.vocabulary import ComplianceFramework
 
 from traust.cli._doors import parser, run
+from traust.cli._report_files import report_paths, write_reports
 from traust.context import load
 
 
@@ -16,16 +19,25 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
 
     def call() -> dict:
-        report = (
-            load(args.config_home)
-            .services()
-            .detection_quality.calibrate_compliance(
-                ComplianceFramework(args.framework), gate=args.gate
+        scope = ViewFilter(
+            framework=ComplianceFramework(args.framework),
+            precision_gate=args.gate,
+        )
+        paths = report_paths(
+            tuple(
+                args.out_dir / f"compliance-precision.{suffix}" for suffix in ("json", "md", "html")
             )
         )
-        args.out_dir.mkdir(parents=True, exist_ok=True)
-        (args.out_dir / "compliance-precision.json").write_text(
-            report.model_dump_json(indent=2) + "\n", encoding="utf-8"
+        rendered = (
+            load(args.config_home).services().insight.publish(ViewName.COMPLIANCE_PRECISION, scope)
+        )
+        report = cast(CompliancePrecision, rendered.model).calibration
+        write_reports(
+            {
+                paths[0]: report.model_dump_json(indent=2) + "\n",
+                paths[1]: rendered.markdown,
+                paths[2]: rendered.html,
+            }
         )
         return {
             **report.model_dump(mode="json"),
