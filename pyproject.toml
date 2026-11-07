@@ -7,7 +7,7 @@ name = "traust"
 # version must equal the VERSION file — check_docs_consistency.py
 # version-sync check fails the pre-push when they drift (and fails
 # closed if this field is removed)
-version = "0.42.0"
+version = "0.44.0"
 license = "Apache-2.0"
 description = "AI agent tooling for automated security audits of Red Hat Hybrid Platforms source code"
 requires-python = ">=3.11"
@@ -32,7 +32,7 @@ traust = "traust.cli.__main__:main"
 dev = ["ruff>=0.6", "pytest-xdist>=3", "psycopg[binary]>=3.1"]
 
 [tool.uv.sources]
-traust-core = { git = "https://github.com/traust-security/traust-core.git", rev = "f0db370bc923b362a99fc86498fb1c5309ec066b" }
+traust-core = { git = "https://github.com/traust-security/traust-core.git", rev = "d25bc027188fe9a11f1be7f52ba143c51de0148c" }
 
 # Multi-skill CLIs live under src/traust/; harnessing/<skill>/ for single-skill
 # scripts. Install for deps + importable path helpers.

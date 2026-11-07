@@ -18,22 +18,20 @@ from __future__ import annotations
 import argparse
 import re
 from pathlib import Path
-from typing import Any
-from urllib.parse import urlsplit
+from typing import Any, cast
 
 import pydantic
 import yaml
 from traust_core.v1.context import Context
 from traust_core.v1.errors import NotFoundError, ValidationError
 from traust_core.v1.models.base import Dto, Model
-from traust_core.v1.models.common import every_item
+from traust_core.v1.models.insight import InventoryExport, ViewFilter, ViewName
 from traust_core.v1.models.inventory import (
     OrgName,
     OwnerAssignment,
     OwnershipSource,
     RefName,
     ReleaseCommit,
-    RepositoryFilter,
     TeamName,
     VersionLabel,
 )
@@ -244,20 +242,9 @@ def release_changes(argv: list[str] | None = None) -> int:
     return run(call)
 
 
-INVENTORY_COLUMNS = (
-    "Repository",
-    "URL",
-    "Host",
-    "Organization/Group",
-    "Repo Name",
-    "Owner Team",
-    "Products",
-    "Accountable Contacts",
-)
-
-
 def inventory_export(argv: list[str] | None = None) -> int:
     ap = parser("portfolio", "inventory-export", "Joined inventory, owners and contacts.")
+    ap.add_argument("--format", choices=("json", "csv"), default="json")
     ap.add_argument(
         "--pd-cache-dir",
         type=Path,
@@ -265,53 +252,18 @@ def inventory_export(argv: list[str] | None = None) -> int:
     )
     args = ap.parse_args(argv)
 
-    def call() -> Any:
+    def call() -> object:
         core = load(args.config_home)
-        rows = _inventory_rows(core, args.pd_cache_dir)
-        return [dict(zip(INVENTORY_COLUMNS, row, strict=True)) for row in rows]
+        if args.pd_cache_dir is not None:
+            locations = core.config.locations.model_copy(
+                update={"feeds_cache": str(args.pd_cache_dir.resolve())}
+            )
+            core.config = core.config.model_copy(update={"locations": locations})
+        rendered = core.services().insight.publish(ViewName.INVENTORY_EXPORT, ViewFilter())
+        if args.format == "csv":
+            assert rendered.csv is not None
+            return rendered.csv.rstrip("\r\n")
+        model = cast(InventoryExport, rendered.model)
+        return [row.model_dump(mode="json") for row in model.rows]
 
     return run(call)
-
-
-def _inventory_rows(core: Context, cache_dir: Path | None) -> list[tuple[object, ...]]:
-    """Every registered repository with its current owning teams, the products shipping it and
-    the product-definitions contacts for its URL: composed from the portfolio's own lists."""
-    portfolio = core.services().portfolio
-    repositories = list(
-        every_item(lambda page: portfolio.list_repositories(RepositoryFilter(), page))
-    )
-    resolution = portfolio.resolve_products(
-        core.product_definitions(cache_dir).read(),
-        portfolio.product_mappings(),
-        repo_urls=[repo.url for repo in repositories],
-    )
-    contacts = {
-        match.query.value: [
-            f"{c.kerberos_id} ({c.field}; embargo_cleared={c.embargo_cleared})"
-            for c in match.contacts
-        ]
-        for match in resolution.results
-        if match.query is not None
-    }
-    rows = []
-    # NEED(core: bulk owners/products for inventory export): PortfolioService at the pinned core
-    # answers owners (`list_owners`) and shipping products (`list_products_of`) one repository at
-    # a time, with no list or by-ids variant, so this export makes two store queries per
-    # repository until core has one.
-    for repo in repositories:
-        assert repo.id is not None
-        parts = urlsplit(repo.url)
-        organization, _, name = parts.path.strip("/").rpartition("/")
-        rows.append(
-            (
-                f"{organization}/{name}" if organization else name,
-                repo.url,
-                parts.hostname or "",
-                organization,
-                name,
-                [team.name for team in portfolio.list_owners(repo.id)],
-                [str(product.slug) for product in portfolio.list_products_of(repo.id)],
-                contacts.get(repo.url, []),
-            )
-        )
-    return rows

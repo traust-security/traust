@@ -22,8 +22,9 @@ import sqlalchemy as sa
 import yaml
 from traust_core.v1 import contracts
 from traust_core.v1.models.identity import IdentitySource, Principal
+from traust_core.v1.models.inventory import RefName
 from traust_core.v1.models.operations import OrderRequest, WorkerId
-from traust_core.v1.models.values import HttpsRepoUrl
+from traust_core.v1.models.values import GitSha, HttpsRepoUrl
 from traust_core.v1.models.vocabulary import ActorKind
 from traust_core.v1.repositories import apply_schema, create_database_engine
 from traust_core.v1.repositories.sql import Dialect
@@ -355,6 +356,8 @@ def test_record_binds_the_audit_to_its_leased_order(home: Path, tmp_path: Path) 
     repo = services.portfolio.register_repository(
         HttpsRepoUrl.parse(REPO, load(home).config.forge_hosts), False
     )
+    assert repo.id is not None
+    services.portfolio.mark_default_branch(repo.id, GitSha.parse(SHA), RefName("main"))
     operator = Principal(
         identity="operator@example.com",
         kind=ActorKind.HUMAN,
