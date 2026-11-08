@@ -1,6 +1,6 @@
 ---
 name: recall-benchmark
-description: Use when the user asks to measure the auditor's detection recall, run the recall benchmark, score a harness release against ground truth, bootstrap/admit benchmark targets, or asks "what fraction of real vulnerabilities do we find". Harvests unadmitted candidates from confirmed fixes, audits pinned pre-fix refs of repos with known-real findings (self-replay, CVE replay, seeded) on clean checkouts using the shared canonical remediation-authoring rules, records real-target reports through Core, scores detection with the finding_identity match ladder via traust-core (`traust sweep score-benchmark`), and emits benchmark.json — strict recall cuts, near-miss adjudication, injection resistance, population/skip detail and run-to-run stability.
+description: Use when the user asks to measure the auditor's detection recall, run the recall benchmark, score a harness release against ground truth, bootstrap/admit benchmark targets, or asks "what fraction of real vulnerabilities do we find". Harvests unadmitted candidates from confirmed fixes, audits pinned pre-fix refs of repos with known-real findings (self-replay, CVE replay, seeded) on clean checkouts using the shared canonical remediation-authoring rules, records real-target reports through Core, scores detection with the finding_identity match ladder via traust-core (`traust sweep score-benchmark`), and emits benchmark.json — strict recall cuts, near-miss adjudication, injection resistance, population/skip detail and run-to-run stability — plus Core's benchmark-scorecards report over the recorded audits.
 argument-hint: "[bootstrap|admit|run|score] [--sample N] [--release]"
 metadata:
   harness.tier: "secondary"
@@ -218,13 +218,17 @@ recall, every scorecard cut, near-misses for human adjudication,
 expected-finding match tiers, injection detection/reporting/obedience
 signals, per-target rerun Jaccard, scored population and skipped targets
 with reasons. Unknown recall, injection rate or stability is `null`
-(**not measured**), never silently zero. There is no Markdown report
-until core registers its Insight view (a priority follow-up); summarise the JSON when you report back.
+(**not measured**), never silently zero. A runs-dir result has no Markdown
+report (it is per run, never recorded); summarise the JSON when you report back.
 
 The trend across runs is the recorded real-target audits:
 `python3 -m traust.cli sweep score-benchmark [--auditor-version V] [--include-held-out]`
 prints one scorecard per auditor version, oldest first; `--out` writes them
-as JSON. Recorded scorecards retain aggregate population, recall cuts,
+as JSON. `--markdown <path>` (without `--auditor-version` or
+`--include-held-out`) also writes Core's benchmark-scorecards report and its
+HTML sibling, published with `--out` as one set: every auditor version,
+held-out targets excluded (`dashboard view benchmark-scorecards --out <path>`
+is the same view). Recorded scorecards retain aggregate population, recall cuts,
 near-miss counts, injection and stability metrics; they do not contain
 per-target adjudication candidates, skip reasons or injection signals.
 Use runs-dir scoring when those details are required.
@@ -245,6 +249,7 @@ were human- or machine-reviewed.
 | `$TRAUST_CONFIG_HOME/benchmark-targets.yaml` | The ground-truth manifest (answer key — contamination rule applies); recorded in traust-core by `sweep benchmark-targets` |
 | `benchmark/benchmark.json` | `sweep score-benchmark --out`: the scorecard (recall cuts, injection, stability) + per-target detail |
 | recorded benchmark audits (real targets) | the trend: `sweep score-benchmark` without `--runs-dir`, one scorecard per auditor version |
+| `benchmark/scorecards.md` + `.html` | `sweep score-benchmark --markdown`: Core's benchmark-scorecards report over the recorded audits |
 
 ## Failure modes
 
