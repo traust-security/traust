@@ -12,6 +12,7 @@ import tempfile
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
+from uuid import UUID
 
 import pytest
 from traust_core.v1.errors import NotFoundError, ServiceError, ValidationError
@@ -491,31 +492,28 @@ def test_a_manual_or_non_recording_session_is_not_checked(
     assert result["outcome"] == "succeeded"
 
 
-OLD_REPORT = SimpleNamespace(id="manual-report")
-NEW_REPORT = SimpleNamespace(id="this-attempts-report")
-
-
 @pytest.mark.parametrize(
-    ("before", "after", "outcome"),
+    ("reporter", "outcome"),
     [
-        (None, NEW_REPORT, "succeeded"),
-        (None, None, "failed"),
-        (OLD_REPORT, OLD_REPORT, "failed"),  # a manual run's or another order's report
-        (OLD_REPORT, NEW_REPORT, "succeeded"),
+        (ORDER, "succeeded"),  # this order's run, a retry whose report already landed too
+        (None, "failed"),  # no report, or one recorded by hand
+        ("a6bf6a2c-6f6c-4a8f-9a5b-3f4f6c1d2e10", "failed"),  # another order's report
     ],
-    ids=["recorded", "no report", "an earlier report only", "recorded over an earlier one"],
+    ids=["this order's report", "no order's report", "another order's report"],
 )
-def test_an_ordered_fix_succeeds_only_when_this_attempt_recorded_its_report(
+def test_an_ordered_fix_succeeds_only_when_this_order_recorded_its_report(
     processes: Processes,
     monkeypatch: pytest.MonkeyPatch,
-    before: SimpleNamespace | None,
-    after: SimpleNamespace | None,
+    reporter: str | None,
     outcome: str,
 ) -> None:
     item = "6c703684-575d-43f9-8ad6-419be0241a14"
-    reports = iter([before, after])
     monkeypatch.setattr(session, "_ordered_work_item", lambda order, args: item)
-    monkeypatch.setattr(session, "_work_item_report", lambda work_item, args: next(reports))
+    monkeypatch.setattr(
+        session,
+        "_report_recorded_by",
+        lambda work_item, args: None if reporter is None else UUID(reporter),
+    )
     _, result = run("--skill", "remediate-finding", "--role", "remediation", "--run-id", ORDER)
     succeeded = outcome == "succeeded"
     assert (result["outcome"], result.get("reason")) == (
@@ -541,28 +539,22 @@ def test_an_order_naming_no_work_item_is_refused_before_the_agent_starts(
 def test_a_lookup_core_cannot_answer_before_the_session_is_not_a_bad_request(
     processes: Processes, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(session, "_ordered_work_item", lambda order, args: "work-item")
-
-    def unavailable(work_item: object, args: object) -> None:
+    def unavailable(order: object, args: object) -> None:
         raise ServiceError("core unavailable")
 
-    monkeypatch.setattr(session, "_work_item_report", unavailable)
+    monkeypatch.setattr(session, "_ordered_work_item", unavailable)
     rc, result = run("--skill", "remediate-finding", "--role", "remediation", "--run-id", ORDER)
     assert (rc, result["outcome"], result["reason"]) == (1, "failed", "runner-crashed")
     assert processes.agent_calls() == []
 
 
-@pytest.mark.parametrize("lookup", ["_ordered_work_item", "_work_item_report"])
 def test_a_configuration_that_exits_before_a_fix_session_still_answers(
-    processes: Processes, monkeypatch: pytest.MonkeyPatch, lookup: str
+    processes: Processes, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(session, "_ordered_work_item", lambda order, args: "work-item")
-    monkeypatch.setattr(session, "_work_item_report", lambda work_item, args: None)
-
     def exits(*_: object) -> None:
         raise SystemExit(2)
 
-    monkeypatch.setattr(session, lookup, exits)
+    monkeypatch.setattr(session, "_ordered_work_item", exits)
     rc, result = run("--skill", "remediate-finding", "--role", "remediation", "--run-id", ORDER)
     assert (rc, result["outcome"], result["reason"]) == (1, "failed", "bad_request")
     assert processes.agent_calls() == []
