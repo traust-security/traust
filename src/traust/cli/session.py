@@ -40,7 +40,6 @@ from traust_core.v1.context import TRAUST_CONFIG_HOME_ENV, CheckoutRequest, Cont
 from traust_core.v1.errors import NotFoundError, ServiceError, TraustError, ValidationError
 from traust_core.v1.models.assessment import Assessment, AssessmentKind, DiffRefused
 from traust_core.v1.models.base import Dto
-from traust_core.v1.models.common import ArtifactRef
 from traust_core.v1.models.operations import (
     JobResult,
     ModelName,
@@ -306,12 +305,10 @@ def run(argv: list[str] | None = None) -> int:
     except (TraustError, OSError) as e:
         print(f"run {args.run_id}: {OrderReason.BAD_REQUEST}: {type(e).__name__}", file=sys.stderr)
         return answer(JobResult.failed(OrderReason.BAD_REQUEST))
-    reported = held = None
+    reported = None
     if order_id is not None and args.skill in REPORTING_SKILLS:
         try:
             reported = _ordered_work_item(order_id, args)
-            # the report the work item held before this attempt: only a new one counts below
-            held = _work_item_report(reported, args)
         except (ValidationError, NotFoundError) as e:  # the order can't be run as it stands
             print(f"run {args.run_id}: {OrderReason.BAD_REQUEST}: {e}", file=sys.stderr)
             return answer(JobResult.failed(OrderReason.BAD_REQUEST))
@@ -355,7 +352,7 @@ def run(argv: list[str] | None = None) -> int:
         return answer(_spent(JobResult.failed(OrderReason.RUNNER_CRASHED), usage))
     if reported is not None:
         try:
-            report = _work_item_report(reported, args)
+            reporter = _report_recorded_by(reported, args)
         except SystemExit:
             print(f"run {args.run_id}: {OrderReason.BAD_REQUEST}: configuration", file=sys.stderr)
             return answer(_spent(JobResult.failed(OrderReason.BAD_REQUEST), usage))
@@ -364,11 +361,11 @@ def run(argv: list[str] | None = None) -> int:
                 f"run {args.run_id}: work-item report lookup: {type(e).__name__}", file=sys.stderr
             )
             return answer(_spent(JobResult.failed(OrderReason.RUNNER_CRASHED), usage))
-        # NEED(core: a remediation report names the order that recorded it): until then a retry
-        # of this order whose report already landed fails closed, like one that recorded nothing
-        if report is None or report == held:
+        # only a report this order's run recorded counts — a retry's included, never one a
+        # manual run or another order recorded
+        if reporter != order_id:
             print(
-                f"run {args.run_id}: /{args.skill} recorded no new report on work item {reported}",
+                f"run {args.run_id}: /{args.skill} recorded no report on work item {reported}",
                 file=sys.stderr,
             )
             return answer(_spent(JobResult.failed(OrderReason.SESSION_OUTPUT_INVALID), usage))
@@ -417,8 +414,10 @@ def _ordered_work_item(order_id: UUID, args: argparse.Namespace) -> UUID:
     return order.work_item_id
 
 
-def _work_item_report(work_item_id: UUID, args: argparse.Namespace) -> ArtifactRef | None:
-    return load(args.config_home).services().remediation.get(work_item_id).report
+def _report_recorded_by(work_item_id: UUID, args: argparse.Namespace) -> UUID | None:
+    """The order whose run recorded the work item's report; None without one, or by hand."""
+    item = load(args.config_home).services().remediation.get(work_item_id)
+    return None if item.report is None else item.reported_by
 
 
 def _spent(result: JobResult, usage: tuple[ModelUsage, ...]) -> JobResult:
