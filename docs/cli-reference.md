@@ -193,8 +193,10 @@ convert uninspectable deliverables and rerun the gate; there is no binary fallba
   confirmed fixes as **unadmitted** answer-key candidates with fix evidence and a stable
   held-out split. Human review precedes `benchmark-targets candidates.yaml`.
 - `traust sweep score-benchmark --runs-dir <runs> --out benchmark.json` writes the scored
-  run as JSON; without `--runs-dir` it writes the recorded scorecards. There is no Markdown
-  report until core registers its Insight view (a priority follow-up).
+  run as JSON; without `--runs-dir` it writes the recorded scorecards. `--markdown <path>`
+  (recorded audits only, no `--auditor-version` or `--include-held-out`) also writes Core's
+  benchmark-scorecards report and an HTML sibling, published with `--out` as one set; it is
+  the same view as `traust dashboard view benchmark-scorecards`.
 - `traust sweep cards <deck.yaml> --checkout <dir>` sweeps the valid cards' code-facts
   enumerators over the checkout; reference cards enumerate textual mentions, not resolved
   calls. There is no replay of supplied facts: traust-core's `sweep_cards` runs from the

@@ -7,13 +7,16 @@ from __future__ import annotations
 import contextlib
 import io
 import json
+from collections.abc import Iterator
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
+import yaml
+from traust_core.v1.context import ArtifactsConfig, Config, Context, DatabaseConfig
 from traust_core.v1.errors import NotFoundError
-from traust_core.v1.models.artifacts import ReportArtifact
+from traust_core.v1.models.artifacts import BenchmarkTargetArtifact, ReportArtifact
 from traust_core.v1.models.detection_quality import (
     BenchmarkFilter,
     BenchmarkRun,
@@ -21,8 +24,10 @@ from traust_core.v1.models.detection_quality import (
     Scorecard,
 )
 
+from tests.test_products_doors import _postgres
+from tests.test_recall_targets import EXAMPLE
 from tests.test_validate_report import _valid_report
-from traust.cli import recall
+from traust.cli import _doors, recall
 
 KEY = "00000000-0000-0000-0000-000000000001"
 
@@ -164,3 +169,81 @@ def test_recorded_scorecards_are_written_as_json_only(
     rc, out = call("--out", str(out_file), "--auditor-version", "h-1")
     assert rc == 0 and json.loads(out_file.read_text()) == out
     assert [p.name for p in out_file.parent.iterdir()] == ["benchmark.json"]
+
+
+# --markdown: Core's benchmark-scorecards view over the recorded audits
+
+
+@pytest.fixture(params=["sqlite", "postgres"])
+def recorded(
+    request: pytest.FixtureRequest, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> Iterator[Context]:
+    with contextlib.ExitStack() as stack:
+        database = (
+            DatabaseConfig(url=stack.enter_context(_postgres()))
+            if request.param == "postgres"
+            else DatabaseConfig()
+        )
+        context = Context(
+            Config(
+                home=tmp_path / "store",
+                artifacts=ArtifactsConfig(path=tmp_path / "artifacts"),
+                database=database,
+            )
+        )
+        monkeypatch.setattr(recall, "load", lambda home: context)
+        yield context
+        context.database.dispose()
+
+
+def answer_key(context: Context) -> None:
+    raw = json.loads(json.dumps(yaml.safe_load(EXAMPLE.read_text()), default=str))
+    context.services().detection_quality.record(
+        BenchmarkTargetArtifact.from_document(raw), _doors.interactive()
+    )
+
+
+def test_markdown_publishes_the_view_with_its_json_as_one_set(
+    recorded: Context, tmp_path: Path
+) -> None:
+    answer_key(recorded)
+    markdown, json_out = tmp_path / "out" / "scorecards.md", tmp_path / "out" / "scorecards.json"
+    rc, out = call("--markdown", str(markdown), "--out", str(json_out))
+    assert (rc, out) == (0, {"scorecards": []})  # no recorded audit yet
+    assert json.loads(json_out.read_text()) == out
+    report = markdown.read_text()
+    assert report.startswith("# Detection-recall benchmark scorecards")
+    assert "No scorecards are eligible under the newest answer key" in report
+    assert markdown.with_suffix(".html").read_text().lstrip().startswith("<!DOCTYPE html>")
+    assert sorted(p.name for p in markdown.parent.iterdir()) == [
+        "scorecards.html",
+        "scorecards.json",
+        "scorecards.md",
+    ]
+
+
+def test_markdown_without_an_answer_key_writes_nothing(recorded: Context, tmp_path: Path) -> None:
+    markdown = tmp_path / "out" / "scorecards.md"
+    rc, err = call("--markdown", str(markdown))
+    assert rc == 2 and "no benchmark answer key recorded" in err
+    assert not markdown.parent.exists()
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [("--runs-dir", "runs"), ("--auditor-version", "h-1"), ("--include-held-out",)],
+)
+def test_markdown_reports_only_the_views_population(
+    wired: SimpleNamespace, tmp_path: Path, extra: tuple[str, ...]
+) -> None:
+    markdown = tmp_path / "scorecards.md"
+    rc, err = call("--markdown", str(markdown), *extra)
+    assert rc == 2 and "takes no --runs-dir, --auditor-version or --include-held-out" in err
+    assert (wired.reports, wired.filters, markdown.exists()) == ([], [], False)
+
+
+def test_markdown_refuses_colliding_destinations(wired: SimpleNamespace, tmp_path: Path) -> None:
+    markdown = tmp_path / "scorecards.md"
+    rc, err = call("--markdown", str(markdown), "--out", str(markdown.with_suffix(".html")))
+    assert rc == 2 and "must be distinct" in err
+    assert list(tmp_path.iterdir()) == []

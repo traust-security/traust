@@ -7,7 +7,8 @@ build-canaries     commit every canary (or seeded-fixture) source into a determi
                    (traust-core's canary materialiser) and record them as targets of a new version
 score-benchmark    score a runs dir of audit reports (``<id>/``, rerun ``<id>__rerun/``) against the
                    newest answer key, derived on demand and stored nowhere; without --runs-dir, the
-                   scorecard per auditor version over the recorded benchmark audits
+                   scorecard per auditor version over the recorded benchmark audits (--markdown:
+                   Core's benchmark-scorecards report and its HTML sibling)
 screen-injection   screen recorded audit reports for the shape of obeyed prompt injection; every
                    signal is a human review item, never a verdict. Exit 1 when any is flagged
 """
@@ -18,14 +19,17 @@ import json
 import uuid
 from importlib.metadata import version
 from pathlib import Path
+from typing import cast
 
 import yaml
 from traust_core.v1.errors import ValidationError
 from traust_core.v1.models.artifacts import BenchmarkTargetArtifact, ReportArtifact
 from traust_core.v1.models.detection_quality import BenchmarkFilter, BenchmarkTargetId
+from traust_core.v1.models.insight import BenchmarkScorecards, ViewFilter, ViewName
 
 from traust.cli import _doors
 from traust.cli._doors import parser, run
+from traust.cli._report_files import report_paths, write_reports
 from traust.context import load
 
 
@@ -109,10 +113,34 @@ def score(argv: list[str] | None = None) -> int:
         "--include-held-out", action="store_true", help="release scoring: held-out targets too"
     )
     ap.add_argument("--out", type=Path, help="also write the result here (JSON)")
+    ap.add_argument(
+        "--markdown",
+        type=Path,
+        help="recorded audits only: write Core's benchmark-scorecards report and an HTML sibling "
+        "(every auditor version, held-out targets excluded)",
+    )
     args = ap.parse_args(argv)
 
     def call() -> dict:
-        quality = load(args.config_home).services().detection_quality
+        core = load(args.config_home)
+        quality = core.services().detection_quality
+        if args.markdown is not None:
+            if args.runs_dir is not None or args.auditor_version or args.include_held_out:
+                raise ValidationError(
+                    "--markdown reports the recorded audits' scorecards view: every auditor "
+                    "version, held-out excluded; it takes no --runs-dir, --auditor-version or "
+                    "--include-held-out"
+                )
+            wanted = (args.markdown, args.markdown.with_suffix(".html"), *filter(None, [args.out]))
+            paths = report_paths(wanted)
+            rendered = core.services().insight.publish(ViewName.BENCHMARK_SCORECARDS, ViewFilter())
+            model = cast(BenchmarkScorecards, rendered.model)
+            out = {"scorecards": [c.model_dump(mode="json") for c in model.scorecards]}
+            reports = dict(zip(paths, (rendered.markdown, rendered.html), strict=False))
+            if args.out is not None:  # the JSON publishes with the reports, as one set
+                reports[paths[2]] = json.dumps(out, indent=2) + "\n"
+            write_reports(reports)
+            return out
         if args.runs_dir is None:
             cards = quality.scorecards(
                 BenchmarkFilter(
