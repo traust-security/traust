@@ -231,15 +231,30 @@ def test_markdown_without_an_answer_key_writes_nothing(recorded: Context, tmp_pa
 
 @pytest.mark.parametrize(
     "extra",
-    [("--runs-dir", "runs"), ("--auditor-version", "h-1"), ("--include-held-out",)],
+    [
+        ("--runs-dir", "runs"),
+        ("--auditor-version", "h-1"),
+        ("--auditor-version", ""),  # supplied, even empty
+        ("--include-held-out",),
+    ],
 )
-def test_markdown_reports_only_the_views_population(
-    wired: SimpleNamespace, tmp_path: Path, extra: tuple[str, ...]
+def test_markdown_reports_only_the_views_population_and_refuses_before_loading(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, extra: tuple[str, ...]
 ) -> None:
+    monkeypatch.setattr(recall, "load", lambda home: pytest.fail("loaded core"))
     markdown = tmp_path / "scorecards.md"
     rc, err = call("--markdown", str(markdown), *extra)
     assert rc == 2 and "takes no --runs-dir, --auditor-version or --include-held-out" in err
-    assert (wired.reports, wired.filters, markdown.exists()) == ([], [], False)
+    assert not markdown.exists()
+
+
+def test_a_destination_that_cannot_resolve_is_a_refusal(
+    wired: SimpleNamespace, tmp_path: Path
+) -> None:
+    loop = tmp_path / "scorecards.md"
+    loop.symlink_to(loop)  # resolves to itself
+    rc, err = call("--markdown", str(loop))
+    assert rc == 2 and "cannot be resolved" in err
 
 
 def test_markdown_refuses_colliding_destinations(wired: SimpleNamespace, tmp_path: Path) -> None:

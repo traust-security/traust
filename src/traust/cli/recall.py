@@ -122,15 +122,16 @@ def score(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
 
     def call() -> dict:
+        filtered = (args.runs_dir, args.auditor_version, args.include_held_out or None)
+        if args.markdown is not None and any(f is not None for f in filtered):
+            raise ValidationError(
+                "--markdown reports the recorded audits' scorecards view: every auditor "
+                "version, held-out excluded; it takes no --runs-dir, --auditor-version or "
+                "--include-held-out"
+            )
         core = load(args.config_home)
         quality = core.services().detection_quality
         if args.markdown is not None:
-            if args.runs_dir is not None or args.auditor_version or args.include_held_out:
-                raise ValidationError(
-                    "--markdown reports the recorded audits' scorecards view: every auditor "
-                    "version, held-out excluded; it takes no --runs-dir, --auditor-version or "
-                    "--include-held-out"
-                )
             wanted = (args.markdown, args.markdown.with_suffix(".html"), *filter(None, [args.out]))
             paths = report_paths(wanted)
             rendered = core.services().insight.publish(ViewName.BENCHMARK_SCORECARDS, ViewFilter())

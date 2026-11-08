@@ -12,7 +12,10 @@ from traust_core.v1.errors import ValidationError
 
 
 def report_paths(paths: tuple[Path, ...]) -> tuple[Path, ...]:
-    resolved = tuple(path.resolve() for path in paths)
+    try:
+        resolved = tuple(path.resolve() for path in paths)
+    except (OSError, RuntimeError) as e:  # a symlink loop raises RuntimeError
+        raise ValidationError(f"Report destination cannot be resolved: {e}") from e
     if len(set(resolved)) != len(resolved):
         raise ValidationError("JSON, Markdown and HTML destinations must be distinct")
     identities = set()
@@ -23,6 +26,8 @@ def report_paths(paths: tuple[Path, ...]) -> tuple[Path, ...]:
             info = path.stat()
         except FileNotFoundError:
             continue
+        except OSError as e:  # a symlink loop, on Pythons whose resolve() leaves it
+            raise ValidationError(f"Report destination cannot be resolved: {e}") from e
         if not stat.S_ISREG(info.st_mode):
             raise ValidationError(f"Report destination is not a regular file: {path}")
         identity = (info.st_dev, info.st_ino)
