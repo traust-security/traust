@@ -8,7 +8,7 @@ from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from html.parser import HTMLParser
 from pathlib import Path
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 import pytest
 import sqlalchemy as sa
@@ -69,7 +69,6 @@ def repository(
                     sha="a" * 40,
                     name="main",
                     kind="branch",
-                    created_at=NOW,
                 )
             )
             if commit
@@ -118,6 +117,7 @@ def test_native_ref_scope_distinguishes_all_from_empty_and_selects_one_commit_pe
 ) -> None:
     repo, first = repository(core, "https://github.com/example/widget")
     waiting, _ = repository(core, "https://github.com/example/waiting", commit=False)
+    assert first is not None
     with SqlTraustUnitOfWork(core.database) as uow:
         recent = uow.repository_refs.add(
             RepositoryRef(
@@ -125,7 +125,6 @@ def test_native_ref_scope_distinguishes_all_from_empty_and_selects_one_commit_pe
                 sha="b" * 40,
                 name="newer",
                 kind="branch",
-                created_at=NOW + timedelta(days=1),
             )
         )
         default = uow.repository_refs.add(
@@ -135,19 +134,26 @@ def test_native_ref_scope_distinguishes_all_from_empty_and_selects_one_commit_pe
                 name="default",
                 kind="branch",
                 is_default=True,
-                created_at=NOW - timedelta(days=1),
             )
         )
         tied = uow.repository_refs.add(
             RepositoryRef(
-                id=UUID("ffffffff-ffff-ffff-ffff-ffffffffffff"),
                 repository_id=repo.id,
                 sha="d" * 40,
                 name="tie",
                 kind="branch",
-                created_at=NOW + timedelta(days=1),
             )
         )
+        table = uow.repository_refs.table
+        for ref, created_at in (
+            (first, NOW),
+            (recent, NOW + timedelta(days=1)),
+            (default, NOW - timedelta(days=1)),
+            (tied, NOW + timedelta(days=1)),
+        ):
+            uow.connection.execute(
+                sa.update(table).where(table.c.id == ref.id).values(created_at=created_at)
+            )
         uow.commit()
     insight = core.services().insight
     global_view = insight.publish(ViewName.PQC_WORKLIST, ViewFilter()).model
@@ -165,7 +171,9 @@ def test_native_ref_scope_distinguishes_all_from_empty_and_selects_one_commit_pe
         ViewName.PQC_WORKLIST,
         ViewFilter(repository_ref_ids=(recent.id, tied.id)),
     ).model
-    assert [entry.repository_ref_id for entry in tied_view.entries] == [tied.id]
+    assert [entry.repository_ref_id for entry in tied_view.entries] == [
+        max((recent.id, tied.id), key=str)
+    ]
     assert (
         insight.publish(ViewName.PQC_WORKLIST, ViewFilter(repository_ref_ids=())).model.entries
         == ()

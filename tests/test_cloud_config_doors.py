@@ -356,6 +356,8 @@ def test_record_binds_the_audit_to_its_leased_order(home: Path, tmp_path: Path) 
     repo = services.portfolio.register_repository(
         HttpsRepoUrl.parse(REPO, load(home).config.forge_hosts), False
     )
+    assert repo.id is not None
+    services.portfolio.mark_default_branch(repo.id, GitSha.parse(SHA), RefName("main"))
     operator = Principal(
         identity="operator@example.com",
         kind=ActorKind.HUMAN,

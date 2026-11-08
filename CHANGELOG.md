@@ -2,6 +2,17 @@
 
 All notable changes to Traust are documented here.
 
+## [0.44.0]
+
+- Restore `portfolio inventory-export --format csv` through a registered Core Insight view.
+- Preserve the eight-column JSON-array stdout, newest-first registration order, current
+  owners, deduplicated shipping products and product-definition contact semantics.
+- Keep per-invocation `--pd-cache-dir` overrides and the no-files default; expose canonical
+  inventory JSON plus Core-owned Markdown/HTML/CSV through `dashboard view inventory-export`.
+- Replace client-side inventory joins with bounded, batched Core reads. Refuse unsupported
+  scopes and over-budget workloads rather than silently ignoring scope or truncating rows.
+- Reuse Core's shared CSV and human renderers to keep untrusted source text inert.
+
 ## [0.42.0]
 
 - Restore fixed-name compliance-precision JSON, Markdown and HTML exports through
