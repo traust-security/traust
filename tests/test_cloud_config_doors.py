@@ -22,8 +22,9 @@ import sqlalchemy as sa
 import yaml
 from traust_core.v1 import contracts
 from traust_core.v1.models.identity import IdentitySource, Principal
+from traust_core.v1.models.inventory import RefName
 from traust_core.v1.models.operations import OrderRequest, WorkerId
-from traust_core.v1.models.values import HttpsRepoUrl
+from traust_core.v1.models.values import GitSha, HttpsRepoUrl
 from traust_core.v1.models.vocabulary import ActorKind
 from traust_core.v1.repositories import apply_schema, create_database_engine
 from traust_core.v1.repositories.sql import Dialect
@@ -361,6 +362,9 @@ def test_record_binds_the_audit_to_its_leased_order(home: Path, tmp_path: Path) 
         display="operator@example.com",
         verified_by=IdentitySource.LOCAL_USER,
     )
+    # Core's submit door asks for an imported default line — the subject a run works
+    # on (core#392) — so the audit's repository carries one before the order queues.
+    services.portfolio.mark_default_branch(repo.id, GitSha("a" * 40), RefName("main"))
     order = services.ops.submit(
         OrderRequest(asset="cloud_config_audit", priority=1, repository_id=repo.id), operator
     )
