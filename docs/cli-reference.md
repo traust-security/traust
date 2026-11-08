@@ -473,18 +473,35 @@ judgements on existing core findings; it does not replace machine-report intake.
 ```bash
 traust portfolio onboard --product example --label Example --org example-org
 traust portfolio owner-hints --repo https://github.com/example-org/api
-traust portfolio inventory-export [--pd-cache-dir <feeds-dir>]
+traust portfolio inventory-export [--format json|csv] [--pd-cache-dir <feeds-dir>]
 traust products add example --label Example --ownership owned --business-unit Commerce
 traust products list
 ```
 
-`inventory-export` composes every registered repository from the portfolio's own lists:
-`Repository`, `URL`, `Host`, `Organization/Group`, `Repo Name`, `Owner Team` (current owning
-teams), `Products` (products shipping it) and `Accountable Contacts` (product-definitions
-candidates for its URL through the recorded product map, with source field and embargo
-eligibility), as JSON (no CSV until core registers its Insight view (a priority follow-up)). `--pd-cache-dir` reads a
-product-definitions snapshot other than `locations.feeds_cache` for that run only. A contact
-is a candidate, never an owner, and grants no authority to disclose findings. Declared
+`inventory-export` publishes Core's global inventory Insight view: every registered
+repository in newest-first registration order, with `Repository`, `URL`, `Host`,
+`Organization/Group`, `Repo Name`, `Owner Team` (current owning teams), `Products`
+(products shipping it) and `Accountable Contacts` (product-definition candidates for
+its URL through the recorded product map, with source field and embargo eligibility).
+Default stdout remains the same JSON array with raw values; `--format csv` emits Core's
+eight-column CSV instead, joining list cells with semicolons and neutralizing spreadsheet
+formulas and forged rows through the shared renderer. Neither form creates report files.
+
+`traust dashboard view inventory-export --out <directory>` writes Core's Markdown, HTML
+and CSV plus the canonical `{rows: [...]}` JSON wrapper. This view takes no product, team
+or historical scope; unsupported options are refused. Reads use a cumulative 10,000-record <!-- estate-data-ok: Core's public workload ceiling, not a deployment inventory count -->
+workload budget across inventory, related rows, mappings and product-definition work;
+overflow fails rather than exporting a partial inventory. Building the report scans
+nothing and changes no database rows or object-store bytes.
+
+`--pd-cache-dir` selects a different cached product-definition snapshot for this invocation
+only. Missing or malformed optional definitions do not drop registered inventory rows.
+Core retains unknown URL parts and unestablished contacts as `None`; the legacy JSON
+boundary still emits blank strings/empty contact arrays, while human/CSV cells show `—`
+for unknowns and keep known empty values empty. Malformed freshness metadata alone leaves
+otherwise valid definitions usable with unknown freshness. None of these states establishes
+that no accountable party exists. Contacts are candidates, never owners, and grant no
+authority to disclose findings. Declared
 per-repository inventory facts (service labels, managers, tracker routes, escalation
 contacts) are retired: traust-core has one ownership source, the onboarding and owner-import
 doors. `owner-hints` prints forge hints; it never stores them. Product boundary caveats are

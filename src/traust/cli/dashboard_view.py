@@ -33,6 +33,10 @@ def main(argv: list[str] | None = None) -> int:
     _scope_flags(ap)
     ap.add_argument("--out", type=Path, required=True, help="the folder the view is written to")
     args = ap.parse_args(argv)
+    if args.view == ViewName.INVENTORY_EXPORT:
+        for flag in ("until", "sla_policy", "invoice"):
+            if getattr(args, flag) is not None:
+                ap.error(f"--{flag.replace('_', '-')} is not supported by inventory-export")
     if args.panel and args.view != ViewName.EXECUTIVE_SUMMARY:
         ap.error("--panel requires the executive-summary view")
 
