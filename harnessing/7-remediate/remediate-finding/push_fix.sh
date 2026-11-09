@@ -42,7 +42,7 @@
 # Phase 6 pushes.
 #
 # Usage:
-#   push_fix.sh commit <worktree> <audited-sha> <clone-source> <message-file>
+#   push_fix.sh commit <worktree> <audited-sha> <clone-source> <message-file> [<removals-file>]
 #   push_fix.sh push   <fix-clone> <fork-url> <fix-branch> <fix-commit>
 #   push_fix.sh discard <fix-clone>
 #
@@ -55,6 +55,14 @@
 #                   so the source cannot alter what gets committed.
 #   <message-file>  the commit message, authored in Phase 3 in the skill's
 #                   prescribed format; committed verbatim via -F.
+#   <removals-file> OPTIONAL, the removal door's declaration: newline-
+#                   separated repo-relative paths the fix UNTRACKS (a
+#                   committed binary, a generated artifact). Validated
+#                   (tracked-at-base, no traversal/.git shapes) and staged
+#                   as `git rm --cached` AFTER the snapshot's `add -A`,
+#                   keeping the worktree copy — the same door the SCI
+#                   worker's push gives report-declared removals. An
+#                   invalid declaration fails the commit loudly.
 #   <fix-commit>    the `fix_commit` `commit` printed: the commit the report
 #                   describes and Phase 5b reviewed. `push` pushes that exact
 #                   object, and only while the clone's HEAD and sentinel name it.
@@ -226,7 +234,7 @@ remove_partial_clone() {
 }
 
 usage() {
-  echo "usage: push_fix.sh commit <worktree> <audited-sha> <clone-source> <message-file>" >&2
+  echo "usage: push_fix.sh commit <worktree> <audited-sha> <clone-source> <message-file> [<removals-file>]" >&2
   echo "       push_fix.sh push <fix-clone> <fork-url> <fix-branch> <fix-commit>" >&2
   echo "       push_fix.sh discard <fix-clone>" >&2
   exit 1
@@ -237,8 +245,8 @@ MODE="$1"; shift
 
 # ---------------------------------------------------------------- commit ----
 do_commit() {
-  local WORKTREE="${1:?}" SHA="${2:?}" CLONE_SRC="${3:?}" MSG="${4:?}"
-  local CLONE PDIR HEAD_REV
+  local WORKTREE="${1:?}" SHA="${2:?}" CLONE_SRC="${3:?}" MSG="${4:?}" REMOVALS="${5:-}"
+  local CLONE PDIR HEAD_REV STAGED_REMOVALS=0 path
 
   [ -d "$WORKTREE" ] || { echo "[push_fix] worktree is not a directory: $WORKTREE" >&2; exit 1; }
   # a sha, not a ref: this value reaches `git checkout` and must never
@@ -306,6 +314,45 @@ do_commit() {
   local BASE_DATE
   BASE_DATE="$(git_safe -C "$CLONE" log -1 --format=%cd --date=raw HEAD)"
   git_safe -C "$CLONE" add -A
+
+  # Declared-removal staging (the removal door, interactive-lane half —
+  # the same door the SCI worker's pristine push gives report-declared
+  # removals; found live on work item 3cd248bd: the tracked-binary
+  # finding class was unfixable before it existed). The declaration is
+  # agent-authored data; THIS script is the deterministic side that
+  # validates and executes it, in this script's own fresh clone — the
+  # agent still never runs a mutating git command:
+  #   * after `add -A`, so a still-present worktree file cannot re-enter
+  #     the index and undo the removal;
+  #   * TRACKED-AT-BASE against the recorded sha — the structural
+  #     control: only a file the audited tree actually tracks can be
+  #     untracked, so traversal, .git-targeting and session-added paths
+  #     can never pass;
+  #   * `git rm --cached` — untrack, keep the worktree copy.
+  # An invalid declaration fails the commit loudly (fail closed): the
+  # assembled report derives its files_changed from this commit, so a
+  # silently-ignored declaration would make the report lie.
+  if [ -n "$REMOVALS" ]; then
+    [ -f "$REMOVALS" ] || { echo "[push_fix] removals file not found: $REMOVALS" >&2; exit 1; }
+    while IFS= read -r path; do
+      [ -n "$path" ] || continue
+      case "$path" in
+        /*|*..*|.git|.git/*|*/.git|*/.git/*)
+          echo "[push_fix] refusing declared removal with unsafe path shape: $path" >&2; exit 1 ;;
+      esac
+      if ! git_safe -C "$CLONE" ls-tree -r --name-only "$SHA" -- "$path" | grep -qxF -- "$path"; then
+        echo "[push_fix] refusing declared removal of a path not tracked at the audited base: $path" >&2; exit 1
+      fi
+      if git_safe -C "$CLONE" ls-files --error-unmatch -- "$path" >/dev/null 2>&1; then
+        git_safe -C "$CLONE" rm --cached -q -- "$path" >&2
+      else
+        echo "[push_fix] declared removal already staged by the worktree state: $path" >&2
+      fi
+      echo "[push_fix] staged declared removal (untracked, worktree copy kept): $path" >&2
+      STAGED_REMOVALS=$((STAGED_REMOVALS + 1))
+    done < "$REMOVALS"
+  fi
+
   if git_safe -C "$CLONE" diff --cached --quiet; then
     echo "[push_fix] snapshot matches the audited commit — nothing to commit; a patch that changed nothing means the flow went wrong" >&2
     exit 1
@@ -330,7 +377,8 @@ do_commit() {
   trap - EXIT
 
   emit_json clone "$CLONE" fix_commit "$HEAD_REV" base_commit "$SHA" \
-    worktree "$WORKTREE" committer "$COMMITTER_NAME <$COMMITTER_EMAIL>"
+    worktree "$WORKTREE" committer "$COMMITTER_NAME <$COMMITTER_EMAIL>" \
+    removals_staged "$STAGED_REMOVALS"
 }
 
 # ------------------------------------------------------------ clone gate ---
@@ -417,7 +465,7 @@ do_discard() {
 }
 
 case "$MODE" in
-  commit) [ $# -eq 4 ] || usage; do_commit "$@";;
+  commit) [ "$#" -eq 4 ] || [ "$#" -eq 5 ] || usage; do_commit "$@";;
   push)   [ $# -eq 4 ] || usage; do_push "$@";;
   discard) [ $# -eq 1 ] || usage; do_discard "$@";;
   *)      usage;;

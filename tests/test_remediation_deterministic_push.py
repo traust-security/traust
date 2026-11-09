@@ -834,3 +834,148 @@ def test_a_swapped_ancestor_refuses_the_snapshot_without_reading_outside(tmp_pat
     assert not r.stdout.strip()
     assert list(scratch.iterdir()) == []
     assert secret.read_text() == "never read or modified\n"
+
+
+# --------------------------------------------------------- removal door ----
+# The declared-removal door (traust-foundry#13): untracking a file is a
+# DECLARATION the deterministic side executes — the same door the SCI
+# worker's pristine push gives report-declared removals. The live gap:
+# work item 3cd248bd, the tracked-binary finding that honestly verdicted
+# `unresolved` because no lane offered `git rm --cached`.
+
+
+def _origin_with_binary(tmp_path):
+    """An upstream whose base commit tracks a binary — the finding shape."""
+    origin, _base = _origin_with_base(tmp_path)
+    (origin / "blob.bin").write_bytes(b"BIN\x00\x01\x02\x03PAYLOAD")
+    _git(origin, "add", "-A")
+    _commit(origin, "add the binary")
+    sha = subprocess.run(
+        ["git", "-C", str(origin), "rev-parse", "HEAD"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    return origin, sha
+
+
+def test_commit_stages_a_declared_removal(tmp_path):
+    """A declared, tracked-at-base path is untracked by the commit; the
+    worktree copy is kept (git rm --cached, not deletion); the removal
+    rides the committed diff so `assemble` derives the deleted row."""
+    origin, base = _origin_with_binary(tmp_path)
+    wt = tmp_path / "agent-worktree"
+    _git(origin, "worktree", "add", "--quiet", "--detach", str(wt), base)
+    (wt / "app.py").write_text("hello patched\n")  # the .gitignore-side edit
+    msg = tmp_path / "commit-message.txt"
+    msg.write_text(MSG)
+    removals = tmp_path / "declared-removals.txt"
+    removals.write_text("blob.bin\n")
+
+    r = _script("commit", str(wt), base, str(origin), str(msg), str(removals))
+    assert r.returncode == 0, r.stderr
+    out = json.loads(r.stdout.strip().splitlines()[-1])
+    assert out["removals_staged"] == "1"
+    clone = Path(out["clone"])
+
+    diff = subprocess.run(
+        ["git", "-C", str(clone), "diff", "--name-status", f"{base}..HEAD"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    assert "D\tblob.bin" in diff, diff
+    assert "M\tapp.py" in diff, diff
+    # the binary's content never rides the textual diff (gitleaks-safe)
+    numstat = subprocess.run(
+        ["git", "-C", str(clone), "diff", "--numstat", f"{base}..HEAD"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    assert "-\t-\tblob.bin" in numstat, numstat
+    # untracked, not deleted: the worktree copy stays on disk
+    ls = subprocess.run(
+        ["git", "-C", str(clone), "ls-files"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    assert "blob.bin" not in ls
+    assert (clone / "blob.bin").is_file()
+    # the agent's worktree is untouched: the binary is still there too
+    assert (wt / "blob.bin").is_file()
+
+
+def test_commit_refuses_a_removal_not_tracked_at_base(tmp_path):
+    """Tracked-at-base is the structural control: a session-added or
+    never-existed path can never be untracked through a declaration."""
+    origin, base = _origin_with_base(tmp_path)
+    wt = _patched_worktree(origin, base, tmp_path)
+    msg = tmp_path / "commit-message.txt"
+    msg.write_text(MSG)
+    removals = tmp_path / "declared-removals.txt"
+    removals.write_text("new_module.py\n")  # added this session, not at base
+
+    r = _script("commit", str(wt), base, str(origin), str(msg), str(removals))
+    assert r.returncode != 0
+    assert "not tracked at the audited base" in r.stderr
+    # a failed commit leaves no clone behind (the existing trap discipline)
+    assert not list(tmp_path.glob("traust-fix-clone.*"))
+
+
+@pytest.mark.parametrize("bad", ["../escape.bin", "/etc/passwd", ".git/config", "sub/../../x"])
+def test_commit_refuses_unsafe_removal_shapes(tmp_path, bad):
+    """Traversal, absolute and .git-targeting declarations fail closed."""
+    origin, base = _origin_with_base(tmp_path)
+    wt = _patched_worktree(origin, base, tmp_path)
+    msg = tmp_path / "commit-message.txt"
+    msg.write_text(MSG)
+    removals = tmp_path / "declared-removals.txt"
+    removals.write_text(bad + "\n")
+
+    r = _script("commit", str(wt), base, str(origin), str(msg), str(removals))
+    assert r.returncode != 0
+    assert "refusing declared removal" in r.stderr
+
+
+def test_commit_without_a_removals_file_is_unchanged_behavior(tmp_path):
+    """The fifth argument is optional and inert when absent: removals_staged
+    reads 0 and the commit is exactly the pre-door shape."""
+    origin, base = _origin_with_base(tmp_path)
+    wt = _patched_worktree(origin, base, tmp_path)
+    msg = tmp_path / "commit-message.txt"
+    msg.write_text(MSG)
+
+    r = _script("commit", str(wt), base, str(origin), str(msg))
+    assert r.returncode == 0, r.stderr
+    out = json.loads(r.stdout.strip().splitlines()[-1])
+    assert out["removals_staged"] == "0"
+
+
+def test_a_declared_removal_already_satisfied_by_a_worktree_deletion(tmp_path):
+    """When the agent deleted the worktree file anyway, the snapshot's
+    `add -A` already staged the deletion: the declaration counts, the
+    commit still lands, and nothing is double-staged."""
+    origin, base = _origin_with_binary(tmp_path)
+    wt = tmp_path / "agent-worktree"
+    _git(origin, "worktree", "add", "--quiet", "--detach", str(wt), base)
+    (wt / "app.py").write_text("hello patched\n")
+    (wt / "blob.bin").unlink()
+    msg = tmp_path / "commit-message.txt"
+    msg.write_text(MSG)
+    removals = tmp_path / "declared-removals.txt"
+    removals.write_text("blob.bin\n")
+
+    r = _script("commit", str(wt), base, str(origin), str(msg), str(removals))
+    assert r.returncode == 0, r.stderr
+    out = json.loads(r.stdout.strip().splitlines()[-1])
+    assert out["removals_staged"] == "1"
+    clone = Path(out["clone"])
+    diff = subprocess.run(
+        ["git", "-C", str(clone), "diff", "--name-status", f"{base}..HEAD"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    assert diff.count("D\tblob.bin") == 1, diff
