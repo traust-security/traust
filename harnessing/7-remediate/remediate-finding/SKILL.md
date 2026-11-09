@@ -237,6 +237,13 @@ Phase 4d's `push_fix.sh commit` as its fifth argument: the script — the
 deterministic side — validates every declared path (tracked at the
 audited commit; no traversal or `.git` shapes) and stages it as
 `git rm --cached` in its own fresh clone, keeping the worktree copy.
+The door's ordering is load-bearing: staging runs AFTER the snapshot's
+`add -A`, so a still-present worktree file cannot re-enter the index and
+undo the removal; tracked-at-base is the structural control (only a file
+the audited tree tracks can be untracked, so session-added paths can
+never pass); a duplicate declaration stages one removal, not two; and a
+declaration whose filename merely contains ".." (e.g. `notes/v1..v2.md`)
+is fine — only a whole `..` traversal segment is refused.
 The agent never runs a mutating git command on either lane: worker
 lanes declare the same thing as `patch.files_changed` rows with
 `change_type: "deleted"` in the hand-written report, and the platform's

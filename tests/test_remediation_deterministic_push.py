@@ -939,6 +939,72 @@ def test_commit_refuses_unsafe_removal_shapes(tmp_path, bad):
     assert "refusing declared removal" in r.stderr
 
 
+def test_commit_stages_a_removal_whose_filename_contains_dotdot(tmp_path):
+    """A ".." inside a filename is not traversal: only a whole ".."
+    segment is refused, so notes/v1..v2.md stays declarable (the
+    over-rejection Shaun flagged on the *..* shape)."""
+    origin, _base = _origin_with_base(tmp_path)
+    (origin / "notes").mkdir()
+    (origin / "notes" / "v1..v2.md").write_text("release notes\n")
+    _git(origin, "add", "-A")
+    _commit(origin, "add the dotdot filename")
+    base = subprocess.run(
+        ["git", "-C", str(origin), "rev-parse", "HEAD"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    wt = tmp_path / "agent-worktree"
+    _git(origin, "worktree", "add", "--quiet", "--detach", str(wt), base)
+    (wt / "app.py").write_text("patched\n")
+    msg = tmp_path / "commit-message.txt"
+    msg.write_text(MSG)
+    removals = tmp_path / "declared-removals.txt"
+    removals.write_text("notes/v1..v2.md\n")
+
+    r = _script("commit", str(wt), base, str(origin), str(msg), str(removals))
+    assert r.returncode == 0, r.stderr
+    out = json.loads(r.stdout.strip().splitlines()[-1])
+    assert out["removals_staged"] == "1", r.stderr
+    clone = Path(out["clone"])
+    diff = subprocess.run(
+        ["git", "-C", str(clone), "diff", "--name-status", f"{base}..HEAD"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    assert "D\tnotes/v1..v2.md" in diff, diff
+
+
+def test_a_duplicate_declaration_counts_as_one_removal(tmp_path):
+    """The same path declared twice is one removal: removals_staged reads
+    1 and the diff carries one D line — not the inflated count and
+    misleading 'already staged by the worktree state' message the
+    second occurrence used to produce (Shaun's dedupe finding)."""
+    origin, base = _origin_with_binary(tmp_path)
+    wt = tmp_path / "agent-worktree"
+    _git(origin, "worktree", "add", "--quiet", "--detach", str(wt), base)
+    (wt / "app.py").write_text("patched\n")
+    msg = tmp_path / "commit-message.txt"
+    msg.write_text(MSG)
+    removals = tmp_path / "declared-removals.txt"
+    removals.write_text("blob.bin\nblob.bin\n")
+
+    r = _script("commit", str(wt), base, str(origin), str(msg), str(removals))
+    assert r.returncode == 0, r.stderr
+    out = json.loads(r.stdout.strip().splitlines()[-1])
+    assert out["removals_staged"] == "1", r.stderr
+    assert "already staged by the worktree state" not in r.stderr
+    clone = Path(out["clone"])
+    diff = subprocess.run(
+        ["git", "-C", str(clone), "diff", "--name-status", f"{base}..HEAD"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    assert diff.count("D\tblob.bin") == 1, diff
+
+
 def test_commit_without_a_removals_file_is_unchanged_behavior(tmp_path):
     """The fifth argument is optional and inert when absent: removals_staged
     reads 0 and the commit is exactly the pre-door shape."""

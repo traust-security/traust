@@ -246,7 +246,7 @@ MODE="$1"; shift
 # ---------------------------------------------------------------- commit ----
 do_commit() {
   local WORKTREE="${1:?}" SHA="${2:?}" CLONE_SRC="${3:?}" MSG="${4:?}" REMOVALS="${5:-}"
-  local CLONE PDIR HEAD_REV STAGED_REMOVALS=0 path
+  local CLONE PDIR HEAD_REV STAGED_REMOVALS=0 SEEN_REMOVALS="" path
 
   [ -d "$WORKTREE" ] || { echo "[push_fix] worktree is not a directory: $WORKTREE" >&2; exit 1; }
   # a sha, not a ref: this value reaches `git checkout` and must never
@@ -315,23 +315,10 @@ do_commit() {
   BASE_DATE="$(git_safe -C "$CLONE" log -1 --format=%cd --date=raw HEAD)"
   git_safe -C "$CLONE" add -A
 
-  # Declared-removal staging (the removal door, interactive-lane half —
-  # the same door the SCI worker's pristine push gives report-declared
-  # removals; found live on work item 3cd248bd: the tracked-binary
-  # finding class was unfixable before it existed). The declaration is
-  # agent-authored data; THIS script is the deterministic side that
-  # validates and executes it, in this script's own fresh clone — the
-  # agent still never runs a mutating git command:
-  #   * after `add -A`, so a still-present worktree file cannot re-enter
-  #     the index and undo the removal;
-  #   * TRACKED-AT-BASE against the recorded sha — the structural
-  #     control: only a file the audited tree actually tracks can be
-  #     untracked, so traversal, .git-targeting and session-added paths
-  #     can never pass;
-  #   * `git rm --cached` — untrack, keep the worktree copy.
-  # An invalid declaration fails the commit loudly (fail closed): the
-  # assembled report derives its files_changed from this commit, so a
-  # silently-ignored declaration would make the report lie.
+# Declared-removal staging: the removal door's rationale and semantics
+# are documented in SKILL.md ("Untracking a file is declarable") and in
+# tests/test_remediation_deterministic_push.py. Fail-closed: an invalid
+# declaration fails the commit (assemble derives files_changed from it).
   if [ -n "$REMOVALS" ]; then
     [ -f "$REMOVALS" ] || { echo "[push_fix] removals file not found: $REMOVALS" >&2; exit 1; }
     # The audited base tree, listed ONCE with core.quotePath=false so
@@ -345,15 +332,22 @@ do_commit() {
     # is still a declaration — read alone would silently drop it.
     while IFS= read -r path || [ -n "$path" ]; do
       [ -n "$path" ] || continue
-      # Belt: textual shape before anything touches git — traversal,
-      # .git-targeting, pathspec/glob metacharacters ('*?[' globbing,
-      # leading ':' pathspec magic, leading '-' option shape) and
-      # control characters. Non-ASCII printable bytes pass ([:cntrl:]]
-      # is locale-stable for them in the C locale).
+      # Belt: textual shape before anything touches git — traversal
+      # (a whole ".." SEGMENT, so a ".." inside a filename like
+      # notes/v1..v2.md passes), .git-targeting, pathspec/glob
+      # metacharacters, leading ':'/'-' shapes and control characters.
+      # Non-ASCII printable bytes pass (locale-stable in C).
       case "$path" in
-        /*|*..*|.git|.git/*|*/.git|*/.git/*|-*|:*|*"*"*|*"?"*|*"["*|*\\*|*[[:cntrl:]]*)
+        /*|..|../*|*/../*|*/..|.git|.git/*|*/.git|*/.git/*|-*|:*|*"*"*|*"?"*|*"["*|*\\*|*[[:cntrl:]]*)
           echo "[push_fix] refusing declared removal with unsafe path shape: $path" >&2; exit 1 ;;
       esac
+      # A duplicate declaration is one removal: skip it instead of
+      # falling into the not-currently-staged branch and inflating
+      # removals_staged past the actual removal count.
+      case " $SEEN_REMOVALS " in
+        *" $path "*) continue ;;
+      esac
+      SEEN_REMOVALS="$SEEN_REMOVALS $path"
       # Here-string, never a pipe: under pipefail an early grep -q match
       # closes the pipe mid-listing and SIGPIPE turns a successful match
       # into a failed pipeline (large trees, early-sorted paths).
