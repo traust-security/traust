@@ -193,6 +193,18 @@ EXEMPTIONS: dict[tuple[str, str], str] = {
     "disposable copy so mutations cannot reach the worktree under review. The "
     "mode is a deployment setting (traust.yaml `execution.sandbox`); a "
     "configured podman mode is never silently downgraded (ToB plan item 3)",
+    (
+        "S10",
+        "harnessing/remediate-finding/SKILL.md",
+    ): "reviewed — the toolchain door is the worker-lane containment for "
+    "the same build/test leg run_checks.sh sandboxes interactively: "
+    "worker lanes deny bash outright, so the podman ladder is unreachable "
+    "there and Phase 4 routes the checks through the root-owned "
+    "harness-run wrapper instead — whole-command matching against a "
+    "closed argv grammar (no shell, no interpreter, no compound lines), "
+    "env -i execution with the pinned PATH and memory caps, and the "
+    "gateway proxy's PR_SET_DUMPABLE closing the same-uid heap vector "
+    "(traust-foundry#13, door 2; the worker PR carries the tests)",
     # --- S6 tmp-paths ---
     # --- S7 unpinned-install ---
     # --- S8 egress-grants ---

@@ -32,6 +32,10 @@ allowed-tools:
   - Bash(bash *run_one.sh:*)
   - Bash(bash *ensure_fork.sh:*)
   - Bash(bash *run_checks.sh:*)
+  # The toolchain door (worker lanes): run_checks.sh is a bash script and
+  # bash is denied there; harness-run's toolchain mode executes the closed
+  # command set and prints the check JSON this skill's report embeds.
+  - Bash(harness-run toolchain:*)
   - Bash(bash *run_mutation.sh:*)
   - Bash(bash *run_property.sh:*)
   - Bash(bash *push_fix.sh:*)
@@ -223,11 +227,48 @@ Addresses: <triage_path>#<finding_id>
 CWEs: <CWE-…>
 ```
 
+**Untracking a file is declarable.** When the fix requires stopping the
+tracking of a file — a committed binary or build artifact, a generated
+file, anything whose presence in the index is the finding — **declare
+the removal; never delete or move the file yourself** (no lane offers
+`rm`, and a worktree deletion is not the same fix). Write the path, one
+per line, to `<out>/declared-removals.txt` and pass that file to
+Phase 4d's `push_fix.sh commit` as its fifth argument: the script — the
+deterministic side — validates every declared path (tracked at the
+audited commit; no traversal or `.git` shapes) and stages it as
+`git rm --cached` in its own fresh clone, keeping the worktree copy.
+The door's ordering is load-bearing: staging runs AFTER the snapshot's
+`add -A`, so a still-present worktree file cannot re-enter the index and
+undo the removal; tracked-at-base is the structural control (only a file
+the audited tree tracks can be untracked, so session-added paths can
+never pass); a duplicate declaration stages one removal, not two; and a
+declaration whose filename merely contains ".." (e.g. `notes/v1..v2.md`)
+is fine — only a whole `..` traversal segment is refused.
+The agent never runs a mutating git command on either lane: worker
+lanes declare the same thing as `patch.files_changed` rows with
+`change_type: "deleted"` in the hand-written report, and the platform's
+push executes those the same way (found live on work item 3cd248bd: the
+tracked-binary finding honestly verdicted `unresolved` before this door
+existed). Phase 5's `assemble` derives `files_changed` from the
+committed diff, so the assembled report carries the `deleted` row
+automatically — never hand-edit one in. The accompanying `.gitignore`
+edit is a normal `modified` row.
+
 ---
 
 ## Phase 4 — Local checks
 
 ```bash
+# headless/worker lanes — bash is denied there; the harness-run toolchain
+# door executes a closed command set (go build/vet/test with a fixed flag
+# set, node --test) and prints one check JSON per command as its last
+# stdout line:
+harness-run toolchain <worktree> go build ./...
+harness-run toolchain <worktree> go vet ./...
+harness-run toolchain <worktree> go test -short -count=1 ./...
+harness-run toolchain <worktree> node --test            # Node worktrees
+
+# interactive lanes — the checks runner:
 bash harnessing/7-remediate/remediate-finding/run_checks.sh <worktree> <out> > <out>/checks.json
 ```
 
@@ -243,6 +284,27 @@ and unit tests. Inspect any `fail`:
   `run_checks.sh` on a clean checkout of `audited_commit` to confirm) →
   not your fault; record it in `notes` and treat as `pass` for
   status purposes.
+
+**Worker lanes: embed the door's output verbatim.** Each door invocation
+prints a check JSON (`name`, `command`, `outcome`, `duration_seconds`,
+`log_path`, `summary` — the report schema's own `check` shape). Embed
+those objects **verbatim** in the report's `checks` array; never
+hand-write or transcribe an outcome — the door's captured output is the
+evidence (found live: every omp-lane remediation report recorded its
+checks as `skip`, "Not executed: this worker exposes no shell", before
+this door existed). A tool the image lacks records an honest `skip` with
+the tool-missing reason — that is a real skip, not a gap to paper over.
+
+**Judge what the check actually ran.** `node --test` discovers only
+Node's own test-runner files; when the project's tests run under a
+different runner (jest, vitest, mocha — package.json scripts), the door
+cannot execute them (`npm run` is shell indirection, excluded from the
+grammar on principle). The door itself refuses the vacuous pass for an
+empty node discovery (zero tests → honest `skip` with the reason), but
+the discipline is yours too: read the check's output — tests not
+exercised means the check did not happen, so record the honest `skip`,
+never paper over it. Same discipline for `go test`: a package pattern
+that matches nothing proves nothing.
 
 **Deterministic differential (scanner-backed findings).** When the
 finding is scanner-backed (opengrep `scanner_correlation` promotion or a
@@ -375,10 +437,16 @@ no human committer, no signing, no hooks:
 
 ```bash
 bash harnessing/7-remediate/remediate-finding/push_fix.sh commit \
-  <worktree> <audited_commit> <fork_url> <out>/commit-message.txt
+  <worktree> <audited_commit> <fork_url> <out>/commit-message.txt \
+  [<out>/declared-removals.txt]   # only when Phase 3 declared untracking
 ```
 
-Output (stdout): JSON `{"clone": …, "fix_commit": …, …}` — capture it.
+Output (stdout): JSON `{"clone": …, "fix_commit": …, "removals_staged": …}` —
+capture it. An invalid declaration (a path not tracked at the audited
+commit, a traversal or `.git` shape) fails the commit loudly rather than
+being silently ignored: the assembled report describes this commit, so a
+skipped declaration would make it lie.
+
 Phase 5 assembles the report from the clone, Phase 5b reviews its diff,
 Phase 6 pushes it. This step runs **before** Phase 5, not at push time,
 because `assemble` builds the report (patch diff, files changed,

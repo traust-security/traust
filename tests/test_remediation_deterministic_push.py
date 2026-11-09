@@ -834,3 +834,357 @@ def test_a_swapped_ancestor_refuses_the_snapshot_without_reading_outside(tmp_pat
     assert not r.stdout.strip()
     assert list(scratch.iterdir()) == []
     assert secret.read_text() == "never read or modified\n"
+
+
+# --------------------------------------------------------- removal door ----
+# The declared-removal door (traust-foundry#13): untracking a file is a
+# DECLARATION the deterministic side executes — the same door the SCI
+# worker's pristine push gives report-declared removals. The live gap:
+# work item 3cd248bd, the tracked-binary finding that honestly verdicted
+# `unresolved` because no lane offered `git rm --cached`.
+
+
+def _origin_with_binary(tmp_path):
+    """An upstream whose base commit tracks a binary — the finding shape."""
+    origin, _base = _origin_with_base(tmp_path)
+    (origin / "blob.bin").write_bytes(b"BIN\x00\x01\x02\x03PAYLOAD")
+    _git(origin, "add", "-A")
+    _commit(origin, "add the binary")
+    sha = subprocess.run(
+        ["git", "-C", str(origin), "rev-parse", "HEAD"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    return origin, sha
+
+
+def test_commit_stages_a_declared_removal(tmp_path):
+    """A declared, tracked-at-base path is untracked by the commit; the
+    worktree copy is kept (git rm --cached, not deletion); the removal
+    rides the committed diff so `assemble` derives the deleted row."""
+    origin, base = _origin_with_binary(tmp_path)
+    wt = tmp_path / "agent-worktree"
+    _git(origin, "worktree", "add", "--quiet", "--detach", str(wt), base)
+    (wt / "app.py").write_text("hello patched\n")  # the .gitignore-side edit
+    msg = tmp_path / "commit-message.txt"
+    msg.write_text(MSG)
+    removals = tmp_path / "declared-removals.txt"
+    removals.write_text("blob.bin\n")
+
+    r = _script("commit", str(wt), base, str(origin), str(msg), str(removals))
+    assert r.returncode == 0, r.stderr
+    out = json.loads(r.stdout.strip().splitlines()[-1])
+    assert out["removals_staged"] == "1"
+    clone = Path(out["clone"])
+
+    diff = subprocess.run(
+        ["git", "-C", str(clone), "diff", "--name-status", f"{base}..HEAD"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    assert "D\tblob.bin" in diff, diff
+    assert "M\tapp.py" in diff, diff
+    # the binary's content never rides the textual diff (gitleaks-safe)
+    numstat = subprocess.run(
+        ["git", "-C", str(clone), "diff", "--numstat", f"{base}..HEAD"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    assert "-\t-\tblob.bin" in numstat, numstat
+    # untracked, not deleted: the worktree copy stays on disk
+    ls = subprocess.run(
+        ["git", "-C", str(clone), "ls-files"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    assert "blob.bin" not in ls
+    assert (clone / "blob.bin").is_file()
+    # the agent's worktree is untouched: the binary is still there too
+    assert (wt / "blob.bin").is_file()
+
+
+def test_commit_refuses_a_removal_not_tracked_at_base(tmp_path):
+    """Tracked-at-base is the structural control: a session-added or
+    never-existed path can never be untracked through a declaration."""
+    origin, base = _origin_with_base(tmp_path)
+    wt = _patched_worktree(origin, base, tmp_path)
+    msg = tmp_path / "commit-message.txt"
+    msg.write_text(MSG)
+    removals = tmp_path / "declared-removals.txt"
+    removals.write_text("new_module.py\n")  # added this session, not at base
+
+    r = _script("commit", str(wt), base, str(origin), str(msg), str(removals))
+    assert r.returncode != 0
+    assert "not tracked at the audited base" in r.stderr
+    # a failed commit leaves no clone behind (the existing trap discipline)
+    assert not list(tmp_path.glob("traust-fix-clone.*"))
+
+
+@pytest.mark.parametrize("bad", ["../escape.bin", "/etc/passwd", ".git/config", "sub/../../x"])
+def test_commit_refuses_unsafe_removal_shapes(tmp_path, bad):
+    """Traversal, absolute and .git-targeting declarations fail closed."""
+    origin, base = _origin_with_base(tmp_path)
+    wt = _patched_worktree(origin, base, tmp_path)
+    msg = tmp_path / "commit-message.txt"
+    msg.write_text(MSG)
+    removals = tmp_path / "declared-removals.txt"
+    removals.write_text(bad + "\n")
+
+    r = _script("commit", str(wt), base, str(origin), str(msg), str(removals))
+    assert r.returncode != 0
+    assert "refusing declared removal" in r.stderr
+
+
+def test_commit_stages_a_removal_whose_filename_contains_dotdot(tmp_path):
+    """A ".." inside a filename is not traversal: only a whole ".."
+    segment is refused, so notes/v1..v2.md stays declarable (the
+    over-rejection Shaun flagged on the *..* shape)."""
+    origin, _base = _origin_with_base(tmp_path)
+    (origin / "notes").mkdir()
+    (origin / "notes" / "v1..v2.md").write_text("release notes\n")
+    _git(origin, "add", "-A")
+    _commit(origin, "add the dotdot filename")
+    base = subprocess.run(
+        ["git", "-C", str(origin), "rev-parse", "HEAD"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    wt = tmp_path / "agent-worktree"
+    _git(origin, "worktree", "add", "--quiet", "--detach", str(wt), base)
+    (wt / "app.py").write_text("patched\n")
+    msg = tmp_path / "commit-message.txt"
+    msg.write_text(MSG)
+    removals = tmp_path / "declared-removals.txt"
+    removals.write_text("notes/v1..v2.md\n")
+
+    r = _script("commit", str(wt), base, str(origin), str(msg), str(removals))
+    assert r.returncode == 0, r.stderr
+    out = json.loads(r.stdout.strip().splitlines()[-1])
+    assert out["removals_staged"] == "1", r.stderr
+    clone = Path(out["clone"])
+    diff = subprocess.run(
+        ["git", "-C", str(clone), "diff", "--name-status", f"{base}..HEAD"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    assert "D\tnotes/v1..v2.md" in diff, diff
+
+
+def test_a_duplicate_declaration_counts_as_one_removal(tmp_path):
+    """The same path declared twice is one removal: removals_staged reads
+    1 and the diff carries one D line — not the inflated count and
+    misleading 'already staged by the worktree state' message the
+    second occurrence used to produce (Shaun's dedupe finding)."""
+    origin, base = _origin_with_binary(tmp_path)
+    wt = tmp_path / "agent-worktree"
+    _git(origin, "worktree", "add", "--quiet", "--detach", str(wt), base)
+    (wt / "app.py").write_text("patched\n")
+    msg = tmp_path / "commit-message.txt"
+    msg.write_text(MSG)
+    removals = tmp_path / "declared-removals.txt"
+    removals.write_text("blob.bin\nblob.bin\n")
+
+    r = _script("commit", str(wt), base, str(origin), str(msg), str(removals))
+    assert r.returncode == 0, r.stderr
+    out = json.loads(r.stdout.strip().splitlines()[-1])
+    assert out["removals_staged"] == "1", r.stderr
+    assert "already staged by the worktree state" not in r.stderr
+    clone = Path(out["clone"])
+    diff = subprocess.run(
+        ["git", "-C", str(clone), "diff", "--name-status", f"{base}..HEAD"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    assert diff.count("D\tblob.bin") == 1, diff
+
+
+def test_commit_without_a_removals_file_is_unchanged_behavior(tmp_path):
+    """The fifth argument is optional and inert when absent: removals_staged
+    reads 0 and the commit is exactly the pre-door shape."""
+    origin, base = _origin_with_base(tmp_path)
+    wt = _patched_worktree(origin, base, tmp_path)
+    msg = tmp_path / "commit-message.txt"
+    msg.write_text(MSG)
+
+    r = _script("commit", str(wt), base, str(origin), str(msg))
+    assert r.returncode == 0, r.stderr
+    out = json.loads(r.stdout.strip().splitlines()[-1])
+    assert out["removals_staged"] == "0"
+
+
+def test_a_declared_removal_already_satisfied_by_a_worktree_deletion(tmp_path):
+    """When the agent deleted the worktree file anyway, the snapshot's
+    `add -A` already staged the deletion: the declaration counts, the
+    commit still lands, and nothing is double-staged."""
+    origin, base = _origin_with_binary(tmp_path)
+    wt = tmp_path / "agent-worktree"
+    _git(origin, "worktree", "add", "--quiet", "--detach", str(wt), base)
+    (wt / "app.py").write_text("hello patched\n")
+    (wt / "blob.bin").unlink()
+    msg = tmp_path / "commit-message.txt"
+    msg.write_text(MSG)
+    removals = tmp_path / "declared-removals.txt"
+    removals.write_text("blob.bin\n")
+
+    r = _script("commit", str(wt), base, str(origin), str(msg), str(removals))
+    assert r.returncode == 0, r.stderr
+    out = json.loads(r.stdout.strip().splitlines()[-1])
+    assert out["removals_staged"] == "1"
+    clone = Path(out["clone"])
+    diff = subprocess.run(
+        ["git", "-C", str(clone), "diff", "--name-status", f"{base}..HEAD"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    assert diff.count("D\tblob.bin") == 1, diff
+
+
+def _origin_with_wildcard_and_utf8(tmp_path):
+    """An upstream tracking a literal-glob filename, a non-ASCII filename
+    and normal files — the pathspec and quoting shapes the door must be
+    literal about."""
+    origin, _base = _origin_with_base(tmp_path)
+    (origin / "*.bin").write_text("wildcard-named\n")
+    (origin / "dönör-artefakt.bin").write_text("utf8-named\n")
+    (origin / "real.bin").write_text("real\n")
+    _git(origin, "add", "-A")
+    _commit(origin, "add the pathological names")
+    sha = subprocess.run(
+        ["git", "-C", str(origin), "rev-parse", "HEAD"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    return origin, sha
+
+
+def test_commit_refuses_a_wildcard_named_declaration_outright(tmp_path):
+    """A tracked file literally named '*.bin' passes an exact-line base
+    check, but declaring it is REFUSED by the shape check — fail closed:
+    the door never hands git a pathspec-shaped string, so a declaration
+    can never untrack more than its exact file (the qodo security
+    finding; a pathological name like this is a human's to remove)."""
+    origin, base = _origin_with_wildcard_and_utf8(tmp_path)
+    wt = tmp_path / "agent-worktree"
+    _git(origin, "worktree", "add", "--quiet", "--detach", str(wt), base)
+    (wt / "app.py").write_text("patched\n")
+    msg = tmp_path / "commit-message.txt"
+    msg.write_text(MSG)
+    removals = tmp_path / "declared-removals.txt"
+    removals.write_text("*.bin\n")
+
+    r = _script("commit", str(wt), base, str(origin), str(msg), str(removals))
+    assert r.returncode != 0
+    assert "refusing declared removal with unsafe path shape" in r.stderr
+    # a failed commit leaves no clone behind
+    assert not list(tmp_path.glob("traust-fix-clone.*"))
+
+
+def test_commit_refuses_a_glob_declaration_for_undeclared_files(tmp_path):
+    """A declaration whose NAME is a glob ('re*.bin') is refused outright —
+    the shape check fails closed before git ever sees a pathspec."""
+    origin, base = _origin_with_wildcard_and_utf8(tmp_path)
+    wt = _patched_worktree(origin, base, tmp_path)
+    msg = tmp_path / "commit-message.txt"
+    msg.write_text(MSG)
+    removals = tmp_path / "declared-removals.txt"
+    removals.write_text("re*.bin\n")
+
+    r = _script("commit", str(wt), base, str(origin), str(msg), str(removals))
+    assert r.returncode != 0
+    assert "refusing declared removal with unsafe path shape" in r.stderr
+
+
+def test_commit_stages_a_non_ascii_declaration(tmp_path):
+    """A tracked non-ASCII filename is declarable: the base tree lists it
+    raw (core.quotePath=false) and the literal-magic rm untracks exactly
+    it (the qodo quoting finding)."""
+    origin, base = _origin_with_wildcard_and_utf8(tmp_path)
+    wt = tmp_path / "agent-worktree"
+    _git(origin, "worktree", "add", "--quiet", "--detach", str(wt), base)
+    (wt / "app.py").write_text("patched\n")
+    msg = tmp_path / "commit-message.txt"
+    msg.write_text(MSG)
+    removals = tmp_path / "declared-removals.txt"
+    removals.write_text("dönör-artefakt.bin\n", encoding="utf-8")
+
+    r = _script("commit", str(wt), base, str(origin), str(msg), str(removals))
+    assert r.returncode == 0, r.stderr
+    out = json.loads(r.stdout.strip().splitlines()[-1])
+    assert out["removals_staged"] == "1"
+    clone = Path(out["clone"])
+    diff = subprocess.run(
+        [
+            "git",
+            "-c",
+            "core.quotePath=false",
+            "-C",
+            str(clone),
+            "diff",
+            "--name-status",
+            f"{base}..HEAD",
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    assert "D\tdönör-artefakt.bin" in diff, diff
+
+
+def test_commit_honors_a_final_declaration_without_a_trailing_newline(tmp_path):
+    """read alone would silently drop the last line of a removals file
+    without a trailing newline — the declaration must still stage."""
+    origin, base = _origin_with_binary(tmp_path)
+    wt = tmp_path / "agent-worktree"
+    _git(origin, "worktree", "add", "--quiet", "--detach", str(wt), base)
+    (wt / "app.py").write_text("patched\n")
+    msg = tmp_path / "commit-message.txt"
+    msg.write_text(MSG)
+    removals = tmp_path / "declared-removals.txt"
+    removals.write_bytes(b"blob.bin")  # no trailing newline
+
+    r = _script("commit", str(wt), base, str(origin), str(msg), str(removals))
+    assert r.returncode == 0, r.stderr
+    out = json.loads(r.stdout.strip().splitlines()[-1])
+    assert out["removals_staged"] == "1", r.stderr
+
+
+def test_commit_stages_an_early_path_in_a_large_tree(tmp_path):
+    """The base-tree match must not SIGPIPE: under pipefail, piping a
+    large listing into an early-exiting grep -q turned a successful
+    match into a refused declaration (the qodo large-repository
+    finding). 3000 tracked files far exceed any pipe buffer; the
+    declared path sorts first."""
+    origin, _base = _origin_with_base(tmp_path)
+    (origin / "aaa").mkdir()
+    (origin / "aaa" / "0000-target.bin").write_text("target\n")
+    for i in range(3000):
+        (origin / "aaa" / f"file-{i:04d}.txt").write_text("x\n")
+    _git(origin, "add", "-A")
+    _commit(origin, "big base")
+    base = subprocess.run(
+        ["git", "-C", str(origin), "rev-parse", "HEAD"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    wt = tmp_path / "agent-worktree"
+    _git(origin, "worktree", "add", "--quiet", "--detach", str(wt), base)
+    (wt / "app.py").write_text("patched\n")
+    msg = tmp_path / "commit-message.txt"
+    msg.write_text(MSG)
+    removals = tmp_path / "declared-removals.txt"
+    removals.write_text("aaa/0000-target.bin\n")
+
+    r = _script("commit", str(wt), base, str(origin), str(msg), str(removals))
+    assert r.returncode == 0, r.stderr
+    out = json.loads(r.stdout.strip().splitlines()[-1])
+    assert out["removals_staged"] == "1", r.stderr
