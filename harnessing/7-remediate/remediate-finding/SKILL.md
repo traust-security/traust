@@ -288,6 +288,16 @@ checks as `skip`, "Not executed: this worker exposes no shell", before
 this door existed). A tool the image lacks records an honest `skip` with
 the tool-missing reason — that is a real skip, not a gap to paper over.
 
+**Judge what the check actually ran.** `node --test` discovers only
+Node's own test-runner files; when the project's tests run under a
+different runner (jest, vitest, mocha — package.json scripts), the door
+cannot execute them (`npm run` is shell indirection, excluded from the
+grammar on principle) and an empty discovery can exit 0 without running
+anything. Read the check's output: tests not exercised means the check
+did not happen — record the honest `skip` with that reason, never a
+vacuous pass. Same discipline for `go test`: a package pattern that
+matches nothing proves nothing.
+
 **Deterministic differential (scanner-backed findings).** When the
 finding is scanner-backed (opengrep `scanner_correlation` promotion or a
 `KHS-*`-cited config finding in the source audit), also re-run the

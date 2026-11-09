@@ -354,7 +354,10 @@ do_commit() {
         /*|*..*|.git|.git/*|*/.git|*/.git/*|-*|:*|*"*"*|*"?"*|*"["*|*\\*|*[[:cntrl:]]*)
           echo "[push_fix] refusing declared removal with unsafe path shape: $path" >&2; exit 1 ;;
       esac
-      if ! printf '%s\n' "$BASE_TREE" | grep -qxF -- "$path"; then
+      # Here-string, never a pipe: under pipefail an early grep -q match
+      # closes the pipe mid-listing and SIGPIPE turns a successful match
+      # into a failed pipeline (large trees, early-sorted paths).
+      if ! grep -qxF -- "$path" <<< "$BASE_TREE"; then
         echo "[push_fix] refusing declared removal of a path not tracked at the audited base: $path" >&2; exit 1
       fi
       if git_safe -C "$CLONE" ls-files --error-unmatch -- ":(literal)$path" >/dev/null 2>&1; then

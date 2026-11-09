@@ -1089,3 +1089,36 @@ def test_commit_honors_a_final_declaration_without_a_trailing_newline(tmp_path):
     assert r.returncode == 0, r.stderr
     out = json.loads(r.stdout.strip().splitlines()[-1])
     assert out["removals_staged"] == "1", r.stderr
+
+
+def test_commit_stages_an_early_path_in_a_large_tree(tmp_path):
+    """The base-tree match must not SIGPIPE: under pipefail, piping a
+    large listing into an early-exiting grep -q turned a successful
+    match into a refused declaration (the qodo large-repository
+    finding). 3000 tracked files far exceed any pipe buffer; the
+    declared path sorts first."""
+    origin, _base = _origin_with_base(tmp_path)
+    (origin / "aaa").mkdir()
+    (origin / "aaa" / "0000-target.bin").write_text("target\n")
+    for i in range(3000):
+        (origin / "aaa" / f"file-{i:04d}.txt").write_text("x\n")
+    _git(origin, "add", "-A")
+    _commit(origin, "big base")
+    base = subprocess.run(
+        ["git", "-C", str(origin), "rev-parse", "HEAD"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    wt = tmp_path / "agent-worktree"
+    _git(origin, "worktree", "add", "--quiet", "--detach", str(wt), base)
+    (wt / "app.py").write_text("patched\n")
+    msg = tmp_path / "commit-message.txt"
+    msg.write_text(MSG)
+    removals = tmp_path / "declared-removals.txt"
+    removals.write_text("aaa/0000-target.bin\n")
+
+    r = _script("commit", str(wt), base, str(origin), str(msg), str(removals))
+    assert r.returncode == 0, r.stderr
+    out = json.loads(r.stdout.strip().splitlines()[-1])
+    assert out["removals_staged"] == "1", r.stderr
