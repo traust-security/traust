@@ -55,8 +55,16 @@ handler: review it by hand. Protection is credited only from an allow-list
 of exact shapes, so a `scoped` or `checked` row is still a claim: spot-check
 one per controller or router. A framework or handler the reader doesn't
 classify is a `<family> ownership` coverage gap naming its routes, never a
-blank: review those routes' ownership by hand and record the gap. These are
-facts, not findings: only a confirmed row becomes a finding.
+blank: review those routes' ownership by hand and record the gap.
+
+**The reader classifies ids in the route path only.** A route that takes the
+object id from the query string or the body has no ownership classification
+and no ownership gap, so it is not on that worklist: FastAPI query
+parameters, `req.query` or `req.body`, `@RequestParam` / `@QueryParam`, Rails
+`params[:id]` filled from the query. Find those routes by hand from the
+handlers and answer the same check for each. List any you didn't review in
+`coverage_gaps`. These are facts, not findings: only a confirmed row becomes
+a finding.
 
 ## Kubernetes operators
 

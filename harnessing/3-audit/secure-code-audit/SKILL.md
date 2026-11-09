@@ -1183,7 +1183,9 @@ Judging protocol — the lane may NOT close with unjudged rows:
    framework's ownership check (FA.4, EX.4, JV.5, RL.3; RW.4 starts from the
    `<family> ownership` gap): read the lookup and say whether the record is
    tied to the caller. An `unknown` row or an ownership gap's routes get the
-   same question by hand.
+   same question by hand, and so do routes that take the object id from the
+   query string or body. The reader classifies path ids only, so find those
+   routes from the handlers. Any left unreviewed go in `coverage_gaps`.
 3. **Asymmetry groups get judged as groups**: when siblings differ, the
    question is "why is THIS one different" — the answer goes in the
    finding rationale or the benign note either way.

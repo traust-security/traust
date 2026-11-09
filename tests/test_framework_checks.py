@@ -81,3 +81,16 @@ def test_jvm_rust_and_ruby_sections_name_their_matrix_markers():
         assert marker in text, marker
     for lang in ("java", "rust", "ruby"):
         assert f"tree-sitter-{lang}" in text, lang
+
+
+def test_the_ownership_checks_start_from_the_matrix_and_cover_query_ids_by_hand():
+    text = CHECKS.read_text(encoding="utf-8")
+    section = text.split("## Route ownership (CWE-639)", 1)[1].split("\n## ", 1)[0]
+    # the reader classifies path ids only: query or body ids are a by-hand review, gapped
+    assert "path only" in section and "query string or the body" in section
+    assert "`coverage_gaps`" in section
+    rows = {m["id"]: m.string for m in _rows()}
+    for check in ("FA.4", "EX.4", "JV.5", "RW.4", "RL.3"):
+        assert "(#route-ownership-cwe-639)" in rows[check], check
+    skill = (CHECKS.parent / "SKILL.md").read_text(encoding="utf-8")
+    assert "take the object id from the\n   query string or body" in skill
