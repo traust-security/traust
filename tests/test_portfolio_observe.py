@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
+from uuid import UUID
 
 import pytest
 import yaml
@@ -214,13 +215,27 @@ def test_an_audited_unknown_host_still_reaches_age_ceiling_routing(home: Path) -
 
 
 class Services:
-    def __init__(self, portfolio: Portfolio) -> None:
+    def __init__(self, portfolio: Portfolio, lines: Any = None) -> None:
         self.portfolio = portfolio
+        self.sync = Sync(lines)
+
+
+class Sync:
+    def __init__(self, lines: Any = None) -> None:
+        self.lines = lines or type("Lines", (), {"observed": (), "unobserved": ()})
+
+    def observe_lines(self, repository_id: Any, url: Any) -> Any:
+        if isinstance(self.lines, Exception):
+            raise self.lines
+        return self.lines
 
 
 class Portfolio:
     def __init__(self, outcome: ComparisonStatus | Exception) -> None:
         self.outcome = outcome
+
+    def find_repository(self, url: Any) -> Any:
+        return type("Repo", (), {"id": UUID(int=7)})
 
     def record_forge_facts(self, *, repo_url: str) -> Any:
         if isinstance(self.outcome, Exception):
@@ -235,6 +250,14 @@ def test_every_status_is_succeeded_or_a_named_gap(status: ComparisonStatus) -> N
     )
     answered = status in ("ok", "no-pinned-sha", "never-audited")
     assert result == (JobResult.succeeded() if answered else JobResult.partly({status: 1}))
+
+
+def test_a_line_the_forge_wont_answer_degrades_the_rest() -> None:
+    lines = type("Lines", (), {"observed": ("dev",), "unobserved": ("release-4.16",)})
+    result = RepoStateMaterializer(Services(Portfolio("ok"), lines)).materialize(  # type: ignore[arg-type]
+        AssetRequest(asset="repo_state", run_id="t", partition=REPO)
+    )
+    assert result == JobResult.partly({"unreachable": 1})
 
 
 def test_a_repository_core_doesnt_know_is_refused_with_its_reason() -> None:

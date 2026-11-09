@@ -33,7 +33,7 @@ assets:
     runner: {labels: [deterministic]}
 
 
-  repo_state:  # PortfolioService.record_forge_facts through traust.ops.materializers
+  repo_state:  # record_forge_facts + PortfolioSync.observe_lines through traust.ops.materializers
     run: [python3, -m, traust.cli, portfolio, observe, --repo, "{repo_url}", --run-id, "{run_id}"]
     params: {repo_url: HttpsRepoUrl}
     partitions: dynamic:repo
@@ -47,7 +47,8 @@ assets:
     requires: {tools: [gitleaks]}
     # One observation is about 5 forge calls (repo, branch, rate limit, compare, and the
     # compare's patch for the router's tripwire when lines changed; the patch fetch stops while
-    # 100 calls stay in reserve): shared by every asset that calls the same host.
+    # 100 calls stay in reserve): shared by every asset that calls the same host. Each attached
+    # branch line adds one head call (the default line is the observation's own).
     # PENDING(quota): per_hour was sized for about 4 calls an observation.
     admission: {quota: {key: "forge:{host}", per_hour: 1000}}
     runner: {labels: [deterministic]}
@@ -183,10 +184,11 @@ assets:
   # code is already there. Packets are deterministic facts; only the review decides (D1, D4).
   # NEED(router): routing when repo_state shows dependency changes needs a manifest-change signal.
   manifest_sbom:  # ExposureService.record_manifest_sbom through traust.ops.materializers
-    # The observed default head's dependency SBOM, from its manifests (the forge archive, only
-    # the files syft reads, capped). A head that already has one is a lookup, not a fetch, so the
-    # daily trigger only fetches where the head moved. One archive is one forge call, from the
-    # same bucket as repo_state; pacing spreads the first full pass over ticks instead of a burst.
+    # Every tracked head's dependency SBOM (each attached branch line's latest commit), from
+    # its manifests (the forge archive, only the files syft reads, capped). A head that already
+    # has one is a lookup, not a fetch, so the daily trigger only fetches where heads moved.
+    # One archive is one forge call per unrecorded head, from the same bucket as repo_state;
+    # pacing spreads the first full pass over ticks instead of a burst.
     run: [python3, -m, traust.cli, impact, manifest-sbom, --repo, "{repo_url}", --run-id, "{run_id}"]
     params: {repo_url: HttpsRepoUrl}
     partitions: dynamic:repo
