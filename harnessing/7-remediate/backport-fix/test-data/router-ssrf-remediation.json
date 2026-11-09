@@ -1,0 +1,121 @@
+{
+  "title": "Remediation: SSRF via FQDN-typed EndpointSlices in OpenShift Router",
+  "metadata": {
+    "date": "2026-08-10",
+    "harness_version": "0.260.2",
+    "logical_product": "openshift-router",
+    "repository": "https://github.com/openshift/router",
+    "audited_commit": "3a51f90d26b26030469f306ed32522f05269b9fe",
+    "language": "Go",
+    "operator": "backport-fix-demo"
+  },
+  "source_findings": [
+    {
+      "finding_ref": "router-ssrf-f001",
+      "title": "SSRF via FQDN-typed EndpointSlices allows access to cloud metadata service",
+      "severity": "high",
+      "cwes": [
+        "CWE-918"
+      ],
+      "locations": [
+        {
+          "path": "pkg/router/controller/endpointsubset/converter.go",
+          "lines": "1"
+        },
+        {
+          "path": "pkg/router/controller/extended_validator.go",
+          "lines": "1"
+        }
+      ]
+    }
+  ],
+  "fork": {
+    "url": "https://github.com/openshift/router",
+    "visibility": "public",
+    "base_ref": "master",
+    "fix_branch": "master",
+    "fix_commit": "3a51f90d26b26030469f306ed32522f05269b9fe",
+    "upstream_remote": "https://github.com/openshift/router"
+  },
+  "patch": {
+    "strategy": "input-validation",
+    "rationale": "Disables FQDN-typed EndpointSlices and adds IP validation via checkRestrictedIP() with IPv4-mapped/compatible IPv6 normalization. Prevents SSRF attacks targeting restricted IPs such as cloud metadata service (169.254.169.254), loopback, link-local, and Azure/AWS metadata endpoints.",
+    "files_changed": [
+      {
+        "path": "pkg/cmd/infra/router/template.go",
+        "change_type": "modified",
+        "hunks": 1,
+        "additions": 5,
+        "deletions": 0
+      },
+      {
+        "path": "pkg/router/controller/endpointsubset/converter.go",
+        "change_type": "modified",
+        "hunks": 2,
+        "additions": 45,
+        "deletions": 3
+      },
+      {
+        "path": "pkg/router/controller/endpointsubset/converter_test.go",
+        "change_type": "modified",
+        "hunks": 1,
+        "additions": 180,
+        "deletions": 0
+      },
+      {
+        "path": "pkg/router/controller/extended_validator.go",
+        "change_type": "modified",
+        "hunks": 1,
+        "additions": 120,
+        "deletions": 5
+      },
+      {
+        "path": "pkg/router/controller/extended_validator_test.go",
+        "change_type": "added",
+        "hunks": 1,
+        "additions": 250,
+        "deletions": 0
+      },
+      {
+        "path": "pkg/router/controller/factory/factory_endpointslices_test.go",
+        "change_type": "modified",
+        "hunks": 1,
+        "additions": 200,
+        "deletions": 5
+      },
+      {
+        "path": "pkg/router/template/plugin_test.go",
+        "change_type": "modified",
+        "hunks": 1,
+        "additions": 213,
+        "deletions": 5
+      }
+    ],
+    "diffstat": {
+      "files": 7,
+      "additions": 1013,
+      "deletions": 18
+    }
+  },
+  "checks": [
+    {
+      "name": "go-build",
+      "command": "CGO_ENABLED=1 GO111MODULE=on GOFLAGS=-mod=vendor go build -o openshift-router -ldflags \"-s -w\" github.com/openshift/router/cmd/openshift-router",
+      "outcome": "pass",
+      "duration_seconds": 90
+    },
+    {
+      "name": "unit-tests",
+      "command": "CGO_ENABLED=1 GO111MODULE=on GOFLAGS=-mod=vendor go test -race ./...",
+      "outcome": "pass",
+      "duration_seconds": 120
+    }
+  ],
+  "summary": {
+    "status": "checks_passed",
+    "checks_passed": 2,
+    "checks_total": 2,
+    "findings_addressed": 1,
+    "ready_for_review": true
+  }
+}

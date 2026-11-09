@@ -1,0 +1,75 @@
+{
+  "title": "Remediation: nil pointer dereference in updateSandbox stats",
+  "metadata": {
+    "date": "2026-07-30",
+    "harness_version": "0.260.2",
+    "logical_product": "cri-o",
+    "repository": "https://github.com/cri-o/cri-o",
+    "audited_commit": "de86c1ae8",
+    "language": "Go",
+    "operator": "backport-fix-test"
+  },
+  "source_findings": [
+    {
+      "finding_ref": "crio-stats-nil-panic",
+      "title": "nil pointer dereference in updateSandbox when container cgroup is cleaned up",
+      "severity": "medium",
+      "cwes": [
+        "CWE-476"
+      ],
+      "locations": [
+        {
+          "path": "server/otel-collector/operations/operations.go",
+          "lines": "1"
+        }
+      ]
+    }
+  ],
+  "fork": {
+    "url": "https://github.com/cri-o/cri-o",
+    "visibility": "public",
+    "base_ref": "main",
+    "fix_branch": "fix-stats-nil-panic",
+    "fix_commit": "795fef059b5e7c580192cc2dd458bd603ae7d010",
+    "upstream_remote": "https://github.com/cri-o/cri-o"
+  },
+  "patch": {
+    "strategy": "input-validation",
+    "rationale": "Add nil check before dereferencing ContainerStats result in updateSandbox. When PodAndContainerStatsFromCRI is enabled and a container cgroup has been cleaned up during teardown, ContainerStats returns (nil, error) but the code continued to dereference the nil result, causing a panic.",
+    "files_changed": [
+      {
+        "path": "server/otel-collector/operations/operations.go",
+        "change_type": "modified",
+        "hunks": 1,
+        "additions": 3,
+        "deletions": 0
+      }
+    ],
+    "diffstat": {
+      "files": 1,
+      "additions": 3,
+      "deletions": 0
+    }
+  },
+  "checks": [
+    {
+      "name": "go-build",
+      "command": "GOMAXPROCS=2 make",
+      "outcome": "pass",
+      "duration_seconds": 120
+    },
+    {
+      "name": "unit-tests",
+      "command": "go build ./...",
+      "outcome": "pass",
+      "duration_seconds": 45
+    }
+  ],
+  "summary": {
+    "status": "checks_passed",
+    "checks_passed": 2,
+    "checks_total": 2,
+    "findings_addressed": 1,
+    "ready_for_review": true
+  }
+}
