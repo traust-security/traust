@@ -1,0 +1,79 @@
+# Containerfile for Go-based repos (cri-o, kubernetes, operators, etc.)
+#
+# Build:
+#   podman build -t backport-go:latest -f container/Containerfile .
+#
+# Usage:
+#   bash run_backport.sh \
+#       --config-dir /tmp/backport-fix/configs \
+#       --output-dir /tmp/backport-fix/results \
+#       --container-image backport-go:latest \
+#       --repo /path/to/repo \
+#       --amalgamator /path/to/amalgamator
+
+# Pinned by digest (ubi9/ubi:latest resolved 2026-11-06); bump deliberately.
+FROM registry.access.redhat.com/ubi9/ubi@sha256:1963e00991088221a3405be7eb315a3dbc0be0f1f7440f0bd537d481cf33c83e
+
+ARG GO_VERSION=1.23.8
+# Verified SHA-256 of the official go.dev archive, per architecture. A missing
+# entry fails the build rather than installing an unverified tarball.
+ARG GO_SHA256_AMD64=45b87381172a58d62c977f27c4683c8681ef36580abecd14fd124d24ca306d3f
+ARG GO_SHA256_ARM64=9d6d938422724a954832d6f806d397cf85ccfde8c581c201673e50e634fdc992
+ARG PYTHON_VERSION=3.12
+# BuildKit/podman set TARGETARCH from the platform being built. Declared
+# WITHOUT a default so the automatic value survives; a default would override
+# it and an arm64 build would download the amd64 toolchain. The inline
+# fallback covers builders that do not provide the automatic argument.
+ARG TARGETARCH
+
+# Install build essentials + Python 3.12 (UBI9 default is 3.9; the
+# Amalgamator declares requires-python >=3.12)
+RUN dnf install -y \
+        git \
+        make \
+        gcc \
+        glibc-devel \
+        "python${PYTHON_VERSION}" \
+        "python${PYTHON_VERSION}-pip" \
+        "python${PYTHON_VERSION}-devel" \
+        findutils \
+        diffutils \
+        which \
+    && ln -sf "/usr/bin/python${PYTHON_VERSION}" /usr/bin/python3 \
+    && ln -sf "/usr/bin/pip${PYTHON_VERSION}" /usr/bin/pip3 \
+    && dnf clean all
+
+# Install Go, verifying the published SHA-256 before extracting.
+RUN set -eux; \
+    arch="${TARGETARCH:-amd64}"; \
+    case "$arch" in \
+      amd64) sha="$GO_SHA256_AMD64" ;; \
+      arm64) sha="$GO_SHA256_ARM64" ;; \
+      *) echo "unsupported TARGETARCH '$arch' — add a pinned SHA-256 first" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL -o /tmp/go.tgz "https://go.dev/dl/go${GO_VERSION}.linux-${arch}.tar.gz"; \
+    echo "${sha}  /tmp/go.tgz" | sha256sum -c -; \
+    tar -C /usr/local -xzf /tmp/go.tgz; \
+    rm -f /tmp/go.tgz
+ENV PATH="/usr/local/go/bin:/root/go/bin:${PATH}"
+ENV GOPATH="/root/go"
+
+# Amalgamator runtime dependencies, mirrored from ../amalgamator/pyproject.toml
+# and pinned to ../amalgamator/uv.lock. Keep this list in sync when the
+# Amalgamator's dependencies change. 'anthropic[vertex]' pulls google-auth,
+# required for the CLAUDE_CODE_USE_VERTEX=1 path the runner configures.
+# Pinning keeps the image reproducible and stops a compromised release
+# entering a pipeline that runs untrusted code.
+RUN python3 -m pip install --no-cache-dir \
+        pyyaml==6.0.3 \
+        colorama==0.4.6 \
+        claude-agent-sdk==0.2.161 \
+        litellm==1.103.9 \
+        'anthropic[vertex]==1.13.0'
+
+WORKDIR /workspace
+
+COPY container/entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
+
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
