@@ -334,17 +334,31 @@ do_commit() {
   # silently-ignored declaration would make the report lie.
   if [ -n "$REMOVALS" ]; then
     [ -f "$REMOVALS" ] || { echo "[push_fix] removals file not found: $REMOVALS" >&2; exit 1; }
-    while IFS= read -r path; do
+    # The audited base tree, listed ONCE with core.quotePath=false so
+    # non-ASCII filenames print as their raw bytes (the default C-style
+    # quoting would make an exact match against the declaration
+    # impossible). Matched per declaration as an EXACT line — never
+    # handing git's pathspec-taking commands an agent-authored string.
+    local BASE_TREE
+    BASE_TREE="$(git_safe -c core.quotePath=false -C "$CLONE" ls-tree -r --name-only "$SHA")"
+    # '|| [ -n "$path" ]': a final declaration without a trailing newline
+    # is still a declaration — read alone would silently drop it.
+    while IFS= read -r path || [ -n "$path" ]; do
       [ -n "$path" ] || continue
+      # Belt: textual shape before anything touches git — traversal,
+      # .git-targeting, pathspec/glob metacharacters ('*?[' globbing,
+      # leading ':' pathspec magic, leading '-' option shape) and
+      # control characters. Non-ASCII printable bytes pass ([:cntrl:]]
+      # is locale-stable for them in the C locale).
       case "$path" in
-        /*|*..*|.git|.git/*|*/.git|*/.git/*)
+        /*|*..*|.git|.git/*|*/.git|*/.git/*|-*|:*|*"*"*|*"?"*|*"["*|*\\*|*[[:cntrl:]]*)
           echo "[push_fix] refusing declared removal with unsafe path shape: $path" >&2; exit 1 ;;
       esac
-      if ! git_safe -C "$CLONE" ls-tree -r --name-only "$SHA" -- "$path" | grep -qxF -- "$path"; then
+      if ! printf '%s\n' "$BASE_TREE" | grep -qxF -- "$path"; then
         echo "[push_fix] refusing declared removal of a path not tracked at the audited base: $path" >&2; exit 1
       fi
-      if git_safe -C "$CLONE" ls-files --error-unmatch -- "$path" >/dev/null 2>&1; then
-        git_safe -C "$CLONE" rm --cached -q -- "$path" >&2
+      if git_safe -C "$CLONE" ls-files --error-unmatch -- ":(literal)$path" >/dev/null 2>&1; then
+        git_safe -C "$CLONE" rm --cached -q -- ":(literal)$path" >&2
       else
         echo "[push_fix] declared removal already staged by the worktree state: $path" >&2
       fi
