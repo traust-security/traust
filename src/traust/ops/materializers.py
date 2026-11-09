@@ -17,6 +17,7 @@ from traust_core.v1.errors import ConfigError, NotFoundError, ServiceError, Vali
 from traust_core.v1.models.below_range import BelowRangeStatus
 from traust_core.v1.models.dependencies import FeedName
 from traust_core.v1.models.insight import RenderedView, ViewFilter, ViewName
+from traust_core.v1.models.inventory import LinesReport
 from traust_core.v1.models.observation import ComparisonStatus
 from traust_core.v1.models.operations import AssetRequest, DegradedKey, JobResult, OrderReason
 from traust_core.v1.models.values import GitSha, HttpsRepoUrl
@@ -60,7 +61,13 @@ class RepoStateMaterializer:
             return JobResult.refused(OrderReason.NOT_FOUND)
         try:
             facts = self._portfolio.record_forge_facts(repo_url=str(url))
-            lines = self._sync.observe_lines(repo.id, url)
+            # A deferred comparison means the quota bucket is spent: the line walks draw the
+            # same bucket, so they wait for the next tick rather than draining the reserve.
+            lines = (
+                LinesReport()
+                if facts.status == ComparisonStatus.QUOTA_DEFERRED
+                else self._sync.observe_lines(repo.id, url)
+            )
         except NotFoundError as e:
             log.warning("run %s: %s: %s", request.run_id, OrderReason.NOT_FOUND, e)
             return JobResult.refused(OrderReason.NOT_FOUND)

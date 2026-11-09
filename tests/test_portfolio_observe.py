@@ -223,6 +223,7 @@ class Services:
 class Sync:
     def __init__(self, lines: Any = None) -> None:
         self.lines = lines or type("Lines", (), {"observed": (), "unobserved": ()})
+        self.asked: list[Any] = []
 
     def observe_lines(self, repository_id: Any, url: Any) -> Any:
         if isinstance(self.lines, Exception):
@@ -273,3 +274,20 @@ def test_malformed_ipv6_repository_is_bad_request(home: Path) -> None:
         1,
         JobResult.failed(OrderReason.BAD_REQUEST).model_dump(mode="json"),
     )
+
+
+def test_a_deferred_quota_stops_the_line_walks() -> None:
+    lines = type("Lines", (), {"observed": ("dev",), "unobserved": ()})
+    sync = Watched(lines)
+    assert sync.asked == []
+    result = RepoStateMaterializer(Services(Portfolio(ComparisonStatus.QUOTA_DEFERRED), lines)).materialize(  # type: ignore[arg-type]
+        AssetRequest(asset="repo_state", run_id="t", partition=REPO)
+    )
+    assert result == JobResult.partly({"quota-deferred": 1})
+    assert sync.asked == []  # the bucket is spent: the walks wait for the next tick
+
+
+class Watched(Sync):
+    def observe_lines(self, repository_id: Any, url: Any) -> Any:
+        self.asked.append(repository_id)
+        return super().observe_lines(repository_id, url)

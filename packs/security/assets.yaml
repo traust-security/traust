@@ -48,7 +48,9 @@ assets:
     # One observation is about 5 forge calls (repo, branch, rate limit, compare, and the
     # compare's patch for the router's tripwire when lines changed; the patch fetch stops while
     # 100 calls stay in reserve): shared by every asset that calls the same host. Each attached
-    # branch line adds one head call (the default line is the observation's own).
+    # branch line adds one head call (the default line is the observation's own); the admission
+    # quota counts orders, not lines, so the runtime reserve is what bounds a many-lined
+    # repository, and a deferred comparison stops the line walks for the tick.
     # PENDING(quota): per_hour was sized for about 4 calls an observation.
     admission: {quota: {key: "forge:{host}", per_hour: 1000}}
     runner: {labels: [deterministic]}
