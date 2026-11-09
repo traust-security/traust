@@ -215,9 +215,9 @@ def test_an_audited_unknown_host_still_reaches_age_ceiling_routing(home: Path) -
 
 
 class Services:
-    def __init__(self, portfolio: Portfolio, lines: Any = None) -> None:
+    def __init__(self, portfolio: Portfolio, lines: Any = None, sync: Any = None) -> None:
         self.portfolio = portfolio
-        self.sync = Sync(lines)
+        self.sync = sync if sync is not None else Sync(lines)
 
 
 class Sync:
@@ -279,12 +279,19 @@ def test_malformed_ipv6_repository_is_bad_request(home: Path) -> None:
 def test_a_deferred_quota_stops_the_line_walks() -> None:
     lines = type("Lines", (), {"observed": ("dev",), "unobserved": ()})
     sync = Watched(lines)
-    assert sync.asked == []
-    result = RepoStateMaterializer(Services(Portfolio(ComparisonStatus.QUOTA_DEFERRED), lines)).materialize(  # type: ignore[arg-type]
+    result = RepoStateMaterializer(
+        Services(Portfolio(ComparisonStatus.QUOTA_DEFERRED), sync=sync)
+    ).materialize(  # type: ignore[arg-type]
         AssetRequest(asset="repo_state", run_id="t", partition=REPO)
     )
     assert result == JobResult.partly({"quota-deferred": 1})
     assert sync.asked == []  # the bucket is spent: the walks wait for the next tick
+
+    walking = Watched(lines)
+    RepoStateMaterializer(Services(Portfolio(ComparisonStatus.OK), sync=walking)).materialize(  # type: ignore[arg-type]
+        AssetRequest(asset="repo_state", run_id="t", partition=REPO)
+    )
+    assert walking.asked == [UUID(int=7)]  # an answered comparison walks the lines
 
 
 class Watched(Sync):
