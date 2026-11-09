@@ -1,9 +1,9 @@
 """``traust findings …``: track-findings' doors on traust-core.
 
 find      the finding a report entry is (its label, e.g. OPERATOR-abcdef0-001), by fingerprint
-correction-request  refused: claim correction waits on a traust-core decision (plan 15, decision 1)
-rebaseline  refused: claim correction waits on a traust-core decision (plan 15, decision 1)
-claim     refused: claim correction waits on a traust-core decision (plan 15, decision 1)
+correction-request  retain a corrected claim and queue human review against a ticket
+rebaseline  accept that retained claim with verified restatement authority
+claim     read the accepted corrected claim without rewriting original reports
 status    one finding now: disposition (evidence precedence), effective severity, SLA due
 history   every decision on a finding, in judgement order
 baseline  a repository's findings as they stood at a time
@@ -47,11 +47,13 @@ from traust_core.v1.errors import (
     TraustError,
     ValidationError,
 )
+from traust_core.v1.models.artifacts import ReportArtifact
 from traust_core.v1.models.attestation import AttestationDecision
 from traust_core.v1.models.common import Cursor, PageRequest, TimeBucket
 from traust_core.v1.models.findings import (
     FindingDimension,
     FindingFilter,
+    Label,
     RecordDecision,
     ReviewFilter,
 )
@@ -75,7 +77,6 @@ from traust_core.v1.providers.comments import FORGE, JIRA
 
 from traust.cli._doors import parser, run, when
 from traust.context import load, load_caller
-from traust.lib.pending_decisions import Decision, PendingCoreDecision
 
 _JIRA_KEY = re.compile(r"^[A-Z][A-Z0-9]+-\d+$")
 _BROWSE = re.compile(r"/browse/([A-Z][A-Z0-9]+-\d+)")
@@ -424,10 +425,20 @@ def correction_request(argv: list[str] | None = None) -> int:
     ap.add_argument("--label", required=True, help="the corrected entry's report label")
     ap.add_argument("--ticket", required=True)
     ap.add_argument("--rationale", required=True)
-    ap.parse_args(argv)
+    args = ap.parse_args(argv)
 
     def call() -> dict:
-        raise PendingCoreDecision(Decision.CLAIM_CORRECTION)
+        core = load(args.config_home)
+        saved = core.services().findings.request_claim_correction(
+            args.finding,
+            args.assessment,
+            ReportArtifact.parse(args.report.read_bytes()),
+            Label(args.label),
+            ticket=args.ticket,
+            rationale=args.rationale,
+            principal=load_caller(core),
+        )
+        return _json(saved)
 
     return run(call)
 
@@ -437,10 +448,21 @@ def rebaseline(argv: list[str] | None = None) -> int:
     ap.add_argument("review_item_id", type=UUID)
     ap.add_argument("--ticket", required=True)
     ap.add_argument("--rationale", required=True, help="the authenticated human's review rationale")
-    ap.parse_args(argv)
+    ap.add_argument(
+        "--approver", action="append", default=[], help="independent approving identity"
+    )
+    args = ap.parse_args(argv)
 
     def call() -> dict:
-        raise PendingCoreDecision(Decision.CLAIM_CORRECTION)
+        core = load(args.config_home)
+        saved = core.services().findings.correct_claim(
+            args.review_item_id,
+            ticket=args.ticket,
+            rationale=args.rationale,
+            principal=load_caller(core),
+            approvers=tuple(args.approver),
+        )
+        return _json(saved)
 
     return run(call)
 
@@ -449,10 +471,11 @@ def claim(argv: list[str] | None = None) -> int:
     ap = parser("findings", "claim", "Read an accepted corrected claim, if there is one.")
     ap.add_argument("finding_id", type=UUID)
     ap.add_argument("--as-of", type=when)
-    ap.parse_args(argv)
+    args = ap.parse_args(argv)
 
     def call() -> dict | None:
-        raise PendingCoreDecision(Decision.CLAIM_CORRECTION)
+        saved = load(args.config_home).services().findings.claim(args.finding_id, args.as_of)
+        return _json(saved) if saved is not None else None
 
     return run(call)
 

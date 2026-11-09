@@ -2,6 +2,20 @@
 
 All notable changes to Traust are documented here.
 
+## Unreleased
+
+- Restore alias-complete advisory preparation and nullable sweep fix availability without
+  mixing package-specific ranges, fixes or offline source provenance.
+- Restore human-gated CVE replay against original audits; unknown presence never becomes
+  a confirmed miss or benchmark ground truth.
+- Retain spend repository/size/batch/note metadata, preserving unresolved labels and cost
+  without guessing canonical inventory identity.
+- Restore Core-owned repository availability and reviewed immutable claim corrections.
+  Corrections retain original occurrences, reported severity and disposition.
+- Honor `adapters config-matrix --max-triples`, including explicit truncation gaps.
+- Require the documented existing-database publication-revision and spend-metadata upgrades
+  before adopting the new Core; ambiguous historical publication order refuses migration.
+
 ## [0.44.0]
 
 - Restore `portfolio inventory-export --format csv` through a registered Core Insight view.

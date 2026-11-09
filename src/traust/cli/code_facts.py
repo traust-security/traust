@@ -23,7 +23,6 @@ import json
 from datetime import UTC, datetime
 from pathlib import Path
 
-from traust_core.v1.errors import ValidationError
 from traust_core.v1.models.code_facts import CodeFactKind
 from traust_core.v1.models.common import ToolRequest
 
@@ -107,19 +106,21 @@ def config_matrix(argv: list[str] | None = None) -> int:
     ap.add_argument(
         "--max-triples",
         type=int,
-        help="refused: traust-core's config-matrix provider applies only its default cap",
+        help="maximum retained triples (Core's default when omitted); truncation is a coverage gap",
     )
     args = ap.parse_args(argv)
 
     def call() -> dict:
-        if args.max_triples is not None:
-            # NEED(core: config-matrix max_triples): core development's ConfigMatrix.enumerate
-            # drops request.params, so a cap here would be silently ignored.
-            raise ValidationError("--max-triples: traust-core's config-matrix takes no cap yet")
         [matrix] = (
             load(args.config_home)
             .services()
-            .code_facts.enumerate(CodeFactKind.CONFIG, ToolRequest(workspace=args.checkout))
+            .code_facts.enumerate(
+                CodeFactKind.CONFIG,
+                ToolRequest(
+                    workspace=args.checkout,
+                    params={} if args.max_triples is None else {"max_triples": args.max_triples},
+                ),
+            )
         )
         return _emit(
             {

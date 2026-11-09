@@ -94,10 +94,10 @@ python3 -m traust.cli registry models spend --skill secure-code-audit \
     [--repo <slug> --loc <size>]
 ```
 
-`--repo`/`--loc` attribute the row to one audited target — the calibration
-tuple `(spend, repo, size)` the scan estimator fits against (*not stored* yet:
-the spend event has no column for them, nor for `--batch`/`--note`; the command
-says so on stderr). Batch drivers
+`--repo`, `--loc`, `--batch` and `--note` are retained with each priced event.
+The calibration tuple keeps the supplied repository label verbatim; an exact registered
+URL or UUID additionally attributes the canonical repository. Ambiguous slugs remain
+unresolved text and warn without losing cost. Batch drivers
 SHOULD pass both on per-repo rows; batch-level rows omit them. Every
 model-heavy per-target skill carries a "Spend declaration (calibration tuple)"
 section instructing the row; any other skill that consumes model tokens should

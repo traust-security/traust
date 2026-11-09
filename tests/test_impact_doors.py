@@ -61,6 +61,9 @@ class Lookup:
         found = LODASH if identifier == LODASH.identifier else None
         return Result(found, Acquisition(provider="osv", acquired_at=datetime.now(UTC)))
 
+    def related(self, record: AdvisoryRecord) -> Result[tuple[AdvisoryRecord, ...]]:
+        return Result((), Acquisition(provider="osv", acquired_at=datetime.now(UTC)))
+
     def affecting(self, queries: list[PackageVersion]) -> Result[AdvisoryHits]:
         ids = tuple(self.hits.get(str(q), ()) for q in queries)
         issues = {"unreachable": sum(i is None for i in ids)} if None in ids else {}

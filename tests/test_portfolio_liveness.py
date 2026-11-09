@@ -14,11 +14,6 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-
-from traust.lib.pending_decisions import Decision, skip_reason
-
-pytest.skip(skip_reason(Decision.LIVENESS_STATUS), allow_module_level=True)
-
 import yaml
 from traust_core.v1.context import Context
 from traust_core.v1.errors import ConfigError
@@ -34,6 +29,7 @@ ACTIVE = Liveness(
     url="https://github.com/example-org/active",
     status=LivenessStatus.ACTIVE,
     observed_at=WHEN,
+    status_since=WHEN,
     archived=False,
     pushed_at="2026-09-30T12:00:00Z",
     dormant=False,
@@ -43,6 +39,7 @@ ARCHIVED = Liveness(
     url="https://github.com/example-org/archived",
     status=LivenessStatus.ARCHIVED,
     observed_at=WHEN,
+    status_since=WHEN,
     archived=True,
     pushed_at="2024-01-02T00:00:00Z",
     dormant=True,
@@ -99,6 +96,7 @@ def test_liveness_of_every_registered_repository_keyed_by_url(doors, home):
             ACTIVE.url: {
                 "status": "active",
                 "observed_at": WHEN.isoformat().replace("+00:00", "Z"),
+                "status_since": WHEN.isoformat().replace("+00:00", "Z"),
                 "archived": False,
                 "pushed_at": "2026-09-30T12:00:00Z",
                 "dormant": False,
@@ -106,6 +104,7 @@ def test_liveness_of_every_registered_repository_keyed_by_url(doors, home):
             ARCHIVED.url: {
                 "status": "archived",
                 "observed_at": WHEN.isoformat().replace("+00:00", "Z"),
+                "status_since": WHEN.isoformat().replace("+00:00", "Z"),
                 "archived": True,
                 "pushed_at": "2024-01-02T00:00:00Z",
                 "dormant": True,
