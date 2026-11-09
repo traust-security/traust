@@ -1160,7 +1160,12 @@ asymmetry. Rows with `pattern_dynamic: true` carry a computed path as
 source text; `test_path: true` rows sit under a test/example directory.
 Other detected frameworks appear as `coverage_gaps`. Guard recognition
 is name-based and over-inclusive by design — the judge decides
-enforcement.
+enforcement. Authenticated id routes of Spring, JAX-RS, FastAPI, Express and
+Rails also carry `ownership` and `ownership_evidence`: whether the handler
+ties the object it acts on to the caller (CWE-639). `framework-checks.md`
+"Route ownership" says what each value means. Its judged rows set
+`judgement_required`, and a framework or handler the reader doesn't classify
+is a `<family> ownership` coverage gap.
 
 Judging protocol — the lane may NOT close with unjudged rows:
 
@@ -1174,19 +1179,24 @@ Judging protocol — the lane may NOT close with unjudged rows:
    established that). A recognized guard name is a claim, not proof —
    spot-check that at least one guard per family actually enforces
    (returns/aborts on failure) rather than logging and continuing.
-2. **Asymmetry groups get judged as groups**: when siblings differ, the
+2. **Ownership rows** (`caller-blind`, `unchecked`) are judged under the
+   framework's ownership check (FA.4, EX.4, JV.5, RL.3; RW.4 starts from the
+   `<family> ownership` gap): read the lookup and say whether the record is
+   tied to the caller. An `unknown` row or an ownership gap's routes get the
+   same question by hand.
+3. **Asymmetry groups get judged as groups**: when siblings differ, the
    question is "why is THIS one different" — the answer goes in the
    finding rationale or the benign note either way.
-3. **Unjudged remainder is a coverage gap, never silence**: if budget
+4. **Unjudged remainder is a coverage gap, never silence**: if budget
    truncates judging, the un-judged rows and every `coverage_gaps`
    entry (unenumerated frameworks) must surface in `negative_results`
    naming what was not judged — a lane that enumerated 40 rows and
    judged 25 says so.
-4. **Record the run**: set `"route-guards": "ran"` (or
+5. **Record the run**: set `"route-guards": "ran"` (or
    `"skipped: <reason>"`) in `metadata.additional.deterministic_steps`,
    log promote/dismiss decisions as `scanner_correlation` entries
    (tool `route-guards`), and copy the artifact's `coverage_gaps`
-   (unenumerated frameworks) into `metadata.additional.coverage_gaps`
+   (unenumerated frameworks and `<family> ownership` gaps) into `metadata.additional.coverage_gaps`
    as `{tool: "route-guards", system, reason}` for the fleet-wide
    rollup. Accelerator, never a precondition.
 
