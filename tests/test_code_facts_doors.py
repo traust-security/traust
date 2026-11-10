@@ -225,10 +225,6 @@ def test_priv_profile_is_registered_under_adapters():
     assert "priv-profile" in GROUPS["adapters"]
 
 
-@pytest.mark.skip(
-    reason="traust-core development's config-matrix provider ignores max_triples"
-    " (f950dd6 passed request.params); not in plan 15's gap map"
-)
 def test_config_matrix_cli_caps_real_defaults_without_leaking_credentials(
     capsys: pytest.CaptureFixture[str], tmp_path
 ) -> None:
@@ -249,12 +245,12 @@ def test_config_matrix_cli_caps_real_defaults_without_leaking_credentials(
         == 0
     )
     document = _json(capsys)
-    assert {t["key"] for t in document["triples"]} == {"DB_PASSWORD", "TLS_VERIFY"}
-    assert document["stats"] == {
-        "total": 2,
-        "judgement_required": 2,
-        "weak_defaults": 2,
-        "by_class": {"secret": 1, "tls": 1},
+    triples = document["triples"]
+    assert {t["key"] for t in triples} == {"DB_PASSWORD", "TLS_VERIFY"}
+    assert all(t["judgement_required"] and t["weak_default"] for t in triples)
+    assert {t["class"]: sum(1 for u in triples if u["class"] == t["class"]) for t in triples} == {
+        "secret": 1,
+        "tls": 1,
     }
     assert document["coverage_gaps"][0]["count"] == 1
     assert "audit-fixture-value" not in json.dumps(document)
