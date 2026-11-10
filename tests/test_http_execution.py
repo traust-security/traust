@@ -108,7 +108,8 @@ def test_session_and_token_redacted_from_output(tmp_path, monkeypatch):
             (0, "token-canary csrf-canary session-canary\nvf-http-status:200", "token-canary"),
         ]
     )
-    code, output, error, status = instance.execute("lab", HttpProbe(authenticate=True, csrf=True))
+    result = instance.execute("lab", HttpProbe(authenticate=True, csrf=True))
+    code, output, error, status = result.code, result.output, result.error, result.status
     assert code == 0
     assert status == "200"
     assert "canary" not in output + error
@@ -647,9 +648,8 @@ def test_explicit_lab_tls_exception_preserves_authentication_and_csrf(tmp_path, 
             (0, "token-canary csrf-canary\nvf-http-status:200", ""),
         ]
     )
-    code, output, error, status = instance.execute(
-        "lab", HttpProbe(mode=mode, authenticate=True, csrf=True)
-    )
+    result = instance.execute("lab", HttpProbe(mode=mode, authenticate=True, csrf=True))
+    code, output, error, status = result.code, result.output, result.error, result.status
     assert code == 0 and status == "200" and "canary" not in output + error
     assert all(
         call.kwargs["insecure_tls"] and call.kwargs["context"] == "lab"
@@ -808,7 +808,8 @@ def test_real_head_requires_explicit_destination_and_ignores_proxy(tmp_path, mon
                 url=f"http://127.0.0.1:{server.server_port}",
                 path="/status",
             )
-            code, output, _, status = instance.execute("lab", probe)
+            result = instance.execute("lab", probe)
+            code, output, _, status = result.code, result.output, result.error, result.status
             assert code == 0 and status == "200" and "vf-http-status:200" in output
             assert received == ["/status"]
         finally:
@@ -886,9 +887,8 @@ def test_real_tls_tunnel_preserves_hostname_and_session(tmp_path, monkeypatch):
             instance._tunnel_process = Mock()
             instance._tunnel_process.poll.return_value = None
             monkeypatch.setenv("VF_OAUTH_TOKEN", "token-canary")
-            code, output, _, status = instance.execute(
-                "lab", HttpProbe(path="/probe", authenticate=True, csrf=True)
-            )
+            result = instance.execute("lab", HttpProbe(path="/probe", authenticate=True, csrf=True))
+            code, output, _, status = result.code, result.output, result.error, result.status
             assert code == 0 and status == "200" and "canary" not in output
             assert [path for path, _ in received] == ["/", "/whoami", "/probe"]
             assert all(headers["Host"] == "web.app.svc" for _, headers in received)
@@ -906,9 +906,8 @@ def test_real_tls_tunnel_preserves_hostname_and_session(tmp_path, monkeypatch):
             instance.scope.clusters["lab"].http_discovery = policy.model_copy(
                 update={"insecure_tls": True}
             )
-            code, output, error, status = instance.execute(
-                "lab", HttpProbe(path="/probe", authenticate=True)
-            )
+            result = instance.execute("lab", HttpProbe(path="/probe", authenticate=True))
+            code, output, error, status = result.code, result.output, result.error, result.status
             assert code == 0 and status == "200" and "token-canary" not in output + error
             assert [path for path, _ in received[-2:]] == ["/whoami", "/probe"]
             assert all("Cookie" not in headers for _, headers in received[-2:])
@@ -941,7 +940,11 @@ def install_route_response(monkeypatch, response):
     from adapters.http import EndpointResolver
 
     endpoint = Endpoint(
-        "https://web.example", "lab", "app", "routes", "web",
+        "https://web.example",
+        "lab",
+        "app",
+        "routes",
+        "web",
         resolved_api="https://api.example:6443",
     )
     monkeypatch.setattr(EndpointResolver, "resolve", Mock(return_value=endpoint))
@@ -960,9 +963,7 @@ def install_route_response(monkeypatch, response):
 )
 def test_http_transport_failures_cannot_confirm_from_diagnostics(tmp_path, monkeypatch, response):
     install_route_response(monkeypatch, response)
-    result = K8sAdapter().execute(
-        http_step(), engagement(), AuditLog(tmp_path / "audit"), tmp_path
-    )
+    result = K8sAdapter().execute(http_step(), engagement(), AuditLog(tmp_path / "audit"), tmp_path)
     assert result.verdict == "inconclusive"
 
 
@@ -974,12 +975,16 @@ def test_spoof_evidence_redacts_arbitrary_header_values_without_corrupting_statu
         (0, "vf-spoof-canary private-value 2\nvf-http-status:200", "private-value"),
     )
     result = K8sAdapter().execute(
-        http_step(headers={
-            "X-Forwarded-User": "vf-spoof-canary",
-            "X-Test": "private-value",
-            "X-Short": "2",
-        }),
-        engagement(), AuditLog(tmp_path / "audit"), tmp_path,
+        http_step(
+            headers={
+                "X-Forwarded-User": "vf-spoof-canary",
+                "X-Test": "private-value",
+                "X-Short": "2",
+            }
+        ),
+        engagement(),
+        AuditLog(tmp_path / "audit"),
+        tmp_path,
     )
     assert result.verdict == "confirmed"
     assert "vf-spoof-canary" in result.observed
@@ -990,10 +995,35 @@ def test_spoof_evidence_redacts_arbitrary_header_values_without_corrupting_statu
     assert "private-value" not in evidence and "2" not in evidence
 
 
+def test_header_value_proof_survives_redaction_for_the_verdict(tmp_path, monkeypatch):
+    install_route_response(
+        monkeypatch,
+        (0, "reflected reflection-proof-token\nvf-http-status:200", ""),
+    )
+    result = K8sAdapter().execute(
+        http_step(
+            headers={"X-Probe": "reflection-proof-token"},
+            expected="upstream reflects reflection-proof-token",
+        ),
+        engagement(),
+        AuditLog(tmp_path / "audit"),
+        tmp_path,
+    )
+    assert result.verdict == "confirmed"
+    assert "reflection-proof-token" not in result.observed
+    evidence = (tmp_path / "http-probe.http.log").read_text()
+    assert "reflection-proof-token" not in evidence
+
+
 def service_executor_for_retry(tmp_path):
     endpoint = Endpoint(
-        "http://web.app.svc", "lab", "app", "pods", "web-0",
-        uid="pod-uid", remote_port=8080,
+        "http://web.app.svc",
+        "lab",
+        "app",
+        "pods",
+        "web-0",
+        uid="pod-uid",
+        remote_port=8080,
     )
     instance = executor(engagement(), tmp_path, endpoint)
     instance.resolver.authorize = Mock()
@@ -1042,7 +1072,9 @@ def test_service_retry_rechecks_scope_and_tunnel(tmp_path, monkeypatch, failure)
     monkeypatch.setattr("adapters.http.time.sleep", Mock())
     policy.run_segments.return_value = (7, "\nvf-http-status:000", "could not connect")
     if failure == "expired":
-        instance._require_live_scope = Mock(side_effect=[None, PermissionError("engagement expired")])
+        instance._require_live_scope = Mock(
+            side_effect=[None, PermissionError("engagement expired")]
+        )
         exception, message = PermissionError, "expired"
     else:
         instance._tunnel_process.poll.side_effect = [None, 1]
@@ -1068,7 +1100,9 @@ def test_vetting_denial_is_distinct_from_process_exit_126(tmp_path):
     audit = AuditLog(tmp_path / "audit")
     adapter = K8sAdapter()
     policy = Mock()
-    policy.vet_command_string.return_value = SimpleNamespace(ok=False, reason="shell is not allowed")
+    policy.vet_command_string.return_value = SimpleNamespace(
+        ok=False, reason="shell is not allowed"
+    )
     adapter.bind_safe_exec(policy)
     step = {"id": "blocked", "verb": "raw", "cmd": "forbidden", "target": {}}
     blocked = adapter.execute(step, scope, audit, tmp_path)
@@ -1079,7 +1113,9 @@ def test_vetting_denial_is_distinct_from_process_exit_126(tmp_path):
     adapter._run = Mock(return_value=(126, "", "sh: Permission denied"))
     result = adapter.execute(
         {"id": "exec", "verb": "exec", "cmd": "probe", "target": {"name": "pod"}},
-        scope, audit, tmp_path,
+        scope,
+        audit,
+        tmp_path,
     )
     assert result.verdict == "refuted"
     assert not result.scope_reason
@@ -1116,10 +1152,12 @@ def test_spoof_marker_is_still_redacted_if_it_is_also_the_bearer_token(tmp_path,
     endpoint = Endpoint("https://web.example", "lab", "app", "routes", "web", credentials=True)
     instance = executor(scope, tmp_path, endpoint)
     monkeypatch.setenv("VF_OAUTH_TOKEN", "vf-spoof-canary")
-    instance.curl = Mock(side_effect=[
-        (0, "alice\nvf-identity-status:200", ""),
-        (0, "vf-spoof-canary\nvf-http-status:200", "vf-spoof-canary"),
-    ])
+    instance.curl = Mock(
+        side_effect=[
+            (0, "alice\nvf-identity-status:200", ""),
+            (0, "vf-spoof-canary\nvf-http-status:200", "vf-spoof-canary"),
+        ]
+    )
     result = instance.execute(
         "lab", HttpProbe(authenticate=True, headers={"X-Forwarded-User": "vf-spoof-canary"})
     )
@@ -1184,20 +1222,28 @@ def test_namespace_less_direct_authorization_uses_resolved_origin_for_all_reques
     instance = executor(scope, tmp_path, endpoint)
     instance.resolver.authorize = Mock()
     monkeypatch.setenv("VF_OAUTH_TOKEN", "token-canary")
-    instance.curl = Mock(side_effect=[
-        (0, "HTTP/1.1 200 OK\r\nSet-Cookie: csrf-token=csrf-canary\r\n", ""),
-        (0, "alice\nvf-identity-status:200", ""),
-        (0, "ok\nvf-http-status:200", ""),
-    ])
+    instance.curl = Mock(
+        side_effect=[
+            (0, "HTTP/1.1 200 OK\r\nSet-Cookie: csrf-token=csrf-canary\r\n", ""),
+            (0, "alice\nvf-identity-status:200", ""),
+            (0, "ok\nvf-http-status:200", ""),
+        ]
+    )
     result = instance.execute(
-        "lab", HttpProbe(
-            mode="direct", url="https://caller.example", method="POST",
-            authenticate=True, csrf=True,
+        "lab",
+        HttpProbe(
+            mode="direct",
+            url="https://caller.example",
+            method="POST",
+            authenticate=True,
+            csrf=True,
         ),
     )
     assert result.status == "200"
     assert [call.args[-1] for call in instance.resolver.authorize.call_args_list] == [
-        "port-forward+http", "create", "get",
+        "port-forward+http",
+        "create",
+        "get",
     ]
     assert all(
         call.kwargs == {"url": "https://resolved.example"}

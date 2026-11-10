@@ -216,9 +216,7 @@ def _direct_scope():
     return Scope(
         modes={"explicit"},
         clusters={
-            "lab": ClusterScope(
-                context="lab", api="https://api.example:6443", namespaces=["app"]
-            ),
+            "lab": ClusterScope(context="lab", api="https://api.example:6443", namespaces=["app"]),
             "__current__": ClusterScope(context="__current__", namespaces=["*"]),
         },
         explicit_contexts=frozenset({"lab"}),

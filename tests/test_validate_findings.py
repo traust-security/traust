@@ -1187,7 +1187,9 @@ class TestStepFromPoc:
         )
         finding.pocs = [poc]
         normalized = Normalized(target_name="test", source_dir="/tmp", findings=[finding])
-        steps, _ = build_plan(normalized, scope, chained=False, novel=False, permit_destructive=True)
+        steps, _ = build_plan(
+            normalized, scope, chained=False, novel=False, permit_destructive=True
+        )
         step = next(s for s in steps if s.finding_ref == finding.id)
         assert step.technique == "replay" and step.cmd is None and step.skip is None
         probe = HttpProbe.model_validate(step.target["http"])
@@ -1502,6 +1504,38 @@ class TestAdaptedStep:
         assert step is not None and step.cmd is None
         assert step.target["http"]["authenticate"] is True
         assert step.target["http"]["csrf"] is True
+
+    @pytest.mark.parametrize(
+        "claim",
+        [
+            "profile data exposed with authenticated session",
+            "endpoint requires authentication",
+            "authentication is required for the admin API",
+        ],
+    )
+    def test_identity_preconditions_set_probe_authentication(self, claim):
+        finding = Finding(
+            id="F9", title=claim, severity="high", cwes=["CWE-200"], description="GET /api/profile"
+        )
+        scope = Scope(modes={"explicit"})
+        scope.clusters["lab"] = ClusterScope(context="lab", namespaces=["app"])
+        step = _http_adapted_step("s9", finding, scope, tm=None)
+        assert step is not None
+        assert step.target["http"]["authenticate"] is True
+
+    def test_unauthenticated_claims_stay_anonymous(self):
+        finding = Finding(
+            id="F10",
+            title="unauthenticated access to metrics endpoint",
+            severity="high",
+            cwes=["CWE-200"],
+            description="GET /metrics",
+        )
+        scope = Scope(modes={"explicit"})
+        scope.clusters["lab"] = ClusterScope(context="lab", namespaces=["app"])
+        step = _http_adapted_step("s10", finding, scope, tm=None)
+        assert step is not None
+        assert step.target["http"]["authenticate"] is False
 
     def test_http_planner_respects_context_selection(self):
         finding = Finding(
@@ -1824,7 +1858,9 @@ class TestBuildPlan:
             "X-Forwarded-User and X-Api-Key",
         ],
     )
-    def test_adapter_owned_spoof_headers_are_explicitly_skipped(self, tmp_path, monkeypatch, header):
+    def test_adapter_owned_spoof_headers_are_explicitly_skipped(
+        self, tmp_path, monkeypatch, header
+    ):
         from unittest.mock import Mock
 
         import execute
@@ -1957,7 +1993,10 @@ class TestBuildPlan:
         normalized = Normalized(target_name="test", source_dir="/tmp", findings=[finding])
         scope = Scope(modes={"explicit"})
         scope.clusters["lab"] = ClusterScope(
-            context="lab", api="https://api.example", namespaces=["app"], explicit_namespaces={"app"}
+            context="lab",
+            api="https://api.example",
+            namespaces=["app"],
+            explicit_namespaces={"app"},
         )
         steps, _ = build_plan(
             normalized, scope, chained=False, novel=False, permit_destructive=permit_destructive
@@ -1978,7 +2017,10 @@ class TestBuildPlan:
         normalized = Normalized(target_name="test", source_dir="/tmp", findings=[finding])
         scope = Scope(modes={"explicit"})
         scope.clusters["lab"] = ClusterScope(
-            context="lab", api="https://api.example", namespaces=["app"], explicit_namespaces={"app"}
+            context="lab",
+            api="https://api.example",
+            namespaces=["app"],
+            explicit_namespaces={"app"},
         )
         scope.http_targets = (HttpTarget(context="lab", host="app.example"),)
         actions = []
@@ -2180,11 +2222,19 @@ class TestExecuteRun:
 
         scope = Scope(modes={"explicit"})
         scope.clusters["lab"] = ClusterScope(
-            context="lab", api="https://api.example", namespaces=["app"], explicit_namespaces={"app"}
+            context="lab",
+            api="https://api.example",
+            namespaces=["app"],
+            explicit_namespaces={"app"},
         )
         scope.http_targets = (HttpTarget(context="lab", host="app.example", namespace="app"),)
         endpoint = Endpoint(
-            "https://app.example", "lab", "app", "http_targets", "", resolved_api="https://api.example"
+            "https://app.example",
+            "lab",
+            "app",
+            "http_targets",
+            "",
+            resolved_api="https://api.example",
         )
         monkeypatch.setattr(EndpointResolver, "resolve", lambda *_: endpoint)
         curl = Mock(return_value=(0, "ok\nvf-http-status:200", ""))
@@ -2210,7 +2260,11 @@ class TestExecuteRun:
         plan_path = tmp_path / "plan.json"
         plan_path.write_text(json.dumps({"steps": [step]}))
         results, audit = run(
-            plan_path, scope, tmp_path, permit_destructive=permit_destructive, second_pass_novel=False
+            plan_path,
+            scope,
+            tmp_path,
+            permit_destructive=permit_destructive,
+            second_pass_novel=False,
         )
         result = results[0]
         is_write = method in {"POST", "PUT", "PATCH", "DELETE"}
@@ -2251,7 +2305,12 @@ class TestExecuteRun:
             verbs_denied=[denied_verb],
         )
         endpoint = Endpoint(
-            "https://app.example", "lab", "app", "http_targets", "", resolved_api="https://api.example"
+            "https://app.example",
+            "lab",
+            "app",
+            "http_targets",
+            "",
+            resolved_api="https://api.example",
         )
         monkeypatch.setattr(EndpointResolver, "resolve", lambda *_: endpoint)
         curl = Mock()

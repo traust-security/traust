@@ -1133,8 +1133,9 @@ def _http_adapted_step(
     claim = " ".join([f.title or "", f.description or "", f.attack_pattern or "", *f.preconditions])
     authenticated = bool(
         re.search(
-            r"(?i)(?<!un)authenticated\s+(?:user|caller|attacker|client)|"
-            r"\blogged[- ]in\b|\bconsole user\b|\blow[- ]privilege user\b",
+            r"(?i)(?<!un)authenticated\b|\blogged[- ]in\b|\bconsole user\b"
+            r"|\blow[- ]privilege user\b|\brequires? authentication\b"
+            r"|\bauthentication(?: is)? required\b",
             claim,
         )
     )

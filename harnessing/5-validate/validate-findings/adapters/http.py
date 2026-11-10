@@ -37,6 +37,9 @@ class HttpResult(NamedTuple):
     output: str
     error: str
     status: str | None
+    # Unredacted transcript for verdict classification only — never persisted.
+    raw_output: str = ""
+    raw_error: str = ""
 
 
 class HttpExecutor:
@@ -437,6 +440,9 @@ class HttpExecutor:
         # appending stderr, neither of which is safe input for status parsing.
         match = re.search(r"\nvf-http-status:(\d{3})\Z", output)
         status = match.group(1) if match else None
+        # The classifier reads the unredacted transcript (a reflected marker is
+        # the proof); every persisted field below is redacted.
+        raw_output, raw_error = output, error
         for secret in sorted(set(secrets), key=len, reverse=True):
             output = output.replace(secret, "[REDACTED]")
             error = error.replace(secret, "[REDACTED]")
@@ -446,4 +452,11 @@ class HttpExecutor:
             r"\1: [REDACTED]",
             output,
         )
-        return HttpResult(code, redact_credentials(output), redact_credentials(error), status)
+        return HttpResult(
+            code,
+            redact_credentials(output),
+            redact_credentials(error),
+            status,
+            raw_output,
+            raw_error,
+        )

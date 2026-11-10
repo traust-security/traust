@@ -19,6 +19,14 @@ All notable changes to Traust are documented here.
   substituting an unrelated adapted HTTP request.
 - Record every Core-prepared advisory package/version per commit, including all
   packets after a single optional checkout, without losing preparation scope.
+- Classify structured HTTP verdicts on the unredacted transcript while persisting
+  only redacted evidence; a reflected probe-header value proves the finding instead
+  of disappearing before the verdict.
+- Recognize "authenticated session" and "requires authentication" preconditions in
+  adapted HTTP probes so identity-gated findings are probed with credentials rather
+  than refuted on an anonymous 401.
+- Repin traust-core to the coordinated safe-exec security revision (curl loader
+  environment and request-line hardening); the merged-upstream repin hold remains.
 
 ## [0.41.0]
 

@@ -332,10 +332,17 @@ class K8sAdapter(AdapterBase):
             ):
                 return _unresolved("CSRF session precondition is not satisfied")
             try:
-                rc, out, err, http_status = HttpExecutor(self, scope, kb, audit).execute(
-                    target.get("context"), probe
+                result = HttpExecutor(self, scope, kb, audit).execute(target.get("context"), probe)
+                rc, out, err, http_status = (
+                    result.code,
+                    result.output,
+                    result.error,
+                    result.status,
                 )
                 observed = (out + err).strip()
+                # Verdicts classify the unredacted transcript (a reflected
+                # marker is the proof); persisted fields stay redacted.
+                raw_observed = (result.raw_output + result.raw_error).strip()
             except PermissionError as exc:
                 return StepResult(
                     step_id=sid,
@@ -469,7 +476,7 @@ class K8sAdapter(AdapterBase):
             verdict = self._verdict(
                 verb,
                 rc,
-                out if verb == "port-forward+http" else observed,
+                (raw_observed or observed) if verb == "port-forward+http" else observed,
                 expected,
                 http_status=http_status,
             )
