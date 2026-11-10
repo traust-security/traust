@@ -89,10 +89,10 @@ def materialize(services: Services, partition: str = REPO) -> JobResult:
         ),
         (
             ValidationError("unsafe archive member '/etc/x'"),
-            JobResult.failed(OrderReason.BAD_REQUEST),
+            JobResult.partly({"error": 1}),
         ),
     ],
-    ids=["recorded", "head gone", "no access", "over cap", "not configured", "unsafe archive"],
+    ids=["recorded", "head gone", "no access", "over cap", "not configured", "bad archive"],
 )
 def test_the_materializer_answers_each_door_outcome(
     outcome: Exception | None, want: JobResult
@@ -218,3 +218,31 @@ def test_the_cli_records_every_tracked_heads_sbom(
     with SqlTraustUnitOfWork(core.database) as uow:
         heads = uow.repository_refs.list_lines(repo.id)
     assert all(head.manifest_sbom_id is not None for head in heads)
+
+
+def test_a_bad_head_archive_degrades_that_head_not_the_walk() -> None:
+    heads = [
+        type("Head", (), {"id": UUID(int=1), "manifest_sbom_id": None}),
+        type("Head", (), {"id": UUID(int=2), "manifest_sbom_id": None}),
+    ]
+
+    class TwoHeadPortfolio(Portfolio):
+        def tracked_refs_of(self, repository_id: UUID) -> list[Any]:
+            return heads
+
+    bad_archive = ValidationError("unsafe archive member '/etc/x'")
+
+    class FirstHeadFails(Exposure):
+        def record_manifest_sbom(self, repository_ref_id: UUID) -> Any:
+            if repository_ref_id == UUID(int=1):
+                raise bad_archive
+            return super().record_manifest_sbom(repository_ref_id)
+
+    failing = FirstHeadFails()
+    services = Services(failing)  # type: ignore[arg-type]
+    services.portfolio = TwoHeadPortfolio()  # type: ignore[assignment]
+    result = ManifestSbomMaterializer(services, HOSTS).materialize(  # type: ignore[arg-type]
+        AssetRequest(asset="manifest_sbom", run_id="t", partition=REPO)
+    )
+    assert result == JobResult.partly({"error": 1}, (str(SBOM_ID),))
+    assert failing.asked == [UUID(int=2)]  # the walk continued: head 2 recorded after head 1

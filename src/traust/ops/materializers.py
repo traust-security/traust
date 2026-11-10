@@ -21,6 +21,7 @@ from traust_core.v1.models.inventory import LinesReport
 from traust_core.v1.models.observation import ComparisonStatus
 from traust_core.v1.models.operations import AssetRequest, DegradedKey, JobResult, OrderReason
 from traust_core.v1.models.values import GitSha, HttpsRepoUrl
+from traust_core.v1.providers.sources import SourceError
 
 log = logging.getLogger(__name__)
 
@@ -71,9 +72,20 @@ class RepoStateMaterializer:
         except NotFoundError as e:
             log.warning("run %s: %s: %s", request.run_id, OrderReason.NOT_FOUND, e)
             return JobResult.refused(OrderReason.NOT_FOUND)
+        except SourceError as e:
+            # The forge would not answer the observation itself: a named gap, never a crash.
+            log.warning("run %s: observation refused: %s", request.run_id, e)
+            return JobResult.partly({e.observation_status.value: 1})
+        except (ConfigError, ValidationError) as e:
+            log.warning("run %s: %s: %s", request.run_id, OrderReason.BAD_REQUEST, e)
+            return JobResult.failed(OrderReason.BAD_REQUEST)
         degraded: dict[str, int] = {} if facts.status in ANSWERED else {facts.status.value: 1}
         if lines.unobserved:
-            degraded[DegradedKey.UNREACHABLE] = len(lines.unobserved)
+            # The default line's own unreachable status and the unobserved lines share a key:
+            # they add, never replace.
+            degraded[DegradedKey.UNREACHABLE] = degraded.get(DegradedKey.UNREACHABLE, 0) + len(
+                lines.unobserved
+            )
         return JobResult.succeeded() if not degraded else JobResult.partly(degraded)
 
 
@@ -108,12 +120,21 @@ class ManifestSbomMaterializer:
             return JobResult.refused(OrderReason.NOT_FOUND)
         written: list[str] = []
         unreachable = 0
+        bad_archives = 0
         for head in heads:
             if head.id is None or head.manifest_sbom_id is not None:
                 continue
             try:
                 sbom = self._exposure.record_manifest_sbom(head.id)
-            except (ConfigError, ValidationError) as e:
+            except ValidationError as e:
+                # One branch's archive is unreadable (an unsafe member, an over-cap tree):
+                # that head degrades, and the walk keeps the repository's other lines.
+                log.warning(
+                    "run %s: %s: head %s: %s", request.run_id, OrderReason.BAD_REQUEST, head.id, e
+                )
+                bad_archives += 1
+                continue
+            except ConfigError as e:
                 log.warning("run %s: %s: %s", request.run_id, OrderReason.BAD_REQUEST, e)
                 return JobResult.failed(OrderReason.BAD_REQUEST)
             except ServiceError as e:
@@ -129,8 +150,13 @@ class ManifestSbomMaterializer:
                 unreachable += 1
                 continue
             written.append(str(sbom.id))
+        degraded: dict[str, int] = {}
         if unreachable:
-            return JobResult.partly({DegradedKey.UNREACHABLE: unreachable}, tuple(written))
+            degraded[DegradedKey.UNREACHABLE] = unreachable
+        if bad_archives:
+            degraded[DegradedKey.ERROR] = bad_archives
+        if degraded:
+            return JobResult.partly(degraded, tuple(written))
         return JobResult.succeeded(written=tuple(written))
 
 

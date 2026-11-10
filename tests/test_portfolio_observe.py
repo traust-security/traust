@@ -22,6 +22,7 @@ from traust_core.v1.models.observation import ComparisonStatus
 from traust_core.v1.models.operations import AssetRequest, JobResult, OrderReason
 from traust_core.v1.models.values import HttpsRepoUrl
 from traust_core.v1.providers.base import Acquisition, ProviderRegistry, Readiness, Result
+from traust_core.v1.providers.sources import SourceError
 from traust_core.v1.repositories.contract import SqlTraustUnitOfWork
 from traust_core.v1.services.observation import GITLEAKS
 
@@ -298,3 +299,22 @@ class Watched(Sync):
     def observe_lines(self, repository_id: Any, url: Any) -> Any:
         self.asked.append(repository_id)
         return super().observe_lines(repository_id, url)
+
+
+def test_an_unreachable_default_line_and_unobserved_lines_both_count() -> None:
+    lines = type("Lines", (), {"observed": (), "unobserved": ("release-4.16",)})
+    result = RepoStateMaterializer(
+        Services(Portfolio(ComparisonStatus.UNREACHABLE), lines)
+    ).materialize(  # type: ignore[arg-type]
+        AssetRequest(asset="repo_state", run_id="t", partition=REPO)
+    )
+    assert result == JobResult.partly({"unreachable": 2})  # the default line and the branch
+
+
+def test_a_forge_refusal_of_the_observation_is_a_named_gap() -> None:
+    refused = SourceError("no route", observation_status=ComparisonStatus.UNREACHABLE)
+    portfolio = Portfolio(refused)
+    result = RepoStateMaterializer(Services(portfolio)).materialize(  # type: ignore[arg-type]
+        AssetRequest(asset="repo_state", run_id="t", partition=REPO)
+    )
+    assert result == JobResult.partly({"unreachable": 1})
