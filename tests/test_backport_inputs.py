@@ -272,7 +272,7 @@ def test_mixed_runs_are_refused_even_with_an_artifact(tmp_path):
     _write_branch(results / "release-b", target="origin/release-4.17",
                   commit="b" * 40)
     rem = {
-        "seam": "remediation", "audit_report_path": "", "repository": "u",
+        "seam": "remediation", "audit_report_path": "", "repository": "https://github.com/o/r",
         "logical_product": "p", "language": "", "fix_commit": "a" * 40,
         "fix_branch_name": "", "base_ref": "main", "fork_url": "",
         "cwes": [], "finding_refs": [], "remediation_path": "",
@@ -286,7 +286,7 @@ def test_artifact_commit_does_not_override_the_run_commit(tmp_path):
     run_commit = "c" * 40
     _write_branch(results / "release-a", commit=run_commit)
     rem = {
-        "seam": "remediation", "audit_report_path": "", "repository": "u",
+        "seam": "remediation", "audit_report_path": "", "repository": "https://github.com/o/r",
         "logical_product": "p", "language": "", "fix_commit": "d" * 40,
         "fix_branch_name": "", "base_ref": "main", "fork_url": "",
         "cwes": [], "finding_refs": [], "remediation_path": "",
@@ -304,7 +304,8 @@ def test_run_only_metadata_comes_from_the_configs(tmp_path):
     assert meta["repository"] == "https://github.com/o/r"
 
 
-def test_publish_rewrites_patch_paths_to_the_published_files(tmp_path):
+def test_publish_rewrites_patch_paths_to_the_published_files(tmp_path, monkeypatch):
+    monkeypatch.setattr(emit, "workspace_root", lambda: tmp_path)
     results = tmp_path / "results"
     d = results / "release-a"
     _write_branch(d)
@@ -317,8 +318,8 @@ def test_publish_rewrites_patch_paths_to_the_published_files(tmp_path):
     assert dest is not None
     published = json.loads((dest / "r-backport-report.json").read_text())
     path = published["target_branches"][0]["patch_path"]
-    assert path.startswith(str(dest)) and path.endswith(".patch")
-    assert pathlib.Path(path).is_file()
+    assert not path.startswith("/") and path.endswith(".patch")
+    assert (tmp_path / path).is_file()
 
 
 def test_tracker_cannot_override_the_recorded_head(tmp_path):
@@ -363,9 +364,11 @@ def test_verification_hint_prefers_the_commit_over_the_branch(tmp_path):
         "cwes": [], "finding_refs": [], "remediation_path": "",
     }
     report = emit.build_report(results, rem)
-    cmd = report["verification_hint"]["command"]
-    assert f"@{sha}" in cmd
-    assert "amalgamator/" not in cmd
+    hint = report["verification_hint"]
+    assert "command" not in hint          # inputs only; no command line
+    branch = hint["branches"][0]
+    assert branch["target_branch"] == "release-a"
+    assert branch["backport_commit"] == sha
 
 
 
@@ -426,3 +429,57 @@ def test_success_row_without_provenance_is_refused(tmp_path):
     }
     with pytest.raises(SystemExit):
         emit.build_report(results, rem)
+
+
+def test_engine_failure_overrides_a_success_shaped_summary(tmp_path):
+    # summary.json and candidate.patch can look successful while the engine
+    # exited nonzero; the recorded verdict must decide the report.
+    results = tmp_path / "results"
+    _write_branch(results / "release-a")
+    (results / "release-a" / "result.json").write_text(json.dumps({
+        "issue_id": "backport-x", "target_branch": "release-a",
+        "outcome": "failed", "summary_outcome": "success",
+        "engine_exit_code": 1, "head_sha": "c" * 40,
+    }))
+    rem = {
+        "seam": "remediation", "audit_report_path": "",
+        "repository": "https://github.com/o/r", "logical_product": "p",
+        "language": "", "fix_commit": "c" * 40, "fix_branch_name": "",
+        "base_ref": "main", "fork_url": "", "cwes": [], "finding_refs": [],
+        "remediation_path": "",
+    }
+    report = emit.build_report(results, rem)
+    row = report["target_branches"][0]
+    assert row["status"] == "failed"
+    assert "engine exited 1" in row["error"]
+    assert report["summary"]["failed"] == 1
+    assert report["summary"]["succeeded"] == 0
+
+
+@pytest.mark.parametrize("payload", [
+    "[]",                      # top-level array
+    "null",                    # top-level null
+    '{"targets": [null]}',     # target entry is not an object
+    '{"targets": "nope"}',     # targets is not an array
+])
+def test_malformed_summary_is_a_branch_error(tmp_path, payload):
+    results = tmp_path / "results"
+    d = results / "release-a"
+    _write_branch(d)
+    (d / "summary.json").write_text(payload)
+
+    row = emit.read_branch_result(d, emit._source_repo(d))
+    assert row["status"] == "error"
+    assert "summary.json" in row["error"]
+
+    rem = {
+        "seam": "remediation", "audit_report_path": "",
+        "repository": "https://github.com/o/r", "logical_product": "p",
+        "language": "", "fix_commit": "c" * 40, "fix_branch_name": "",
+        "base_ref": "main", "fork_url": "", "cwes": [], "finding_refs": [],
+        "remediation_path": "",
+    }
+    report = emit.build_report(results, rem)
+    branch = report["target_branches"][0]
+    assert branch["status"] == "failed"
+    assert branch["stop_reason"] == "error"

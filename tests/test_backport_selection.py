@@ -263,3 +263,92 @@ def test_fallback_fails_closed_on_a_malformed_report(monkeypatch):
     monkeypatch.setattr(gen.subprocess, "run", _fake_report_run("{not json", 1))
     with pytest.raises(SystemExit):
         gen.scan_branches_subprocess(pathlib.Path("/tmp/repo"), "a" * 40)
+
+
+# ---------------------------------------------------------------------------
+# find_bump_commit: an ambiguous parent is not proof of a vulnerable parent
+# ---------------------------------------------------------------------------
+
+class _FakeRevGit:
+    def __init__(self, shas, has_parent=True):
+        self.shas = list(shas)
+        self.has_parent = has_parent
+
+    def __call__(self, cmd, **kwargs):
+        if "rev-list" in cmd:
+            return _subprocess.CompletedProcess(cmd, 0, " ".join(self.shas), "")
+        if "rev-parse" in cmd:
+            return _subprocess.CompletedProcess(
+                cmd, 0 if self.has_parent else 1, "", "")
+        raise AssertionError(cmd)
+
+
+def _bump(monkeypatch, versions, shas=("c1",), has_parent=True):
+    def fake_at(repo, ref, module):
+        return versions.get(ref, ("absent", None))
+    monkeypatch.setattr(gen, "module_version_at", fake_at)
+    monkeypatch.setattr(gen.subprocess, "run",
+                        _FakeRevGit(shas, has_parent=has_parent))
+    return gen.find_bump_commit(
+        pathlib.Path("/tmp/repo"), "origin/main", "dep", "v1.71.3")
+
+
+def _fixed(version):
+    return ("found", version)
+
+
+def test_bump_accepts_a_vulnerable_parent(monkeypatch):
+    result = _bump(monkeypatch, {
+        "origin/main": _fixed("v1.80.0"),
+        "c1": _fixed("v1.80.0"),
+        "c1~1": _fixed("v1.50.0"),
+    })
+    assert result == ("found", "c1")
+
+
+def test_bump_accepts_a_newly_introduced_module(monkeypatch):
+    result = _bump(monkeypatch, {
+        "origin/main": _fixed("v1.80.0"),
+        "c1": _fixed("v1.80.0"),
+        "c1~1": ("absent", None),
+    })
+    assert result == ("found", "c1")
+
+
+def test_bump_walks_past_an_already_fixed_parent(monkeypatch):
+    result = _bump(monkeypatch, {
+        "origin/main": _fixed("v1.80.0"),
+        "c1": _fixed("v1.80.0"),
+        "c1~1": _fixed("v1.80.0"),
+        "c2": _fixed("v1.80.0"),
+        "c2~1": _fixed("v1.50.0"),
+    }, shas=("c1", "c2"))
+    assert result == ("found", "c2")
+
+
+def test_bump_fails_closed_on_an_ambiguous_parent(monkeypatch):
+    # The parent's state cannot prove vulnerability; do not return the child.
+    result = _bump(monkeypatch, {
+        "origin/main": _fixed("v1.80.0"),
+        "c1": _fixed("v1.80.0"),
+        "c1~1": ("ambiguous", None),
+    })
+    assert result == ("not_located", None)
+
+
+def test_bump_fails_closed_on_an_uncomparable_parent_version(monkeypatch):
+    result = _bump(monkeypatch, {
+        "origin/main": _fixed("v1.80.0"),
+        "c1": _fixed("v1.80.0"),
+        "c1~1": _fixed("not-a-version"),
+    })
+    assert result == ("not_located", None)
+
+
+def test_bump_accepts_the_root_commit(monkeypatch):
+    result = _bump(monkeypatch, {
+        "origin/main": _fixed("v1.80.0"),
+        "c1": _fixed("v1.80.0"),
+        "c1~1": _fixed("v1.50.0"),
+    }, has_parent=False)
+    assert result == ("found", "c1")

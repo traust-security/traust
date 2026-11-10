@@ -39,7 +39,9 @@ import yaml
 # Sibling module in this same directory. Direct execution puts it on sys.path;
 # importlib-based loaders (tests) do not, hence the explicit insert.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _harness_paths import analysis_results_root, contracts_schema_path, harness_version  # noqa: E402
+from _harness_paths import (  # noqa: E402
+    analysis_results_root, contracts_schema_path, harness_version, workspace_root,
+)
 
 log = logging.getLogger(__name__)
 
@@ -158,16 +160,24 @@ def read_branch_result(branch_dir: Path, repo_path: Path | None = None) -> dict:
     }
 
     summary_path = branch_dir / "summary.json"
+    summary_failed = False
     if summary_path.exists():
         try:
             with open(summary_path) as f:
                 summary = json.load(f)
+            if not isinstance(summary, dict):
+                raise ValueError(
+                    f"expected a JSON object, got {type(summary).__name__}"
+                )
 
             # Handle both Amalgamator summary formats:
             # Format A (multi-target): {total_targets, succeeded, targets: [{outcome, cost_usd, ...}]}
             # Format B (flat): {status, cost_usd, duration_seconds, ...}
-            if "targets" in summary and isinstance(summary["targets"], list):
-                target = summary["targets"][0] if summary["targets"] else {}
+            targets = summary.get("targets")
+            if isinstance(targets, list):
+                target = targets[0] if targets else {}
+                if not isinstance(target, dict):
+                    raise ValueError("targets[0] must be a JSON object")
                 outcome = target.get("outcome", "unknown")
                 result["status"] = "success" if outcome == "success" else outcome
                 result["cost_usd"] = target.get("cost_usd", summary.get("total_cost_usd", 0.0))
@@ -186,6 +196,8 @@ def read_branch_result(branch_dir: Path, repo_path: Path | None = None) -> dict:
                 target_branch = str(target.get("target_branch") or "")
                 if target_branch:
                     result["branch"] = target_branch.removeprefix("origin/")
+            elif targets is not None:
+                raise ValueError("targets must be a JSON array")
             else:
                 result["status"] = summary.get("status", "unknown")
                 result["phase_reached"] = summary.get("phase_reached", "")
@@ -196,9 +208,13 @@ def read_branch_result(branch_dir: Path, repo_path: Path | None = None) -> dict:
                 result["duration_seconds"] = summary.get("duration_seconds", 0)
                 result["tokens_used"] = summary.get("tokens_used", 0)
                 result["error"] = summary.get("error", "")
-        except (json.JSONDecodeError, KeyError) as e:
-            result["error"] = f"Failed to parse summary.json: {e}"
+        except (OSError, json.JSONDecodeError, ValueError, KeyError,
+                AttributeError, TypeError) as e:
+            # Pipeline-written JSON can be structurally wrong but still parse.
+            # Make it this branch's error; never abort the whole report.
             result["status"] = "error"
+            result["error"] = f"Malformed summary.json: {e}"
+            summary_failed = True
 
     # The directory name is a sanitized slug (release-4.16 -> release-4-16);
     # the real target name lives in the run's config copy. Prefer it so
@@ -214,6 +230,8 @@ def read_branch_result(branch_dir: Path, repo_path: Path | None = None) -> dict:
     result_path = branch_dir / "result.json"
     has_record = result_path.is_file()
     recorded_head = ""
+    recorded_outcome = ""
+    recorded_exit = None
     if has_record:
         try:
             with open(result_path) as f:
@@ -224,8 +242,28 @@ def read_branch_result(branch_dir: Path, repo_path: Path | None = None) -> dict:
                     recorded_head = sha
                 if rd.get("target_branch"):
                     result["branch"] = str(rd["target_branch"]).removeprefix("origin/")
+                recorded_outcome = str(rd.get("outcome") or "")
+                exit_val = rd.get("engine_exit_code")
+                if isinstance(exit_val, int):
+                    recorded_exit = exit_val
+                elif isinstance(exit_val, str) and exit_val.strip().isdigit():
+                    recorded_exit = int(exit_val)
         except (OSError, json.JSONDecodeError):
             pass
+
+    # The verdict persisted at collection time is authoritative. The engine's
+    # summary can still look successful when the engine exited nonzero, so it
+    # must not decide the report on its own.
+    if recorded_outcome and not summary_failed:
+        result["status"] = recorded_outcome
+    if recorded_exit not in (None, 0):
+        if result["status"] in ("success", "passed"):
+            result["status"] = "failed"
+        if result["status"] == "failed" and not result["error"]:
+            result["error"] = (
+                f"engine exited {recorded_exit} "
+                f"(recorded outcome '{recorded_outcome or 'unknown'}')"
+            )
 
     successful = result["status"] in ("success", "passed", "partial_success")
     if successful and recorded_head:
@@ -456,6 +494,42 @@ def resolve_from_configs(results_dir: Path) -> dict:
     }
 
 
+def _safe_ref(value: str) -> str:
+    """Sanitize a value into the contract's git_ref charset."""
+    v = re.sub(r"[^A-Za-z0-9._/-]+", "-", str(value or "").strip()).lstrip("-")
+    return v or "unknown"
+
+
+def _workspace_relative(path: str) -> str:
+    """Workspace-relative path, or "" when outside it (contract: relative_path)."""
+    if not path:
+        return ""
+    ws = workspace_root()
+    if ws is None:
+        return ""
+    try:
+        rel = Path(path).resolve().relative_to(ws.resolve())
+    except (OSError, ValueError):
+        return ""
+    s = str(rel)
+    return "" if s.startswith("/") or ".." in Path(s).parts else s
+
+
+def _contract_status(status: str) -> tuple[str, str]:
+    """(contract status, stop_reason) for a runner verdict."""
+    if status in ("success", "passed"):
+        return "succeeded", ""
+    if status == "skipped":
+        return "skipped", ""
+    reason = {
+        "pipeline_stop": "pipeline_stop",
+        "pipeline_escalation": "pipeline_escalation",
+        "worktree_error": "worktree_error",
+        "timeout": "timeout",
+    }.get(status, "error")
+    return "failed", reason
+
+
 def build_report(
     results_dir: Path,
     rem_meta: dict,
@@ -478,13 +552,49 @@ def build_report(
             )
             sys.exit(1)
 
-    # pipeline_stop = pipeline declined to act: a skip, not a failure.
-    passed = sum(1 for r in branch_results if r["status"] in ("success", "passed"))
-    skipped = sum(1 for r in branch_results if r["status"] in ("skipped", "pipeline_stop"))
-    failed = sum(
-        1 for r in branch_results
-        if r["status"] not in ("success", "passed", "skipped", "pipeline_stop")
-    )
+    # Map the runner's internal verdicts onto the artifact contract:
+    # succeeded | failed (+ stop_reason) | skipped. `succeeded` means a backport
+    # actually landed, so a success without a patch or provenance is failed.
+    contract_rows = []
+    for r in branch_results:
+        cstatus, reason = _contract_status(r["status"])
+        error = r.get("error", "")
+        if cstatus == "succeeded" and (
+            not r.get("has_patch")
+            or not (r.get("backport_commit") or r.get("backport_branch"))
+        ):
+            cstatus, reason = "failed", "error"
+            error = error or "no candidate patch or preserved commit"
+        row = {"branch": _safe_ref(r["branch"]), "status": cstatus}
+        if cstatus == "failed":
+            row["stop_reason"] = reason
+        if r.get("phase_reached"):
+            row["phase_reached"] = r["phase_reached"]
+        for key in ("cost_usd", "duration_seconds", "tokens_used",
+                    "has_patch", "patch_sha256", "patch_files_changed"):
+            value = r.get(key)
+            if value not in (None, ""):
+                row[key] = value
+        rel = _workspace_relative(r.get("patch_path", ""))
+        if rel:
+            row["patch_path"] = rel
+        commit = r.get("backport_commit", "")
+        if re.fullmatch(r"[0-9a-f]{40}", commit):
+            row["backport_commit"] = commit
+        if r.get("backport_branch"):
+            row["backport_branch"] = _safe_ref(r["backport_branch"])
+        if error:
+            row["error"] = error
+        contract_rows.append(row)
+
+    if not contract_rows:
+        log.error("Results dir has no branch results — refusing to emit an "
+                  "empty report (the contract requires at least one branch)")
+        sys.exit(1)
+
+    succeeded = sum(1 for r in contract_rows if r["status"] == "succeeded")
+    failed = sum(1 for r in contract_rows if r["status"] == "failed")
+    skipped = sum(1 for r in contract_rows if r["status"] == "skipped")
     total_cost = sum(r["cost_usd"] for r in branch_results)
     total_duration = sum(r["duration_seconds"] for r in branch_results)
 
@@ -530,28 +640,49 @@ def build_report(
             artifact_branch, cfg_meta["source_branch"],
         )
 
+    repository = str(rem_meta["repository"] or "").strip()
+    if not re.match(r"^(https://|ssh://)", repository):
+        log.error(
+            "metadata.repository must be an https:// or ssh:// clone URL, got %r "
+            "(pass --repository for a run-only report)", repository,
+        )
+        sys.exit(1)
+
+    metadata = {
+        "date": date.today().isoformat(),
+        "harness_version": get_harness_version(),
+        "repository": repository,
+    }
+    for key in ("logical_product", "language"):
+        if rem_meta.get(key):
+            metadata[key] = rem_meta[key]
+    metadata["operator"] = "amalgamator"
+
+    source_fix = {
+        "commit": fix_commit,
+        "branch": _safe_ref(source_branch),
+    }
+    if str(rem_meta.get("fork_url") or "").startswith(("https://", "ssh://")):
+        source_fix["fork_url"] = rem_meta["fork_url"]
+    rel_rem = _workspace_relative(rem_meta.get("remediation_path", ""))
+    if rel_rem:
+        source_fix["remediation_path"] = rel_rem
+    refs = [r for r in (rem_meta.get("finding_refs") or []) if r]
+    if refs:
+        source_fix["finding_refs"] = refs
+    cwes = [c for c in (rem_meta.get("cwes") or [])
+            if re.fullmatch(r"CWE-\d{1,5}", str(c))]
+    if cwes:
+        source_fix["cwes"] = cwes
+
     report = {
-        "title": f"Backport Report: {rem_meta['repository'].split('/')[-1]}",
-        "metadata": {
-            "date": date.today().isoformat(),
-            "harness_version": get_harness_version(),
-            "repository": rem_meta["repository"],
-            "logical_product": rem_meta["logical_product"],
-            "language": rem_meta["language"],
-            "operator": "amalgamator",
-        },
-        "source_fix": {
-            "commit": fix_commit,
-            "branch": source_branch,
-            "fork_url": rem_meta["fork_url"],
-            "remediation_path": rem_meta["remediation_path"],
-            "finding_refs": rem_meta["finding_refs"],
-            "cwes": rem_meta["cwes"],
-        },
-        "target_branches": branch_results,
+        "title": f"Backport Report: {repository.split('/')[-1]}",
+        "metadata": metadata,
+        "source_fix": source_fix,
+        "target_branches": contract_rows,
         "summary": {
-            "total": len(branch_results),
-            "passed": passed,
+            "total": len(contract_rows),
+            "succeeded": succeeded,
             "failed": failed,
             "skipped": skipped,
             "total_cost_usd": round(total_cost, 2),
@@ -559,37 +690,27 @@ def build_report(
         },
     }
 
-    # verification_hint for verify-remediation: one entry per successful
-    # branch (source of truth for what the fix proved is the run's config).
-    successful = [r for r in branch_results if r["status"] in ("success", "passed") and r.get("has_patch")]
-    # Prefer the immutable commit: the branch is mutable and a later run can
-    # move it, pointing verification at code this run never produced.
-    hint_ref = ""
+    # verification_hint carries INPUTS only: the contract deliberately has no
+    # command line, because a string from an artifact is never executed.
+    successful = [r for r in contract_rows if r["status"] == "succeeded"]
     if successful:
-        hint_ref = (
-            successful[0].get("backport_commit")
-            or successful[0].get("backport_branch")
-            or successful[0]["branch"]
-        )
-    if successful:
-        repo_name = rem_meta["repository"].split("/")[-1].removesuffix(".git")
-        report["verification_hint"] = {
-            **({"original_audit_report": rem_meta["audit_report_path"]}
-               if rem_meta.get("audit_report_path") else {}),
-            "repository": rem_meta["repository"],
+        hint = {
+            "repository": repository,
             "branches": [
                 {
                     "target_branch": r["branch"],
-                    **({"backport_commit": r["backport_commit"]} if r.get("backport_commit") else {}),
-                    **({"backport_branch": r["backport_branch"]} if r.get("backport_branch") else {}),
+                    **({"backport_commit": r["backport_commit"]}
+                       if r.get("backport_commit") else {}),
+                    **({"backport_branch": r["backport_branch"]}
+                       if r.get("backport_branch") else {}),
                 }
                 for r in successful
             ],
-            "command": (
-                f"/verify-remediation <{repo_name}-security-audit.json> "
-                f"<repo>@{hint_ref}"
-            ),
         }
+        rel_audit = _workspace_relative(rem_meta.get("audit_report_path", ""))
+        if rel_audit:
+            hint["original_audit_report"] = rel_audit
+        report["verification_hint"] = hint
 
     return report
 
@@ -735,7 +856,11 @@ def publish_results(
         for row in published_report.get("target_branches", []):
             p = row.get("patch_path")
             if p and p in patch_map:
-                row["patch_path"] = patch_map[p]
+                rel = _workspace_relative(patch_map[p])
+                if rel:
+                    row["patch_path"] = rel
+                else:
+                    row.pop("patch_path", None)
 
         with open(staging / f"{repo_short}-backport-report.json", "w") as f:
             json.dump(published_report, f, indent=2)
@@ -939,7 +1064,7 @@ def main():
     print(f"  Repository: {rem_meta['repository']}")
     print(f"  Fix commit: {rem_meta['fix_commit']}")
     print(f"  Branches:   {report['summary']['total']}")
-    print(f"  Passed:     {report['summary']['passed']}")
+    print(f"  Succeeded:  {report['summary']['succeeded']}")
     print(f"  Failed:     {report['summary']['failed']}")
     print(f"  Total cost: ${report['summary']['total_cost_usd']:.2f}")
     print(f"  Report:     {args.output}")
