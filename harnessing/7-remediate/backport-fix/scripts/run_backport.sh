@@ -35,6 +35,7 @@ CONTAINER_IMAGE=""
 REPO_PATH=""
 CONTAINER_RUNTIME=""
 AMALGAMATOR_PATH=""
+SELINUX_RELABEL=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -44,6 +45,7 @@ while [[ $# -gt 0 ]]; do
     --container-image)  CONTAINER_IMAGE="$2"; shift 2;;
     --repo)             REPO_PATH="$2"; shift 2;;
     --amalgamator)      AMALGAMATOR_PATH="$2"; shift 2;;
+    --selinux-relabel)  SELINUX_RELABEL=true; shift;;
     *) echo "Unknown argument: $1" >&2; exit 1;;
   esac
 done
@@ -56,6 +58,8 @@ if [[ -z "$CONFIG_DIR" && -z "$SINGLE_CONFIG" ]]; then
   echo "  --container-image <image>   Run Amalgamator inside this container image" >&2
   echo "  --repo <path>               Local repo clone to mount into container" >&2
   echo "  --amalgamator <path>        Path to Amalgamator source (mounted into container)" >&2
+  echo "  --selinux-relabel           Let podman relabel host mounts (:z). Recursively" >&2
+  echo "                              changes host labels and persists." >&2
   exit 1
 fi
 
@@ -138,6 +142,46 @@ echo
 # ---------------------------------------------------------------------------
 # run_amalgamator — execute pipeline locally or in a container
 # ---------------------------------------------------------------------------
+
+# SELinux helpers. On an enforcing host a bind mount without a container_file_t
+# label is invisible to the confined container. :z relabels recursively and
+# persists, affecting other host processes, so it is never applied implicitly
+# to user-owned paths.
+selinux_enforcing() {
+  case "${BACKPORT_SELINUX:-}" in
+    enforcing|Enforcing) return 0 ;;
+    permissive|Permissive|disabled|Disabled) return 1 ;;
+  esac
+  if [[ -r /sys/fs/selinux/enforce ]]; then
+    [[ "$(cat /sys/fs/selinux/enforce)" == "1" ]]
+    return
+  fi
+  if command -v getenforce >/dev/null 2>&1; then
+    [[ "$(getenforce 2>/dev/null)" == "Enforcing" ]]
+    return
+  fi
+  return 1
+}
+
+path_has_container_label() {  # succeeds when stat reports container_file_t
+  local ctx
+  ctx="$(stat -c '%C' "$1" 2>/dev/null || true)"
+  [[ "$ctx" == *container_file_t* ]]
+}
+
+
+# Credentials that must never reach the pipeline, even when an operator adds
+# them to BACKPORT_ENV_ALLOW: fork/mirror and GitHub tokens.
+is_denied_env() {
+  case "$1" in
+    GITHUB_TOKEN | GH_TOKEN | GH_ENTERPRISE_TOKEN | GITHUB_ENTERPRISE_TOKEN | \
+    GITHUB_AGENT_TOKEN_*)
+      return 0
+      ;;
+  esac
+  return 1
+}
+
 run_amalgamator() {
   local config_file="$1"
   local log_file="$2"
@@ -178,18 +222,6 @@ with open(dst, "w") as f:
     yaml.dump(cfg, f, default_flow_style=False, sort_keys=False)
 ' "$config_file" "$container_config"
 
-    # Build volume mounts
-    local -a volumes=(
-      -v "$REPO_PATH:/workspace/repo:rw"
-      -v "$container_config_dir:/workspace/configs:ro"
-      -v "$OUTPUT_DIR:/workspace/results:rw"
-    )
-
-    # Mount Amalgamator source if provided
-    if [[ -n "$AMALGAMATOR_PATH" ]]; then
-      volumes+=(-v "$AMALGAMATOR_PATH:/workspace/amalgamator:ro")
-    fi
-
     # LLM auth file: mount ONLY the credential file, never the whole gcloud
     # tree. Prefer an explicitly configured ADC path when it exists — the old
     # order let a stale default directory mask a valid override.
@@ -209,41 +241,133 @@ with open(dst, "w") as f:
     fi
     if $use_vertex && [[ -n "$adc" ]]; then
       adc="$(cd "$(dirname "$adc")" && pwd -P)/$(basename "$adc")"
-      volumes+=(-v "$adc:/workspace/adc.json:ro")
+    fi
+
+    # SELinux-aware bind mounts. The temp config dir and the results dir are
+    # ours to label; the user's checkout, Amalgamator source and credential
+    # file are labeled only on explicit request (--selinux-relabel), because
+    # :z recurses over host paths and persists.
+    local enforcing=false
+    if selinux_enforcing; then
+      enforcing=true
+    fi
+    local cfg_opts="ro" res_opts="rw"
+    local repo_opts="rw" amg_opts="ro" adc_opts="ro"
+    local mount_adc=false
+    if $use_vertex && [[ -n "$adc" ]]; then
+      mount_adc=true
+    fi
+    if $enforcing; then
+      cfg_opts="ro,z"
+      res_opts="rw,z"
+      local -a unlabeled=()
+      if [[ -n "$REPO_PATH" ]] && ! path_has_container_label "$REPO_PATH"; then
+        unlabeled+=("$REPO_PATH")
+      fi
+      if [[ -n "$AMALGAMATOR_PATH" ]] && ! path_has_container_label "$AMALGAMATOR_PATH"; then
+        unlabeled+=("$AMALGAMATOR_PATH")
+      fi
+      if $mount_adc && ! path_has_container_label "$adc"; then
+        unlabeled+=("$adc")
+      fi
+      if [[ ${#unlabeled[@]} -gt 0 ]]; then
+        if $SELINUX_RELABEL; then
+          echo "[run_backport] WARNING: --selinux-relabel recursively relabels these host paths (container_file_t); the change persists and affects other host processes:" >&2
+          printf '    %s\n' "${unlabeled[@]}" >&2
+          repo_opts="rw,z"
+          amg_opts="ro,z"
+          adc_opts="ro,z"
+        else
+          echo "[run_backport] SELinux is enforcing and these host paths are not labeled container_file_t:" >&2
+          printf '    %s\n' "${unlabeled[@]}" >&2
+          echo "  Either pre-label them (chcon -Rt container_file_t <path>; affects other host processes)," >&2
+          echo "  or pass --selinux-relabel to let podman relabel them recursively for this run." >&2
+          exit 2
+        fi
+      fi
+    elif $SELINUX_RELABEL; then
+      echo "[run_backport] NOTE: SELinux is not enforcing; --selinux-relabel has no effect" >&2
+    fi
+
+    local -a volumes=(
+      -v "$REPO_PATH:/workspace/repo:$repo_opts"
+      -v "$container_config_dir:/workspace/configs:$cfg_opts"
+      -v "$OUTPUT_DIR:/workspace/results:$res_opts"
+    )
+    if [[ -n "$AMALGAMATOR_PATH" ]]; then
+      volumes+=(-v "$AMALGAMATOR_PATH:/workspace/amalgamator:$amg_opts")
+    fi
+    if $mount_adc; then
+      volumes+=(-v "$adc:/workspace/adc.json:$adc_opts")
     fi
 
     # Build env vars. GITHUB_TOKEN is deliberately NOT forwarded: the
     # container runs untrusted build/agent code; fork ops stay host-side.
     local -a env_args=()
+    # Every forwarded variable passes the credential denylist, including
+    # name-only `-e VAR` (the value is copied by the runtime, not argv).
+    add_env() {
+      local spec="$1"
+      local name="${spec%%=*}"
+      if is_denied_env "$name"; then
+        echo "[run_backport] WARNING: refusing to forward $name into the container" >&2
+        return 0
+      fi
+      env_args+=(-e "$spec")
+    }
     # Names only: `-e VAR` copies the value from this process's environment.
     # `-e VAR=value` would put the secret in the runtime's argv (ps-visible).
     if $use_vertex; then
-      env_args+=(-e "CLAUDE_CODE_USE_VERTEX=$CLAUDE_CODE_USE_VERTEX")
-      [[ -n "${ANTHROPIC_VERTEX_PROJECT_ID:-}" ]] && env_args+=(-e "ANTHROPIC_VERTEX_PROJECT_ID=$ANTHROPIC_VERTEX_PROJECT_ID")
-      [[ -n "${CLOUD_ML_REGION:-}" ]] && env_args+=(-e "CLOUD_ML_REGION=$CLOUD_ML_REGION")
+      add_env "CLAUDE_CODE_USE_VERTEX=$CLAUDE_CODE_USE_VERTEX"
+      [[ -n "${ANTHROPIC_VERTEX_PROJECT_ID:-}" ]] && add_env "ANTHROPIC_VERTEX_PROJECT_ID=$ANTHROPIC_VERTEX_PROJECT_ID"
+      [[ -n "${CLOUD_ML_REGION:-}" ]] && add_env "CLOUD_ML_REGION=$CLOUD_ML_REGION"
       if [[ -n "$adc" ]]; then
-        env_args+=(-e "GOOGLE_APPLICATION_CREDENTIALS=/workspace/adc.json")
+        add_env "GOOGLE_APPLICATION_CREDENTIALS=/workspace/adc.json"
       fi
     else
-      [[ -n "${ANTHROPIC_API_KEY:-}" ]] && env_args+=(-e ANTHROPIC_API_KEY)
+      [[ -n "${ANTHROPIC_API_KEY:-}" ]] && add_env ANTHROPIC_API_KEY
     fi
 
     # Add PYTHONPATH for mounted Amalgamator
     if [[ -n "$AMALGAMATOR_PATH" ]]; then
-      env_args+=(-e "PYTHONPATH=/workspace/amalgamator:\${PYTHONPATH:-}")
+      add_env "PYTHONPATH=/workspace/amalgamator:\${PYTHONPATH:-}"
     fi
 
-    # Run container WITHOUT --rm so we can copy results out after it exits
+    # Run container WITHOUT --rm so we can copy results out after it exits.
     local container_name="backport-${branch_name}-$$"
-    $CONTAINER_RUNTIME run \
+
+    # Aborted runs must not leave a stopped container or a temp config tree
+    # behind. EXIT covers set -e failures and error returns; INT/TERM cover an
+    # operator abort (Ctrl-C reaches the whole process group). The normal path
+    # disarms the traps only after the artifacts are copied out.
+    cleanup_container() {
+      if [[ -n "${container_config_dir:-}" && -d "$container_config_dir" ]]; then
+        rm -rf "$container_config_dir"
+      fi
+      if [[ -n "${container_name:-}" ]]; then
+        "$CONTAINER_RUNTIME" rm -f "$container_name" >/dev/null 2>&1 || true
+      fi
+    }
+    on_signal() {
+      cleanup_container
+      trap - EXIT INT TERM
+      exit 130
+    }
+    trap cleanup_container EXIT
+    trap on_signal INT TERM
+
+    local run_rc=0
+    set +e
+    "$CONTAINER_RUNTIME" run \
       --name "$container_name" \
       "${volumes[@]}" \
-      "${env_args[@]}" \
+      ${env_args[@]+"${env_args[@]}"} \
       -w /workspace \
       "$CONTAINER_IMAGE" \
       python3 -m auto_bug_fix.run_bug_fix "/workspace/configs/$(basename "$config_file")" \
       2>&1 | tee "$log_file"
-    local run_rc=$?   # podman/pipeline status — a mount error must not read as success
+    run_rc=$?   # podman/pipeline status — a mount error must not read as success
+    set -e
 
     # Copy the entire runs/ directory out of the stopped container
     local host_branch_results="$OUTPUT_DIR/$branch_name"
@@ -267,11 +391,10 @@ with open(dst, "w") as f:
       echo "[run_backport] Extracted artifacts to $host_branch_results/"
     fi
 
-    # Remove the stopped container
-    $CONTAINER_RUNTIME rm "$container_name" >/dev/null 2>&1 || true
-
-    # Clean up rewritten config
-    rm -rf "$container_config_dir"
+    # Artifacts are safely out of the container: remove it and the rewritten
+    # config, then disarm the traps.
+    cleanup_container
+    trap - EXIT INT TERM
     return "$run_rc"
   else
     # --- Local mode ---
@@ -310,9 +433,12 @@ with open(dst, "w") as f:
     local var
     for var in "${keep_env[@]}"; do
       # Never, even when explicitly allowlisted.
-      case "$var" in
-        GITHUB_TOKEN|GITHUB_AGENT_TOKEN_GLASSWING) continue ;;
-      esac
+      if is_denied_env "$var"; then
+        if [[ -n "${!var+x}" ]]; then
+          echo "[run_backport] WARNING: refusing to pass $var into the pipeline (credential)" >&2
+        fi
+        continue
+      fi
       if [[ -n "${!var+x}" ]]; then
         env_pairs+=("$var=${!var}")
       fi
@@ -464,63 +590,81 @@ PY
     done
   fi  # end of summary_found check
 
+  # Canonical verdict for THIS run. The engine's summary is not authoritative
+  # on its own: a nonzero exit can leave a success-shaped summary (and even a
+  # candidate.patch) behind. Consumers (report, delivery) read the verdict
+  # persisted below, not the summary.
+  summary_outcome="none"
   if [[ -n "$summary_found" ]]; then
-    status=$(python3 -c '
+    summary_outcome=$(python3 -c '
 import json, sys
 with open(sys.argv[1]) as f:
     s = json.load(f)
-# Handle multi-target format
 if "targets" in s:
     t = s["targets"][0] if s.get("targets") else {}
     print(t.get("outcome", "unknown"))
 else:
     print(s.get("status", "unknown"))
 ' "$branch_dir/summary.json" 2>/dev/null || echo "unknown")
+  fi
 
-    if [[ $run_rc -ne 0 && ( "$status" == "success" || "$status" == "passed" ) ]]; then
-      echo "[run_backport] $branch_name: engine exited $run_rc but its summary says '$status' — counting as failed" >&2
-      status="engine_exit_${run_rc}"
-    fi
+  canonical="$summary_outcome"
+  case "$canonical" in
+    success|passed|partial_success|pipeline_stop|pipeline_escalation|worktree_error|failed|error|skipped|timeout|unknown) ;;
+    *) canonical="unknown" ;;
+  esac
+  if [[ $run_rc -ne 0 && ( "$canonical" == "success" || "$canonical" == "passed" ) ]]; then
+    echo "[run_backport] $branch_name: engine exited $run_rc but its summary says '$canonical' — recording as failed" >&2
+    canonical="failed"
+  fi
+  if [[ "$summary_outcome" == "none" ]]; then
+    canonical="failed"
+  fi
 
-    if [[ "$status" == "success" || "$status" == "passed" ]]; then
-      PASSED=$((PASSED + 1))
-    elif [[ "$status" == "pipeline_stop" ]]; then
-      echo "[run_backport] $branch_name: fix already present on target (pipeline_stop)"
-      SKIPPED=$((SKIPPED + 1))
-    else
-      FAILED=$((FAILED + 1))
-    fi
+  if [[ "$canonical" == "success" || "$canonical" == "passed" ]]; then
+    PASSED=$((PASSED + 1))
+  elif [[ "$canonical" == "pipeline_stop" ]]; then
+    echo "[run_backport] $branch_name: fix already present on target (pipeline_stop)"
+    SKIPPED=$((SKIPPED + 1))
+  else
+    FAILED=$((FAILED + 1))
+  fi
 
-    # Record the provenance delivery and reporting must use, captured NOW.
-    # amalgamator/<issue_id> is mutable: a later run can move it, and reading
-    # it at delivery time would push a commit this run never tested.
-    python3 - "$branch_dir" "$branch_dir/config.yaml" <<'PY' 2>/dev/null || true
+  # Persist provenance AND the canonical verdict at collection time. This is
+  # written even when no summary was collected, so a consumer can never fall
+  # back to the engine's (possibly success-shaped) artifacts.
+  python3 - "$branch_dir" "$branch_dir/config.yaml" \
+           "$canonical" "${run_rc:-0}" "$summary_outcome" <<'PY' 2>/dev/null || true
 import json, subprocess, sys, yaml
 from pathlib import Path
 bd = Path(sys.argv[1])
 cfg = yaml.safe_load(open(sys.argv[2])) or {}
-summary = json.load(open(bd / "summary.json"))
+canonical, run_rc, summary_outcome = sys.argv[3], int(sys.argv[4] or 0), sys.argv[5]
+summary_path = bd / "summary.json"
+summary = json.load(open(summary_path)) if summary_path.is_file() else {}
 t = (summary.get("targets") or [{}])[0]
 issue_id = str(t.get("issue_id") or cfg.get("issue_id") or "")
-outcome = str(t.get("outcome") or summary.get("status") or "unknown")
 src = (cfg.get("repository") or {}).get("source_path") or ""
 target = str((cfg.get("branches") or {}).get("target") or "").removeprefix("origin/")
 head = ""
-if issue_id and outcome in ("success", "passed", "partial_success") and src:
+if canonical in ("success", "passed", "partial_success") and issue_id and src:
     r = subprocess.run(
         ["git", "-C", src, "rev-parse", "--verify", "--quiet",
          f"refs/heads/amalgamator/{issue_id}"],
         capture_output=True, text=True,
     )
     head = r.stdout.strip()
-rec = {"issue_id": issue_id, "target_branch": target,
-       "outcome": outcome, "head_sha": head}
+rec = {
+    "issue_id": issue_id,
+    "target_branch": target,
+    "outcome": canonical,
+    "summary_outcome": summary_outcome,
+    "engine_exit_code": run_rc,
+    "head_sha": head,
+}
 (bd / "result.json").write_text(json.dumps(rec, indent=2) + "\n")
 PY
-  else
-    echo "[run_backport] No summary.json found for $branch_name"
-    FAILED=$((FAILED + 1))
-  fi
+
 
   # Collect candidate.patch — workdir-diff fallback, only when the run-dir
   # collection above produced nothing. Diffs write to a temp file so a

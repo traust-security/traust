@@ -1,16 +1,18 @@
 #!/usr/bin/env bash
 # safe_git.sh — the only git entry point this skill grants to an agent.
 #
-# `git -C <path>` on its own does NOT contain git's global-option dispatch:
+# `git -C <path>` alone does NOT contain git's dispatch:
+#   * `git -C <hostile> --exec-path=<hostile> <helper>` runs attacker code;
+#   * `git show --textconv` / `--ext-diff` and `cat-file --filters/--textconv`
+#     run diff/filter drivers the *checkout* configures (repo config and
+#     .gitattributes), with the agent's environment.
 #
-#   git -C <hostile-checkout> --exec-path=<hostile-checkout> <helper>
-#
-# executes attacker-controlled binaries with the agent's environment. The old
-# `Bash(git -C:*)` grant therefore allowed host code execution from a
-# target-controlled repo. This wrapper accepts exactly one leading
-# `-C <repo>`, a small read-only subcommand allowlist, and rejects the global
-# options that redirect git at other binaries, config or repositories. It also
-# runs git with a scrubbed environment and with hooks/fsmonitor/pager off.
+# This wrapper accepts exactly one leading `-C <repo>`, a read-only
+# subcommand allowlist, and a per-subcommand option allowlist. Unknown
+# options are rejected, so --textconv/--ext-diff/--filters/--output/--path
+# cannot be requested; `show` additionally always runs with --no-textconv and
+# --no-ext-diff. Git runs with a scrubbed environment, hooks/fsmonitor/pager
+# off, and no `safe.directory=*` override — ownership checks stay in force.
 #
 # Usage: safe_git.sh -C <repo> <cat-file|rev-parse|show|for-each-ref> [args...]
 set -euo pipefail
@@ -33,19 +35,37 @@ case "$sub" in
   *) echo "safe_git: subcommand not allowed: '${sub:-<none>}'" >&2; exit 2 ;;
 esac
 
-# Reject global options that would re-point git (they are only meaningful
-# before the subcommand, but be strict about the argument vector we forward).
+allowed_arg() {  # $1 = subcommand, $2 = argument
+  case "$1:$2" in
+    cat-file:-t | cat-file:-e | cat-file:-s | cat-file:-p | cat-file:--) return 0 ;;
+    rev-parse:--verify | rev-parse:--quiet | rev-parse:--short \
+      | rev-parse:--short=* | rev-parse:--abbrev-ref \
+      | rev-parse:--symbolic | rev-parse:--) return 0 ;;
+    show:--stat | show:--name-only | show:--name-status \
+      | show:--oneline | show:--no-patch \
+      | show:--no-textconv | show:--no-ext-diff | show:--) return 0 ;;
+    for-each-ref:--format=* | for-each-ref:--count=* \
+      | for-each-ref:--sort=* | for-each-ref:--) return 0 ;;
+  esac
+  return 1
+}
+
 for arg in "$@"; do
   case "$arg" in
-    --exec-path | --exec-path=* | -c | --config-env | --config-env=* | \
-    --git-dir | --git-dir=* | --work-tree | --work-tree=* | \
-    --namespace | --namespace=* | --super-prefix | --super-prefix=* | \
-    --upload-pack | --upload-pack=* | --receive-pack | --receive-pack=*)
-      echo "safe_git: option not allowed: $arg" >&2
-      exit 2
+    -*)
+      allowed_arg "$sub" "$arg" || {
+        echo "safe_git: option not allowed for '$sub': $arg" >&2
+        exit 2
+      }
       ;;
   esac
 done
+
+# Diff drivers are repository-selected; never let them run even if a future
+# allowlist entry forgets the guard.
+if [[ "$sub" == "show" ]]; then
+  set -- --no-textconv --no-ext-diff "$@"
+fi
 
 exec env -i \
   PATH="${PATH:-/usr/bin:/bin}" \
@@ -53,11 +73,13 @@ exec env -i \
   TMPDIR="${TMPDIR:-/tmp}" \
   GIT_CONFIG_NOSYSTEM=1 \
   GIT_CONFIG_GLOBAL=/dev/null \
+  GIT_ATTR_NOSYSTEM=1 \
   GIT_TERMINAL_PROMPT=0 \
   GIT_OPTIONAL_LOCKS=0 \
   git -C "$repo" \
-    -c safe.directory='*' \
     -c core.hooksPath=/dev/null \
     -c core.fsmonitor= \
     -c core.pager=cat \
+    -c core.attributesFile=/dev/null \
+    -c diff.external= \
     "$sub" "$@"

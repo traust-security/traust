@@ -20,24 +20,26 @@ allowed-tools:
   - Edit
   - Task
   # No raw `git` grant (A11 + dispatch containment): `git -C <repo>` alone
-  # still honours --exec-path/-c, which runs attacker-controlled binaries
-  # with the agent's environment. safe_git.sh accepts one -C, a read-only
-  # subcommand allowlist, and rejects those global options.
-  - Bash(bash *harnessing/7-remediate/backport-fix/scripts/safe_git.sh:*)
+  # honours --exec-path/-c (arbitrary binaries) and lets the checkout select
+  # executable textconv/ext-diff/filter drivers. safe_git.sh takes one -C and
+  # read-only subcommands, allowlists options per subcommand (so
+  # --textconv/--ext-diff/--filters/--output/--path are rejected), forces
+  # --no-textconv/--no-ext-diff on show, and keeps Git's ownership check.
+  - Bash(bash harnessing/7-remediate/backport-fix/scripts/safe_git.sh:*)
   - Bash(jq:*)
   - Bash(ls:*)
-  - Bash(rg:*)
-  # Per-script grants only, directory-anchored (A14: a bare *script.sh
-  # pattern would also match a planted same-named file in a hostile
-  # checkout) — this skill clones target branches and runs external
+  # Per-script grants, EXACT path after the interpreter — no `*` between
+  # them (A14): `bash *harnessing/.../run_backport.sh` also matched
+  # `bash -c '<code>' harnessing/.../run_backport.sh`, auto-approving
+  # arbitrary code. This skill clones target branches and runs external
   # build/test commands; an unscoped interpreter under injected content
   # from triage prose is code execution with repo write access.
-  - Bash(bash *harnessing/7-remediate/backport-fix/scripts/run_backport.sh:*)
-  - Bash(python3 *harnessing/7-remediate/backport-fix/scripts/make_remediation.py:*)
-  - Bash(python3 *harnessing/7-remediate/backport-fix/scripts/generate_backport_configs.py:*)
-  - Bash(python3 *harnessing/7-remediate/backport-fix/scripts/emit_backport_report.py:*)
-  - Bash(python3 *harnessing/7-remediate/backport-fix/scripts/emit_backport_worklist.py:*)
-  - Bash(python3 *traust* -m traust.cli reporting validate:*)
+  - Bash(bash harnessing/7-remediate/backport-fix/scripts/run_backport.sh:*)
+  - Bash(python3 harnessing/7-remediate/backport-fix/scripts/make_remediation.py:*)
+  - Bash(python3 harnessing/7-remediate/backport-fix/scripts/generate_backport_configs.py:*)
+  - Bash(python3 harnessing/7-remediate/backport-fix/scripts/emit_backport_report.py:*)
+  - Bash(python3 harnessing/7-remediate/backport-fix/scripts/emit_backport_worklist.py:*)
+  - Bash(python3 -m traust.cli reporting validate:*)
 ---
 
 # Backport Fix — Multi-Branch Security Fix Propagation
@@ -141,7 +143,7 @@ are two ways to determine target branches:
 Pass the branches directly. No scanning, no guessing:
 
 ```bash
-python3 generate_backport_configs.py \
+python3 harnessing/7-remediate/backport-fix/scripts/generate_backport_configs.py \
     --remediation router-remediation.json \
     --repo /path/to/router-clone \
     --branches release-4.16 release-4.17
@@ -156,7 +158,7 @@ Pass a branch pattern and let the Amalgamator branch scanner classify
 every matching branch:
 
 ```bash
-python3 generate_backport_configs.py \
+python3 harnessing/7-remediate/backport-fix/scripts/generate_backport_configs.py \
     --remediation router-remediation.json \
     --repo /path/to/router-clone \
     --branch-pattern "release-*"
@@ -184,7 +186,7 @@ When the input is a public dependency advisory instead of a remediation,
 pass the impact analysis directly:
 
 ```bash
-python3 generate_backport_configs.py \
+python3 harnessing/7-remediate/backport-fix/scripts/generate_backport_configs.py \
     --impact <cve>-impact-analysis.json \
     --repo /path/to/clone \
     --build-cmd "make build" --test-cmd "make test"
@@ -222,7 +224,7 @@ When the fix exists only as a patch file (e.g. the harness `patch` skill
 generated it locally without pushing), pass the file directly:
 
 ```bash
-python3 generate_backport_configs.py \
+python3 harnessing/7-remediate/backport-fix/scripts/generate_backport_configs.py \
     --patch-file tls-adherence.patch \
     --repo /path/to/clone \
     --source-branch main \
@@ -238,7 +240,7 @@ pipeline. The patch is never pushed — it stays local.
 Optionally combine with `--remediation` for CWE/finding context:
 
 ```bash
-python3 generate_backport_configs.py \
+python3 harnessing/7-remediate/backport-fix/scripts/generate_backport_configs.py \
     --patch-file tls-adherence.patch \
     --remediation fio-remediation.json \
     --repo /path/to/clone \
@@ -400,6 +402,11 @@ target's build commands:**
   Mount paths are canonicalized by the script (relative paths and the
   macOS `/tmp` symlink are handled).
 
+  SELinux: on an enforcing host the temp config and results dirs are labeled
+  automatically; the checkout, Amalgamator source and ADC must already be
+  `container_file_t` or the run must pass `--selinux-relabel` (recursive,
+  persistent host relabel). Otherwise the script fails closed and lists them.
+
 - **Local (Linux hosts, or targets whose build/test commands are
   cross-platform):**
 
@@ -489,7 +496,7 @@ See that overlay for the delivery gates and the human approval step.
 | `candidate.patch` per branch | — | Unified diff ready to apply on the target branch |
 | `pipeline.log` per branch | — | Full Amalgamator pipeline log for audit trail |
 | `summary.json` per branch | — | Amalgamator run metrics (cost, duration, tokens) |
-| `result.json` per branch | — | Collection-time provenance: issue_id, target branch, outcome, preserved head SHA (what delivery pushes) |
+| `result.json` per branch | — | Collection-time provenance **and canonical verdict**: issue_id, target branch, outcome, `summary_outcome`, `engine_exit_code`, preserved head SHA. Report and delivery read this, not `summary.json` |
 | `delivery.json` | — | Produced by the deployment's delivery seam (not this repository) |
 | `analysis-results/remediations/<logical_product>/<repo>/` | — | Published copies (report, per-branch patches, delivery record) via `--publish-root`; tokenless |
 
@@ -506,6 +513,7 @@ See that overlay for the delivery gates and the human approval step.
 | `Not a valid commit name` | Fix commit not reachable in the clone | Fetch it (`safe_git.sh` reads only; fetching is a host step) |
 | Emitter refuses a successful branch | No recorded commit in `result.json`, tracker or preserved branch | Re-run `run_backport.sh` so collection records the head; never hand-edit provenance |
 | Scanner fallback aborts | Report unreadable, or its `summary.errors` is non-zero | The JSON report is the authority (a crash also exits 1); fix the scanner/refs, don't parse the exit code |
+| Engine exited nonzero but its summary says success | The engine can leave success-shaped artifacts behind | `run_backport.sh` records `outcome: failed` + `engine_exit_code` in `result.json`; the report (and the deployment's delivery gate) honour that, not the summary |
 
 ---
 

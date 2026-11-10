@@ -777,7 +777,13 @@ def find_bump_commit(
     Newest commit on source_ref whose effective module version first
     reaches fixed_version. Returns ("found", sha); ("not_fixed", None)
     when source_ref never reaches it; ("not_located", None) when it IS
-    fixed but the transition is beyond max_walk (use --fix-commit).
+    fixed but the transition is beyond max_walk, or when the parent state
+    cannot prove the module was vulnerable (use --fix-commit).
+
+    A candidate is accepted only when its parent is `found` below the fixed
+    version, or `absent` (the module was introduced by this commit). An
+    ambiguous parent, or a version comparison that returns None, is not
+    proof of a vulnerable parent and fails closed.
     """
     status, ver = module_version_at(repo_path, source_ref, module)
     if status != "found" or ver is None:
@@ -796,17 +802,38 @@ def find_bump_commit(
         log.error("git rev-list timed out while locating the bump commit")
         return ("not_located", None)
     for sha in r.stdout.split():  # newest -> oldest
-        st_p, v_p = module_version_at(repo_path, f"{sha}~1", module)
-        parent_fixed = (
-            st_p == "found" and v_p is not None
-            and go_version_lt(v_p, fixed_version) is False
-        )
-        if parent_fixed:
-            continue
         st_c, v_c = module_version_at(repo_path, sha, module)
-        if (st_c == "found" and v_c is not None
+        if not (st_c == "found" and v_c is not None
                 and go_version_lt(v_c, fixed_version) is False):
+            continue
+
+        parent_ref = f"{sha}~1"
+        has_parent = subprocess.run(
+            ["git", "rev-parse", "--verify", "--quiet", f"{parent_ref}^{{commit}}"],
+            cwd=repo_path, capture_output=True, text=True, timeout=15,
+        ).returncode == 0
+        if not has_parent:
+            return ("found", sha)          # root commit introduced the module
+
+        st_p, v_p = module_version_at(repo_path, parent_ref, module)
+        if st_p == "absent":
+            return ("found", sha)          # module introduced by this commit
+        if st_p != "found" or v_p is None:
+            log.warning(
+                "Parent %s of %s is %s — cannot prove it was vulnerable; "
+                "pass --fix-commit", parent_ref, sha, st_p,
+            )
+            return ("not_located", None)
+        lt_p = go_version_lt(v_p, fixed_version)
+        if lt_p is True:
             return ("found", sha)
+        if lt_p is False:
+            continue                       # parent already fixed; keep walking
+        log.warning(
+            "Parent %s version %r is not comparable with %s; pass --fix-commit",
+            parent_ref, v_p, fixed_version,
+        )
+        return ("not_located", None)
     return ("not_located", None)
 
 
