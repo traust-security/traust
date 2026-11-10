@@ -13,8 +13,9 @@ All notable changes to Traust are documented here.
 - Restore Core-owned repository availability and reviewed immutable claim corrections.
   Corrections retain original occurrences, reported severity and disposition.
 - Honor `adapters config-matrix --max-triples`, including explicit truncation gaps.
-- Require the documented existing-database publication-revision and spend-metadata upgrades
-  before adopting the new Core; ambiguous historical publication order refuses migration.
+- Adopt additive bootstrap-only schema changes; existing databases are not upgraded by
+  hand-run scripts or automatic reconciliation.
+- Derive ordered spend from its run order; only order-less declarations store repository identity.
 
 ## [0.44.0]
 

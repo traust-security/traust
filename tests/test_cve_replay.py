@@ -51,6 +51,7 @@ def candidate(
         presence_identity_source=HUMAN.verified_by if presence is not None else None,
         presence_evidence="Recorded commit source inspection" if presence is not None else None,
         audit_verdict=verdict,
+        matched_advisory_ids=(identifier,) if verdict is CveReplayVerdict.DETECTED else (),
         reason="synthetic report evidence",
         source="fixture:osv",
     )
@@ -74,6 +75,7 @@ def core(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Context:
     )
     body = _canonical_report()
     body["metadata"].update(repository=repository.url, commit=ref.sha)
+    body["findings"][0]["description"] += " Advisory CVE-2026-99904 was detected."
     doc = SecurityAuditArtifact.from_document(body)
     published = publisher.publish_artifact(doc)
     log = AssessmentLog(SqlTraustUnitOfWork(core.database))
