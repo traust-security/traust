@@ -50,8 +50,12 @@ class Portfolio:
     def find_repository(self, url: HttpsRepoUrl) -> Any:
         return type("Repo", (), {"id": UUID(int=7)}) if self.known else None
 
-    def default_ref(self, repository_id: UUID) -> Any:
-        return type("Ref", (), {"id": UUID(int=8)}) if self.observed else None
+    def tracked_refs_of(self, repository_id: UUID) -> list[Any]:
+        return (
+            [type("Head", (), {"id": UUID(int=8), "manifest_sbom_id": None})]
+            if self.observed
+            else []
+        )
 
 
 class Services:
@@ -70,7 +74,7 @@ def materialize(services: Services, partition: str = REPO) -> JobResult:
     ("outcome", "want"),
     [
         (None, JobResult.succeeded(written=(str(SBOM_ID),))),
-        (ServiceError("archive: HTTP 404", status=404), JobResult.refused(OrderReason.NOT_FOUND)),
+        (ServiceError("archive: HTTP 404", status=404), JobResult.partly({"unreachable": 1})),
         (
             ServiceError("archive: HTTP 401", status=401),
             JobResult.failed(OrderReason.SOURCE_UNAVAILABLE),
@@ -85,10 +89,10 @@ def materialize(services: Services, partition: str = REPO) -> JobResult:
         ),
         (
             ValidationError("unsafe archive member '/etc/x'"),
-            JobResult.failed(OrderReason.BAD_REQUEST),
+            JobResult.partly({"error": 1}),
         ),
     ],
-    ids=["recorded", "gone", "no access", "over cap", "not configured", "unsafe archive"],
+    ids=["recorded", "head gone", "no access", "over cap", "not configured", "bad archive"],
 )
 def test_the_materializer_answers_each_door_outcome(
     outcome: Exception | None, want: JobResult
@@ -166,3 +170,79 @@ def test_the_cli_records_the_observed_heads_sbom_once(
     assert len(fetched) == 1  # the head has its SBOM: the second run is a lookup
     with SqlTraustUnitOfWork(core.database) as uow:
         assert uow.repository_refs.get(head.id).manifest_sbom_id is not None  # type: ignore[arg-type]
+
+
+def test_the_cli_records_every_tracked_heads_sbom(
+    home: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    core = load(home)
+    services = core.services()
+    repo = services.portfolio.register_repository(HttpsRepoUrl.parse(REPO, HOSTS), False)
+    assert repo.id is not None
+    with SqlTraustUnitOfWork(core.database) as uow:
+        for name in ("main", "release-4.16"):
+            uow.repository_refs.add(
+                RepositoryRef(
+                    repository_id=repo.id,
+                    name=name,
+                    kind="branch",
+                    is_default=name == "main",
+                    sha=SHA,
+                )
+            )
+        uow.commit()
+    fetched: list[CheckoutRequest] = []
+
+    def checkout(self: Any, request: CheckoutRequest) -> Result[Workspace]:
+        fetched.append(request)
+        workspace = Workspace(repo=request.repo, sha=request.ref, path=tmp_path, provider=self.name)
+        return Result(
+            workspace, Acquisition(provider="forge-archive", acquired_at=datetime.now(UTC))
+        )
+
+    def acquire(self: Any, request: Any) -> Result[bytes]:
+        raw = sbom(tmp_path, "4.17.20").read_bytes()
+        return Result(
+            raw, Acquisition(provider="syft", acquired_at=datetime.now(UTC), version="1.0.0")
+        )
+
+    monkeypatch.setattr(SyftSbom, "check", lambda self: Readiness(ready=True))
+    monkeypatch.setattr(SyftSbom, "acquire", acquire)
+    monkeypatch.setattr(ArchiveCheckout, "checkout", checkout)
+    monkeypatch.setattr(ArchiveCheckout, "release", lambda self, workspace: None)
+    first = run(impact.manifest_sbom, home, "--repo", REPO)
+    again = run(impact.manifest_sbom, home, "--repo", REPO)
+    assert first[0] == again[0] == 0
+    assert json.loads(first[1])["outcome"] == "succeeded"
+    assert len(fetched) == 2  # one archive per tracked line; re-runs are lookups
+    with SqlTraustUnitOfWork(core.database) as uow:
+        heads = uow.repository_refs.list_lines(repo.id)
+    assert all(head.manifest_sbom_id is not None for head in heads)
+
+
+def test_a_bad_head_archive_degrades_that_head_not_the_walk() -> None:
+    heads = [
+        type("Head", (), {"id": UUID(int=1), "manifest_sbom_id": None}),
+        type("Head", (), {"id": UUID(int=2), "manifest_sbom_id": None}),
+    ]
+
+    class TwoHeadPortfolio(Portfolio):
+        def tracked_refs_of(self, repository_id: UUID) -> list[Any]:
+            return heads
+
+    bad_archive = ValidationError("unsafe archive member '/etc/x'")
+
+    class FirstHeadFails(Exposure):
+        def record_manifest_sbom(self, repository_ref_id: UUID) -> Any:
+            if repository_ref_id == UUID(int=1):
+                raise bad_archive
+            return super().record_manifest_sbom(repository_ref_id)
+
+    failing = FirstHeadFails()
+    services = Services(failing)  # type: ignore[arg-type]
+    services.portfolio = TwoHeadPortfolio()  # type: ignore[assignment]
+    result = ManifestSbomMaterializer(services, HOSTS).materialize(  # type: ignore[arg-type]
+        AssetRequest(asset="manifest_sbom", run_id="t", partition=REPO)
+    )
+    assert result == JobResult.partly({"error": 1}, (str(SBOM_ID),))
+    assert failing.asked == [UUID(int=2)]  # the walk continued: head 2 recorded after head 1

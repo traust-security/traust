@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
+from uuid import UUID
 
 import pytest
 import yaml
@@ -21,6 +22,7 @@ from traust_core.v1.models.observation import ComparisonStatus
 from traust_core.v1.models.operations import AssetRequest, JobResult, OrderReason
 from traust_core.v1.models.values import HttpsRepoUrl
 from traust_core.v1.providers.base import Acquisition, ProviderRegistry, Readiness, Result
+from traust_core.v1.providers.sources import SourceError
 from traust_core.v1.repositories.contract import SqlTraustUnitOfWork
 from traust_core.v1.services.observation import GITLEAKS
 
@@ -214,13 +216,28 @@ def test_an_audited_unknown_host_still_reaches_age_ceiling_routing(home: Path) -
 
 
 class Services:
-    def __init__(self, portfolio: Portfolio) -> None:
+    def __init__(self, portfolio: Portfolio, lines: Any = None, sync: Any = None) -> None:
         self.portfolio = portfolio
+        self.sync = sync if sync is not None else Sync(lines)
+
+
+class Sync:
+    def __init__(self, lines: Any = None) -> None:
+        self.lines = lines or type("Lines", (), {"observed": (), "unobserved": ()})
+        self.asked: list[Any] = []
+
+    def observe_lines(self, repository_id: Any, url: Any) -> Any:
+        if isinstance(self.lines, Exception):
+            raise self.lines
+        return self.lines
 
 
 class Portfolio:
     def __init__(self, outcome: ComparisonStatus | Exception) -> None:
         self.outcome = outcome
+
+    def find_repository(self, url: Any) -> Any:
+        return type("Repo", (), {"id": UUID(int=7)})
 
     def record_forge_facts(self, *, repo_url: str) -> Any:
         if isinstance(self.outcome, Exception):
@@ -237,6 +254,14 @@ def test_every_status_is_succeeded_or_a_named_gap(status: ComparisonStatus) -> N
     assert result == (JobResult.succeeded() if answered else JobResult.partly({status: 1}))
 
 
+def test_a_line_the_forge_wont_answer_degrades_the_rest() -> None:
+    lines = type("Lines", (), {"observed": ("dev",), "unobserved": ("release-4.16",)})
+    result = RepoStateMaterializer(Services(Portfolio("ok"), lines)).materialize(  # type: ignore[arg-type]
+        AssetRequest(asset="repo_state", run_id="t", partition=REPO)
+    )
+    assert result == JobResult.partly({"unreachable": 1})
+
+
 def test_a_repository_core_doesnt_know_is_refused_with_its_reason() -> None:
     portfolio = Portfolio(NotFoundError("repository not in inventory: x"))
     result = RepoStateMaterializer(Services(portfolio)).materialize(  # type: ignore[arg-type]
@@ -250,3 +275,46 @@ def test_malformed_ipv6_repository_is_bad_request(home: Path) -> None:
         1,
         JobResult.failed(OrderReason.BAD_REQUEST).model_dump(mode="json"),
     )
+
+
+def test_a_deferred_quota_stops_the_line_walks() -> None:
+    lines = type("Lines", (), {"observed": ("dev",), "unobserved": ()})
+    sync = Watched(lines)
+    result = RepoStateMaterializer(
+        Services(Portfolio(ComparisonStatus.QUOTA_DEFERRED), sync=sync)
+    ).materialize(  # type: ignore[arg-type]
+        AssetRequest(asset="repo_state", run_id="t", partition=REPO)
+    )
+    assert result == JobResult.partly({"quota-deferred": 1})
+    assert sync.asked == []  # the bucket is spent: the walks wait for the next tick
+
+    walking = Watched(lines)
+    RepoStateMaterializer(Services(Portfolio(ComparisonStatus.OK), sync=walking)).materialize(  # type: ignore[arg-type]
+        AssetRequest(asset="repo_state", run_id="t", partition=REPO)
+    )
+    assert walking.asked == [UUID(int=7)]  # an answered comparison walks the lines
+
+
+class Watched(Sync):
+    def observe_lines(self, repository_id: Any, url: Any) -> Any:
+        self.asked.append(repository_id)
+        return super().observe_lines(repository_id, url)
+
+
+def test_an_unreachable_default_line_and_unobserved_lines_both_count() -> None:
+    lines = type("Lines", (), {"observed": (), "unobserved": ("release-4.16",)})
+    result = RepoStateMaterializer(
+        Services(Portfolio(ComparisonStatus.UNREACHABLE), lines)
+    ).materialize(  # type: ignore[arg-type]
+        AssetRequest(asset="repo_state", run_id="t", partition=REPO)
+    )
+    assert result == JobResult.partly({"unreachable": 2})  # the default line and the branch
+
+
+def test_a_forge_refusal_of_the_observation_is_a_named_gap() -> None:
+    refused = SourceError("no route", observation_status=ComparisonStatus.UNREACHABLE)
+    portfolio = Portfolio(refused)
+    result = RepoStateMaterializer(Services(portfolio)).materialize(  # type: ignore[arg-type]
+        AssetRequest(asset="repo_state", run_id="t", partition=REPO)
+    )
+    assert result == JobResult.partly({"unreachable": 1})

@@ -17,9 +17,11 @@ from traust_core.v1.errors import ConfigError, NotFoundError, ServiceError, Vali
 from traust_core.v1.models.below_range import BelowRangeStatus
 from traust_core.v1.models.dependencies import FeedName
 from traust_core.v1.models.insight import RenderedView, ViewFilter, ViewName
+from traust_core.v1.models.inventory import LinesReport
 from traust_core.v1.models.observation import ComparisonStatus
 from traust_core.v1.models.operations import AssetRequest, DegradedKey, JobResult, OrderReason
 from traust_core.v1.models.values import GitSha, HttpsRepoUrl
+from traust_core.v1.providers.sources import SourceError
 
 log = logging.getLogger(__name__)
 
@@ -39,12 +41,14 @@ def _repo_url(raw: str) -> HttpsRepoUrl:
 
 
 class RepoStateMaterializer:
-    """`repo_state`: observe one inventory repository at its forge and keep what it answered."""
+    """`repo_state`: observe one inventory repository at its forge — the default line's facts,
+    then each attached branch line's current head — and keep what it answered."""
 
     asset = "repo_state"
 
     def __init__(self, services: Services) -> None:
         self._portfolio = services.portfolio
+        self._sync = services.sync
 
     def materialize(self, request: AssetRequest) -> JobResult:
         try:
@@ -52,19 +56,44 @@ class RepoStateMaterializer:
         except ValidationError as e:
             log.warning("run %s: %s: %s", request.run_id, OrderReason.BAD_REQUEST, e)
             return JobResult.failed(OrderReason.BAD_REQUEST)
+        repo = self._portfolio.find_repository(url)
+        if repo is None or repo.id is None:
+            log.warning("run %s: %s: %s", request.run_id, OrderReason.NOT_FOUND, url)
+            return JobResult.refused(OrderReason.NOT_FOUND)
         try:
             facts = self._portfolio.record_forge_facts(repo_url=str(url))
+            # A deferred comparison means the quota bucket is spent: the line walks draw the
+            # same bucket, so they wait for the next tick rather than draining the reserve.
+            lines = (
+                LinesReport()
+                if facts.status == ComparisonStatus.QUOTA_DEFERRED
+                else self._sync.observe_lines(repo.id, url)
+            )
         except NotFoundError as e:
             log.warning("run %s: %s: %s", request.run_id, OrderReason.NOT_FOUND, e)
             return JobResult.refused(OrderReason.NOT_FOUND)
-        if facts.status in ANSWERED:
-            return JobResult.succeeded()
-        return JobResult.partly({facts.status.value: 1})
+        except SourceError as e:
+            # The forge would not answer the observation itself: a named gap, never a crash.
+            log.warning("run %s: observation refused: %s", request.run_id, e)
+            return JobResult.partly({e.observation_status.value: 1})
+        except (ConfigError, ValidationError) as e:
+            log.warning("run %s: %s: %s", request.run_id, OrderReason.BAD_REQUEST, e)
+            return JobResult.failed(OrderReason.BAD_REQUEST)
+        degraded: dict[str, int] = {} if facts.status in ANSWERED else {facts.status.value: 1}
+        if lines.unobserved:
+            # The default line's own unreachable status and the unobserved lines share a key:
+            # they add, never replace.
+            degraded[DegradedKey.UNREACHABLE] = degraded.get(DegradedKey.UNREACHABLE, 0) + len(
+                lines.unobserved
+            )
+        return JobResult.succeeded() if not degraded else JobResult.partly(degraded)
 
 
 class ManifestSbomMaterializer:
-    """`manifest_sbom`: the dependency SBOM of one inventory repository's observed default head,
-    from its manifests on the forge. A head that has one is a no-op; no observed head is refused."""
+    """`manifest_sbom`: the dependency SBOM of each of one inventory repository's tracked heads —
+    its attached branch lines' latest commits — from their manifests on the forge. A head that
+    already has one is a no-op (a lookup, not a fetch); a repository with no tracked head is
+    refused. A head whose archive the forge won't give degrades the order, never the rest."""
 
     asset = "manifest_sbom"
 
@@ -80,26 +109,55 @@ class ManifestSbomMaterializer:
             log.warning("run %s: %s: %s", request.run_id, OrderReason.BAD_REQUEST, e)
             return JobResult.failed(OrderReason.BAD_REQUEST)
         repo = self._portfolio.find_repository(url)
-        head = self._portfolio.default_ref(repo.id) if repo and repo.id else None
-        if head is None or head.id is None:
+        heads = self._portfolio.tracked_refs_of(repo.id) if repo and repo.id else []
+        if not any(head.id for head in heads):
             log.warning(
-                "run %s: %s: no observed default head for %s",
+                "run %s: %s: no tracked head for %s",
                 request.run_id,
                 OrderReason.NOT_FOUND,
                 url,
             )
             return JobResult.refused(OrderReason.NOT_FOUND)
-        try:
-            sbom = self._exposure.record_manifest_sbom(head.id)
-        except (ConfigError, ValidationError) as e:
-            log.warning("run %s: %s: %s", request.run_id, OrderReason.BAD_REQUEST, e)
-            return JobResult.failed(OrderReason.BAD_REQUEST)
-        except ServiceError as e:
-            gone = e.status == HTTPStatus.NOT_FOUND
-            reason = OrderReason.NOT_FOUND if gone else OrderReason.SOURCE_UNAVAILABLE
-            log.warning("run %s: %s: %s", request.run_id, reason, e)
-            return JobResult.refused(reason) if gone else JobResult.failed(reason)
-        return JobResult.succeeded(written=(str(sbom.id),))
+        written: list[str] = []
+        unreachable = 0
+        bad_archives = 0
+        for head in heads:
+            if head.id is None or head.manifest_sbom_id is not None:
+                continue
+            try:
+                sbom = self._exposure.record_manifest_sbom(head.id)
+            except ValidationError as e:
+                # One branch's archive is unreadable (an unsafe member, an over-cap tree):
+                # that head degrades, and the walk keeps the repository's other lines.
+                log.warning(
+                    "run %s: %s: head %s: %s", request.run_id, OrderReason.BAD_REQUEST, head.id, e
+                )
+                bad_archives += 1
+                continue
+            except ConfigError as e:
+                log.warning("run %s: %s: %s", request.run_id, OrderReason.BAD_REQUEST, e)
+                return JobResult.failed(OrderReason.BAD_REQUEST)
+            except ServiceError as e:
+                if e.status != HTTPStatus.NOT_FOUND:
+                    log.warning("run %s: %s: %s", request.run_id, OrderReason.SOURCE_UNAVAILABLE, e)
+                    return JobResult.failed(OrderReason.SOURCE_UNAVAILABLE)
+                log.warning(
+                    "run %s: %s: head gone at the forge: %s",
+                    request.run_id,
+                    OrderReason.NOT_FOUND,
+                    e,
+                )
+                unreachable += 1
+                continue
+            written.append(str(sbom.id))
+        degraded: dict[str, int] = {}
+        if unreachable:
+            degraded[DegradedKey.UNREACHABLE] = unreachable
+        if bad_archives:
+            degraded[DegradedKey.ERROR] = bad_archives
+        if degraded:
+            return JobResult.partly(degraded, tuple(written))
+        return JobResult.succeeded(written=tuple(written))
 
 
 class RepoCheckoutRefreshMaterializer:
