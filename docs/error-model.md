@@ -160,7 +160,7 @@ consumable without archaeology:
 | Semantic-shaped confirmations (authn/authz/ordering — never rule-expressible) | Precedent cards (python3 -m traust.cli sweep cards; traust-core's `DetectionQualityService.sweep_cards`): predicate over a shipped enumerator's output schema, or REJECTED | The semantic sweep tier — its `candidates[]` into `/triage` |
 | What the enumerators could NOT cover | Structured `metadata.additional.coverage_gaps` in every report (recording convention in the enumerator pre-scan sections) + skipped `deterministic_steps` | `traust assessments coverage` (traust-core's `AssessmentService.coverage`) — the repos-affected-ranked enumerator-expansion backlog |
 | Rule-expressible shapes surfaced in benchmark runs | the benchmark rule-candidate extractor (post-scoring) | `benchmark-rule-candidates.{json,md}` under the rule-mining metrics — identity-only pattern exemplars for rule authors |
-| Missed benchmark/CVE anchors | the benchmark near-miss tier (CVE replay waits on a traust-core decision, plan 15 decision 2) | Ground-truth queue for match-ladder and technique work |
+| Missed benchmark/CVE anchors | Benchmark near-miss tiers and Core's human-gated CVE replay | Review candidates for match-ladder and technique work; historical presence requires verified-human evidence and does not automatically admit ground truth |
 
 Semantic cards support both symbol definitions and textual references. Reference rows mark
 definition sites with `is_def`; a call-looking mention is still a candidate, not a resolved

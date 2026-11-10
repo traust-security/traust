@@ -117,7 +117,7 @@ def test_each_declaration_is_another_event_as_each_journal_append_was(
     assert by_model(home) == [("claude-haiku-5-5", 2, 0, 200, Decimal("0.0001"))]
 
 
-def test_the_skill_md_invocation_records_and_names_the_flags_not_stored(
+def test_unregistered_label_is_retained_with_size_batch_note_and_cost(
     home: Path, recorded: list[SpendEvent]
 ) -> None:
     rc, out, err = spend(
@@ -126,11 +126,17 @@ def test_the_skill_md_invocation_records_and_names_the_flags_not_stored(
         *("--tokens-in", "10", "--tokens-out", "20", "--repo", "org/repo", "--loc", "1234"),
         *("--batch", "b-1", "--note", "rerun"),
     )
-    assert (rc, out, len(recorded)) == (0, "", 1)
-    assert err.splitlines() == [
-        f"spend: --{flag} not stored: spend_event has no column for it"
-        for flag in ("repo", "loc", "batch", "note")
-    ]
+    assert (rc, out) == (0, "")
+    [event] = recorded
+    assert (event.repository_id, event.repository_label, event.loc, event.batch, event.note) == (
+        None,
+        "org/repo",
+        1234,
+        "b-1",
+        "rerun",
+    )
+    assert "no canonical repository" in err
+    assert by_model(home) == [("claude-opus-5-5", 1, 10, 20, event.cost_usd)]
 
 
 @pytest.mark.parametrize(

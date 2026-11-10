@@ -13,6 +13,7 @@ from traust_core.v1.errors import ConfigError
 from traust_core.v1.models.common import Provenance, ToolRequest
 from traust_core.v1.models.findings import CandidateFormat
 from traust_core.v1.models.identity import IdentitySource, Principal
+from traust_core.v1.models.inventory import RefName
 from traust_core.v1.models.observation import ComparisonStatus
 from traust_core.v1.models.operations import AssetName, JobResult, OrderRequest, WorkerId
 from traust_core.v1.models.pqc import (
@@ -26,7 +27,6 @@ from traust_core.v1.models.values import GitSha, HttpsRepoUrl
 from traust_core.v1.models.vocabulary import ActorKind, SourceType
 from traust_core.v1.providers.base import Acquisition, Readiness, Result
 
-from traust.lib.pending_decisions import Decision, skip_reason
 from traust.ops.pqc import PqcSweep
 
 AT = datetime(2026, 10, 24, tzinfo=UTC)
@@ -92,7 +92,7 @@ def ref(core: Context, name: str, *, sbom: bool = True) -> object:
         HttpsRepoUrl.parse(f"https://github.com/example/{name}", ["github.com"]),
         True,
     )
-    made = services.portfolio.register_ref(repository.id, GitSha.parse(SHA), None, None)
+    made = services.portfolio.mark_default_branch(repository.id, GitSha.parse(SHA), RefName("main"))
     if sbom:
         services.exposure.ingest_sbom(b'{"bomFormat":"CycloneDX","components":[]}', made.id)
     return made
@@ -116,7 +116,6 @@ def observation(services: Services, repository_id: UUID, result: JobResult) -> U
     return order.id
 
 
-@pytest.mark.skip(reason=skip_reason(Decision.LIVENESS_STATUS))
 def test_ranked_worklist_deduplicates_repositories_and_routes_evidenced_residuals(
     tmp_path: Path,
 ) -> None:
@@ -224,7 +223,6 @@ def test_bounded_refresh_resumes_from_recorded_pack_stamps_and_releases_checkout
     assert services.pqc.list_readiness(PqcFilter()) == []
 
 
-@pytest.mark.skip(reason=skip_reason(Decision.LIVENESS_STATUS))
 def test_missing_sbom_is_a_reported_failure_not_clean_readiness(
     tmp_path: Path,
 ) -> None:
@@ -241,7 +239,6 @@ def test_missing_sbom_is_a_reported_failure_not_clean_readiness(
     assert services.pqc.find(target.id) is None
 
 
-@pytest.mark.skip(reason=skip_reason(Decision.LIVENESS_STATUS))
 def test_success_without_availability_does_not_clear_access_failure(
     tmp_path: Path,
 ) -> None:

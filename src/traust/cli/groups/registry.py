@@ -16,9 +16,6 @@ from traust.cli.groups._registry import OpSpec
 from traust.context import MODEL_REGISTRY, load, load_spend_core
 
 NO_MAP = "no product map recorded; record one with `traust registry product-map <file>`"
-# NEED(data-model: spend calibration tuple repo/loc/batch/note): accepted and dropped with a
-# warning until core's spend event can store them (plan 15 decision 9).
-UNSTORED = "not stored: spend_event has no column for it"
 
 
 def add_models_args(ap) -> None:
@@ -38,14 +35,16 @@ def add_models_args(ap) -> None:
     p.add_argument("--tokens-out", type=int, default=0, help="best-effort; omit when unknown")
     p.add_argument("--cache-read", type=int, default=0)
     p.add_argument("--cache-creation", type=int, default=0)
-    p.add_argument("--batch", default=None, help=f"batch id ({UNSTORED})")
+    p.add_argument("--batch", default=None, help="batch identifier retained with the event")
     p.add_argument(
-        "--repo", default=None, help=f"repo slug this spend audited, calibration tuple ({UNSTORED})"
+        "--repo",
+        default=None,
+        help="supplied repository label; exact registered URL/UUID also attributes canonically",
     )
     p.add_argument(
-        "--loc", type=int, default=None, help=f"target size in LoC/bytes at audit time ({UNSTORED})"
+        "--loc", type=int, default=None, help="target size in LoC/bytes retained at declaration"
     )
-    p.add_argument("--note", default=None, help=f"free text ({UNSTORED})")
+    p.add_argument("--note", default=None, help="free text retained with the event")
 
 
 def call_models(args) -> int:
@@ -85,9 +84,6 @@ def _declare_spend(args) -> int:
             file=sys.stderr,
         )
         return 1
-    for flag in ("repo", "loc", "batch", "note"):
-        if getattr(args, flag) is not None:
-            print(f"spend: --{flag} {UNSTORED}", file=sys.stderr)
     model = ModelName(args.model)
     try:
         provider = core.model_catalog.resolve(model).provider
@@ -105,17 +101,26 @@ def _declare_spend(args) -> int:
         return 1
     # NEED(spend: declared vs measured): a declaration adds to the totals `metrics collect-spend
     # --append` records from transcripts, so non-zero declared tokens count twice.
-    core.services().spend.record(
+    recorded = core.services().spend.record(
         SpendEvent(
             provider=provider,
             model=model,
             skill=args.skill,
             tokens_in=args.tokens_in,
             tokens_out=args.tokens_out,
+            repository_label=args.repo,
+            loc=args.loc,
+            batch=args.batch,
+            note=args.note,
             cost_usd=cost,
             occurred_at=core.clock.now(),
         )
     )
+    if args.repo is not None and recorded.repository_id is None:
+        print(
+            "spend: --repo retained as supplied label; no canonical repository matched",
+            file=sys.stderr,
+        )
     return 0
 
 

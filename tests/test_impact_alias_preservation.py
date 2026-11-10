@@ -119,32 +119,45 @@ def seed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return home
 
 
-def assert_documents(home: Path, fix_a: bool) -> None:
+def assert_documents(home: Path, fix_a: bool, sources: set[str] | None = None) -> None:
     services = load(home).services()
     analyses = services.exposure.impacts(ImpactFilter(), PageRequest(limit=50)).items
     documents = [json.loads(services.artifacts.payload(a.artifact_id)) for a in analyses]
-    by_repo = {doc["repos"][0]["repo"].rsplit("/", 1)[-1]: doc for doc in documents}
-    assert set(by_repo) == {"a", "b-in", "b-out"}
-    assert len(documents) == 3
-    assert by_repo["a"]["metadata"]["module"] == A
-    assert by_repo["a"]["metadata"]["fixed_version"] == ("1.1.0" if fix_a else None)
+    by_package = {
+        (doc["repos"][0]["repo"].rsplit("/", 1)[-1], doc["metadata"]["module"]): doc
+        for doc in documents
+    }
+    assert {
+        (repo, module, doc["repos"][0]["version"]) for (repo, module), doc in by_package.items()
+    } == {
+        ("a", A, "1.0.5"),
+        ("a", B, None),
+        ("b-in", A, None),
+        ("b-in", B, "2.0.5"),
+        ("b-out", A, None),
+        ("b-out", B, "2.3.0"),
+    }
+    for (repo, module), doc in by_package.items():
+        assert doc["metadata"]["ecosystem"] == "go"
+        assert doc["metadata"]["vulnerable_range"] == (
+            f">=1.0.0{' <1.1.0' if fix_a else ''}" if module == A else ">=2.0.0 <2.2.0"
+        )
+        if sources is not None:
+            assert set(doc["metadata"]["advisory_sources"]) == sources
+        if (repo == "a") != (module == A):
+            assert doc["repos"][0]["version"] is None
+            assert doc["repos"][0]["evidence"].get("l1_depends_on") is None
+            assert doc["repos"][0]["classification"] == "inconclusive"
+    assert by_package["a", A]["metadata"]["fixed_version"] == ("1.1.0" if fix_a else None)
+    assert by_package["a", A]["repos"][0]["version"] == "1.0.5"
     for name, version in (("b-in", "2.0.5"), ("b-out", "2.3.0")):
-        doc = by_repo[name]
-        assert (doc["metadata"]["module"], doc["metadata"]["ecosystem"]) == (B, "go")
-        assert doc["metadata"]["vulnerable_range"] == ">=2.0.0 <2.2.0"
-        assert doc["repos"][0]["version"] == version
-    assert by_repo["b-in"]["metadata"]["fixed_version"] == "2.2.0"
-    assert by_repo["b-in"]["repos"][0]["classification"] == "inconclusive"
-    assert by_repo["b-out"]["repos"][0]["classification"] == "version_not_in_range"
+        assert by_package[name, B]["repos"][0]["version"] == version
+    assert by_package["b-in", B]["metadata"]["fixed_version"] == "2.2.0"
+    assert by_package["b-out", B]["metadata"]["fixed_version"] is None
+    assert by_package["b-in", B]["repos"][0]["classification"] == "inconclusive"
+    assert by_package["b-out", B]["repos"][0]["classification"] == "version_not_in_range"
 
 
-ALIAS_GAP = pytest.mark.skip(
-    reason="traust-core development prepares one package per commit and its sweep rows carry no"
-    " fix_available; f950dd6's alias-preserving prepare is not in plan 15's gap map"
-)
-
-
-@ALIAS_GAP
 @pytest.mark.parametrize(
     "merged,fix_a", [(False, True), (True, True), (False, False), (True, False)]
 )
@@ -162,12 +175,12 @@ def test_sweep_generated_analyze_preserves_disjoint_alias_ranges_and_fixes(
     [row] = worklist["advisories"]
     assert (row["display_id"], row["fix_available"]) == (CVE, True)
     assert set(row["packages"]) == {f"go/{A}", f"go/{B}"}
+    assert (row["commits"], row["scan"]) == (2, False)
     code, result = invoke(home, *row["impact_argv"][4:])
-    assert code == 0 and (result["commits"], result["analyses"]) == (3, 3)
+    assert code == 0 and (result["commits"], result["analyses"]) == (3, 6)
     assert_documents(home, fix_a)
 
 
-@ALIAS_GAP
 def test_exported_advisory_input_analyzes_every_alias_without_network(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -178,16 +191,25 @@ def test_exported_advisory_input_analyzes_every_alias_without_network(
     monkeypatch.setattr(urllib.request, "urlopen", offline)
     home = seed(tmp_path, monkeypatch)
     arguments = []
+    sources = set()
     for identifier, record in records(False, False).items():
         path = tmp_path / f"{identifier}.json"
         path.write_text(json.dumps(record))
+        sources.add(path.resolve().as_uri())
         arguments += ["--advisory-file", str(path)]
     code, found = invoke(home, "find", GHSA, *arguments)
     assert code == 0
     assert {p["name"] for p in found["affected"]} == {A, B}
+    by_name = {package["name"]: package for package in found["affected"]}
+    assert by_name[A]["ecosystem"] == by_name[B]["ecosystem"] == "go"
+    assert by_name[A]["spans"][0]["introduced"] == "1.0.0"
+    assert by_name[A]["spans"][0]["fixed"] is None
+    assert by_name[B]["spans"][0]["introduced"] == "2.0.0"
+    assert by_name[B]["spans"][0]["fixed"] == "2.2.0"
+    assert {found["source"], *found["package_sources"]} == sources
     code, result = invoke(home, "analyze", GHSA, *arguments)
-    assert code == 0 and result["analyses"] == 3
-    assert_documents(home, False)
+    assert code == 0 and (result["commits"], result["analyses"]) == (3, 6)
+    assert_documents(home, False, sources)
     code, worklist = invoke(
         home,
         "sweep",
@@ -201,6 +223,7 @@ def test_exported_advisory_input_analyzes_every_alias_without_network(
     [row] = worklist["advisories"]
     assert row["impact_argv"][-len(arguments) :] == arguments
     assert invoke(home, *row["impact_argv"][4:])[0] == 0
+    assert_documents(home, False, sources)
 
 
 def test_unknown_or_malformed_export_never_records_an_impact(

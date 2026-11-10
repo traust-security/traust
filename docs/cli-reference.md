@@ -32,12 +32,12 @@ python3 -m traust.cli check skill-alignment      # equivalent
 | `config` | The config home's one file, `traust.yaml`: `migrate <old home>` writes it from a pre-traust.yaml home and reports every file (carried, dropped, a fact to record with its command) | `migrate` |
 | `dashboard` | Dashboard rebuilds, the team report, one insight view, the recorded SLA policy and the local LoC explorer | `explore-loc`, `refresh`, `sla-policy`, `team-report`, `view` |
 | `feeds` | Security feed snapshots, CVE provenance (traust-core) and the product-definitions cache | `fetch`, `fetch-products`, `reconcile-cve-provenance` |
-| `findings` | track-findings' and findings-db's doors on traust-core (`claim`, `correction-request` and `rebaseline` refuse until plan 15's decision 1) | `apply`, `baseline`, `claim`, `confirm`, `correction-request`, `decide`, `find`, `history`, `import`, `queue`, `rebaseline`, `record`, `refuted`, `reject`, `request`, `review-cases`, `sarif`, `status`, `summary`, `surfaces`, `tickets`, `timeline`, `verified-fix-mtta` |
+| `findings` | Core-backed findings, immutable claim-correction proposals and human-authorized acceptance | `apply`, `baseline`, `claim`, `confirm`, `correction-request`, `decide`, `find`, `history`, `import`, `queue`, `rebaseline`, `record`, `refuted`, `reject`, `request`, `review-cases`, `sarif`, `status`, `summary`, `surfaces`, `tickets`, `timeline`, `verified-fix-mtta` |
 | `impact` | Impact analysis; `export` reads the retained advisory-wide fleet view; `manifest-sbom` is the `manifest_sbom` materializer, `below-range-scan` the `below_range_packets` one, `below-range-review` / `below-range-record` the review lane's doors | `analyze`, `below-range`, `below-range-record`, `below-range-review`, `below-range-scan`, `calibrate-rule-pack`, `cluster-state-diff`, `document`, `enrich`, `export`, `find`, `manifest-sbom`, `package`, `sbom`, `sweep`, `symbols` |
 | `isolation` | Tenant-isolation review | `repos` |
 | `ledger` | Ledger audit (traust-core) and the doc-variance register | `audit`, `doc-variance` |
 | `metrics` | Metrics & spend | `attribute-spend`, `collect-spend`, `lane-costs` |
-| `portfolio` | The portfolio on traust-core: inventory discovery and routing-event intake, `observe` (the `repo_state` materializer), the checkout mirror-cache materializers, add-inputs' and inventory-repositories' doors, the owner/contact export, SBOM reads (`dependencies`, `dependents`, `ships-module`); `liveness` refuses until plan 15's decision 3 and `release-passthrough` refuses until a release feed exists (NEED(release-passthrough)) | `checkout-refresh`, `dependencies`, `dependents`, `event-intake`, `event-validate`, `file`, `import-owners`, `import-release`, `inventory-discover`, `inventory-export`, `liveness`, `mirror-evict`, `observe`, `onboard`, `owner-hints`, `plan`, `population`, `release-changes`, `release-passthrough`, `ships-module` |
+| `portfolio` | Core inventory, observation, owner/contact export, SBOM reads and recorded availability; `release-passthrough` still requires a release feed (NEED(release-passthrough)) | `checkout-refresh`, `dependencies`, `dependents`, `event-intake`, `event-validate`, `file`, `import-owners`, `import-release`, `inventory-discover`, `inventory-export`, `liveness`, `mirror-evict`, `observe`, `onboard`, `owner-hints`, `plan`, `population`, `release-changes`, `release-passthrough`, `ships-module` |
 | `pqc` | The pqc-readiness skill's doors on traust-core; native single-commit prescan, ranked sweep worklist and bounded refresh through Core's registered pqc-scan provider | `blockers`, `check`, `prepare`, `prescan`, `record`, `summary`, `sweep`, `vendor-claims`, `worklist` |
 | `products` | corpus-intake's doors on traust-core: products and their corpus ownership | `add`, `list`, `update` |
 | `registry` | Model/product registry and the recorded product map | `models`, `product-map`, `products` |
@@ -47,7 +47,7 @@ python3 -m traust.cli check skill-alignment      # equivalent
 | `session` | Headless skill sessions and artifact-only task preparation/recording | `prepare`, `record`, `run` |
 | `tools` | One door over traust-core's tool registry: each registered tool's readiness, version and database; one tool over a checkout, SBOM, image or symbols, its typed result as JSON | `list`, `run` |
 | `triage` | The triage skill's doors on traust-core | `check`, `intake`, `prepare`, `record`, `render` |
-| `sweep` | Class-generalization sweep; detection-quality reports (`cve-replay` refuses until plan 15's decision 2); recall-benchmark answer key | `benchmark`, `benchmark-targets`, `bootstrap-benchmark`, `build-canaries`, `cards`, `collect`, `compliance-precision`, `critical-misses`, `cve-replay`, `draft`, `emit`, `mine`, `propose-rule`, `regression-drafts`, `rule-lane`, `score-benchmark`, `screen-injection`, `sweep`, `verify-draft` |
+| `sweep` | Class-generalization sweep, detection-quality reports, human-gated CVE replay and recall-benchmark answer keys | `benchmark`, `benchmark-targets`, `bootstrap-benchmark`, `build-canaries`, `cards`, `collect`, `compliance-precision`, `critical-misses`, `cve-replay`, `draft`, `emit`, `mine`, `propose-rule`, `regression-drafts`, `rule-lane`, `score-benchmark`, `screen-injection`, `sweep`, `verify-draft` |
 | `util` | Utility commands | `elf`, `redact`, `safe-exec` |
 | `validation` | Core-backed machine validation evidence | `prepare`, `plan`, `record` |
 
@@ -243,8 +243,13 @@ convert uninspectable deliverables and rerun the gate; there is no binary fallba
   publishes the structured `{window, misses}` ViewModel and the same human renders.
   This is a global recorded-data window, not a historical `--as-of` reconstruction or
   proof of clean coverage; unsupported scope filters are refused.
-- `traust sweep cve-replay monitor|candidates|trends|oracle` refuses: "CVE replay needs a
-  traust-core decision (plan 15, decision 2)". It never reads a fallback.
+- `traust sweep cve-replay monitor [--since ISO_WITH_ZONE]` queries the Core advisory owner
+  for recorded audited commits. Failed/malformed queries advance no audit watermark.
+  `candidates` exports the retained human-review queue; `trends` includes only
+  presence-confirmed misses. `oracle ASSESSMENT_UUID ADVISORY_ID
+  [--present-at-audit true|false|unknown] [--evidence TEXT]` checks the original audit.
+  Both true/false adjudications require authenticated verified-human identity and evidence;
+  unknown is never a confirmed miss. Nothing automatically enters benchmark truth.
 - `traust sweep emit --rule <rule> --sweeps-root <dir>` exports the cached candidate and
   summary payload too; `--force` recomputes rather than being required to export elsewhere.
 - `traust sweep benchmark check-trigger --since <ref>` resolves its checkout from explicit
@@ -355,9 +360,9 @@ then the same `--worker` during recording. Missing/invalid output fails with
 
 ### Static configuration and placement diagnostics
 
-`traust adapters config-matrix <checkout> [--out F]` retains judged defaults first, up to
-traust-core's default cap, and records omitted rows as coverage gaps. `--max-triples` is
-refused: core's config-matrix provider takes no cap yet. Its JSON includes
+`traust adapters config-matrix <checkout> [--out F] [--max-triples N]` retains judged
+defaults first, up to Core's default cap or the requested nonnegative integer.
+Omitted triples are explicit coverage gaps, including a zero cap. Its JSON includes
 the checkout name, generation time, harness version, YAML-parser availability and
 statistics over the emitted triples. Credential literals remain redacted in every
 tier and in sink expressions; a row limit never means complete coverage.
@@ -973,10 +978,29 @@ their exact contract schema.
 
 ## Claim correction
 
-`traust findings correction-request`, `traust findings rebaseline` and `traust findings claim`
-keep their arguments but refuse with "Claim correction needs a traust-core decision (plan 15,
-decision 1)": traust-core has no claim-correction door until that decision. They never apply,
-store or read a corrected claim.
+`traust findings correction-request REPORT --finding FINDING_UUID --assessment SOURCE_UUID
+--label LABEL --ticket TICKET --rationale TEXT` retains the exact proposal and queues review.
+The source must actually have reported that finding; identity comes from authenticated login.
+
+`traust findings rebaseline REVIEW_UUID --ticket TICKET --rationale TEXT
+[--approver IDENTITY ...]` accepts the retained proposal, not a replacement local file.
+It requires a verified human with Core's restate role and any configured independent
+approvals. Changed bases/occurrences, wrong tickets, collisions and superseded reviews refuse.
+Acceptance does not rewrite original occurrences, reported severity, validity or resolution.
+
+`traust findings claim FINDING_UUID [--as-of ISO_TIMESTAMP]` reads the accepted corrected
+claim, including its description, locations and CWE/category metadata. History remains append-only.
+
+## Spend and repository availability
+
+`traust registry models spend --skill SKILL --model MODEL [--repo REFERENCE] [--loc N]
+[--batch ID] [--note TEXT]` retains supplied attribution with the priced event.
+Exact registered repository URLs/UUIDs attribute canonically; other labels remain text
+and emit an explicit unresolved-identity warning without losing cost.
+
+`traust portfolio liveness` reads Core's recorded availability without probing the network.
+Unqueried or inaccessible repositories remain unknown; failed probes never fabricate a commit
+or erase the last successful observation. Status durations use retained transition history.
 
 ## Container cumulative view and rating diagnostics
 

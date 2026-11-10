@@ -9,19 +9,26 @@ from pathlib import Path
 from uuid import UUID
 
 import pytest
+import yaml
+from traust_core.v1.models.findings import CandidateFormat, FindingCandidate
 
-from traust.lib.pending_decisions import Decision, skip_reason
-
-pytest.skip(skip_reason(Decision.CLAIM_CORRECTION), allow_module_level=True)
-
-
-from tests.test_findings_doors import REPO, run, scanned
-from tests.test_findings_doors import home as home
-from tests.test_triage_doors import SHA
+from tests.test_findings_doors import REPO, config_home, run, scanned
+from tests.test_triage_doors import SARIF, SHA
 from tests.test_validate_report import _canonical_report
-from traust.cli import auth
+from traust.cli import auth, findings
 from traust.cli.__main__ import main
 from traust.context import load
+
+ORIGINAL_LABEL = SARIF["runs"][0]["results"][0]["ruleId"]
+
+
+@pytest.fixture
+def home(tmp_path: Path) -> Path:
+    # Claim acceptance uses Core's restate role, not merely an auth.local actor string.
+    return config_home(
+        tmp_path,
+        identity={"trust_local": True, "admins": ["reviewer@example.com"]},
+    )
 
 
 def grouped(home: Path, operation: str, *arguments: str) -> tuple[int, object]:
@@ -39,6 +46,7 @@ def proposal_file(home: Path, tmp_path: Path, finding_id: str) -> tuple[Path, st
     body["metadata"].update(repository=REPO, commit=SHA)
     entry = body["findings"][0]
     entry.update(
+        id=ORIGINAL_LABEL,
         title="Corrected buffer-size claim",
         description=(
             "Human review established that the corrected claim concerns the destination "
@@ -65,7 +73,7 @@ def request(home: Path, path: Path, finding_id: str, assessment_id: str) -> tupl
         "--assessment",
         assessment_id,
         "--label",
-        "TEST-001",
+        ORIGINAL_LABEL,
         "--ticket",
         "SEC-417",
         "--rationale",
@@ -124,6 +132,17 @@ def test_grouped_claim_correction_uses_immutable_reviewed_content(
     assert all(decision.severity is None and decision.validity is None for decision in history)
     assert {decision.ticket for decision in history} == {"SEC-417"}
     assert {decision.actor for decision in history} == {"human:reviewer@example.com"}
+    candidates = FindingCandidate.parse_many(
+        json.dumps(SARIF).encode(),
+        CandidateFormat.SARIF,
+        original.finding.repository_id,
+        repository_url=REPO,
+        sha=SHA,
+    )
+    replay = services.findings.intake.accept(UUID(assessment_id), candidates)
+    assert replay.findings == {ORIGINAL_LABEL: UUID(finding_id)}
+    assert replay.created == ()
+    assert services.findings.occurrences(finding_ids=[UUID(finding_id)]) == original_occurrences
 
 
 @pytest.mark.parametrize("machine", [False, True])
@@ -182,3 +201,133 @@ def test_grouped_correction_refuses_unrelated_review_and_wrong_ticket(
             str(path),
         )
     assert error.value.code == 2
+
+
+def accept(home: Path, review_item_id: str, **overrides: str) -> tuple[int, object]:
+    return grouped(
+        home,
+        "rebaseline",
+        review_item_id,
+        "--ticket",
+        overrides.get("ticket", "SEC-417"),
+        "--rationale",
+        overrides.get("rationale", "Reviewed the retained claim against the original evidence."),
+    )
+
+
+def test_direct_doors_retain_deleted_file_and_retry_without_new_history(
+    home: Path, tmp_path: Path
+) -> None:
+    finding_id = scanned(home, tmp_path)
+    run(auth.local, home, "--identity", "reviewer@example.com")
+    path, assessment_id = proposal_file(home, tmp_path, finding_id)
+    arguments = (
+        str(path),
+        "--finding",
+        finding_id,
+        "--assessment",
+        assessment_id,
+        "--label",
+        ORIGINAL_LABEL,
+        "--ticket",
+        "SEC-417",
+        "--rationale",
+        "The human corrected this scanner claim.",
+    )
+    status, pending = run(findings.correction_request, home, *arguments)
+    assert status == 0
+    assert run(findings.correction_request, home, *arguments) == (0, pending)
+    path.unlink()
+    arguments = (
+        pending["id"],
+        "--ticket",
+        "SEC-417",
+        "--rationale",
+        "Reviewed the retained claim against the original evidence.",
+    )
+    status, corrected = run(findings.rebaseline, home, *arguments)
+    assert status == 0
+    assert run(findings.rebaseline, home, *arguments) == (0, corrected)
+    assert run(findings.claim, home, finding_id)[1]["title"] == "Corrected buffer-size claim"
+    history = load(home).services().findings.history(UUID(finding_id))
+    assert len(history) == 2
+    assert history[0].artifact_id == history[1].artifact_id
+    assert history[1].restates_id == history[0].id
+
+
+@pytest.mark.parametrize("state", ["non-admin", "untrusted-local", "machine-admin"])
+def test_claim_acceptance_requires_current_restatement_authority(
+    home: Path, tmp_path: Path, state: str
+) -> None:
+    finding_id = scanned(home, tmp_path)
+    run(auth.local, home, "--identity", "reviewer@example.com")
+    path, assessment_id = proposal_file(home, tmp_path, finding_id)
+    _, pending = request(home, path, finding_id, assessment_id)
+    if state == "non-admin":
+        run(auth.local, home, "--identity", "another-human@example.com")
+    elif state == "machine-admin":
+        run(auth.local, home, "--identity", "reviewer@example.com", "--machine")
+    else:
+        config = yaml.safe_load((home / "traust.yaml").read_text())
+        config["identity"]["trust_local"] = False
+        (home / "traust.yaml").write_text(yaml.safe_dump(config))
+    assert accept(home, pending["id"])[0] == 2
+    services = load(home).services()
+    assert services.findings.claim(UUID(finding_id)) is None
+    assert services.findings.review.get(UUID(pending["id"])).status == "pending"
+    assert len(services.findings.history(UUID(finding_id))) == 1
+
+
+def test_later_proposal_supersedes_prior_review_without_overwriting_it(
+    home: Path, tmp_path: Path
+) -> None:
+    finding_id = scanned(home, tmp_path)
+    run(auth.local, home, "--identity", "reviewer@example.com")
+    path, assessment_id = proposal_file(home, tmp_path, finding_id)
+    _, first = request(home, path, finding_id, assessment_id)
+    document = json.loads(path.read_text())
+    document["findings"][0]["title"] = "The second retained proposal"
+    path.write_text(json.dumps(document))
+    _, second = request(home, path, finding_id, assessment_id)
+    assert first["id"] != second["id"]
+    assert accept(home, first["id"])[0] == 2
+    assert accept(home, second["id"])[1]["finding"]["title"] == "The second retained proposal"
+    assert accept(home, first["id"])[0] == 2
+    services = load(home).services()
+    assert services.findings.review.get(UUID(first["id"])).status == "closed_unreviewed"
+    assert services.findings.claim(UUID(finding_id)).title == "The second retained proposal"
+
+
+@pytest.mark.parametrize("binding", ["repository", "commit", "label", "duplicate-label"])
+def test_request_refuses_wrong_report_bindings_without_recording(
+    home: Path, tmp_path: Path, binding: str
+) -> None:
+    finding_id = scanned(home, tmp_path)
+    run(auth.local, home, "--identity", "reviewer@example.com")
+    path, assessment_id = proposal_file(home, tmp_path, finding_id)
+    document = json.loads(path.read_text())
+    if binding in ("repository", "commit"):
+        document["metadata"][binding] = (
+            "https://github.com/example/other" if binding == "repository" else "b" * 40
+        )
+    elif binding == "label":
+        document["findings"][0]["id"] = "OTHER-001"
+    else:
+        document["findings"].append(document["findings"][0].copy())
+    path.write_text(json.dumps(document))
+    assert request(home, path, finding_id, assessment_id)[0] == 2
+    services = load(home).services()
+    assert services.findings.history(UUID(finding_id)) == []
+    assert services.findings.review.for_finding(UUID(finding_id)) == []
+
+
+def test_unrelated_review_cannot_accept_a_correction(home: Path, tmp_path: Path) -> None:
+    from traust_core.v1.models.vocabulary import ReviewReason
+
+    finding_id = scanned(home, tmp_path)
+    run(auth.local, home, "--identity", "reviewer@example.com")
+    services = load(home).services()
+    item = services.findings.review.request_signoff(UUID(finding_id), ReviewReason.MANUAL_QUEUE)
+    assert accept(home, str(item.id))[0] == 2
+    assert services.findings.review.get(item.id).status == "pending"
+    assert services.findings.history(UUID(finding_id)) == []

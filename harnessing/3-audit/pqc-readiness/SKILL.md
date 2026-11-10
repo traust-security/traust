@@ -573,9 +573,9 @@ registered repository: chokepoint → crypto-CWE ground truth → tail, includin
 repositories with no readiness assessment. Chokepoints are the deployment's own list,
 passed per run as repeatable `--chokepoint` repository URL fragments (case-insensitive);
 without one there is no chokepoint tier, and the command says so on stderr.
-A repository with no registered commit routes to `access-request`. Access routing from
-observation outcomes (no-credentials → `access-request`, unreachable → `sbom-only`) needs
-the typed liveness status that waits on plan 15's decision 3.
+A repository with no registered commit routes to `access-request`. Core's recorded availability
+routes no-credentials to `access-request` and unreachable observations to `sbom-only`.
+Unknown availability never establishes source reachability.
 Failed observations are never invented as head documents. Missing manifest SBOMs
 remain explicit scan failures. Repositories without a registered
 commit require access/intake before a pinned scan. An unknown observation is not
