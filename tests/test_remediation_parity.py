@@ -69,9 +69,11 @@ def test_fork_list_cli_enumerates_known_policy_mappings(core: Context) -> None:
     assert (status, stderr) == (0, "")
     mappings = {row["repository_id"]: row for row in json.loads(stdout)}
     assert set(mappings) == {str(first.id), str(second.id)}
+    # Core's fork-naming convention (core#415): policy forks carry the patch prefix
+    # ({patch_prefix}<name>, default "patch-") in the fork org.
     assert {row["fork"]["url"] for row in mappings.values()} == {
-        "https://github.com/private-mirrors/first",
-        "https://github.com/private-mirrors/second",
+        "https://github.com/private-mirrors/patch-first",
+        "https://github.com/private-mirrors/patch-second",
     }
     assert all(row["unavailable_reason"] is None for row in mappings.values())
 
