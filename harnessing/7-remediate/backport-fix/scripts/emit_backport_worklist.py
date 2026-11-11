@@ -37,7 +37,10 @@ def build_worklist(report: dict, report_path: str) -> dict:
 
     rows = []
     for branch_result in report.get("target_branches", []):
-        if branch_result.get("status") not in ("success", "passed"):
+        # The report contract (traust-contracts v1) has exactly three statuses:
+        # succeeded | failed | skipped. A branch whose fix did not land has no
+        # patch to merge, so only `succeeded` can suggest fix_in_progress.
+        if branch_result.get("status") != "succeeded":
             continue
         # "fix_in_progress" means a patch exists to merge. A successful run
         # whose collection found no candidate.patch has nothing to suggest —
