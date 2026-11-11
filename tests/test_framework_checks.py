@@ -22,7 +22,9 @@ def test_every_section_is_present_and_ids_unique():
     rows = _rows()
     ids = [m["id"] for m in rows]
     assert len(ids) == len(set(ids))
-    assert {i.split(".")[0] for i in ids} == {"OP", "GR", "FA", "EX", "JV", "RW", "TN", "RL", "SN"}
+    assert {i.split(".")[0] for i in ids} == {
+        "OP", "GR", "FA", "EX", "JV", "RW", "TN", "RL", "SN", "DF"
+    }  # fmt: skip
     for prefix, floor in (
         ("OP", 10),
         ("GR", 8),
@@ -33,6 +35,7 @@ def test_every_section_is_present_and_ids_unique():
         ("TN", 6),
         ("RL", 12),
         ("SN", 6),
+        ("DF", 1),
     ):
         assert sum(i.startswith(f"{prefix}.") for i in ids) >= floor, prefix
 
@@ -90,7 +93,26 @@ def test_the_ownership_checks_start_from_the_matrix_and_cover_query_ids_by_hand(
     assert "path only" in section and "query string or the body" in section
     assert "`coverage_gaps`" in section
     rows = {m["id"]: m.string for m in _rows()}
-    for check in ("FA.4", "EX.4", "JV.5", "RW.4", "RL.3"):
+    for check in ("FA.4", "EX.4", "JV.5", "RW.4", "RL.3", "DF.1"):
         assert "(#route-ownership-cwe-639)" in rows[check], check
     skill = (CHECKS.parent / "SKILL.md").read_text(encoding="utf-8")
     assert "take the object id from the\n   query string or body" in skill
+
+
+def test_django_and_flask_ownership_rows_get_a_check_and_the_rest_a_gap():
+    """Django/DRF and Flask rows carry judged ownership: their ownership is reviewed under
+    DF.1, and only the rest of those frameworks' review is a coverage gap."""
+    text = CHECKS.read_text(encoding="utf-8")
+    selecting = text.split("## Selecting sections", 1)[1].split("\n## ", 1)[0]
+    assert "`django-drf` or `flask` rows" in selecting
+    assert "under DF.1" in selecting and "`framework-checks` coverage gap" in selecting
+    ownership = text.split("## Route ownership (CWE-639)", 1)[1].split("\n## ", 1)[0]
+    assert "Django/DRF and Flask" in ownership and "DF.1" in ownership
+    assert "never credit" in ownership  # judge-only readers: `unknown` rows are read too
+    rows = {m["id"]: m.string for m in _rows()}
+    assert "no ownership reader yet" not in rows["RW.4"]
+    skill = (CHECKS.parent / "SKILL.md").read_text(encoding="utf-8")
+    assert "Django/DRF and Flask also carry `ownership`" in skill.replace("\n", " ").replace(
+        "  ", " "
+    )
+    assert "RW.4, RL.3, DF.1" in skill
