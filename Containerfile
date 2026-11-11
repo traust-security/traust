@@ -6,11 +6,12 @@
 # harness payload under /harness.
 FROM scratch AS harness
 
-# Harness semver, fed from version.args (generated from VERSION) via the
-# Konflux build-args-file param; the release pipeline's {{ oci_version }}
+# Harness semver, fed from version.args (generated from the pyproject
+# version) via the Konflux build-args-file param; the release pipeline's
+# {{ oci_version }}
 # tag template reads org.opencontainers.image.version, so each released
 # image is also tagged with this value.
-ARG VERSION=0.0.0
+ARG VERSION=0.1.0
 
 # OCI artifact labels.
 # vendor / url / release / distribution-scope are REQUIRED by the Konflux
@@ -74,7 +75,7 @@ COPY docs/ ./docs/
 COPY bin/ ./bin/
 
 # Project metadata
-COPY VERSION pyproject.toml requirements.txt ./
+COPY pyproject.toml requirements.txt ./
 COPY LICENSE NOTICE ./
 COPY LICENSES/ ./LICENSES/
 

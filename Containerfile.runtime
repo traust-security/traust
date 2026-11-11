@@ -34,7 +34,7 @@ WORKDIR /opt/traust
 # traust-ledger, traust-core — through traust's [tool.uv.sources] — plus traust's
 # own runtime deps) and build traust itself as a wheel. The harness payload (harnessing/, config/,
 # docs/, bin/) is copied straight into the runtime stage below: it's data, not a dependency.
-COPY pyproject.toml uv.lock VERSION requirements.txt ./
+COPY pyproject.toml uv.lock requirements.txt ./
 COPY src/ ./src/
 COPY LICENSE NOTICE ./
 COPY LICENSES/ ./LICENSES/
@@ -82,7 +82,7 @@ COPY packs/      /harness/packs/
 COPY config/     /harness/config/
 COPY docs/       /harness/docs/
 COPY bin/        /harness/bin/
-COPY VERSION     /harness/
+
 RUN chown -R 1001:1001 /harness
 # Deployment config (traust.yaml, model-registry, …) is mounted, never baked in.
 ENV TRAUST_CONFIG_HOME=/harness/deploy-config
