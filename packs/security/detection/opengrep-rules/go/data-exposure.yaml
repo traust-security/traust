@@ -1,0 +1,55 @@
+rules:
+  - id: traust-go-data-exposure-secret-in-log
+    languages: [go]
+    severity: WARNING
+    message: >-
+      A secret-looking value is passed to a log call — logs flow to shared
+      aggregation where credential material outlives its rotation. Redact or
+      drop the value; judge whether the variable actually holds a secret.
+      CWE-532.
+    metadata:
+      cwe: ["CWE-532"]
+      category: data-exposure
+      asvs: ["V16"]
+      confidence: LOW
+      references:
+        - "CWE-532 — credential-named values passed to log calls"
+    patterns:
+      - pattern-either:
+          - pattern: log.Printf($FMT, ..., $X, ...)
+          - pattern: log.Println(..., $X, ...)
+          - pattern: log.Print(..., $X, ...)
+          - pattern: klog.Infof($FMT, ..., $X, ...)
+          - pattern: klog.Info(..., $X, ...)
+          - pattern: klog.V($L).Infof($FMT, ..., $X, ...)
+          - pattern: $LOG.Info($MSG, ..., $X, ...)
+          - pattern: fmt.Printf($FMT, ..., $X, ...)
+      - metavariable-regex:
+          metavariable: $X
+          # secret-ish name, excluding benign metadata suffixes (tokenURL,
+          # tokenResp.ExpiresIn, secretName, tokenReview, credentialFile,
+          # tokenScope, secretErrors, ...) that log identity/metadata, not
+          # the credential value
+          regex: (?i)^(?![a-z0-9_.]*(url|uri|expiry|expires|expiresin|expireson|expiresat|expiration|name|names|id|ids|type|path|file|len|count|ttl|version|kind|ref|refs|reference|references|namespace|ns|review|image|scope|scopes|duration|interval|timeout|err|error|errors|hash|digest|sum|status)$)[a-z0-9_.]*(password|passwd|secret|token|apikey|api_key|credential|bearer)[a-z0-9_.]*$
+
+  - id: traust-go-data-exposure-cred-in-argv
+    languages: [go]
+    severity: WARNING
+    message: >-
+      Credential passed as a command-line argument — argv is visible to
+      every process on the node (/proc, ps) and often lands in audit logs.
+      Pass secrets via stdin, a file, or the environment. CWE-214.
+    metadata:
+      cwe: ["CWE-214"]
+      category: data-exposure
+      asvs: ["V13"]
+      confidence: HIGH
+      references:
+        - "CWE-214 — credentials passed on command line"
+    patterns:
+      - pattern-either:
+          - pattern: exec.Command($BIN, ..., $FLAG, $VAL, ...)
+          - pattern: exec.CommandContext($CTX, $BIN, ..., $FLAG, $VAL, ...)
+      - metavariable-regex:
+          metavariable: $FLAG
+          regex: ^"--?(password|passwd|token|api-?key|secret|bearer)(=.*)?"$

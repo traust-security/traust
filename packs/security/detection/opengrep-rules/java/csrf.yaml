@@ -1,0 +1,40 @@
+rules:
+  - id: traust-java-csrf-disabled-with-session-login
+    languages: [java]
+    severity: ERROR
+    message: >-
+      Spring Security's CSRF protection is switched off in a filter chain
+      that also signs browsers in with a session (form login, OAuth2 login
+      or remember-me). Any site the user visits can submit state-changing
+      requests as them. Keep CSRF on for session-authenticated routes;
+      disable it only on a stateless, token-authenticated chain. CWE-352.
+    metadata:
+      cwe: ["CWE-352"]
+      category: csrf
+      asvs: ["V3"]
+      confidence: HIGH
+      references:
+        - "CWE-352 cross-site request forgery — csrf disabled beside session login"
+    patterns:
+      # the same method also signs browsers in with a session
+      - pattern-inside: |
+          $RT $M(...) {
+            ...
+            $LOGIN;
+            ...
+          }
+      - metavariable-pattern:
+          metavariable: $LOGIN
+          pattern-either:
+            - pattern: $L.formLogin(...)
+            - pattern: $L.oauth2Login(...)
+            - pattern: $L.rememberMe(...)
+      - pattern-either:
+          - pattern: $H.csrf($C -> $C.disable())
+          # method references (AbstractHttpConfigurer::disable) only match as text
+          - patterns:
+              - pattern: $H.csrf($REF)
+              - metavariable-regex:
+                  metavariable: $REF
+                  regex: ^\w*Configurer\s*::\s*disable$
+          - pattern: $H.csrf().disable()

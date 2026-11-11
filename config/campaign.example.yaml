@@ -1,6 +1,0 @@
-# Campaign identity for dashboards ($TRAUST_CONFIG_HOME/campaign.yaml). Optional.
-# tracking_reference: the issue-tracker key your dashboards cite in their
-#   header (e.g. an epic). Omitted from output when unset.
-# display_name: how the campaign names itself in generated report titles.
-tracking_reference: ""
-display_name: ""

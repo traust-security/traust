@@ -9,7 +9,7 @@ metadata:
 # Fuzz Harnesses
 
 > **Paths.** `analysis-results/…` and `progress-tracker/…` in this skill are the
-> default workspace layout. They resolve through `locations.yaml` in
+> default workspace layout. They resolve through `locations:` in `traust.yaml` in
 > `$TRAUST_CONFIG_HOME` (`docs/setup.md`, Storage locations); substitute your
 > configured roots.
 
@@ -36,9 +36,11 @@ notes.
    find recommended fuzz entry points (findings whose `remediation` mentions
    fuzzing, or the report's remediation-roadmap "add fuzz harness" items).
    **Also check the refuted register** —
-   `<repo>-refuted-register.json` alongside the audit report (emitted by
-   python3 -m traust.cli ledger emit-triage) lists findings dismissed as
-   false positives; entries in fuzzable classes (parsers, decoders,
+   `traust findings refuted --repo-url <repository-URL>` returns core's
+   false positives, including human-reviewed dismissals. A retained
+   `<repo>-refuted-register.json` is historical evidence, not a current
+   projection; do not regenerate it or treat absence as no refutations.
+   Entries in fuzzable classes (parsers, decoders,
    memory safety, injection) are PRIORITY targets, because a reproducing
    crash overrides the FP assertion via evidence-class precedence
    (`fp_overridden`). An FP is a falsifiable claim, not an exclusion.
@@ -158,7 +160,7 @@ and `BATCH-*.md` for pattern guidance (sprig/`text/template` DoS,
 ### 3. Compile-check
 
 ```bash
-make clone           # shallow-fetch repos at pinned commits (idempotent)
+make clone           # check out repos at pinned commits via the checkout service (idempotent)
 make install build   # copy harnesses in-tree and go test -run '^$' compile-check
 ```
 
@@ -185,42 +187,46 @@ For each crasher:
 3. Classify: panic (index-OOB, nil deref, type assertion), hang/timeout
    (CWE-770 resource exhaustion), or invariant violation (differential).
 4. Copy the reproducer into `analysis-results/findings/**/<id>/fuzz-corpus/<FuzzName>/`.
-5. **File a follow-up finding** — either amend the source
-   `*-security-audit.json` with a new finding whose `evidence` embeds the
-   reproducer and whose `validation_status` is `confirmed`, or open a new
-   finding via `/file-security-defect`. Use the campaign ID format
-   `{REPO_SLUG}-{SHORTSHA}-{NNN}` and set `source_findings` to the fuzz target's
-   `audit_ref`.
-6. **Record it in the disposition ledger.** A crasher that only exists as
-   prose in a batch summary is not recorded — the ledger is the register of
+5. **File a follow-up finding** through the fuzz report in step 6 or
+   `/file-security-defect`. Keep the link to the source audit through the
+   target's `audit_ref` (step 6); never amend the baseline audit (gate A15).
+6. **Record it in traust.** A crasher that only exists as
+   prose in a batch summary is not recorded — traust is the register of
    what we know about a finding, and for months it held none of these.
 
+   Write the run as a fuzz report (traust-contracts `fuzz-report.schema.json`:
+   the target's harnesses with their outcomes, every crasher, measured
+   coverage, the surfaces left unfuzzed and why) and record it on the fuzzed
+   commit:
+
    ```bash
-   python3 harnessing/6-fuzz/create-fuzzing/scripts/emit_fuzz_events.py   # dry run
-   python3 harnessing/6-fuzz/create-fuzzing/scripts/emit_fuzz_events.py --apply
+   traust reporting record <fuzz-report.json> --kind fuzz \
+       --repo-url <repository-URL> --sha <target commit>
    ```
 
-   One event per crasher: `source.type: fuzz_report`, the bug record as
-   `source.ref`, the reproducer directory in `evidence_refs`. Where the
-   target's `audit_ref` is a clean `FIND-NNN` the event attaches to that
-   finding; otherwise it carries a new one. Emits under gate A15 — the
-   baseline audit report is never written — and is idempotent by `event_id`.
+   One finding per crasher: its reproducer digest and path are in the report,
+   which the `fuzz` assessment holds. Where the target's `audit_ref` names a
+   recorded finding, set the crasher's `finding_id` and it confirms that
+   finding; otherwise intake mints a new one. The
+   baseline audit report is never written (gate A15), and recording the same
+   report again adds no finding.
 
-   `fuzz_report` is evidence class 1 because the triggering input is kept, so
+   A fuzz crasher is evidence class 1 because the triggering input is kept, so
    the claim is replayable. The converse is the part that gets misread: a
-   fuzz run that finds nothing emits NOTHING here. Absence of a crash is not
+   fuzz run that finds nothing records no crasher here. Absence of a crash is not
    evidence of correctness.
 
-   A repo audited under several products has one layer per product. The tool
-   refuses to guess which and reports the ambiguity; `--all-layers` records
-   the crasher under every product that ships the code.
+   Findings belong to the repository, not to a product layer, so a repo
+   shipped by several products needs no per-product choice.
 
 ### 6. Report (batch mode)
 
 When running a full batch, `run-sweep.sh` and `gen-reports.sh` produce a
 per-batch summary under this directory. Update the relevant `BATCH-<n>-PLAN.md`
 with results (hit / miss / compile-gap per target) so the next batch's
-selection can learn from it.
+selection can learn from it. The campaign rollup is
+`traust dashboard view validation-fuzz --out <dir>`, built from the recorded
+fuzz reports.
 
 ## Output
 
@@ -230,21 +236,23 @@ selection can learn from it.
 | Harness source | `analysis-results/fuzz-harnesses/<id>/*_fuzz_test.go` — the CORPUS, not this repo: a harness is test code written ABOUT an audited repository, the same category as a finding about it. `file:` in `targets.json` is relative to that root (`HARNESSES` in the Makefile) |
 | Reproducers | `analysis-results/findings/**/<id>/fuzz-corpus/<FuzzName>/<hash>` |
 | Crashers (git-ignored) | `clones/<id>/<pkg>/testdata/fuzz/<FuzzName>/` |
-| Follow-up finding | carried on a ledger event in `analysis-results/findings/**/<repo>-findings-layer.json` (gate A15 — never the baseline) |
-| Campaign summary + rollup (via `build_fuzz_rollup.py`) | `analysis-results/FUZZ-CAMPAIGN-SUMMARY.{md,json}` + `FUZZ-FINDINGS-ROLLUP.md` — the `.json` is the machine-readable sidecar dashboards consume; all three also published to `progress-tracker/metrics/dashboards/fuzz/` |
+| Fuzz report | recorded in traust as a `fuzz` assessment of the target commit (`traust reporting record --kind fuzz`) |
+| Follow-up finding | a finding of that assessment, one per crasher (gate A15 — never the baseline) |
+| Campaign summary + rollup | `traust dashboard view validation-fuzz --out <dir>` — `.md`, `.html` and the `.json` model dashboards consume, derived from the recorded reports |
 
-No JSON schema validation step — this skill produces Go source and manifest
-edits, not audit reports. The report artefact is the follow-up finding carried
-on its ledger event; the originating audit report is not modified (gate A15).
+The fuzz report is validated against its contract schema when it is recorded
+(a crasher must name a harness the report lists). The originating audit report
+is not modified (gate A15).
 
 ## Integrations
 
-- **Inputs:** audit reports' fuzz-worthy entry points, refuted registers
-  (FP falsification targets), and `/impact-analysis` artifacts (form 2b
+- **Inputs:** audit reports' fuzz-worthy entry points, core refuted findings
+  (`traust findings refuted`, maintained by triage and track-findings decisions;
+  FP falsification targets), and `/impact-analysis` artifacts (form 2b
   — the class-3→class-1 promotion path).
-- **Outputs consumed by:** the event-carried follow-up finding
+- **Outputs consumed by:** the recorded follow-up finding
   (with reproducer evidence) flows through `/track-findings` as
-  execution evidence; `FUZZ-CAMPAIGN-SUMMARY.json` feeds
+  execution evidence; the `validation-fuzz` view feeds
   `/validation-fuzz-dashboard`; crashers override FP assertions via
   evidence-class precedence in the disposition ledger.
 

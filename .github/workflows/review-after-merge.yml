@@ -1,0 +1,26 @@
+# A PR merged without an approval gets review/after-merge; a person removes the label once
+# they've reviewed it. The traust-standardization burndown counts what's still labelled.
+# pull_request_target: a write token for fork PRs too; safe because nothing is checked out.
+name: review-after-merge
+
+on:
+  pull_request_target:
+    types: [closed]
+
+permissions:
+  pull-requests: write
+
+jobs:
+  label:
+    if: github.event.pull_request.merged
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          approved=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR/reviews" \
+            --jq '[.[] | select(.state == "APPROVED")] | length')
+          if [ "$approved" -eq 0 ]; then
+            gh pr edit "$PR" --repo "$GITHUB_REPOSITORY" --add-label review/after-merge
+          fi

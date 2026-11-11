@@ -18,7 +18,7 @@ companion references are:
 | Python | 3.11+ |
 | Git | Any recent version; most audit skills clone their targets |
 | An AI coding agent | Claude Code or Crush — the harness is prompt-and-skill tooling driven by an agent, not a standalone scanner. Skills are auto-discovered via the `.claude/skills/` and `.crush/skills/` symlink trees |
-| Python dependencies | `uv sync` in the harness repo (installs `traust-engine`, `traust-ledger`, `traust-contracts` from the git tags pinned in `uv.lock`); optional extras via `uv sync --extra graph` or `--extra signing` |
+| Python dependencies | `uv sync` in the harness repo (installs `traust-core`, and through it `traust-ledger` and `traust-contracts`, from the commit SHAs in `pyproject.toml` via `[tool.uv.sources]`); optional extras via `uv sync --extra signing`. The continuous-ops service `traust-engine` is installed separately (the runtime image includes it): `uv tool install "traust-engine @ git+https://github.com/traust-security/traust-engine@<sha>"` |
 | **Operational configuration** | A directory named by `TRAUST_CONFIG_HOME` (default `~/.traust/config`) holding the nine operational config files — corpus registry, product map, budget policy, safe-exec profiles, rule-pack allowlist, hardening weights, dist-git watch list, internal vocabulary, ledger signing public key. `scripts/install_traust` creates it from the templates in `config/`; `install_traust --doctor` verifies it. **Nothing runs without it** — a missing file fails closed. See [config/README.md](../config/README.md) |
 | Disk | A few GB free — audit skills clone target repositories into the workspace |
 
@@ -58,7 +58,7 @@ without touching the harness. See
 
 Nothing beyond the baseline is needed until you use a skill that calls for it.
 `scripts/install-toolchain.sh <profile>` installs the scanner binaries at the
-versions pinned in `config/external-tools.yaml` (the manifest `/drift-watch`
+versions pinned in traust-core's shipped `external-tools.yaml` (the manifest `/drift-watch`
 checks installs against); the per-skill mapping and every license are in
 [external-dependencies.md](external-dependencies.md). By capability:
 
@@ -67,14 +67,14 @@ checks installs against); the per-skill mapping and every license are in
 | Run source-code audits (`secure-code-audit`, `vuln-scan`, `threat-model`, `triage`) | Nothing extra — optional deterministic pre-scanners sharpen results: `opengrep`, `gitleaks`, `govulncheck`, the OSV API dependency pre-scan (osv-scanner only when air-gapped — [setup.md](setup.md#air-gapped-osv-scanning)), and one of `tokei`/`scc`/`cloc` for LoC (toolchain profile `secure-code-audit`) |
 | Audit container images (`secure-container-audit`) | `skopeo`, `syft`, `grype`, `cosign`, `podman`. Optional: `yara` for the known-malware-family pre-scan over the exported rootfs (pinned rule pack fetched at run time) — toolchain profile `secure-container-audit` |
 | Audit RPM packaging (`secure-rpm-audit`) | GitLab MCP tools, `git`, access to the dist-git lookaside cache; optional `syft`/`grype`/`govulncheck` and the OSV API (osv-scanner when air-gapped) over the prepared source tree, and `yara` — toolchain profile `secure-rpm-audit` |
-| Audit IaC (`cloud-config-audit`) | `checkov`, pinned to the version in `harnessing/3-audit/cloud-config-audit/scripts/run_checkov.py` — the runner hard-fails on a mismatch and always runs offline. Optional: the `bicep` CLI (pinned `PINNED_BICEP_VERSION`, same file) for the transpile fallback on `.bicep` files checkov's parser rejects — install to `~/.cache/cca-tools/bicep-<version>/bicep` (0700) or set `$CCA_BICEP`; verify the downloaded binary against `PINNED_BICEP_SHA256`. Without it those files stay loud NOT-ASSESSED gaps |
+| Audit IaC (`cloud-config-audit`) | `checkov`, pinned to `CHECKOV_VERSION` in traust-core's `models/cloud_config.py` — `traust cloud-config run` hard-fails on a mismatch and always runs offline. Optional: the `bicep` CLI (pinned `BICEP_VERSION` in traust-engine's `adapters/cloud_config.py`) for the transpile fallback on `.bicep` files checkov's parser rejects — install to `~/.cache/cca-tools/bicep-<version>/bicep` (0700) or set `$CCA_BICEP`; verify the downloaded binary against `BICEP_SHA256` (same file). Without it those files stay loud NOT-ASSESSED gaps |
 | Inventory operator-catalog and release-payload targets (`inventory-repositories`) | `oc`, `skopeo`, `podman`, `opm`/`operator-sdk` |
 | Validate findings on a live cluster (`validate-findings`, `deploy-operator` (internal extension), `operator-priv-profile` tier 3) | `oc`, `kubectl`, and a **disposable, explicitly authorized** cluster named in the rules-of-engagement file. How the cluster is provisioned is the deployment's concern |
 | Validate browser findings (`validate-browser-finding`) | Playwright (`pip install -r requirements.txt` from the repo root, then `playwright install chromium`) |
 | Fuzz (`create-fuzzing`) | The target language's toolchain: Go native, `atheris` (Python), `Jazzer.js` (JS/TS), `jazzer` (JVM, pinned), `cargo-fuzz` (Rust) |
 | Generate remediations on forks (`remediate-finding`) | A `GITHUB_TOKEN` with fork-push rights — fork setup goes through the GitHub REST API directly (`curl`), no `gh` needed. (`glab` belongs to `fleet-fix` MR automation) |
-| PQC readiness (`pqc-readiness`) | Rust toolchain (builds the pinned `pqc-scan` binary); Go toolchain + `callgraph`/`digraph` for call-graph reachability |
-| Sign disposition ledgers | `cosign`, plus the signing private key in your secret store, referenced by `ledger.yaml` → `signing.key_path` — toolchain profile `ledger-signing`; see [signing.md](signing.md) |
+| PQC readiness (`pqc-readiness`) | `traust pqc prescan` uses Core's registered provider. Source mode needs the pinned executable + matching checksum, readable rules and `process.allowed_binaries` permission; Rust is needed only to build the binary, `git`/`syft` for checkout/SBOM acquisition when needed. SBOM-only mode accepts a manifest without executing the source scanner. Optional x/crypto call-graph evidence needs Go + `callgraph`/`digraph` |
+| Sign disposition ledgers | `cosign`, plus the signing private key in your secret store, referenced by `traust.yaml` → `ledger.key_path` — toolchain profile `ledger-signing`; see [signing.md](signing.md) |
 
 ## Network & access tiers
 

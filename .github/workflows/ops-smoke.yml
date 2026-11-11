@@ -1,0 +1,40 @@
+name: ops-smoke
+
+# The local continuous-ops rig, end to end: make ops-smoke stands up an
+# ephemeral Postgres, onboards one repository, runs one engine pass, claims
+# until the queue drains and asserts the orders completed (see
+# docs/continuous-operations.md, "The local rig"). Manual only: routed lanes
+# queue for approval and are never claimed here, so the run spends nothing.
+#
+# NOT CI (decided 2026-11-04): the engine runs and collects real data — it
+# never runs on push or pull_request, and this workflow stays
+# workflow_dispatch-only as a manual full-rig check. The rig on a laptop is
+# the integration test; CI unit-tests and integration-tests the pieces.
+# GitHub registers a workflow only when it exists on the default branch, so
+# dispatch may 404 until this file reaches main — run the same check locally
+# with make ops-smoke.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: traust-security/traust-engine
+          ref: 779471df5b9473bbf31cf0ad78d213f88bda9153
+          path: traust-engine
+      - uses: astral-sh/setup-uv@v5
+      - name: Install pinned Syft for manifest SBOM smoke
+        run: |
+          uv sync --quiet
+          HARNESS_BIN_DIR="$RUNNER_TEMP/bin" bash scripts/install-toolchain.sh local-ops
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+      - run: make ops-smoke
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OPS_ENGINE_SRC: ${{ github.workspace }}/traust-engine
+          OPS_TEARDOWN: "1"

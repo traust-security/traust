@@ -1,0 +1,77 @@
+rules:
+  - id: traust-java-cryptography-weak-algorithm
+    languages: [java]
+    severity: ERROR
+    message: >-
+      Broken or weak cryptographic primitive requested by name — DES/3DES,
+      RC4, ECB mode, or MD5/SHA-1 in a security context is attackable with
+      commodity resources. Use AES-GCM (or another AEAD) and SHA-256+;
+      judge digest hits for non-security uses (cache keys, checksums)
+      before promotion. CWE-327; SEI CERT MSC61-J.
+    metadata:
+      cwe: ["CWE-327"]
+      category: cryptography
+      asvs: ["V11"]
+      cert: ["MSC61-J"]
+      confidence: HIGH
+      references:
+        - "seed rule: SEI CERT Oracle Coding Standard for Java, MSC61-J (cited by ID; pattern and text original to this pack)"
+    patterns:
+      - pattern-either:
+          - pattern: Cipher.getInstance("$ALG")
+          - pattern: MessageDigest.getInstance("$ALG")
+          - pattern: Mac.getInstance("$ALG")
+      - metavariable-regex:
+          metavariable: $ALG
+          regex: ^(DES|DESede|RC2|RC4|ARCFOUR|Blowfish)(/.*)?$|^[^/]+/ECB(/.*)?$|^(MD2|MD5|SHA-?1)$|^Hmac(MD5|SHA1)$
+
+  - id: traust-java-cryptography-weak-random
+    languages: [java]
+    severity: WARNING
+    message: >-
+      Non-cryptographic RNG — java.util.Random and Math.random() are
+      predictable from a few outputs. If the value feeds a token, password,
+      session id, key, nonce, or reset code, replace with SecureRandom;
+      dismiss for simulation/jitter/test uses. CWE-330; SEI CERT MSC02-J.
+    metadata:
+      cwe: ["CWE-330", "CWE-338"]
+      category: cryptography
+      asvs: ["V11"]
+      cert: ["MSC02-J"]
+      confidence: LOW
+      references:
+        - "seed rule: SEI CERT Oracle Coding Standard for Java, MSC02-J (cited by ID; pattern and text original to this pack)"
+    patterns:
+      - pattern-either:
+          - pattern: new Random()
+          - pattern: new Random($SEED)
+          - pattern: Math.random()
+          - pattern: ThreadLocalRandom.current()
+
+  - id: traust-java-cryptography-trust-all-tls
+    languages: [java]
+    severity: ERROR
+    message: >-
+      TLS trust or hostname verification disabled — an empty trust-manager
+      check or an always-true hostname verifier lets an on-path attacker
+      terminate the connection with any certificate. Trust a pinned CA or
+      the platform store and keep hostname verification on. CWE-295.
+    metadata:
+      cwe: ["CWE-295"]
+      category: cryptography
+      asvs: ["V12"]
+      cert: []
+      confidence: HIGH
+      references:
+        - "seed rule: pattern original to this pack (no single SEI CERT Java rule ID; certificate-validation cluster)"
+        - "CWE-295 certificate validation cluster"
+    patterns:
+      - pattern-either:
+          - pattern: |
+              public void checkServerTrusted($...PARAMS) { }
+          - pattern: |
+              public void checkClientTrusted($...PARAMS) { }
+          - pattern: |
+              public boolean verify($H, $S) { return true; }
+          - pattern: $C.setHostnameVerifier(($H, $S) -> true)
+          - pattern: HttpsURLConnection.setDefaultHostnameVerifier(($H, $S) -> true)

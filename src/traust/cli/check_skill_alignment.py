@@ -47,12 +47,12 @@ Rules:
                       gemini-*, …) may appear ONLY in
                       config/model-registry.yaml — skills and scripts name
                       tier classes and resolve via
-                      `traust_engine.registry.models` (lock-in and spend
+                      traust-core's `ctx.model_catalog` (lock-in and spend
                       policy live in data, not prose).
   A10 integrations    A skill emitting non-terminal artifacts must carry
                       an Integrations/Downstream section documenting who
                       consumes them.
-  A8 checkov-contract A skill that RUNS run_checkov.py must carry the
+  A8 checkov-contract A skill that RUNS `traust cloud-config run` must carry the
                       recording conventions: `deterministic_steps` plus
                       the declared-configuration labeling (a
                       declared-only assessment never claims
@@ -76,22 +76,24 @@ Rules:
                       unanchored script.
   A17 locations-note  A SKILL.md that names `analysis-results/` or
                       `progress-tracker/` carries the note that those are
-                      the default layout resolved through `locations.yaml`
-                      in $TRAUST_CONFIG_HOME — a reader outside this
+                      the default layout resolved through `locations:` in
+                      `traust.yaml` in $TRAUST_CONFIG_HOME — a reader outside this
                       deployment cannot otherwise tell a default from a
                       hardcode (52/56 docs named them, 2026-09-07).
   A16 layer-writes    Ledger layers are written through the SDK, never by
                       _write_layer_file or a direct write_text — a direct
                       write bypasses the Backend.mutate lock that keeps
                       mutate+stamp+sign atomic.
-  A18 composition-root Engine and config-home resolution happen ONLY in
-                      `src/traust/context.py`, the app's single composition
-                      root. `HarnessEngine.load()`/`HarnessEngine(...)`
-                      elsewhere re-resolves config on its own terms and
-                      loses the fail-loud `SystemExit(2)` contract that 93
-                      call sites depend on; a direct
+  A18 composition-root traust depends on traust-core only: a
+                      `HarnessEngine.load()`/`HarnessEngine(...)` call
+                      outside `src/traust/cli/groups/_registry.py` (where
+                      `load_engine` lived) fails, and config-home
+                      resolution happens ONLY in `src/traust/context.py`,
+                      the app's single composition root, whose
+                      `traust.context.load()` keeps the fail-loud
+                      `SystemExit(2)` contract; a direct
                       `deployment_config_dir()` bypasses `traust.paths`.
-                      Importing HarnessEngine for a type annotation is
+                      Naming HarnessEngine in a type annotation is
                       fine — this matches the CALL. Zero violations at
                       landing: a ratchet, not a cleanup.
   A13 skills-doc-sync A staged harnessing/*/SKILL.md change must be
@@ -225,7 +227,7 @@ BASELINE_WRITE_MD_NEG_RE = re.compile(
 )
 RUNS_OPENGREP_RE = re.compile(r"run_opengrep\.py")
 RUNS_KHS_RE = re.compile(r"scan_k8s_hardening\.py")
-RUNS_CHECKOV_RE = re.compile(r"run_checkov\.py")
+RUNS_CHECKOV_RE = re.compile(r"run_checkov\.py|cloud-config run")
 DECLARED_RE = re.compile(r"declared[ -](configuration|layer)", re.IGNORECASE)
 JUDGE_RE = re.compile(
     r"scanner_correlation|promote-or-dismiss|"
@@ -265,7 +267,7 @@ ARTIFACT_SKIP_RE = re.compile(
 # machine consumer
 # Shrunk 2026-07-31 (wiring F1): `-plan\.`, `queue`, `owners`,
 # `-repos\.` and `manifest` auto-exempted real pipeline artifacts
-# (attack-plan.yaml, countersign-queue, owners.csv, *-repos.csv,
+# (attack-plan.yaml, owners.csv, *-repos.csv,
 # findings.db) that all HAVE consumers — they must prove their
 # wiring like everything else.
 ARTIFACT_TERMINAL_RE = re.compile(
@@ -424,11 +426,6 @@ EXEMPTIONS: dict[tuple[str, str], str] = {
     ): "human companion of the isolation-review JSON",
     (
         "A9",
-        "mine-ledger:tp-corpus.jsonl",
-    ): "rule-authoring specification corpus consumed by the opengrep-pack "
-    "test-and-calibrate workflow (human loop, by design)",
-    (
-        "A9",
         "validate-findings:attack-plan.yaml",
     ): "execution plan produced AND consumed inside the same validation "
     "run (plan → execute); the slug-prefixed portfolio copy "
@@ -448,13 +445,12 @@ EXEMPTIONS: dict[tuple[str, str], str] = {
     (
         "A9",
         "threat-model:*-threat-model.json",
-    ): "the contract artifact, whose consumer is the STORAGE LAYER rather "
-    "than a skill: store_ingest routes it as the `threat-model` family and "
-    "traust_contracts.v1.storage projects it into `threat`, read through "
-    "the `threat_current` / `threat_exposure` views. A9 can only see "
+    ): "the contract artifact, whose consumer is TRAUST-CORE rather "
+    "than a skill: `traust reporting record` records it as a threat-model "
+    "assessment and AssessmentService.threats reads it back. A9 can only see "
     "skill-to-skill wiring, and requiring one here would push the estate "
     "back to re-parsing prose — the thing the schema exists to end. A "
-    "database adopter reads the views with no skill in the path. Delete "
+    "database adopter reads the threats with no skill in the path. Delete "
     "this entry if a skill starts reading the JSON directly",
     (
         "A9",
@@ -464,7 +460,7 @@ EXEMPTIONS: dict[tuple[str, str], str] = {
         "A9",
         "vuln-scan:*-diff-packet.json",
     ): "diff-mode scratch evidence bundle produced AND consumed inside "
-    "the same skill (Step 0b build_diff_packet.py -> cluster "
+    "the same skill (Step 0 traust assessments prepare -> cluster "
     "briefs); never a campaign artifact",
     (
         "A7",
@@ -476,17 +472,6 @@ EXEMPTIONS: dict[tuple[str, str], str] = {
         "harnessing/check-licensing/SKILL.md",
     ): "mentions run_opengrep.py only as the swappable-input example in "
     "the never-vendor constraint; runs no scan and writes no report",
-    (
-        "A8",
-        "harnessing/drift-watch/SKILL.md",
-    ): "names run_checkov.py only as the checkov-pin check target; "
-    "runs no scan and writes no report",
-    (
-        "A8",
-        "harnessing/triage/SKILL.md",
-    ): "names run_checkov.py only in the deterministic-tooling coverage "
-    "map (which path each scanner's output takes into triage); "
-    "runs no scan and writes no cloud-config report",
     # (A11 grandfather set RETIRED 2026-07-31 P1-W4: census,
     # corpus-intake, insecure-patterns and repo-graph now carry
     # per-script anchored grants.)
@@ -513,15 +498,7 @@ EXEMPTIONS: dict[tuple[str, str], str] = {
     ): "P1-W4 anchor queue — verify invocation shapes, then anchor",
     (
         "A14",
-        "harnessing/countersign/SKILL.md",
-    ): "P1-W4 anchor queue — verify invocation shapes, then anchor",
-    (
-        "A14",
         "harnessing/dependency-watch/SKILL.md",
-    ): "P1-W4 anchor queue — verify invocation shapes, then anchor",
-    (
-        "A14",
-        "harnessing/fleet-fix/SKILL.md",
     ): "P1-W4 anchor queue — verify invocation shapes, then anchor",
     (
         "A14",
@@ -546,10 +523,6 @@ EXEMPTIONS: dict[tuple[str, str], str] = {
     (
         "A14",
         "harnessing/threat-register/SKILL.md",
-    ): "P1-W4 anchor queue — verify invocation shapes, then anchor",
-    (
-        "A14",
-        "harnessing/track-findings/SKILL.md",
     ): "P1-W4 anchor queue — verify invocation shapes, then anchor",
     (
         "A14",
@@ -859,20 +832,19 @@ LAYER_WRITE_RE = re.compile(
 LAYER_PATH_HINT_RE = re.compile(r"findings-layer|LAYER_SUFFIX|_findings_layer")
 
 
-#: A18 — engine resolution. Matches the CALL, never the import: 8 modules import
-#: `HarnessEngine` purely to annotate a parameter, which is correct and must stay
-#: clean. `HarnessEngine(` catches construction that skips `load()` entirely.
+#: A18 — engine resolution. Matches the CALL, never the import or an annotation.
+#: `HarnessEngine(` catches construction that skips `load()` entirely.
 A18_ENGINE_CALL_RE = re.compile(r"\bHarnessEngine\s*(?:\.\s*load\s*)?\(")
 #: A18 — config-home resolution. `traust.paths` re-exports this symbol (an import
 #: and an `__all__` entry, neither a call), so the module list below allows it.
 A18_CONFIG_HOME_CALL_RE = re.compile(r"\bdeployment_config_dir\s*\(")
-#: The composition root itself, plus the sanctioned config-path resolver.
-A18_ENGINE_ROOTS = ("src/traust/context.py",)
+#: Where `load_engine` lived, plus the composition root and the sanctioned config-path resolver.
+A18_ENGINE_ROOTS = ("src/traust/cli/groups/_registry.py",)
 A18_CONFIG_HOME_ROOTS = ("src/traust/context.py", "src/traust/paths.py")
 
 
 _A17_TREES = ("analysis-results/", "progress-tracker/")
-_A17_MARK = "`locations.yaml`"
+_A17_MARK = "`traust.yaml`"
 
 
 def a17_locations_note_failures(repo: Path = REPO, used: list | None = None) -> list[str]:
@@ -880,11 +852,11 @@ def a17_locations_note_failures(repo: Path = REPO, used: list | None = None) -> 
 
     52 of 56 skill docs write `analysis-results/…` or `progress-tracker/…`
     literally (measured 2026-09-07). The code underneath resolves those roots
-    through `locations.yaml` in $TRAUST_CONFIG_HOME, so the literals are the
+    through `locations:` in `traust.yaml`, so the literals are the
     documented DEFAULT layout — but a reader outside this deployment cannot
     tell a default from a hardcode. Any skill doc that names either tree must
     carry the one-paragraph note saying the paths resolve through
-    `locations.yaml`. Publish-time pass for the open-source split; this rule
+    `traust.yaml`. Publish-time pass for the open-source split; this rule
     is the ratchet that keeps the next skill honest.
     """
     used = used if used is not None else []
@@ -905,7 +877,7 @@ def a17_locations_note_failures(repo: Path = REPO, used: list | None = None) -> 
             failures.append(
                 f"A17: {rel} names a workspace tree ({', '.join(named)}) without "
                 f"the locations note — add the standard paragraph saying these "
-                f"paths are the default layout resolved through `locations.yaml` "
+                f"paths are the default layout resolved through `locations:` in `traust.yaml` "
                 f"in $TRAUST_CONFIG_HOME (docs/setup.md, Storage locations)"
             )
     return failures
@@ -987,27 +959,24 @@ def a16_layer_write_boundary_failures(repo: Path = REPO, used: list | None = Non
 
 
 def a18_composition_root_failures(repo: Path = REPO, used: list | None = None) -> list[str]:
-    """A18 — the engine is resolved in exactly one place.
+    """A18 — config is resolved in exactly one place, and no engine is.
 
-    `src/traust/context.py` is the app's single composition root: it calls
-    `HarnessEngine.load()` once, converts `DeploymentConfigMissing` into a
-    one-line `SystemExit(2)`, and hands the engine (or one ops namespace) to
-    its callers. 93 modules call `load_engine()` and 96 call
-    `add_config_home_arg()` — so every lane inherits the same config
-    precedence (CLI flag > AUDIT_RESULTS_ROOT > `locations.yaml`) and the same
-    fail-loud behaviour, pinned by `tests/test_context.py`.
+    traust depends on traust-core only: `traust.context.load()` builds core's
+    Context, converts a config error into a one-line `SystemExit(2)`, and every
+    op that calls `add_config_home_arg()` inherits the same config precedence
+    (CLI flag > AUDIT_RESULTS_ROOT > `traust.yaml` locations) and the same fail-loud
+    behaviour, pinned by `tests/test_context.py`. A `HarnessEngine` call
+    outside `src/traust/cli/groups/_registry.py`, where `load_engine` lived,
+    fails.
 
     A second caller re-resolves config on its own terms: it gets a traceback
     instead of exit 2, or a different precedence, and the guarantee stops being
-    a guarantee. The invariant was stated in the module docstring from the
-    start and has held across all 93 sites by discipline alone — nothing
-    checked it. This rule is the ratchet, in the shape A16 established: it
-    lands at zero and exists so the 94th site fails the commit instead of
+    a guarantee. This rule is the ratchet, in the shape A16 established: it
+    lands at zero and exists so the next site fails the commit instead of
     being noticed later.
 
-    Deliberately matches the CALL, not the import. `from traust_engine import
-    HarnessEngine` appears in 8 modules that only annotate a parameter with it;
-    banning the import would flag all 8 and get the rule waived.
+    Deliberately matches the CALL, not the import: naming `HarnessEngine` in
+    an annotation is not a resolution.
     """
     used = used if used is not None else []
     failures: list[str] = []
@@ -1033,9 +1002,9 @@ def a18_composition_root_failures(repo: Path = REPO, used: list | None = None) -
                 if rel not in A18_ENGINE_ROOTS and A18_ENGINE_CALL_RE.search(line):
                     failures.append(
                         f"A18: {rel}:{n} resolves the engine outside the composition "
-                        f"root — call `traust.context.load_engine()` so the "
-                        f"SystemExit(2) contract and config precedence stay in one "
-                        f"place (src/traust/context.py)"
+                        f"root — traust depends on traust-core only: build its Context "
+                        f"with `traust.context.load()` so the SystemExit(2) contract and "
+                        f"config precedence stay in one place (src/traust/context.py)"
                     )
                 if rel not in A18_CONFIG_HOME_ROOTS and A18_CONFIG_HOME_CALL_RE.search(line):
                     failures.append(
@@ -1175,7 +1144,7 @@ def alignment_failures(repo: Path = REPO, exemptions_used: list | None = None) -
             if not DECLARED_RE.search(text):
                 missing.append("declared-configuration labeling")
             if missing and not _exempt("A8", rel, used):
-                failures.append(f"A8 {rel}: runs run_checkov.py without {' or '.join(missing)}")
+                failures.append(f"A8 {rel}: runs Checkov without {' or '.join(missing)}")
 
         # A4 — audit profiles link the shared structure doc
         if (
@@ -1207,7 +1176,7 @@ def alignment_failures(repo: Path = REPO, exemptions_used: list | None = None) -
                     f"A12 {rel}:{i}: hardcoded model id '{m.group(0)}' — "
                     f"name a tier class and resolve via "
                     f"config/model-registry.yaml "
-                    f"(traust_engine.registry.models)"
+                    f"(traust-core's ctx.model_catalog)"
                 )
 
         # A11 — no broad interpreter grants in allowed-tools

@@ -1,0 +1,49 @@
+rules:
+  - id: traust-go-ssrf-request-taint
+    languages: [go]
+    severity: ERROR
+    message: >-
+      Request-derived value reaches an outbound HTTP call as the URL — the
+      caller can steer server-side requests at internal endpoints (cloud
+      metadata, kubelet, cluster services). Validate against an allowlist
+      before fetching. CWE-918.
+    metadata:
+      cwe: ["CWE-918"]
+      category: ssrf
+      asvs: ["V4"]
+      confidence: MEDIUM
+      references:
+        - "CWE-918 SSRF — request-derived values reaching outbound HTTP calls"
+    mode: taint
+    pattern-sources:
+      - pattern-either:
+          - pattern: $R.URL.Query().Get(...)
+          - pattern: $R.URL.Query()[...]
+          - pattern: $R.FormValue(...)
+          - pattern: $R.PostFormValue(...)
+          - pattern: mux.Vars($R)
+          # generic context/url receivers — over-broad by design (the
+          # confirmed TPs fire through url.URL receivers in hand-written
+          # code); the generated-client FP mass is removed by the paths
+          # exclusion below instead
+          - pattern: $C.Param(...)
+          - pattern: $C.Query(...)
+    # values that went through structured URL parsing follow the
+    # parse-then-validate-host idiom; the remaining raw-string flow into
+    # an HTTP sink is the high-precision core of this rule
+    pattern-sanitizers:
+      - pattern: url.Parse(...)
+      - pattern: url.ParseRequestURI(...)
+    pattern-sinks:
+      - pattern-either:
+          - pattern: http.Get(...)
+          - pattern: http.Post(...)
+          - pattern: http.Head(...)
+          - pattern: http.NewRequest($M, ...)
+          - pattern: http.NewRequestWithContext($CTX, $M, ...)
+    paths:
+      exclude:
+        - "*.gen.go"
+        - "*_gen.go"
+        - "*generated*"
+        - "zz_generated*"

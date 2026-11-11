@@ -1,0 +1,104 @@
+rules:
+  - id: traust-python-mass-assignment-extra-allow
+    languages: [python]
+    severity: WARNING
+    message: >-
+      A Pydantic model accepts and keeps fields it doesn't declare
+      (extra="allow"). When it carries request data, a caller can add any
+      column name to the body and, once the model is dumped into a database
+      write, set fields the endpoint never meant to accept (owner, team,
+      role, flags). Forbid or ignore extra fields on request models.
+      CWE-915.
+    metadata:
+      cwe: ["CWE-915"]
+      category: mass-assignment
+      asvs: ["V15"]
+      confidence: MEDIUM
+      references:
+        - "CWE-915 mass assignment — Pydantic request models that keep undeclared fields"
+    patterns:
+      - pattern-either:
+          - pattern: model_config = ConfigDict(..., extra="allow", ...)
+          - pattern: model_config = $PD.ConfigDict(..., extra="allow", ...)
+          - pattern: 'model_config = {..., "extra": "allow", ...}'
+          - pattern: model_config = ConfigDict(..., extra=Extra.allow, ...)
+          - patterns:
+              - pattern-inside: |
+                  class Config:
+                    ...
+              - pattern-either:
+                  - pattern: extra = "allow"
+                  - pattern: extra = Extra.allow
+          - pattern: |
+              class $M(..., extra="allow", ...):
+                ...
+      # settings objects read the environment, not requests
+      - pattern-not-inside: |
+          class $S(BaseSettings, ...):
+            ...
+
+  - id: traust-python-mass-assignment-model-all-fields
+    languages: [python]
+    severity: WARNING
+    message: >-
+      A Django ModelForm or DRF serializer binds every model field
+      (fields = "__all__"), so a request can set fields the form never shows
+      (owner, is_staff, prices, foreign keys). List the fields the endpoint
+      accepts. CWE-915.
+    metadata:
+      cwe: ["CWE-915"]
+      category: mass-assignment
+      asvs: ["V15"]
+      confidence: MEDIUM
+      references:
+        - "CWE-915 mass assignment — ModelForm and ModelSerializer with fields = __all__"
+    patterns:
+      - pattern-inside: |
+          class $F($BASE):
+            ...
+            class Meta:
+              ...
+      - metavariable-regex:
+          metavariable: $BASE
+          regex: (^|\.)(ModelForm|ModelSerializer|HyperlinkedModelSerializer)$
+      - pattern: fields = "__all__"
+
+  - id: traust-python-mass-assignment-request-splat
+    languages: [python]
+    severity: ERROR
+    message: >-
+      Request data is unpacked straight into a database write (**data into
+      objects.create/update, or setattr with request-chosen names), so a
+      caller can set any column, not just the ones the endpoint means to
+      change. Copy the allowed fields by name, or validate with a schema
+      that rejects unknown fields. CWE-915.
+    metadata:
+      cwe: ["CWE-915"]
+      category: mass-assignment
+      asvs: ["V15"]
+      confidence: MEDIUM
+      references:
+        - "CWE-915 mass assignment — request bodies splatted into ORM writes"
+    mode: taint
+    pattern-sources:
+      - pattern-either:
+          - pattern: request.data
+          - pattern: request.POST
+          - pattern: request.json
+          - pattern: request.get_json(...)
+          - pattern: request.form
+          - pattern: await $REQ.json()
+          - pattern: json.loads($REQ.body)
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: $M.objects.$W(..., **$X)
+              - pattern: $QS.update(**$X)
+              - pattern: $M.objects.filter(...).update(**$X)
+          - focus-metavariable: $X
+      - patterns:
+          - pattern-inside: |
+              for $K, $V in $D.items():
+                ...
+          - pattern: setattr($O, $K, ...)
+          - focus-metavariable: $K

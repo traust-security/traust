@@ -1,0 +1,33 @@
+rules:
+  - id: traust-ruby-csrf-protection-skipped
+    languages: [ruby]
+    severity: INFO
+    message: >-
+      A controller turns off Rails' CSRF check (judged in context: most
+      skips are deliberate). If the action is browser-facing, any site
+      the user visits can submit requests to these actions with the user's
+      session. Keep forgery protection on; for a webhook, verify the
+      sender's signature instead, and for an API, inherit from
+      ActionController::API and authenticate with tokens. CWE-352.
+    metadata:
+      cwe: ["CWE-352"]
+      category: csrf
+      asvs: ["V3"]
+      confidence: LOW
+      references:
+        - "CWE-352 cross-site request forgery — verify_authenticity_token skipped"
+    # webhooks, OAuth callbacks and token-authenticated APIs skip it by design
+    paths:
+      exclude: ["*webhook*", "*hook*", "*callback*", "**/api/**"]
+    patterns:
+      - pattern-either:
+          - pattern: skip_before_action :verify_authenticity_token
+          - pattern: skip_before_action :verify_authenticity_token, ...
+          - pattern: skip_forgery_protection
+          - pattern: skip_forgery_protection(...)
+          - pattern: 'protect_from_forgery(..., except: $A, ...)'
+      # ActionController::API has no forgery protection to skip
+      - pattern-not-inside: |
+          class $C < ActionController::API
+            ...
+          end

@@ -42,10 +42,17 @@ try, in order).
 
 from __future__ import annotations
 
+import csv
+import re
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import yaml
+from pydantic import TypeAdapter
+from pydantic import ValidationError as PydanticValidationError
+from traust_core.v1.errors import ConfigError
+from traust_core.v1.models.values import HttpsRepoUrl
 
 DESCRIPTOR_NAME = "inventory.yaml"
 KINDS = ("groups", "release-payload", "catalog", "services")
@@ -140,3 +147,110 @@ def load_descriptor(inputs: Path | None) -> InventoryDescriptor:
         extra = {k: v for k, v in spec.items() if k not in ("kind", "label")}
         declared.append(Segment(str(name), kind, spec.get("label"), extra))
     return InventoryDescriptor(path, tuple(declared))
+
+
+# --- the repository URLs each segment lists ------------------------------------------------
+# The input inventory is an adopter extension (E3): traust reads it, and registers what it lists
+# through core's doors (`find_repository`, `register_repository`, `OpsService.plan`). Core keeps
+# no segment model and no identity from these paths (R11).
+
+_REPO_URL = TypeAdapter(HttpsRepoUrl)
+_URL_COLUMNS = ("GitHub URL", "URL")
+_NO_REPOSITORY_COLUMN = "GitHub Repository"  # `N/A (<image>)` on a base-image row
+_BASE_IMAGE = re.compile(r"N/A \((?=\S)[^()]+\)")  # the catalog procedure's exact marker
+
+
+@dataclass(frozen=True)
+class InputSegment:
+    """One inventory segment and the repository URLs its ``*-repos.csv`` files list."""
+
+    name: str
+    repository_urls: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class InputSegmentInventory:
+    """Every segment present under the inventory root, declared ones first."""
+
+    segments: tuple[InputSegment, ...]
+
+
+def repository_inventory(inputs: Path) -> InputSegmentInventory:
+    """Each segment's repository URLs under ``inputs``, in descriptor priority order.
+
+    Every ``*-repos.csv`` below a segment counts except ``owners*.csv``; its ``GitHub URL`` (else
+    ``URL``) column names the repository. A missing tree, an invalid descriptor, an empty or
+    headerless file, a file without a URL column, a row whose URL cell is empty or missing, or a
+    URL that is not an https repository raises :class:`ConfigError` naming the file (and line);
+    nothing is skipped silently. A blank line is no row and lists nothing.
+    """
+    if not inputs.is_dir():
+        raise ConfigError(f"reading input segments: {inputs} is not a directory")
+    try:
+        descriptor = load_descriptor(inputs)
+    except InventoryDescriptorError as e:
+        raise ConfigError(f"reading input segment descriptor: {e}") from e
+    try:
+        present = {
+            path.name: path
+            for path in inputs.iterdir()
+            if path.is_dir() and not path.name.startswith(".")
+        }
+    except OSError as e:
+        raise ConfigError(f"listing input segments in {inputs}: {e}") from e
+    return InputSegmentInventory(
+        segments=tuple(
+            InputSegment(name=name, repository_urls=_segment_urls(present[name]))
+            for name in descriptor.priority(set(present))
+        )
+    )
+
+
+def _no_repository(header: Sequence[str], row: Sequence[str]) -> bool:
+    """Whether a row declares it has no repository, as a catalog's base-image row does: its
+    `GitHub Repository` cell reads `N/A (<base-image-path>)`."""
+    if _NO_REPOSITORY_COLUMN not in header:
+        return False
+    i = header.index(_NO_REPOSITORY_COLUMN)
+    return i < len(row) and _BASE_IMAGE.fullmatch(row[i].strip()) is not None
+
+
+def _segment_urls(directory: Path) -> tuple[str, ...]:
+    urls: set[str] = set()
+    try:
+        paths = sorted(directory.rglob("*-repos.csv"))
+    except OSError as e:
+        raise ConfigError(f"listing repository inventories in {directory}: {e}") from e
+    for path in paths:
+        if path.name.startswith("owners"):
+            continue
+        try:
+            with path.open(encoding="utf-8-sig", newline="") as stream:
+                rows = csv.reader(stream, strict=True)
+                header = next((row for row in rows if row), ())
+                if not header:
+                    raise ConfigError(f"{path}: no header row; expected a GitHub URL or URL column")
+                columns = [header.index(column) for column in _URL_COLUMNS if column in header]
+                if not columns:
+                    raise ConfigError(f"{path}: expected a GitHub URL or URL column")
+                for row in rows:
+                    if not row:
+                        continue  # a blank line: no row, so no repository to drop
+                    if len(row) > len(header):
+                        raise ConfigError(f"{path}:{rows.line_num}: too many CSV fields")
+                    raw = next(
+                        (row[i].strip() for i in columns if i < len(row) and row[i].strip()), ""
+                    )
+                    if not raw and _no_repository(header, row):
+                        continue  # a catalog's base image: `N/A (<image>)`, no repository
+                    if not raw:
+                        raise ConfigError(f"{path}:{rows.line_num}: empty or missing URL cell")
+                    try:
+                        urls.add(str(_REPO_URL.validate_python(raw)))
+                    except PydanticValidationError as e:
+                        raise ConfigError(
+                            f"{path}:{rows.line_num}: invalid repository URL: {e}"
+                        ) from e
+        except (OSError, UnicodeError, csv.Error) as e:
+            raise ConfigError(f"reading repository inventory {path}: {e}") from e
+    return tuple(sorted(urls))

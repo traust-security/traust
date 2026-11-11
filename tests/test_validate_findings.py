@@ -1891,9 +1891,12 @@ class TestWriteReport:
                 "date": "2026-01-01",
                 "harness_version": "1.0",
                 "scope_binding_mode": "none",
+                "target_fingerprint": [],
                 "approval": {},
             },
-            "source_reports": [],
+            "source_reports": [
+                {"kind": "security-audit", "path": "opaque:original", "sha256": "a" * 64}
+            ],
             "summary": {
                 "by_verdict": {
                     "confirmed": 0,

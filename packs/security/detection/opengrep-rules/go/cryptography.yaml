@@ -1,0 +1,173 @@
+rules:
+  - id: traust-go-cryptography-tls-skip-verify
+    languages: [go]
+    severity: ERROR
+    message: >-
+      TLS certificate verification disabled — every connection through this
+      config accepts any certificate, so an on-path attacker can read or
+      rewrite the traffic. Pin the expected CA instead. CWE-295.
+    metadata:
+      cwe: ["CWE-295"]
+      category: cryptography
+      asvs: ["V12"]
+      confidence: HIGH
+      references:
+        - "CWE-295 certificate validation — TLS InsecureSkipVerify"
+    patterns:
+      - pattern-either:
+          - pattern: "tls.Config{..., InsecureSkipVerify: true, ...}"
+          - pattern: $CFG.InsecureSkipVerify = true
+
+  - id: traust-go-cryptography-weak-hash
+    languages: [go]
+    severity: INFO
+    message: >-
+      MD5/SHA-1 in use — fine for non-security checksums, broken for
+      anything an attacker benefits from colliding (signatures, passwords,
+      integrity of untrusted input). Judge the context. CWE-328.
+    metadata:
+      cwe: ["CWE-328", "CWE-327"]
+      category: cryptography
+      asvs: ["V11"]
+      confidence: LOW
+      references:
+        - "CWE-328/CWE-327 — weak hash algorithms in security context"
+    patterns:
+      - pattern-either:
+          - pattern: md5.New()
+          - pattern: md5.Sum(...)
+          - pattern: sha1.New()
+          - pattern: sha1.Sum(...)
+
+  - id: traust-go-cryptography-math-rand-secret
+    languages: [go]
+    severity: WARNING
+    message: >-
+      math/rand output assigned to a secret-looking variable — math/rand is
+      deterministic and seedable, so generated tokens/keys are predictable.
+      Use crypto/rand. CWE-338.
+    metadata:
+      cwe: ["CWE-338"]
+      category: cryptography
+      asvs: ["V11"]
+      confidence: MEDIUM
+      references:
+        - "CWE-338 — math/rand used for secret-shaped values"
+    patterns:
+      - pattern-either:
+          - pattern: $X := rand.Intn(...)
+          - pattern: $X = rand.Intn(...)
+          - pattern: $X := rand.Int63(...)
+          - pattern: $X := rand.Perm(...)
+      - metavariable-regex:
+          metavariable: $X
+          regex: (?i).*(token|secret|password|passwd|nonce|apikey|api_key|sessionid|session_id).*
+
+  - id: traust-go-cryptography-cosign-classical-signing
+    languages: [go]
+    severity: INFO
+    message: >-
+      sigstore/cosign signing library imported — signatures are ECDSA-based
+      (classical, Shor-vulnerable) and artifact signatures carry multi-year
+      verification lifetimes (NIST IR 8547: classical PK disallowed after
+      2035). Not a defect today: inventory it, tag the finding
+      pqc_classification=shor-signature, and track the sigstore PQC
+      roadmap. CWE-327.
+    metadata:
+      cwe: ["CWE-327"]
+      category: cryptography
+      asvs: ["V11"]
+      confidence: HIGH
+      pqc_classification: shor-signature
+      references:
+        - "CWE-327 — sigstore/cosign classical signing inventory (quoted-import anchored)"
+    patterns:
+      - pattern-regex: '"github\.com/sigstore/(cosign|sigstore-go|rekor|fulcio)[^"]*"'
+
+  - id: traust-go-cryptography-insecure-dsn-transport
+    languages: [go]
+    severity: ERROR
+    message: >-
+      A database connection string is built with TLS disabled or
+      unverified (sslmode=disable/allow/prefer, mysql tls=false or
+      tls=skip-verify, ssl-mode=DISABLED) — queries and credentials cross
+      the network in plaintext or without server authentication. Default
+      to verify-full / tls=true and make any insecure mode an explicit,
+      documented opt-out. CWE-319.
+    metadata:
+      cwe: ["CWE-319"]
+      category: cryptography
+      asvs: ["V12"]
+      confidence: HIGH
+      references:
+        - "CWE-319 — database DSN with TLS disabled or unverified"
+    patterns:
+      - pattern-regex: (?i)sslmode=(disable|allow|prefer)|[?&]tls=(false|skip-verify)|ssl-mode=disabled
+
+  # v1.8 crypto-hygiene tranche — Go twin
+  # of traust-python-cryptography-secret-compare-not-constant-time.
+  # Name-based (no type information), so LOW confidence; comparisons
+  # against literals/nil and names that describe a secret's metadata
+  # (type, ID, name, length, URL, version...) are excluded.
+  - id: traust-go-cryptography-secret-compare-not-constant-time
+    languages: [go]
+    severity: WARNING
+    message: >-
+      Secret material (a token, password, digest, signature, MAC or API
+      key) is compared with == / != / bytes.Equal — the comparison returns
+      at the first differing byte, so timing reveals how much of a guessed
+      value was correct. Use subtle.ConstantTimeCompare or hmac.Equal.
+      Confirm the operand really is secret: names are a heuristic.
+      CWE-208.
+    metadata:
+      cwe: ["CWE-208"]
+      category: cryptography
+      asvs: ["V11"]
+      confidence: LOW
+      references:
+        - "seeded defect shape: non-constant-time credential comparison"
+    pattern-either:
+      - patterns:
+          - pattern-either:
+              - pattern: $A == $B
+              - pattern: $A != $B
+              - pattern: bytes.Equal($A, $B)
+          - metavariable-regex:
+              metavariable: $A
+              regex: '(?i)^(?:[A-Za-z_]\w*\.)*(?!err)(?!(?-i:[A-Z][A-Z0-9_]*)$)(?!\w*?_?(?:type|types|name|names|id|ids|url|uri|path|file|len|length|size|count|version|algorithm|algo|alg|kind|format|scheme|ref|header|endpoint|expiry|expires|expiration|ttl|duration|prefix|field|source|provider|issuer|audience|scope|scopes|status|state|policy|mode|method|config|cfg|options|enabled|required|present|valid|class|cls|hint|hints|label|keyid|dict|list|map|set|store|cache|manager|handler|client|service|backend|usage)$)(?!\w*(?:tokens|secrets|passwords|signatures)$)(?!(?:order|attribute|lexer|lex|parse|parser|next|prev|previous|current|cur|completion|prompt|input|output|max|num|total|start|end|stop|bos|eos|pad|special)_?token)(?:\w*?(?:token|secret|passw(?:or)?d|signature|hmac|api_?key)\w*|\w*?(?:hmac|mac|sig|secret)_?digest\w*|(?:\w*_)?mac|\w*[a-z0-9](?-i:Mac|MAC))$'
+          # drop presence/kind/error checks: the other side is a literal,
+          # sentinel, enum label or a type/kind-named value
+          - metavariable-pattern:
+              metavariable: $B
+              patterns:
+                - pattern: $OTHER
+                - pattern-not: '"..."'
+                - pattern-not: nil
+                - pattern-not: "true"
+                - pattern-not: "false"
+                - pattern-not-regex: '^-?\d+(\.\d+)?$'
+                - pattern-not-regex: '(?i)^(?:[\w.]+\.)?\w*(?:type|kind|status|state|mode|algorithm|algo|alg|version|format)$'
+                - pattern-not-regex: '(?i)^(?:[\w.]+\.)?err\w*$'
+                - pattern-not-regex: '^(?:[\w.]+\.)?[A-Z][A-Z0-9_]*$'
+      - patterns:
+          - pattern-either:
+              - pattern: $A == $B
+              - pattern: $A != $B
+              - pattern: bytes.Equal($A, $B)
+          - metavariable-regex:
+              metavariable: $B
+              regex: '(?i)^(?:[A-Za-z_]\w*\.)*(?!err)(?!(?-i:[A-Z][A-Z0-9_]*)$)(?!\w*?_?(?:type|types|name|names|id|ids|url|uri|path|file|len|length|size|count|version|algorithm|algo|alg|kind|format|scheme|ref|header|endpoint|expiry|expires|expiration|ttl|duration|prefix|field|source|provider|issuer|audience|scope|scopes|status|state|policy|mode|method|config|cfg|options|enabled|required|present|valid|class|cls|hint|hints|label|keyid|dict|list|map|set|store|cache|manager|handler|client|service|backend|usage)$)(?!\w*(?:tokens|secrets|passwords|signatures)$)(?!(?:order|attribute|lexer|lex|parse|parser|next|prev|previous|current|cur|completion|prompt|input|output|max|num|total|start|end|stop|bos|eos|pad|special)_?token)(?:\w*?(?:token|secret|passw(?:or)?d|signature|hmac|api_?key)\w*|\w*?(?:hmac|mac|sig|secret)_?digest\w*|(?:\w*_)?mac|\w*[a-z0-9](?-i:Mac|MAC))$'
+          # drop presence/kind/error checks: the other side is a literal,
+          # sentinel, enum label or a type/kind-named value
+          - metavariable-pattern:
+              metavariable: $A
+              patterns:
+                - pattern: $OTHER
+                - pattern-not: '"..."'
+                - pattern-not: nil
+                - pattern-not: "true"
+                - pattern-not: "false"
+                - pattern-not-regex: '^-?\d+(\.\d+)?$'
+                - pattern-not-regex: '(?i)^(?:[\w.]+\.)?\w*(?:type|kind|status|state|mode|algorithm|algo|alg|version|format)$'
+                - pattern-not-regex: '(?i)^(?:[\w.]+\.)?err\w*$'
+                - pattern-not-regex: '^(?:[\w.]+\.)?[A-Z][A-Z0-9_]*$'

@@ -1,21 +1,9 @@
 #!/usr/bin/env python3
-"""Unit tests for schema/triage.schema.json and cross_validate_triage."""
+"""Unit tests for schema/triage.schema.json."""
 
 import unittest
-from pathlib import Path
 
-import jsonschema
-from traust_contracts.paths import schema_path as _schema_path
-from traust_engine.reporting.validate import (
-    ValidationResult,
-    build_registry,
-    cross_validate_triage,
-    detect_schema_path,
-    load_schema,
-)
-
-SCHEMA = load_schema(_schema_path("triage"))
-REGISTRY = build_registry()
+from traust_core.v1.contracts import schema_errors
 
 
 def _finding(**kw):
@@ -108,16 +96,7 @@ def _valid_triage():
 
 
 def _schema_errors(doc):
-    v = jsonschema.Draft202012Validator(
-        SCHEMA, registry=REGISTRY, format_checker=jsonschema.FormatChecker()
-    )
-    return [e.message for e in v.iter_errors(doc)]
-
-
-def _cross(doc):
-    result = ValidationResult(file_path="TRIAGE.json")
-    cross_validate_triage(doc, result)
-    return result
+    return [m for _, m in schema_errors("triage", doc)]
 
 
 class TestTriageSchema(unittest.TestCase):
@@ -160,111 +139,6 @@ class TestTriageSchema(unittest.TestCase):
         doc = _valid_triage()
         doc["findings"][0]["recommendation"] = None
         self.assertEqual(_schema_errors(doc), [])
-
-
-class TestTriageCrossValidation(unittest.TestCase):
-    def test_valid_document_no_errors(self):
-        r = _cross(_valid_triage())
-        self.assertEqual(r.errors, [])
-        self.assertEqual(r.warnings, [])
-
-    def test_rule13_false_positive_rejected(self):
-        doc = _valid_triage()
-        doc["findings"][2]["exclusion_rule"] = "13"
-        r = _cross(doc)
-        self.assertTrue(any("never false positives" in e for e in r.errors))
-
-    def test_hardening_without_rule13_rejected(self):
-        doc = _valid_triage()
-        doc["findings"][1]["exclusion_rule"] = "3"
-        r = _cross(doc)
-        self.assertTrue(any("requires exclusion_rule 13" in e for e in r.errors))
-
-    def test_false_positive_needs_refute_reasons(self):
-        doc = _valid_triage()
-        doc["findings"][2]["refute_reasons"] = []
-        r = _cross(doc)
-        self.assertTrue(any("empty refute_reasons" in e for e in r.errors))
-
-    def test_summary_count_mismatch(self):
-        doc = _valid_triage()
-        doc["summary"]["hardening"] = 2
-        r = _cross(doc)
-        self.assertTrue(any("summary.hardening" in e for e in r.errors))
-
-    def test_by_severity_mismatch(self):
-        doc = _valid_triage()
-        doc["summary"]["by_severity"]["critical"] = 0
-        r = _cross(doc)
-        self.assertTrue(any("by_severity[critical]" in e for e in r.errors))
-
-    def test_severity_on_non_tp_rejected(self):
-        doc = _valid_triage()
-        doc["findings"][1]["severity"] = "low"
-        r = _cross(doc)
-        self.assertTrue(any("true positives only" in e for e in r.errors))
-
-    def test_undetermined_with_confidence_rejected(self):
-        doc = _valid_triage()
-        doc["findings"][2].update(
-            verdict="undetermined", exclusion_rule=None, confidence=7.0, verify_verdict=None
-        )
-        doc["summary"].update(false_positives=0, undetermined=1)
-        r = _cross(doc)
-        self.assertTrue(any("undetermined" in e for e in r.errors))
-
-    def test_undetermined_needs_manual_test_ok(self):
-        doc = _valid_triage()
-        doc["findings"][2].update(
-            verdict="undetermined",
-            exclusion_rule=None,
-            confidence=0,
-            refute_reasons=["unlocatable"],
-            verify_verdict="needs_manual_test",
-        )
-        doc["summary"].update(false_positives=0, undetermined=1)
-        r = _cross(doc)
-        self.assertEqual(r.errors, [])
-
-    def test_duplicate_must_reference_known_canonical(self):
-        doc = _valid_triage()
-        doc["findings"][2].update(verdict="duplicate", duplicate_of="f999", exclusion_rule=None)
-        doc["summary"].update(false_positives=0, duplicates=1)
-        r = _cross(doc)
-        self.assertTrue(any("not a known finding id" in e for e in r.errors))
-
-    def test_majority_contradiction_warns(self):
-        doc = _valid_triage()
-        doc["findings"][0]["vote_breakdown"] = {
-            "true_positive": 1,
-            "hardening": 0,
-            "false_positive": 2,
-            "cannot_verify": 0,
-        }
-        r = _cross(doc)
-        self.assertTrue(any("contradicts strict vote majority" in w for w in r.warnings))
-
-    def test_noncanonical_orig_id_in_canonical_batch_warns(self):
-        doc = _valid_triage()
-        doc["findings"][2]["orig_id"] = "SOME-weird-id"
-        r = _cross(doc)
-        self.assertTrue(any("not canonical" in w for w in r.warnings))
-
-    def test_duplicate_ids_rejected(self):
-        doc = _valid_triage()
-        doc["findings"][1]["id"] = "f001"
-        r = _cross(doc)
-        self.assertTrue(any("Duplicate triage finding ID" in e for e in r.errors))
-
-
-class TestSchemaAutoDetection(unittest.TestCase):
-    def test_triage_filenames_detected(self):
-        self.assertIsNotNone(detect_schema_path(Path("TRIAGE.json")))
-        self.assertIsNotNone(detect_schema_path(Path("acp-triage.json")))
-
-    def test_other_filenames_fall_through(self):
-        self.assertIsNone(detect_schema_path(Path("x-security-audit.json")))
-        self.assertIsNone(detect_schema_path(Path("x-findings-current.json")))
 
 
 if __name__ == "__main__":

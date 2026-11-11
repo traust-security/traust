@@ -7,10 +7,13 @@ from __future__ import annotations
 
 import datetime as _dt
 import json
+import re
 import subprocess
 import sys
 from collections import Counter
 from pathlib import Path
+
+from traust_core.v1.models.artifacts import ValidationArtifact
 
 if __package__:
     from . import soundness
@@ -31,9 +34,10 @@ def harness_version() -> str:
     """Return '<VERSION>-<short-sha>' for the traust checkout."""
     here = Path(__file__).resolve()
     for p in here.parents:
-        vf = p / "VERSION"
-        if vf.is_file():
-            ver = vf.read_text(encoding="utf-8").strip()
+        vf = p / "pyproject.toml"
+        if vf.is_file() and 'name = "traust"' in vf.read_text(encoding="utf-8"):
+            m = re.search(r'(?m)^version\s*=\s*"([^"]+)"', vf.read_text(encoding="utf-8"))
+            ver = m.group(1) if m else "0.1.0"
             try:
                 sha = subprocess.run(
                     ["git", "-C", str(p), "rev-parse", "--short", "HEAD"],
@@ -64,7 +68,21 @@ def build_validation_json(
     flags: list[str],
     approval: dict,
     novel_findings: list[dict] | None = None,
+    target_attestation: dict | None = None,
+    finding_assessments: dict[str, dict] | None = None,
 ) -> dict:
+    allowed_assessments = {
+        "evidence_grade",
+        "grade_rationale",
+        "severity_validation",
+        "chain_context",
+    }
+    finding_ids = {finding.id for finding in n.findings}
+    for finding_id, assessment in (finding_assessments or {}).items():
+        if finding_id not in finding_ids:
+            raise ValueError("finding assessment references an unknown planner finding")
+        if set(assessment) - allowed_assessments:
+            raise ValueError("finding assessments may only supply grade and review proposals")
     by_technique = Counter()
     for r in results:
         # technique is on the plan step, not StepResult; infer from refs
@@ -108,22 +126,27 @@ def build_validation_json(
     }
 
     validated: dict[str, dict] = {}
-    _first_sa = next(
-        (sr["path"] for sr in n.source_reports if sr["kind"] == "security-audit"),
-        n.source_dir,
+    audit_sources = [sr["path"] for sr in n.source_reports if sr["kind"] == "security-audit"]
+    sole_source = (
+        audit_sources[0]
+        if len(audit_sources) == 1
+        else n.source_reports[0]["path"]
+        if len(n.source_reports) == 1
+        else None
     )
     for f in n.findings:
+        source_report = getattr(f, "source_report_path", None) or sole_source
+        if source_report is None:
+            raise ValueError("finding requires explicit unambiguous source report context")
+        if f.id in validated:
+            raise ValueError("duplicate planner finding identity")
         validated[f.id] = {
-            "source_id": f.id,
-            # Per-finding source-report path (multi-repo packages have
-            # one security-audit file per repo; previously this was
-            # always the FIRST audit file in the package).
-            "source_report": getattr(f, "source_report_path", None) or _first_sa,
+            "source_id": getattr(f, "source_id", None) or f.id,
+            "source_report": source_report,
             "title": f.title,
             "claimed_severity": f.severity,
-            "surface": getattr(f, "surface", "runtime"),
             "verdict": "not_attempted",
-            "skip_reason": None,  # set when verdict==not_attempted
+            "not_attempted_reason": None,
             "soundness_flag": None,  # set when a refutation was gated
             "technique": "skip",
             "steps": [],
@@ -131,6 +154,8 @@ def build_validation_json(
             "observed_impact": "",
             "deviation_from_claim": "",
             "rollback_performed": None,
+            "evidence_grade": None,
+            **(finding_assessments or {}).get(f.id, {}),
         }
     for r in results:
         if not r.finding_ref or r.finding_ref not in validated:
@@ -155,15 +180,15 @@ def build_validation_json(
         # categorise not_attempted correctly.
         reason = rd.get("scope_reason") or rd.get("reason") or rd.get("skip")
         if verb in SKIP_VERBS and r.verdict == "not_attempted":
-            if vf["skip_reason"] is None:
-                vf["skip_reason"] = reason
+            if vf["not_attempted_reason"] is None:
+                vf["not_attempted_reason"] = reason
             continue
 
         # Real attempt — apply precedence among primary steps only.
         if prec.get(r.verdict, 5) < prec.get(vf["verdict"], 5):
             vf["verdict"] = r.verdict
             vf["observed_impact"] = r.observed
-            vf["skip_reason"] = (
+            vf["not_attempted_reason"] = (
                 reason if r.verdict in ("not_attempted", "blocked_by_scope") else None
             )
             # The driving step's soundness flag travels with the verdict
@@ -208,7 +233,9 @@ def build_validation_json(
         return "other"
 
     not_attempted_by_reason = Counter(
-        _na_cat(vf["skip_reason"]) for vf in validated.values() if vf["verdict"] == "not_attempted"
+        _na_cat(vf["not_attempted_reason"])
+        for vf in validated.values()
+        if vf["verdict"] == "not_attempted"
     )
 
     # Findings deferred to the second (real-credential) pass.
@@ -217,18 +244,15 @@ def build_validation_json(
             "source_id": vf["source_id"],
             "title": vf["title"],
             "severity": vf["claimed_severity"],
-            "credential_ref": (vf["skip_reason"] or "").split(":", 1)[-1],
+            "credential_ref": (vf["not_attempted_reason"] or "").split(":", 1)[-1],
         }
         for vf in validated.values()
-        if (vf["skip_reason"] or "").startswith("needs-credential")
+        if (vf["not_attempted_reason"] or "").startswith("needs-credential")
     ]
 
     # chains → schema shape.
-    # Chain steps reference findings whose full step detail is already
-    # in ``validated_findings[].steps[]``; embedding full StepResult
-    # dicts here duplicates that detail across every chain that touches
-    # the same finding (SMv2: 10k chains × ~5 steps × ~2KB = 1.9 GB).
-    # Store step *references* only: {step_id, finding_ref, verdict}.
+    # Keep chain entries bounded references, with the required step context.
+    # Transcripts/evidence remain on validated_findings, not copied per chain.
     results_by_fid: dict[str, list] = {}
     for r in results:
         if r.finding_ref:
@@ -273,6 +297,12 @@ def build_validation_json(
                         "step_id": step_id,
                         "finding_ref": r.finding_ref,
                         "verdict": r.verdict,
+                        "verb": r.verb,
+                        **{
+                            field: getattr(r, field)
+                            for field in ("adapter", "classification")
+                            if hasattr(r, field)
+                        },
                     }
                 )
                 if r.verdict == "confirmed":
@@ -311,29 +341,42 @@ def build_validation_json(
             "authorized_by": scope.authorized_by,
             "expires": scope.expires.isoformat() if scope.expires else None,
             "target_fingerprint": [fp.to_dict() for fp in fingerprints],
-            # What this run executed AGAINST. Storage supersedes
-            # validations on it: two runs of one subject against
-            # different targets are not re-runs of each other.
+            # Runs against different targets are distinct statements.
             "target_environment": scope.target_environment(),
             "approval": approval,
             "flags": flags,
+            "target_attestation": target_attestation,
+            "additional": {
+                "validation_producer": {
+                    "not_attempted_by_reason": dict(not_attempted_by_reason),
+                    "by_surface": dict(
+                        Counter(getattr(f, "surface", "runtime") for f in n.findings)
+                    ),
+                    "needs_credential_count": len(needs_credential),
+                    "needs_credential": needs_credential,
+                    "findings": [
+                        {
+                            "source_report": validated[f.id]["source_report"],
+                            "source_id": validated[f.id]["source_id"],
+                            "planner_id": f.id,
+                            "surface": getattr(f, "surface", "runtime"),
+                        }
+                        for f in n.findings
+                    ],
+                }
+            },
         },
         "source_reports": n.source_reports,
         "summary": {
             "by_verdict": dict(by_verdict),
-            "not_attempted_by_reason": dict(not_attempted_by_reason),
             "by_technique": dict(by_technique),
-            "by_surface": dict(Counter(vf["surface"] for vf in validated.values())),
             "novel_count": len(novel_findings or []),
             "chain_count": len(chain_results),
             "highest_impact_chain": highest,
-            "needs_credential_count": len(needs_credential),
         },
         "validated_findings": list(validated.values()),
         "attack_chains": chain_results,
         "novel_findings": novel_findings or [],
-        # Findings deferred to a second pass with real credentials.
-        "needs_credential": needs_credential,
         "execution_log_ref": audit_path,
         "execution_log_sha256": audit_sha256,
     }
@@ -463,7 +506,11 @@ def write(doc: dict, out_dir: Path, target_name: str) -> tuple[Path, Path]:
     # strip None to satisfy schema additionalProperties
     clean = json.loads(json.dumps(doc, default=str))
     _strip_nones(clean)
-    jpath.write_text(json.dumps(clean, indent=2) + "\n", encoding="utf-8")
+    for finding in clean["validated_findings"]:
+        finding.setdefault("evidence_grade", None)
+    payload = (json.dumps(clean, indent=2) + "\n").encode("utf-8")
+    artifact = ValidationArtifact.parse(payload)
+    jpath.write_bytes(artifact.payload)
     mpath.write_text(render_markdown(doc), encoding="utf-8")
     return jpath, mpath
 

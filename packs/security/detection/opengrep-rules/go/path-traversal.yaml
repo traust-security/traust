@@ -1,0 +1,58 @@
+rules:
+  - id: traust-go-path-traversal-taint
+    languages: [go]
+    severity: ERROR
+    message: >-
+      Request-derived value reaches a filesystem operation — "../" sequences
+      in the parameter walk outside the intended directory. Canonicalize and
+      containment-check (or use filepath.Base / securejoin) before opening.
+      CWE-22.
+    metadata:
+      cwe: ["CWE-22"]
+      category: path-traversal
+      asvs: ["V5"]
+      confidence: HIGH
+      references:
+        - "CWE-22 path traversal — request-derived filesystem access"
+    mode: taint
+    pattern-sources:
+      - pattern-either:
+          - pattern: $R.URL.Query().Get(...)
+          - pattern: $R.URL.Query()[...]
+          - pattern: $R.FormValue(...)
+          - pattern: $R.PostFormValue(...)
+          - pattern: mux.Vars($R)
+          - pattern: $C.Param(...)
+    pattern-sanitizers:
+      - pattern: filepath.Base(...)
+      - pattern: securejoin.SecureJoin(...)
+    pattern-sinks:
+      - pattern-either:
+          - pattern: os.Open(...)
+          - pattern: os.ReadFile(...)
+          - pattern: os.Create(...)
+          - pattern: os.WriteFile(...)
+          - pattern: os.Remove(...)
+          - pattern: http.ServeFile($W, $R, ...)
+
+  - id: traust-go-path-traversal-tar-slip
+    languages: [go]
+    severity: WARNING
+    message: >-
+      Archive entry name joined into a destination path — a crafted archive
+      with "../" entry names writes outside the extraction directory
+      ("zip/tar slip"). Containment-check the joined path against the
+      destination root before writing. CWE-22.
+    metadata:
+      cwe: ["CWE-22"]
+      category: path-traversal
+      asvs: ["V5"]
+      confidence: MEDIUM
+      references:
+        - "CWE-22 path traversal — archive slip via entry name join"
+    patterns:
+      - pattern-either:
+          - pattern: filepath.Join($DST, $HDR.Name)
+          - pattern: filepath.Join($DST, $F.Name)
+      - pattern-not-inside: |
+          if strings.HasPrefix(...) { ... }

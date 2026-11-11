@@ -1,38 +1,39 @@
 """Harness repo layout — skill enumeration and schema paths.
 
 Config-owned runtime locations (workspace, analysis-results, inputs) resolve
-through :mod:`traust.context` after ``load_engine()`` at entry
+through :mod:`traust.context` after ``load()`` at entry
 points. This module holds harness-checkout layout only (harnessing/, schemas).
 """
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
-from traust_contracts import (
-    DeploymentConfigMissing,
-    config_path,
-    deployment_config_dir,
-    optional_config_path,
-)
-from traust_contracts.paths import schema_dir as _contracts_schema_dir
-from traust_contracts.paths import schema_path as _contracts_schema_path
+from traust_core.v1.context import config_path, optional_config_path, schema_dir, schema_path
+from traust_core.v1.errors import DeploymentConfigMissing
 
 _PKG_ROOT = Path(__file__).resolve().parent
-HARNESS_ROOT = _PKG_ROOT.parents[1]
+# A wheel install (the runtime image) has no checkout around the package: the image copies the
+# harness payload elsewhere and names it in HARNESS_ROOT.
+HARNESS_ROOT = Path(os.environ.get("HARNESS_ROOT") or _PKG_ROOT.parents[1])
 SRC_DIR = HARNESS_ROOT / "src"
 CLI_DIR = _PKG_ROOT / "cli"
 HARNESSING_DIR = HARNESS_ROOT / "harnessing"
+SECURITY_PACK_DIR = HARNESS_ROOT / "packs" / "security"
+#: The pack's opengrep rules and gitleaks config: the defaults when traust.yaml names none.
+OPENGREP_RULES_DIR = SECURITY_PACK_DIR / "detection" / "opengrep-rules"
+GITLEAKS_CONFIG = SECURITY_PACK_DIR / "detection" / "gitleaks-rules" / "gitleaks-default.toml"
 #: The repo's ``config/`` holds SOURCE only — shipped defaults + ``*.example.*``
 #: templates + README, never read at runtime. All runtime config (including where
 #: the harness reads/writes data) resolves from the one config home via
-#: :func:`traust.context.load_engine`.
+#: :func:`traust.context.load`.
 
 __all__ = [
     "DeploymentConfigMissing",
     "config_path",
-    "deployment_config_dir",
     "optional_config_path",
+    "schema_path",
 ]
 
 #: The file that makes a directory a skill (Agent Skills spec).
@@ -107,11 +108,7 @@ def skill_scripts(repo: Path | None = None, pattern: str = "*.py") -> list[Path]
 
 
 def schemas_dir() -> Path:
-    return _contracts_schema_dir()
+    return schema_dir()
 
 
 SCHEMA_DIR = schemas_dir()
-
-
-def schema_path(name: str) -> Path:
-    return _contracts_schema_path(name)

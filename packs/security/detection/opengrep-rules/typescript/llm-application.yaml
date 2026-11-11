@@ -1,0 +1,188 @@
+rules:
+  # --- LLM05: improper output handling (model output is untrusted input) ---
+
+  - id: traust-ts-llm-application-output-to-shell-taint
+    languages: [typescript, javascript]
+    severity: ERROR
+    message: >-
+      Model output reaches a child_process shell call. Treat completions like
+      input from an anonymous user: whoever steers the prompt (directly or
+      through retrieved content) chooses the command. Map the answer to a fixed
+      set of allowed actions instead. CWE-1426, CWE-78.
+    metadata:
+      cwe: ["CWE-1426", "CWE-78"]
+      category: llm-application
+      asvs: ["V1"]
+      owasp_llm: ["LLM05"]
+      confidence: HIGH
+      references:
+        - "CWE-1426 improper validation of generative AI output — reaches a command sink"
+    mode: taint
+    pattern-sources:
+      - pattern-either:
+          - pattern: $C.chat.completions.create(...)
+          - pattern: $C.completions.create(...)
+          - pattern: $C.responses.create(...)
+          - pattern: $C.messages.create(...)
+          - pattern: $M.generateContent(...)
+          - pattern: generateText(...)
+          - pattern: $LLM.invoke(...)
+          - pattern: $R.choices[$I].message.content
+          - pattern: $R.content[$I].text
+          - pattern: $R.output_text
+    pattern-sinks:
+      - pattern-either:
+          - pattern: exec(...)
+          - pattern: execSync(...)
+          - patterns:
+              - pattern-either:
+                  - pattern: $CP.exec(...)
+                  - pattern: $CP.execSync(...)
+              - metavariable-regex:
+                  metavariable: $CP
+                  regex: ^(childProcess|child_process|cp)$
+
+  - id: traust-ts-llm-application-output-to-code-exec-taint
+    languages: [typescript, javascript]
+    severity: ERROR
+    message: >-
+      Model output is evaluated as JavaScript. A steered completion runs
+      arbitrary code in this process. Parse a constrained format (JSON against a
+      schema) instead. CWE-1426, CWE-95.
+    metadata:
+      cwe: ["CWE-1426", "CWE-95"]
+      category: llm-application
+      asvs: ["V1"]
+      owasp_llm: ["LLM05"]
+      confidence: HIGH
+      references:
+        - "CWE-1426 improper validation of generative AI output — reaches eval"
+    mode: taint
+    pattern-sources:
+      - pattern-either:
+          - pattern: $C.chat.completions.create(...)
+          - pattern: $C.completions.create(...)
+          - pattern: $C.responses.create(...)
+          - pattern: $C.messages.create(...)
+          - pattern: $M.generateContent(...)
+          - pattern: generateText(...)
+          - pattern: $LLM.invoke(...)
+          - pattern: $R.choices[$I].message.content
+          - pattern: $R.content[$I].text
+          - pattern: $R.output_text
+    pattern-sinks:
+      - pattern-either:
+          - pattern: eval(...)
+          - pattern: new Function(...)
+          - pattern: vm.runInNewContext(...)
+          - pattern: vm.runInThisContext(...)
+
+  - id: traust-ts-llm-application-output-to-sql-taint
+    languages: [typescript, javascript]
+    severity: ERROR
+    message: >-
+      Model output is executed as SQL. Generated queries are attacker-steerable,
+      so they can read or change anything the connection reaches. Run them only
+      on a read-only connection scoped to the caller's data, or map the request
+      to parameterized queries. CWE-1426, CWE-89.
+    metadata:
+      cwe: ["CWE-1426", "CWE-89"]
+      category: llm-application
+      asvs: ["V1"]
+      owasp_llm: ["LLM05"]
+      confidence: HIGH
+      references:
+        - "CWE-1426 improper validation of generative AI output — reaches a SQL sink"
+    mode: taint
+    pattern-sources:
+      - pattern-either:
+          - pattern: $C.chat.completions.create(...)
+          - pattern: $C.completions.create(...)
+          - pattern: $C.responses.create(...)
+          - pattern: $C.messages.create(...)
+          - pattern: $M.generateContent(...)
+          - pattern: generateText(...)
+          - pattern: $LLM.invoke(...)
+          - pattern: $R.choices[$I].message.content
+          - pattern: $R.content[$I].text
+          - pattern: $R.output_text
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: $DB.query($Q, ...)
+              - pattern: $DB.execute($Q, ...)
+              - pattern: $DB.raw($Q, ...)
+              - pattern: $DB.$queryRawUnsafe($Q, ...)
+              - pattern: $DB.$executeRawUnsafe($Q, ...)
+          - focus-metavariable: $Q
+
+  # --- LLM06: excessive agency ---------------------------------------------
+
+  - id: traust-ts-llm-application-mcp-http-without-auth
+    languages: [typescript, javascript]
+    severity: WARNING
+    message: >-
+      MCP server exposed over HTTP/SSE (a streamable HTTP or SSE server transport) with no authentication configured in this
+      file. The MCP authorization spec expects HTTP transports to authenticate
+      clients (OAuth 2.1 bearer tokens); without it anyone who can reach the
+      port can list and call every tool. Configure requireBearerAuth (or equivalent bearer/OAuth middleware) on the MCP route. The check is
+      file-scoped: if a reverse proxy or middleware in another file
+      authenticates requests, record where. CWE-306.
+    metadata:
+      cwe: ["CWE-306", "CWE-862"]
+      category: llm-application
+      asvs: ["V6"]
+      owasp_llm: ["LLM06"]
+      confidence: MEDIUM
+      references:
+        - "CWE-306 missing authentication for critical function — MCP HTTP transport"
+        - "https://modelcontextprotocol.io/specification/2025-06-18/basic/authorization"
+    patterns:
+      - pattern-either:
+          - pattern: new NodeStreamableHTTPServerTransport(...)
+          - pattern: new StreamableHTTPServerTransport(...)
+          - pattern: new WebStandardStreamableHTTPServerTransport(...)
+          - pattern: new SSEServerTransport(...)
+      # a transport class wrapping another transport is SDK plumbing, not a
+      # server deployment
+      - pattern-not-inside: |
+          class $CLS implements Transport { ... }
+      # Auth configured anywhere in the file (middleware, verifier, OAuth
+      # router) clears every match in it: the trust boundary is the
+      # transport, and a file that wires auth is not this defect.
+      - pattern-not-regex: (?is)\A.*?\b\w*(bearer|oauth|jwt|authenticat|authoriz|auth_?middleware|auth_?router|token_?verifier|verify_?token|extract_?\w*token)\w*.*\z
+
+  # --- LLM10: unbounded consumption ----------------------------------------
+
+  - id: traust-ts-llm-application-unbounded-agent-loop
+    languages: [typescript, javascript]
+    severity: WARNING
+    message: >-
+      Model calls inside an unconditional loop with no visible step, time or
+      cost limit. A model that never emits the stop signal (or is steered not
+      to) keeps calling the model, and paying for it, indefinitely. Bound the
+      loop with a maximum number of steps and a budget. CWE-400, CWE-834.
+    metadata:
+      cwe: ["CWE-400", "CWE-834"]
+      category: llm-application
+      asvs: ["V2"]
+      owasp_llm: ["LLM10"]
+      confidence: MEDIUM
+      references:
+        - "CWE-834 excessive iteration — unbounded agent loop"
+    patterns:
+      - pattern-either:
+          - pattern: |
+              while (true) {
+                $...BODY
+              }
+          - pattern: |
+              for (;;) {
+                $...BODY
+              }
+      - metavariable-regex:
+          metavariable: $...BODY
+          regex: (?s).*\b(chat\.completions\.create|messages\.create|responses\.create|generateContent|generateText|invoke|complete)\s*\(
+      - metavariable-regex:
+          metavariable: $...BODY
+          regex: (?is)^(?!.*\b(max_?(steps|iterations|turns|rounds|calls)|maxSteps|maxIterations|maxTurns|stepLimit|budget|deadline|timeout)\b).*$

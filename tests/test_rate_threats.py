@@ -42,7 +42,7 @@ class TestRateThreats(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "x-threat-model.json"
             path.write_text(json.dumps(document), encoding="utf-8")
-            rc = call_rate_threats(None, Namespace(model=path, check=check))
+            rc = call_rate_threats(Namespace(model=path, check=check))
             return rc, json.loads(path.read_text(encoding="utf-8"))
 
     def test_fills_scores_levels_and_severity_from_factors(self):

@@ -1,0 +1,37 @@
+rules:
+  - id: traust-ruby-path-traversal-params-taint
+    languages: [ruby]
+    severity: ERROR
+    message: >-
+      A request parameter becomes part of a file path that is sent, read,
+      written or removed (send_file, File.read/open/write, IO.read,
+      FileUtils) — '../' segments escape the intended directory. Keep only
+      File.basename, or expand the path and check it stays under the base.
+      CWE-22.
+    metadata:
+      cwe: ["CWE-22"]
+      category: path-traversal
+      asvs: ["V5"]
+      confidence: HIGH
+      references:
+        - "CWE-22 path traversal — Rails/Sinatra params into file APIs"
+    mode: taint
+    pattern-sources:
+      - pattern-either:
+          - pattern: params[...]
+          - pattern: params.fetch(...)
+          - pattern: params.require(...)
+    pattern-sanitizers:
+      - pattern-either:
+          - pattern: File.basename(...)
+          - pattern: $X.to_i
+    pattern-sinks:
+      - pattern-either:
+          - pattern: send_file($P, ...)
+          - pattern: File.read($P, ...)
+          - pattern: File.open($P, ...)
+          - pattern: File.binread($P, ...)
+          - pattern: File.write($P, ...)
+          - pattern: File.delete($P, ...)
+          - pattern: IO.read($P, ...)
+          - pattern: FileUtils.$F($P, ...)

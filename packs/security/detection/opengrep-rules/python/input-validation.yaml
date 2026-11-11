@@ -1,0 +1,153 @@
+rules:
+  - id: traust-python-input-validation-yaml-unsafe-load
+    languages: [python]
+    severity: WARNING
+    message: >-
+      yaml.load without SafeLoader instantiates arbitrary Python objects
+      from the document — a crafted YAML payload executes code during
+      parsing. Use yaml.safe_load (or Loader=yaml.SafeLoader). Judge the
+      input's trust boundary: repo-local/operator-owned config files are a
+      common false-positive source; attacker-reachable documents are the
+      finding. CWE-502.
+    metadata:
+      cwe: ["CWE-502"]
+      category: input-validation
+      asvs: ["V15"]
+      confidence: LOW
+      references:
+        - "CWE-502 — unsafe YAML load without SafeLoader"
+    patterns:
+      - pattern-either:
+          - patterns:
+              - pattern: yaml.load($X)
+          - patterns:
+              - pattern: yaml.load($X, Loader=$L)
+              - metavariable-regex:
+                  metavariable: $L
+                  regex: ^yaml\.(Loader|UnsafeLoader|FullLoader)$
+          - pattern: yaml.unsafe_load($X)
+      # Trusted-input demotion: a literal path is an operator-owned file.
+      - pattern-not: yaml.load(open("...", ...), ...)
+      - pattern-not: yaml.unsafe_load(open("...", ...), ...)
+      # ruamel.yaml collision: a YAML() round-trip instance bound to the
+      # name `yaml` is not the PyYAML module and does not construct
+      # arbitrary Python objects
+      - pattern-not-inside: |
+          yaml = YAML(...)
+          ...
+      - pattern-not-inside: |
+          yaml = ruamel.yaml.YAML(...)
+          ...
+
+  - id: traust-python-input-validation-pickle-loads-taint
+    languages: [python]
+    severity: ERROR
+    message: >-
+      Request-derived bytes reach pickle/marshal deserialization —
+      untrusted pickle data is arbitrary code execution by
+      construction (__reduce__ gadgets). Use JSON or another
+      data-only format for anything a client can send. CWE-502.
+    metadata:
+      cwe: ["CWE-502"]
+      category: input-validation
+      asvs: ["V5"]
+      confidence: HIGH
+      references:
+        - "CWE-502 — request-derived pickle/marshal deserialization"
+    mode: taint
+    pattern-sources:
+      - pattern-either:
+          - pattern: request.body
+          - pattern: request.data[...]
+          - pattern: request.data
+          - pattern: request.files[...]
+          - pattern: request.get_data(...)
+          - pattern: request.form.get(...)
+    pattern-sinks:
+      - pattern-either:
+          - pattern: pickle.loads(...)
+          - pattern: pickle.load(...)
+          - pattern: marshal.loads(...)
+          - pattern: cPickle.loads(...)
+          # v1.8: the object-oriented and third-party entry points the
+          # function-call sinks above never matched
+          - pattern: pickle.Unpickler(...).load()
+          - pattern: Unpickler(...).load()
+          - patterns:
+              - pattern: $CLS(...).load()
+              - pattern-either:
+                  - pattern-inside: |
+                      class $CLS(..., pickle.Unpickler, ...):
+                          ...
+                      ...
+                  - pattern-inside: |
+                      class $CLS(..., Unpickler, ...):
+                          ...
+                      ...
+          - pattern: dill.loads(...)
+          - pattern: dill.load(...)
+          - pattern: jsonpickle.decode(...)
+          - pattern: shelve.open(...)
+
+  # v1.8 — inventory, not a vulnerability claim. A restricted unpickler
+  # (an Unpickler subclass overriding find_class) is still a pickle
+  # deserialization site: its safety rests entirely on the allowlist. The
+  # measured failure this closes is a grep-based negative result that
+  # searched for `pickle.load(` and reported deserialization "absent" in a
+  # tree whose only pickle site used this shape.
+  - id: traust-python-input-validation-restricted-unpickler-inventory
+    languages: [python]
+    severity: INFO
+    message: >-
+      Restricted-unpickler site: an Unpickler subclass overrides
+      find_class. Pickle deserialization is present here, gated only by
+      the allowlist. Verify the allowlist is exact (module AND name, no
+      prefix or wildcard matching), that no allowed class reaches a
+      dangerous __reduce__/__setstate__, and where the pickled bytes come
+      from. Record this site in negative_results rather than claiming the
+      deserialization class is absent. CWE-502.
+    metadata:
+      cwe: ["CWE-502"]
+      category: input-validation
+      asvs: ["V5"]
+      confidence: LOW
+      references:
+        - "seeded defect shape: deserialization sink completeness"
+    patterns:
+      - pattern: |
+          def find_class(...):
+              ...
+      - pattern-either:
+          - pattern-inside: |
+              class $C(..., pickle.Unpickler, ...):
+                  ...
+          - pattern-inside: |
+              class $C(..., Unpickler, ...):
+                  ...
+
+  - id: traust-python-input-validation-xxe-parser
+    languages: [python]
+    severity: ERROR
+    message: >-
+      An XML parser configured to resolve external entities or fetch from
+      the network (lxml XMLParser(resolve_entities=True) or
+      no_network=False; a SAX parser with feature_external_ges /
+      feature_external_pes on) — untrusted XML can read local files and
+      reach internal hosts. Leave entity resolution off, or parse untrusted
+      input with defusedxml. CWE-611.
+    metadata:
+      cwe: ["CWE-611"]
+      category: input-validation
+      asvs: ["V1"]
+      confidence: HIGH
+      references:
+        - "CWE-611 XXE — Python XML parsers with external entity resolution on"
+    pattern-either:
+      - pattern: $ET.XMLParser(..., resolve_entities=True, ...)
+      - pattern: $ET.XMLParser(..., no_network=False, ...)
+      - pattern: XMLParser(..., resolve_entities=True, ...)
+      - pattern: XMLParser(..., no_network=False, ...)
+      - pattern: $P.setFeature(feature_external_ges, True)
+      - pattern: $P.setFeature(feature_external_pes, True)
+      - pattern: $P.setFeature(xml.sax.handler.feature_external_ges, True)
+      - pattern: $P.setFeature(xml.sax.handler.feature_external_pes, True)

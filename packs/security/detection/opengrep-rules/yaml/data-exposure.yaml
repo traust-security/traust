@@ -1,0 +1,68 @@
+# Spring Boot application.yml settings that expose management endpoints or error detail.
+rules:
+  - id: traust-yaml-data-exposure-actuator-web-exposure-all
+    languages: [yaml]
+    severity: WARNING
+    message: >-
+      The Spring Boot configuration exposes every actuator endpoint over
+      HTTP, or a sensitive one by name (env, heapdump, threaddump,
+      configprops, beans, mappings, loggers, shutdown, jolokia). They show
+      configuration and secrets, memory contents, or change state. Expose
+      health and info, and anything else only behind an operator role.
+      CWE-200.
+    metadata:
+      cwe: ["CWE-200"]
+      category: data-exposure
+      asvs: ["V13"]
+      confidence: MEDIUM
+      references:
+        - "CWE-200 exposed management endpoints — management.endpoints.web.exposure.include"
+    patterns:
+      - pattern-either:
+          - pattern: |
+              management:
+                ...
+                endpoints:
+                  ...
+                  web:
+                    ...
+                    exposure:
+                      ...
+                      include: $V
+          - pattern: |
+              management.endpoints.web.exposure.include: $V
+      # a list value is one finding for the setting, not one per item
+      - focus-metavariable: $V
+      - metavariable-regex:
+          metavariable: $V
+          regex: (?s)^(['"]?\*['"]?$|.*\b(env|heapdump|threaddump|configprops|beans|mappings|loggers|shutdown|jolokia)\b)
+
+  - id: traust-yaml-data-exposure-error-stacktrace-always
+    languages: [yaml]
+    severity: WARNING
+    message: >-
+      Spring Boot error responses always include the stack trace, which
+      shows callers the code paths, library versions and sometimes the data
+      behind a failure. Leave include-stacktrace at never in deployed
+      configuration. CWE-209.
+    metadata:
+      cwe: ["CWE-209"]
+      category: data-exposure
+      asvs: ["V16"]
+      confidence: HIGH
+      references:
+        - "CWE-209 error detail exposure — server.error.include-stacktrace: always"
+    patterns:
+      - pattern-either:
+          - pattern: |
+              server:
+                ...
+                error:
+                  ...
+                  include-stacktrace: $V
+          - pattern: |
+              server.error.include-stacktrace: $V
+      - focus-metavariable: $V
+      - metavariable-regex:
+          metavariable: $V
+          regex: ^['"]?(always|ALWAYS)['"]?$

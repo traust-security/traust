@@ -6,11 +6,12 @@
 # harness payload under /harness.
 FROM scratch AS harness
 
-# Harness semver, fed from version.args (generated from VERSION) via the
-# Konflux build-args-file param; the release pipeline's {{ oci_version }}
+# Harness semver, fed from version.args (generated from the pyproject
+# version) via the Konflux build-args-file param; the release pipeline's
+# {{ oci_version }}
 # tag template reads org.opencontainers.image.version, so each released
 # image is also tagged with this value.
-ARG VERSION=0.0.0
+ARG VERSION=0.1.0
 
 # OCI artifact labels.
 # vendor / url / release / distribution-scope are REQUIRED by the Konflux
@@ -37,10 +38,11 @@ audits of Red Hat Hybrid Platforms source code. Mounted as a volume by agent run
 # Data-only artifact — no entrypoint, no pip install in-image.
 # Consumers mount this tree (typically at /harness) and run Python from
 # a separately installed stack: traust + traust-engine +
-# traust-contracts + traust-ledger (pip/uv from pyproject.toml git tags).
+# traust-core, which pins traust-contracts + traust-ledger (pip/uv from pyproject.toml git pins).
 #
 # What lives where after the scripts/ → packages refactor:
-#   harnessing/          skills, per-skill scripts, rule-pack copies — YES (payload)
+#   harnessing/          skills, per-skill scripts — YES (payload)
+#   packs/               the security pack: rule packs, SLA policy — YES (payload)
 #   config/              shipped estate-neutral config + *.example.* templates — YES
 #                        (deployment config is NOT here: mount it and set
 #                        TRAUST_CONFIG_HOME — see config/README.md)
@@ -49,18 +51,19 @@ audits of Red Hat Hybrid Platforms source code. Mounted as a volume by agent run
 #   scripts/             RETIRED — CLIs in src/ + traust-engine; do not COPY
 #   src/                 NOT in image — install the wheel on the host/CI runner
 #
-# Deployment-specific config (corpus-config, product map, budget policy,
-# safe-exec profiles, rule-pack allowlist, hardening weights, dist-git watch,
-# signing pubkey, internal vocabulary) never ships in this image. Every
-# consumer resolves it through traust_contracts.config_path(), which
-# reads $TRAUST_CONFIG_HOME and fails closed when the file is absent.
+# Deployment-specific config (traust.yaml, model-registry, product map, the
+# signing key) never ships in this image; it is mounted at $TRAUST_CONFIG_HOME.
+# Tool pins, safe-exec profiles and the feeds registry ship with traust-core.
 
 WORKDIR /harness
 
 # Core skill definitions (the primary payload)
 COPY harnessing/ ./harnessing/
 
-# Shipped config (external-tools, feeds, model-registry) + templates only
+# The security pack: rule packs, SLA policy, compliance catalogs (traust.paths reads them)
+COPY packs/ ./packs/
+
+# Shipped config (model-registry) + the traust.example.yaml template
 COPY config/ ./config/
 # Deployment config: mount at runtime, e.g. -v /path/to/deploy/config:/harness/deploy-config:ro
 ENV TRAUST_CONFIG_HOME=/harness/deploy-config
@@ -72,7 +75,7 @@ COPY docs/ ./docs/
 COPY bin/ ./bin/
 
 # Project metadata
-COPY VERSION pyproject.toml requirements.txt ./
+COPY pyproject.toml requirements.txt ./
 COPY LICENSE NOTICE ./
 COPY LICENSES/ ./LICENSES/
 

@@ -44,10 +44,9 @@ import subprocess
 import sys
 from pathlib import Path
 
-from traust_contracts.paths import schema_dir
+from traust_core.v1.context.config import SHIPPED_SAFE_EXEC_PROFILES
 
-from traust.paths import HARNESS_ROOT, skill_dirs, skill_scripts
-from traust.paths import optional_config_path as _cfg_path
+from traust.paths import HARNESS_ROOT, schema_dir, skill_dirs, skill_scripts
 
 REPO = HARNESS_ROOT
 
@@ -301,30 +300,32 @@ _PYPROJECT_VERSION = re.compile(r'(?m)^version\s*=\s*"([^"]+)"')
 
 
 def version_sync_failures(repo: Path = REPO) -> list[str]:
-    """pyproject.toml [project] version and version.args must equal VERSION.
+    """version.args must equal the pyproject.toml [project] version.
 
     version.args feeds the Konflux build-args-file param so the container
     image is labeled (and release-tagged via {{ oci_version }}) with the
-    harness version; if it drifts from VERSION, published images carry the
-    wrong version tag.
+    harness version; if it drifts from pyproject, published images carry the
+    wrong version tag. pyproject.toml is the single version source of truth.
     """
     failures = []
-    version = (repo / "VERSION").read_text(encoding="utf-8").strip()
     pyproject = repo / "pyproject.toml"
-    if pyproject.is_file():
-        m = _PYPROJECT_VERSION.search(pyproject.read_text(encoding="utf-8"))
-        if m is None:
-            # fail-closed: the guard was silently dead for months because
-            # pyproject carried no version field at all (docs-verification
-            # 2026-07-31 §core-6) — absence must fail, not pass
-            failures.append(
-                "pyproject.toml: no [project] version field — the "
-                f"version-sync guard cannot verify it equals {version}"
-            )
-        elif m.group(1) != version:
-            failures.append(f'pyproject.toml: version = "{m.group(1)}" but VERSION is {version}')
+    if not pyproject.is_file():
+        # No pyproject — nothing to sync version.args against.
+        return failures
+    text = pyproject.read_text(encoding="utf-8")
+    m = _PYPROJECT_VERSION.search(text)
+    if m is None:
+        # fail-closed: absence must fail, not pass
+        failures.append(
+            "pyproject.toml: no [project] version field — the "
+            "version-sync guard cannot verify version.args"
+        )
+        return failures
+    version = m.group(1)
     version_args = repo / "version.args"
-    if version_args.is_file():
+    if not version_args.is_file():
+        failures.append("version.args: missing — Konflux build-args-file has no version input")
+    else:
         args_value = version_args.read_text(encoding="utf-8").strip()
         if args_value != f"VERSION={version}":
             failures.append(f"version.args: {args_value!r} but expected 'VERSION={version}'")
@@ -420,16 +421,9 @@ def external_tool_failures(repo: Path = REPO) -> list[str]:
         "git",
         "curl",
     }
-    # The deployment's profiles when this checkout has one; else the shipped
-    # template, so the roster check still runs in open-source CI.
-    profiles = repo / "config" / "safe-exec-profiles.yaml"
-    if repo == REPO and not profiles.is_file():
-        resolved = _cfg_path("safe-exec-profiles.yaml")
-        if resolved is not None:
-            profiles = resolved
-    if not profiles.is_file():
-        profiles = repo / "config" / "safe-exec-profiles.example.yaml"
-    if profiles.is_file():
+    # The profiles traust-core ships are this harness's grant surface, not a scanned tree's.
+    profiles = SHIPPED_SAFE_EXEC_PROFILES
+    if repo == REPO:
         try:
             import yaml as _yaml
 
@@ -781,38 +775,41 @@ def phantom_skill_failures(repo: Path = REPO) -> list[str]:
 
 
 # --- config/ hygiene ---------------------------------------------------------
-# The open-source harness ships exactly three estate-neutral config files plus a
-# *.example.* template per deployment file (config/README.md). Anything else in
-# config/ is deployment data that leaked back in — the failure shape this
-# repo had before 2026-09-03, when corpus-config, product map, budget policy,
-# signing key and safe-exec profiles all sat here.
-CONFIG_SHIPPED = {"README.md", "external-tools.yaml", "feeds.yaml", "model-registry.yaml"}
-CONFIG_EXAMPLE_RX = re.compile(r"^[a-z0-9-]+\.example\.[a-z]+$")
+# config/ ships traust.yaml, the model registry, the rule-pack override and the PQC
+# priority-repositories templates, and their README (config/README.md).
+# Anything else is deployment data that leaked back in — the failure shape before 2026-09-03,
+# when corpus-config, product map, budget policy, signing key and safe-exec profiles all sat
+# here — or a template that belongs with its reader.
+CONFIG_SHIPPED = {
+    "README.md",
+    "traust.example.yaml",
+    "model-registry.yaml",
+    "rule-pack-allowlist.example.yaml",
+}
 
 
 def _estate_patterns() -> tuple[list[tuple[str, re.Pattern]], list[str]]:
-    """Skip an unconfigured vocabulary, never a broken configured one."""
-    from traust.cli.scan_internal_refs import RULES, all_rules, vocabulary_path
+    """Skip only unconfigured vocabulary; configured failures retain universal rules."""
+    from traust.cli.scan_internal_refs import RULES, VocabularyError, all_rules, vocabulary_path
 
     path = vocabulary_path()
-    if path is None or not path.exists():
+    if path is None:
         return [], []
     failures = []
     try:
         rules = all_rules()
-    except Exception as exc:
-        # Keep universal rules active even when deployment rules cannot load.
-        # The error is a gate failure, not evidence that the tree is clean.
+    except (VocabularyError, OSError):
         failures.append(
-            f"internal-vocabulary.yaml: cannot load configured vocabulary "
-            f"({type(exc).__name__}); repair {path}"
+            f"configured estate vocabulary {path}: cannot load vocabulary — "
+            "check the private file locally"
         )
         rules = RULES
-    return [
+    patterns = [
         (rid, re.compile(pat, re.IGNORECASE))
         for rid, tier, pat, _why in rules
         if tier in ("block", "review")
-    ], failures
+    ]
+    return patterns, failures
 
 
 def config_hygiene_failures(repo: Path = REPO) -> list[str]:
@@ -827,18 +824,12 @@ def config_hygiene_failures(repo: Path = REPO) -> list[str]:
                 "(operational config belongs in $TRAUST_CONFIG_HOME)"
             )
             continue
-        if f.name not in CONFIG_SHIPPED and not CONFIG_EXAMPLE_RX.match(f.name):
+        if f.name not in CONFIG_SHIPPED:
             failures.append(
-                f"config/{f.name}: not a shipped file or a *.example.* "
-                "template -- operational config belongs in $TRAUST_CONFIG_HOME"
+                f"config/{f.name}: not one of {', '.join(sorted(CONFIG_SHIPPED))} -- "
+                "operational config belongs in $TRAUST_CONFIG_HOME, adopter facts are "
+                "recorded, and a template lives beside its reader (config/README.md)"
             )
-            continue
-        if f.name == "internal-vocabulary.example.yaml":
-            # The template IS a vocabulary: its placeholder patterns match
-            # their own literal text. When an adopter's config home was
-            # installed from the templates (export dry-run 2026-09-08), the
-            # active vocabulary is this file and the leg flagged it against
-            # itself. The scrub scanner skips vocabulary files the same way.
             continue
         try:
             text = f.read_text(encoding="utf-8", errors="replace")
@@ -880,7 +871,7 @@ def skills_reference_failures(repo: Path = REPO) -> list[str]:
 # grouped form; this catches the dot-separated one.
 #
 # `traust.cli.<module>` WITHOUT the `python3 -m` prefix is a module path, not an
-# invocation (e.g. traust.cli.budget_shadow, which has no CLI at all), so only
+# invocation (e.g. traust.cli._doors, which has no CLI at all), so only
 # the runnable spelling is flagged.
 _DOT_INVOKE_RX = re.compile(r"python3 -m traust\.cli\.([a-z_][a-z0-9_]*)")
 
@@ -906,9 +897,9 @@ _CLI_SYNTAX_EXEMPT = {"docs/cli-reference.md"}
 def _cli_scanned_docs(repo: Path) -> list[Path]:
     """Files whose CLI invocations are held to the grouped syntax."""
     docs = list(_count_docs(repo))
-    cfg = repo / "config"
-    if cfg.is_dir():
-        docs += sorted(p for p in cfg.iterdir() if p.is_file())
+    config = repo / "config"
+    if config.is_dir():
+        docs += sorted(p for p in config.iterdir() if p.is_file())
     docs += sorted((repo / "harnessing").glob("*/SKILL.md"))
     docs += sorted((repo / "harnessing").glob("*/*/SKILL.md"))
     docs += sorted((repo / ".claude" / "commands").glob("*.md"))
@@ -954,11 +945,9 @@ def cli_reference_failures(repo: Path = REPO) -> list[str]:
     failures = []
     documented = {
         m.group(1): {o.strip(" `") for o in m.group(2).split(",")}
-        for m in re.finditer(r"^\| `([a-z]+)` \| [^|]* \| (.+?) \|$", text, re.MULTILINE)
+        for m in re.finditer(r"^\| `([a-z][a-z-]*)` \| [^|]* \| (.+?) \|$", text, re.MULTILINE)
     }
     for group, ops in GROUPS.items():
-        if group == "tools":  # deprecated; listed prose-side, not in the table
-            continue
         if group not in documented:
             failures.append(f"docs/cli-reference.md: group `{group}` is not listed")
             continue
@@ -1105,10 +1094,8 @@ def model_class_failures(repo: Path = REPO) -> list[str]:
 # graphs used" unanswerable before the doc existed.
 _GRAPHS_DOC = "docs/graphs.md"
 _GRAPH_ARTIFACTS = ("portfolio-graph.db", "repo-graph.json")
-# This module names both artifacts as check data, and check_drift is
-# documented under its skill name rather than its module name.
+# This module names both artifacts as check data.
 _GRAPH_CONSUMER_SKIP = {"check_docs_consistency"}
-_GRAPH_CONSUMER_ALIASES = {"check_drift": "drift-watch"}
 
 
 def _graph_consumers(repo: Path, artifact: str) -> set[str]:
@@ -1146,9 +1133,7 @@ def graph_consumer_failures(repo: Path = REPO) -> list[str]:
         actual = _graph_consumers(repo, artifact)
         # the graph skills themselves are the producers, not consumers to list
         actual -= {"portfolio-graph", "repo-graph"} | _GRAPH_CONSUMER_SKIP
-        missing = sorted(
-            n for n in actual if n not in text and _GRAPH_CONSUMER_ALIASES.get(n, n) not in text
-        )
+        missing = sorted(n for n in actual if n not in text)
         if missing:
             out.append(
                 f"{_GRAPHS_DOC}: {artifact} is read by {', '.join(missing)} "
@@ -1186,9 +1171,9 @@ def docs_estate_marker_failures(repo: Path = REPO) -> list[str]:
 
 
 # --- single rule pack ---------------------------------------------------------
-# The opengrep rule pack and the gitleaks config ship inside traust-engine
-# (traust_engine/data/secure-code-audit/), and every default run loads that
-# copy. A second copy in this repo is where rule work silently goes stale:
+# The opengrep rule pack and the gitleaks config ship in the security pack
+# (packs/security/detection/), and every default run loads that copy. A second copy
+# elsewhere in this repo is where rule work silently goes stale:
 # rule pack v1.8 sat in a harness copy that no default run read. Fail on a
 # rule-pack directory in the tree, or on a skill/doc that points at one.
 _RULE_PACK_DIRS = ("opengrep-rules", "gitleaks-rules")
@@ -1196,6 +1181,7 @@ _OLD_PACK_REF = re.compile(r"harnessing/3-audit/secure-code-audit/(?:opengrep|gi
 _PACK_SCAN_SKIP = {".git", ".venv", "node_modules", "__pycache__", "fixtures", ".claude", ".crush"}
 # the gate and its own tests name the old path on purpose
 _PACK_SCAN_EXEMPT = {"src/traust/cli/check_docs_consistency.py", "tests/test_docs_consistency.py"}
+_PACK_HOME = Path("packs/security/detection")
 
 
 def rule_pack_copy_failures(repo: Path = REPO) -> list[str]:
@@ -1204,10 +1190,10 @@ def rule_pack_copy_failures(repo: Path = REPO) -> list[str]:
         rel = path.relative_to(repo)
         if any(part in _PACK_SCAN_SKIP for part in rel.parts):
             continue
-        if path.is_dir() and path.name in _RULE_PACK_DIRS:
+        if path.is_dir() and path.name in _RULE_PACK_DIRS and rel.parent != _PACK_HOME:
             failures.append(
                 f"{rel.as_posix()}: a rule-pack copy in this repo — rules live only in "
-                "traust-engine (traust_engine/data/secure-code-audit/)"
+                "the security pack (packs/security/detection/)"
             )
         elif path.is_file() and path.suffix in (".md", ".py", ".yaml", ".yml", ".toml"):
             if path.name == "CHANGELOG.md" or rel.as_posix() in _PACK_SCAN_EXEMPT:
@@ -1219,17 +1205,17 @@ def rule_pack_copy_failures(repo: Path = REPO) -> list[str]:
             if _OLD_PACK_REF.search(text):
                 failures.append(
                     f"{rel.as_posix()}: points at a removed rule-pack copy — reference "
-                    "traust_engine/data/secure-code-audit/ instead"
+                    "packs/security/detection/ instead"
                 )
     return failures
 
 
 CHECKS = [
     ("unresolved conflict markers", conflict_marker_failures),
-    ("single rule pack (rules live only in traust-engine)", rule_pack_copy_failures),
+    ("single rule pack (rules live only in packs/security/detection/)", rule_pack_copy_failures),
     ("generated skills reference (docs/skills.md matches the tree)", skills_reference_failures),
     (
-        "config/ hygiene (shipped files + templates only, no estate markers)",
+        "config/ hygiene (the shipped set only, no estate markers)",
         config_hygiene_failures,
     ),
     ("count drift", count_failures),

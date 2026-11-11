@@ -1,0 +1,49 @@
+# The security pack's default SLA policy: the SLA view's policy until a deployment records its
+# own (`traust dashboard sla-policy <file>`; docs/sla-policy.md). The numbers are public
+# remediation timelines, cited below, not anyone's internal policy. Schema: contracts
+# `sla-policy` (artifacts_schema/v1).
+
+policy_name: fedramp-rev5-ra-5
+source:
+  name: FedRAMP Rev. 5 baselines, RA-5(d) parameter (ra-05_odp.03)
+  url: https://raw.githubusercontent.com/OSCAL-Foundation/fedramp-resources/refs/heads/main/baselines/rev5/yaml/FedRAMP_rev5_HIGH-baseline_profile.yaml
+  retrieved: "2026-10-30"
+  note: >-
+    "high-risk vulnerabilities mitigated within thirty (30) days from date of discovery;
+    moderate-risk vulnerabilities mitigated within ninety (90) days from date of discovery; low
+    risk vulnerabilities mitigated within one hundred and eighty (180) days from date of
+    discovery". FedRAMP holds Critical to the High timeline: "Critical and High risks to be
+    remediated within 30 days of discovery" (https://www.fedramp.gov/legacy/playbook/csp/authorization/poam/). The cisa-bod-19-02 profile is CISA Binding Operational Directive 19-02
+    (https://www.cisa.gov/news-events/directives/bod-19-02-vulnerability-remediation-requirements-internet-accessible-systems):
+    critical within 15 and high within 30 calendar days of detection, for internet-accessible
+    systems.
+
+# Scanner and vendor labels (lowercased) onto the harness severities.
+severity_mapping:
+  critical: critical
+  high: high
+  important: high
+  moderate: medium
+  medium: medium
+  low: low
+  informational: informational
+
+# "From date of discovery": the clock starts when a scanner first reported the finding.
+clock_start: audit_date
+
+profiles:
+  fedramp-rev5:
+    default: true
+    description: FedRAMP Rev. 5 RA-5(d) remediation timelines (Critical held to High).
+    slas:
+      critical: {resolve_days: 30}
+      high: {resolve_days: 30}
+      medium: {resolve_days: 90}
+      low: {resolve_days: 180}
+  cisa-bod-19-02:
+    description: >-
+      CISA BOD 19-02, internet-accessible systems: critical 15 and high 30 calendar days of
+      detection; other severities carry no directive timeline.
+    slas:
+      critical: {resolve_days: 15}
+      high: {resolve_days: 30}

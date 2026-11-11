@@ -8,7 +8,7 @@ release, not just once.
 
 Universal rules (credential shapes, RFC1918, cloud identifiers) are compiled
 in. The rules that name YOUR hosts, tools, trackers and products come from
-$TRAUST_CONFIG_HOME/internal-vocabulary.yaml — see --vocabulary. That split is not a
+your vocabulary file — see --vocabulary. That split is not a
 convenience: a scanner shipping a list of an organization's internal tool
 names has published that list.
 
@@ -56,7 +56,6 @@ EXPECTED_INTERNAL = (
     "docs/setup.md",
     "docs/requirements.md",
     "CHANGELOG.md",
-    "config/feeds.yaml",
 )
 
 # (id, tier, pattern, why)
@@ -177,15 +176,15 @@ RULES: tuple[tuple[str, str, str, str], ...] = (
 # The rules that name an organization's hosts, tools, trackers and products are
 # NOT universal, and the vocabulary is itself the disclosure it detects -- a
 # scanner shipping a list of internal tool names has published that list. Those
-# live in the DEPLOYMENT config dir as internal-vocabulary.yaml (the harness
-# ships only config/internal-vocabulary.example.yaml) and are loaded here.
+# live with the deployment (the harness ships only the template,
+# tools/public-export/internal-vocabulary.example.yaml) and are loaded here.
 #
-# Order: --vocabulary > HARNESS_INTERNAL_VOCABULARY > config_path("internal-vocabulary.yaml")
+# Order: --vocabulary > HARNESS_INTERNAL_VOCABULARY
 #
 # Missing or malformed fails LOUDLY. A scanner that quietly runs with fewer
 # rules than you think reports "clean" for the wrong reason, which is worse
 # than not running.
-from traust.paths import optional_config_path  # noqa: E402
+from traust.context import internal_vocabulary  # noqa: E402
 
 _VALID_TIERS = ("block", "review", "note")
 
@@ -195,9 +194,7 @@ class VocabularyError(RuntimeError):
 
 
 def vocabulary_path(explicit: str | None = None) -> Path | None:
-    if explicit:
-        return Path(explicit)
-    return optional_config_path("internal-vocabulary.yaml")
+    return Path(explicit) if explicit else internal_vocabulary()
 
 
 def load_vocabulary(explicit: str | None = None) -> tuple[tuple[str, str, str, str], ...]:
@@ -206,44 +203,51 @@ def load_vocabulary(explicit: str | None = None) -> tuple[tuple[str, str, str, s
     if path is None or not path.is_file():
         raise VocabularyError(
             f"vocabulary not found: {path}\n"
-            "Set HARNESS_INTERNAL_VOCABULARY, pass --vocabulary, or put "
-            "internal-vocabulary.yaml in your deployment config dir. The shipped "
-            "config/internal-vocabulary.example.yaml is a generic template and "
-            "matches nothing real."
+            "Pass --vocabulary or set HARNESS_INTERNAL_VOCABULARY. The shipped "
+            "tools/public-export/internal-vocabulary.example.yaml is a generic "
+            "template and matches nothing real."
         )
     try:
         import yaml
     except ImportError as e:  # pragma: no cover
         raise VocabularyError("PyYAML is required to read the vocabulary") from e
     try:
-        doc = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        doc = yaml.safe_load(path.read_text(encoding="utf-8"))
     except yaml.YAMLError as e:
         raise VocabularyError(f"{path}: unparseable ({type(e).__name__})") from e
+    except (OSError, UnicodeError) as e:
+        raise VocabularyError(f"{path}: cannot read vocabulary ({type(e).__name__})") from e
+    if not isinstance(doc, dict):
+        raise VocabularyError(f"{path}: vocabulary must be a mapping")
     rules = doc.get("rules")
     if not isinstance(rules, list) or not rules:
         raise VocabularyError(f"{path}: no 'rules' list")
     out, seen = [], set()
-    for r in rules:
+    for index, r in enumerate(rules, 1):
+        rule = f"{path}: rule {index}"
         if not isinstance(r, dict):
-            raise VocabularyError(f"{path}: rule entry is not a mapping: {r!r}")
+            raise VocabularyError(f"{rule} is not a mapping")
         rid, tier, pat = r.get("id"), r.get("tier"), r.get("pattern")
-        why = r.get("why") or rid
-        if not (rid and tier and pat):
-            raise VocabularyError(f"{path}: rule {rid or r!r} needs id, tier and pattern")
+        why = r.get("why", "")
+        if not all(isinstance(value, str) and value for value in (rid, tier, pat)):
+            raise VocabularyError(f"{rule} needs nonempty string id, tier and pattern")
+        if not isinstance(why, str):
+            raise VocabularyError(f"{rule} needs a string explanation")
+        why = why or rid
         if tier not in _VALID_TIERS:
             raise VocabularyError(
-                f"{path}: rule {rid} has tier {tier!r}, expected one of {', '.join(_VALID_TIERS)}"
+                f"{rule} has an invalid tier, expected one of {', '.join(_VALID_TIERS)}"
             )
         if rid in seen:
-            raise VocabularyError(f"{path}: duplicate rule id {rid!r}")
-        # Compile now: a bad pattern must fail at load, naming the rule, not
-        # halfway through a scan with a bare re.error.
+            raise VocabularyError(f"{rule} has a duplicate id")
+        # Compile now, but never echo private rule fields or regex error text
+        # into a load diagnostic that may reach a public CI log.
         try:
             re.compile(pat)
         except re.error as e:
-            raise VocabularyError(f"{path}: rule {rid} has an invalid pattern ({e})") from e
+            raise VocabularyError(f"{rule} has an invalid pattern") from e
         if rid in {u[0] for u in RULES}:
-            raise VocabularyError(f"{path}: rule {rid!r} collides with a built-in universal rule")
+            raise VocabularyError(f"{rule} collides with a built-in universal rule")
         seen.add(rid)
         out.append((rid, tier, pat, why))
     return tuple(out)
@@ -384,10 +388,8 @@ def main(argv=None) -> int:
     ap.add_argument(
         "--vocabulary",
         metavar="PATH",
-        help="organization vocabulary YAML (default: "
-        "$HARNESS_INTERNAL_VOCABULARY, else "
-        "$TRAUST_CONFIG_HOME/internal-vocabulary.yaml, which is a generic "
-        "example and matches nothing real)",
+        help="organization vocabulary YAML (default: $HARNESS_INTERNAL_VOCABULARY; "
+        "template: tools/public-export/internal-vocabulary.example.yaml)",
     )
     args = ap.parse_args(argv)
 

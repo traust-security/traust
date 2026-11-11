@@ -1,0 +1,108 @@
+rules:
+  - id: traust-python-ssrf-request-taint
+    languages: [python]
+    severity: ERROR
+    message: >-
+      Request-derived value reaches an outbound HTTP call as the URL — the
+      caller can steer server-side requests at internal endpoints. Validate
+      against an allowlist before fetching. CWE-918.
+    metadata:
+      cwe: ["CWE-918"]
+      category: ssrf
+      asvs: ["V4"]
+      confidence: HIGH
+      references:
+        - "CWE-918 SSRF — request-derived outbound HTTP"
+    mode: taint
+    pattern-sources:
+      - pattern-either:
+          - pattern: request.args.get(...)
+          - pattern: request.args[...]
+          - pattern: request.form.get(...)
+          - pattern: request.form[...]
+          - pattern: request.values.get(...)
+          - pattern: request.json[...]
+          - pattern: request.json.get(...)
+          - pattern: request.get_json(...)
+    # A database read ends request taint: the value now comes from storage,
+    # which traust-python-ssrf-stored-url covers.
+    pattern-sanitizers:
+      - pattern-either:
+          - pattern: $C.fetchone(...)
+          - pattern: $C.fetchall(...)
+          - pattern: $C.fetchmany(...)
+          - pattern: $Q.first(...)
+          - pattern: $Q.one(...)
+          - pattern: $Q.one_or_none(...)
+          - pattern: $Q.scalar(...)
+    pattern-sinks:
+      - pattern-either:
+          - pattern: requests.get(...)
+          - pattern: requests.post(...)
+          - pattern: requests.put(...)
+          - pattern: requests.patch(...)
+          - pattern: requests.delete(...)
+          - pattern: requests.head(...)
+          - pattern: requests.request(...)
+          - pattern: urllib.request.urlopen(...)
+          - pattern: httpx.get(...)
+          - pattern: httpx.post(...)
+          - pattern: httpx.request(...)
+
+  # A URL saved by one request and fetched by another never shows up as
+  # taint: the request that writes it and the request that uses it are
+  # different flows. This pattern rule flags the fetch side, a URL read from
+  # a database row or model field, and leaves the judgement (who can write
+  # that field) to the review. Operator-set values (config, settings,
+  # environment) are excluded.
+  - id: traust-python-ssrf-stored-url
+    languages: [python]
+    severity: WARNING
+    message: >-
+      A URL read from stored data (a database row or a model field) reaches
+      an outbound HTTP call. If anyone other than the operator can write that
+      field (a workspace admin, a user profile, an imported record), this is
+      server-side request forgery one request removed from the input. Route
+      the call through the codebase's outbound-request guard, or validate the
+      stored URL against an allowlist when it is written and when it is used.
+      CWE-918.
+    metadata:
+      cwe: ["CWE-918"]
+      category: ssrf
+      asvs: ["V4"]
+      confidence: LOW
+      references:
+        - "seeded defect shape: a stored integration URL fetched without the SSRF guard"
+    patterns:
+      # the URL argument IS a row subscript or a model field, not something
+      # merely containing one (urlparse(url).geturl() is not a stored field)
+      - pattern-either:
+          - patterns:
+              - pattern-either:
+                  - pattern: requests.$M($ROW["$K"], ...)
+                  - pattern: requests.$M($ROW.$K, ...)
+                  - pattern: httpx.$M($ROW["$K"], ...)
+                  - pattern: httpx.$M($ROW.$K, ...)
+              - metavariable-regex:
+                  metavariable: $M
+                  regex: ^(get|post|put|patch|delete|head|options|stream)$
+          - pattern: urllib.request.urlopen($ROW["$K"], ...)
+          - pattern: urllib.request.urlopen($ROW.$K, ...)
+      # a url-type field name at a word boundary: url, callback_url,
+      # webhookUrl; not geturl
+      - metavariable-regex:
+          metavariable: $K
+          regex: ^(?:(?i:(?:\w+_)?(?:url|uri|endpoint|href|webhook|callback))|[a-z]\w*(?:Url|Uri|Endpoint|Href|Webhook|Callback))$
+      # operator-set values and API responses are not stored input
+      - metavariable-regex:
+          metavariable: $ROW
+          regex: ^(?!.*(?i:config|setting|environ|cfg|links|resp|response|headers)).*$
+      # request-derived (the taint rule's case), not stored
+      - pattern-not-inside: |
+          $X = request.$F(...)
+          ...
+          $LIB.$M($X[...], ...)
+      - pattern-not-inside: |
+          $X = request.$F(...)
+          ...
+          $LIB.$M($X.$A, ...)

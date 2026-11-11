@@ -10,7 +10,7 @@ toolchain — no k8s cluster, no cloud creds, no service mocks.
 create-fuzzing/
 ├── targets.json         # machine-readable manifest (repo, commit, harness→dest, pkg, fuzz func)
 ├── Makefile             # clone / install / build / fuzz-<id> / fuzz-all
-├── clones/              # shallow git clones @ audited commit (git-ignored upstream)
+├── clones/              # service checkouts, symlinked @ pinned commit (git-ignored upstream)
 └── (harness sources)    # moved 2026-08-27 to analysis-results/fuzz-harnesses/<repo>/;
                         # copied into clones/ by `make install` via $(HARNESSES)
                          # (crashers land in clones/<id>/<pkg>/testdata/fuzz/; curated

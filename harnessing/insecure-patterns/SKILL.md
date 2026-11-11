@@ -1,11 +1,11 @@
 ---
 name: insecure-patterns
-description: Use when the user asks which insecure coding patterns recur across the portfolio, wants findings grouped/ranked by CWE or OWASP ASVS category, asks "what are our top vulnerabilities by pattern", "which repos share CWE-X", or asks to (re)build the insecure-patterns dashboard. Walks every *-security-audit.json under analysis-results/findings/ (owned) and analysis-results/oss-findings/ (upstream, reported as a separate tagged cut), keeps only source-code findings (drops YAML/Dockerfile/Helm config gaps), buckets by primary CWE mapped to ASVS 5.0, and writes insecure-patterns/{top25.md, detailed.md, dashboard.html, .json}.
-argument-hint: "[summary] [open] [<results-root-path>]"
+description: Use when the user asks which insecure coding patterns recur across the portfolio, wants findings grouped/ranked by CWE or OWASP ASVS category, asks "what are our top vulnerabilities by pattern", "which repos share CWE-X", or asks to (re)build the insecure-patterns dashboard. Reads source-code findings recorded in traust-core (separate ownership cuts), enriches reviewed CWE/ASVS/fix references, and writes a detailed Markdown report, interactive HTML explorer and full JSON roll-up.
+argument-hint: "[summary] [open]"
 metadata:
   harness.tier: "secondary"
 allowed-tools:
-  - Bash(python3 *traust/harnessing/insecure-patterns/scripts/build_insecure_patterns.py:*)
+  - Bash(python3 -m traust.cli dashboard view insecure-patterns:*)
   - Bash(ls:*)
   - Bash(open *.html:*)
   - Read
@@ -16,7 +16,7 @@ allowed-tools:
 # Insecure Coding Patterns — ASVS 5.0 roll-up
 
 > **Paths.** `analysis-results/…` and `progress-tracker/…` in this skill are the
-> default workspace layout. They resolve through `locations.yaml` in
+> default workspace layout. They resolve through `locations:` in `traust.yaml` in
 > `$TRAUST_CONFIG_HOME` (`docs/setup.md`, Storage locations); substitute your
 > configured roots.
 
@@ -32,10 +32,10 @@ one/two-line root-cause fix per pattern.
 
 | Token | Meaning |
 |---|---|
-| *(none)* | Default run — scan `findings/` (owned) + `oss-findings/` (upstream), write all four outputs. |
-| `summary` | Also print the top-25 table to the conversation. |
+| *(none)* | Default run — every ownership class in traust-core, write the outputs. |
+| `summary` | Also print the ranked top-50 summary to the conversation. |
 | `open` | Open the resulting dashboard in the default browser when done. |
-| `<path>` | Override the analysis-results root (directory containing `findings/`; `oss-findings/` is optional — the upstream cut is skipped when absent). |
+| `<path>` | *Retired:* the view reads traust-core, not an analysis-results tree. |
 
 ---
 
@@ -43,72 +43,55 @@ one/two-line root-cause fix per pattern.
 
 ### Step 1 — Locate the analysis-results root
 
-Resolution order:
+*Retired:* traust-core holds the findings; there is no root to locate.
 
-1. A path passed in `$ARGUMENTS`.
-2. `$AUDIT_RESULTS_ROOT` environment variable.
-3. `../analysis-results` relative to the `traust` checkout (the normal sibling layout).
-
-If none resolve, ask the user for the path.
-
-### Step 2 — Run the harness script
+### Step 2 — Run the view
 
 ```bash
-python3 harnessing/insecure-patterns/scripts/build_insecure_patterns.py \
-    --results-root <resolved-root> \
-    [--summary]
+python3 -m traust.cli dashboard view insecure-patterns \
+    [--product <slug>…] [--as-of <ISO time>] [--since <ISO time>] [--bucket day|week|month] \
+    --out progress-tracker/metrics/dashboards/insecure-patterns
 ```
 
-What the script does:
+What the view does:
 
-1. Globs `findings/**/*-security-audit.json` (owned tree; recursive; ~5 k+
-   reports) **and** `oss-findings/**/*-security-audit.json` (upstream tree),
-   tagging every report with its tree. The two trees are aggregated
-   separately — the owned tree drives all ranked tables; the upstream tree
-   feeds only the tagged **Upstream cut** section and is never folded into
-   the owned ranking, repo counts, or examples. When a sibling
-   `*-findings-current.json` (cumulative report from the
-   `track-findings` skill) exists, it is parsed **instead of** the audit by
-   default, so the false-positive drop honours human triage and machine
-   validation dispositions. The stats table reports how many reports carried
-   dispositions, split owned vs upstream.
-2. For each finding, decides **code vs config**: kept iff ≥1 `location.path`
-   has a source-code extension (`.go`/`.py`/`.ts`/`.js`/`.java`/`.c`/`.rs`/…)
-   *or* ≥1 `evidence.language` is a source-code language. Findings whose only
-   artefacts are YAML/JSON/Dockerfile/Helm/TOML/Makefile are dropped as
-   config/manifest gaps.
+1. *Retired:* the report-file glob and tree tagging. It reads the current
+   findings recorded in traust-core, so the false-positive drop honours human
+   triage and machine validation dispositions. The owned and upstream cuts are
+   the corpus registry's ownership classes, aggregated separately — the owned
+   cut drives the ranking and the upstream cut is never folded into it.
+2. Keeps findings with at least one source-code location extension or explicitly
+   recorded source language. Config/manifest-only and unclassified findings are
+   excluded; CWE names, titles and finding kind never decide code vs config.
 3. Drops findings with `validation_status: false_positive`.
 4. **Pattern key = primary CWE** (`cwes[0]`, required by the report schema).
 5. De-duplicates occurrences by `(repo, cwe, path)` — applied within each
-   tree independently — so per-branch report copies count once. Repo is
-   `metadata.repository` normalised to `owner/repo`.
-6. Maps each CWE → OWASP ASVS 5.0 chapter/section via the curated
-   `CWE_META` table in the script (ASVS 5.0 dropped its own CWE column, so
-   this mapping is maintained in-harness). Unmapped tail CWEs land in
-   `V15.3 Defensive Coding`.
-7. Extracts a best-effort function/method name per occurrence from evidence
-   code (`func`/`def`/`function`/`fn` regexes) → location description →
-   `filename:lines` fallback.
-8. Ranks patterns by **distinct repository count**, then occurrence count
-   (owned tree only). The upstream tree gets its own top-10 ranking by the
-   same key, rendered as the compact **Upstream cut (oss-findings/)**
-   section in `insecure-patterns-top25.md` and a panel in the dashboard
-   HTML, plus an additive `upstream` object in `insecure-patterns.json`.
-9. Writes four artefacts under `progress-tracker/metrics/dashboards/insecure-patterns/`.
+   ownership class independently — so per-branch report copies count once.
+6. Resolves names, ASVS 5.0 sections and root-cause fixes through Core's read-only
+   reviewed CWE reference provider and `TaxonomyPolicy`. Recorded ASVS labels
+   take precedence; unmapped CWEs retain their ID with explicitly absent guidance.
+7. *Retired:* the evidence-text function-name regexes. An example is
+   `repo · file:lines · symbol`, with the symbol only where traust-core recorded one.
+8. Ranks patterns by **distinct repository count**, then occurrence count.
+   Every ownership class gets its own ranking by the
+   same key, rendered as its own section in `insecure-patterns.md` and
+   `insecure-patterns.html`, and as its own cut in `insecure-patterns.json`.
+9. Writes the artefacts under `progress-tracker/metrics/dashboards/insecure-patterns/`.
 
 ### Step 3 — Report back
 
 Always tell the user:
 
-- The four output paths (relative to the results root).
-- Corpus stats: reports scanned (owned vs upstream), total findings, code
-  findings kept, config/manifest dropped, distinct patterns.
-- The top-25 table (CWE · pattern · ASVS § · repos · occurrences) — owned
-  tree only; mention the upstream cut headline (reports + top pattern) when
-  `oss-findings/` was scanned.
+- The output paths.
+- Corpus stats: scoped repositories, source findings kept, non-code/unknown and
+  false-positive exclusions, occurrences without a CWE and distinct patterns,
+  separately for each ownership cut.
+- The top-50 summary (CWE · name · ASVS § · repos · occurrences), and the
+  upstream cut headline when present. The full-detail report and HTML explorer
+  retain every ranked pattern even when the summary is truncated.
 
 If `open` was requested, open the dashboard:
-`open progress-tracker/metrics/dashboards/insecure-patterns/insecure-patterns-dashboard.html`
+`open progress-tracker/metrics/dashboards/insecure-patterns/insecure-patterns.html`
 
 ---
 
@@ -116,24 +99,24 @@ If `open` was requested, open the dashboard:
 
 | File | Purpose |
 |---|---|
-| `insecure-patterns/insecure-patterns-top25.md` | Ranked top-25 table (owned) + ASVS-chapter distribution + **Upstream cut (oss-findings/)** top-10 section + method note. |
-| `insecure-patterns/insecure-patterns-detailed.md` | Top-50 (owned): per-pattern ASVS ref, repo count, 6 example `repo · file:lines · function` tuples, co-tagged CWEs, and a 1-2 line root-cause fix. |
-| `insecure-patterns/insecure-patterns-dashboard.html` | Self-contained interactive dashboard: summary cards, ASVS-chapter bars, filterable top-50 table (owned) with expandable examples + inline fixes, plus the tagged upstream-cut panel. |
-| `insecure-patterns/insecure-patterns.json` | Machine-readable roll-up: full ranked pattern list (owned) with all repos, examples, severity mix; additive `upstream` object (`stats` + `patterns` for `oss-findings/`). |
+| `insecure-patterns/insecure-patterns.md` | Top-50 summary per ownership class, followed by every pattern's ASVS reference, co-tagged CWEs, up to six highest-severity location/symbol examples and reviewed root-cause fix. |
+| `insecure-patterns/insecure-patterns.html` | Self-contained, script-free explorer: ownership summaries, ASVS chapter bars, independent chapter/CWE filters, expandable examples and inline fixes; followed by the detailed report. Browser Find searches names/fixes. |
+| `insecure-patterns/insecure-patterns.json` | Every ranked pattern per cut, metadata, counts/exclusions, population roots/scope and historical comparison values. |
 
-The Markdown outputs and the dashboard HTML embed the standard population block (roots, unit, filters, denominator — from python3 -m traust.cli corpus) as a final section/panel for cross-dashboard reconciliation. Roots list both trees with their ownership tags (`findings/` owned, `oss-findings/` upstream) and every count is split owned vs upstream.
+All outputs include a population block: registered roots with ownership,
+source-finding/occurrence units, actual filters and scoped-repository denominator.
+Cut counts may overlap when a repository ships in multiple ownership classes.
 
 ---
 
 ## Tuning
 
-Edit constants at the top of `build_insecure_patterns.py`:
-
-- `CODE_EXT` / `CODE_LANGS` — what counts as source code
-- `CONFIG_EXT` — what marks a finding as config-only
-- `CWE_META` — CWE → (name, ASVS section, section name, root-cause fix). Add
-  entries here when a new CWE enters the top-50.
-- `FUNC_PATTERNS` — regexes that pull function names out of evidence blocks
+`CodeFindingPolicy` owns the explicit source extension/language vocabulary and can
+be supplied to `InsecurePatternsView` by a Core integration. Reviewed names,
+ASVS crosswalks and fixes live in `providers.cwe_reference`, migrated from the
+Apache-2.0 main builder with source attribution; update that provider, not a
+second harness table. `Location.symbol` remains authoritative: function regex
+guessing stays retired.
 
 ---
 
@@ -141,14 +124,16 @@ Edit constants at the top of `build_insecure_patterns.py`:
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| `error: <root>/findings/ not found` | Wrong `--results-root` | Pass the directory that contains `findings/`. |
-| Top-N pattern shows a finding-title instead of a CWE name | CWE not in `CWE_META` | Add a curated entry (name + ASVS section + fix). |
-| Function column mostly `file:lines` | Evidence blocks don't include the definition line | Expected — the fallback is intentional. |
-| A config-only finding leaked through | It also touched a `.sh`/`.go` helper | Tighten `CODE_EXT` or add the path to `CONFIG_EXT`. |
+| Pattern has no display name or ASVS guidance | No reviewed reference for that CWE and no recorded ASVS label | Preserve the unmapped result; submit a reviewed reference update, not an inferred mapping. |
+| Examples mostly `file:lines` | traust-core recorded no symbol for the location | Expected — the fallback is intentional. |
+| A config-only finding is absent from the ranking | No positive source extension/language evidence | Expected; the population's non-code/unknown exclusion count accounts for it. |
+| Filters show no rows | Selected CWE belongs to a different chapter | Choose All chapters or All CWEs; each ownership cut filters independently. |
 
 ## Trends
 
-Each run appends `code_findings` / `distinct_cwes` (source
-`insecure-patterns`) to the central metrics ledger (python3 -m traust.cli metrics history,
-no-op when unchanged) and injects a trend-vs-previous banner into
-`insecure-patterns-top25.md` and the dashboard HTML.
+The trend banner compares source findings and distinct CWEs with the state
+immediately before the requested window start, or the current bucket start
+(monthly by default). Both states are derived from historical finding reads,
+using the same current scoped population and registered ownership cuts.
+The comparison timestamp is printed explicitly; it is not "previous dashboard
+run" history. Rebuilding does not append a metrics ledger or create snapshots.

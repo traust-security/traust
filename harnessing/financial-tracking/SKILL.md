@@ -15,16 +15,14 @@ allowed-tools:
   # checkout (alignment rule A14).
   - Bash(python3 *traust* -m traust.cli metrics collect-spend:*)
   - Bash(python3 *traust* -m traust.cli metrics attribute-spend:*)
-  - Bash(python3 *traust/harnessing/financial-tracking/scripts/build_financial_report.py*)
-  - Bash(python3 *traust* -m traust.cli metrics spend:*)
-  - Bash(python3 *traust* -m traust.cli metrics history:*)
+  - Bash(python3 *traust* -m traust.cli dashboard view spend:*)
   - Bash(python3 *traust* -m traust.cli registry models:*)
 ---
 
 # Financial tracking
 
 > **Paths.** `analysis-results/…` and `progress-tracker/…` in this skill are the
-> default workspace layout. They resolve through `locations.yaml` in
+> default workspace layout. They resolve through `locations:` in `traust.yaml` in
 > `$TRAUST_CONFIG_HOME` (`docs/setup.md`, Storage locations); substitute your
 > configured roots.
 
@@ -43,12 +41,13 @@ invoiced actual. Two limits must appear in anything you hand to a human:
    flags some models as not on the published rate card (a trailing
    `price unverified` comment), and as of 2026-08 the affected
    opus-class model carries most campaign spend. Never hardcode which
-   one — `build_financial_report.py` reads the current set from the
+   one — the spend view reads the current set from the
    registry and prints it. Do not strip that line when summarising.
 2. **Business-unit coverage is partial.** Spend carries no BU tag
-   anywhere, so it is bridged from the findings tree a session touched.
-   Measured 2026-08-06: ~35% of period cost resolves to a BU; the rest
-   is `bu-unknown`. Never redistribute the unknown remainder across
+   anywhere, so it is bridged from the run order it was recorded against
+   (repository → product → corpus registry); workstation sessions have no
+   order. The view states the share of period cost that resolves to a BU;
+   the rest is `unattributed`. Never redistribute the unknown remainder across
    known BUs to make a chart total 100% — quote the coverage figure.
 
 If asked for a number without context, give the number **and** which of
@@ -60,62 +59,62 @@ these apply. A confident unqualified figure is the failure mode here.
 |---|---|
 | `report` (default) | Build the period report: cost, unit economics, trend |
 | `capture` | Refresh the underlying data first, then report |
-| `bu` | Report including the business-unit split (slower — walks transcripts) |
+| `bu` | Report including the business-unit split |
 | `reconcile` | Compare estimates against a supplied invoice CSV |
 
 ### report
 
 ```bash
-python3 harnessing/financial-tracking/scripts/build_financial_report.py --month <YYYY-MM> --months 6
+python3 -m traust.cli dashboard view spend --since <first of the month 5 months back, e.g. 2026-05-01T00:00:00Z> \
+    --until <first of the month after <YYYY-MM>> --out <dir>
 ```
-Reads the metrics ledger only (fast, no transcript walk). Add
-`--out <path>` to write Markdown, `--json` for the structured form.
+Reads traust-core's recorded spend (fast, no transcript walk). Writes
+`spend.md` (and `.html`) under `--out`; `spend.json` is the structured form.
 
 ### capture — refresh, then report
 
 Run in order; each is deterministic and idempotent:
 
 ```bash
-# 1. session actuals -> ledger (completed days only)
+# 1. session actuals -> traust-core (completed days only)
 python3 -m traust.cli metrics collect-spend --append
 
-# 2. per-lane attribution -> ledger (spend-attribution:<skill>)
-python3 -m traust.cli metrics attribute-spend --append
+# 2. per-lane attribution (step 1 records spend per skill; nothing to append)
 
 # 3. prove the attribution split lost nothing
 python3 -m traust.cli metrics attribute-spend --reconcile   # exit 1 = mismatch
 
 # 4. report
-python3 harnessing/financial-tracking/scripts/build_financial_report.py --months 6
+python3 -m traust.cli dashboard view spend --since <...> --until <...> --out <dir>
 ```
 
-Step 3 is a gate, not a formality: a non-zero exit means tokens were
-dropped between the collector and the attribution split, and any
+Step 3 is a gate, not a formality: a non-zero exit means recorded spend
+does not split losslessly by skill, and any
 downstream figure is untrustworthy. Stop and say so.
 
 ### bu — business-unit split
 
 ```bash
-python3 harnessing/financial-tracking/scripts/build_financial_report.py --month <YYYY-MM> --by-bu
+python3 -m traust.cli dashboard view spend --since <...> --until <...> --out <dir>
 ```
 
-Walks the transcripts (~30s over the current corpus). The BU comes from
-`findings.db`'s `business_unit` column, which is sourced from
-`$TRAUST_CONFIG_HOME/corpus-config.yaml` — the metrics-accounting taxonomy. That is
+The spend view carries the split. The BU comes from the corpus registry's
+`business_unit` for the products shipping the run order's repository,
+which is sourced from corpus intake — the metrics-accounting taxonomy. That is
 exactly what it is for; note that the same tags are explicitly **not** a
 risk signal and play no role in routing or ceilings
 (docs/continuous-operations.md, operator directive 2026-07-27).
 
 **Reading the output correctly:** the BU table and the per-lane table
-partition the *same* total along *different* axes. A session can touch a
-BU's tree without invoking a skill, or run a skill against no tree. The
+partition the *same* total along *different* axes. An order can carry a
+BU's repository without a skill, or a skill can run with no order. The
 rows will not reconcile against each other, and that is not an error.
 
 ### reconcile — check estimates against reality
 
 ```bash
-python3 harnessing/financial-tracking/scripts/build_financial_report.py --month <YYYY-MM> \
-    --invoice <path.csv>
+python3 -m traust.cli dashboard view spend --since <...> --until <...> \
+    --invoice <path.csv> --out <dir>
 ```
 CSV columns: `period,amount_usd[,note]` where `period` is `YYYY-MM`.
 The report then shows estimate vs invoiced vs variance. Until an invoice
@@ -125,9 +124,9 @@ is supplied, say plainly that nothing has been checked against billing.
 
 Do not imply spend is being controlled. As of 2026-08-06:
 
-- `$TRAUST_CONFIG_HOME/budget-policy.yaml` runs `enforcement: observe` — every weekly
-  tranche computes a budget verdict, records it, and **withholds
-  nothing** (traust.cli.budget_shadow).
+- `budgets` in `$TRAUST_CONFIG_HOME/traust.yaml` run `enforcement: observe` — every planned
+  order gets a budget verdict, recorded in its run manifest, and **withholds
+  nothing** (traust-engine's admission).
 - The only lane the router can ever drop is a full audit, and only when
   enforcement is `advisory`/`enforced`.
 - `--monthly-budget` on the router is the sole live gating knob.
@@ -139,12 +138,12 @@ total workstation spend overstates the overage by a multiple — the
 workstation figure carries every session on the machine, lane
 attribution does not.
 
-Recorded verdicts accumulate under `budget-shadow` in the ledger — count
+Recorded verdicts accumulate in the orders' run manifests (`budget`) — count
 them to answer "how often would the cap have bound".
 
 ## Unit economics — the denominator trap
 
-`usd_per_finding` and `usd_per_repo` divide **one period's** spend by an
+`cost per finding` and `cost per repository` divide **one period's** spend by an
 **all-time** corpus count, so they understate true unit cost. State that
 whenever you quote them. `/census` remains the denominator authority for
 any published coverage claim; these are internal cost ratios, not
@@ -153,26 +152,25 @@ coverage metrics.
 ## Cadence
 
 Monthly is the natural period, matching the budget. `capture` is safe to
-run any time — both append steps skip the current (incomplete) day, so
+run any time — the append step skips the current (incomplete) day, so
 re-running never double-counts and never freezes a partial day.
 
 ## Integrations
 
-**Consumes:** Claude Code session transcripts (via
-`collect_session_spend.py` / `attribute_session_spend.py`); the
-hash-chained metrics ledger (`spend-attribution:*`, `budget-shadow`,
-`model-spend:*`); `analysis-results/graph/findings.db` (`business_unit`,
-finding and repo counts); `config/model-registry.yaml` (prices);
-`$TRAUST_CONFIG_HOME/budget-policy.yaml` (ceiling and enforcement posture);
+**Consumes:** Claude Code workstation session transcripts (via
+`metrics collect-spend`; runner sessions settle against their order instead); traust-core's spend events (per skill, lane
+and run order); run manifests' budget verdicts; the corpus registry (`business_unit`)
+and the portfolio's finding and repo counts; `config/model-registry.yaml` (prices);
+`budgets` in `$TRAUST_CONFIG_HOME/traust.yaml` (ceiling and enforcement posture);
 optionally an operator-supplied invoice CSV.
 
-**Emits:** a Markdown/JSON financial report (default stdout; `--out` to
-persist). Terminal by design — it is a reporting view over existing
+**Emits:** the spend view, `spend.{md,html,json}` under `--out`.
+Terminal by design — it is a reporting view over existing
 artifacts and introduces no new campaign artifact for another skill to
 consume. The per-lane numbers it reads are the same ones
-`build_spend_dashboard.py` renders, so the two cannot disagree.
+the program view (`dashboard view program`) renders, so the two cannot disagree.
 
-**Related:** `/refresh-dashboards` rebuilds the spend dashboard;
+**Related:** `/refresh-dashboards` (*retired:* its spend-dashboard stage; the spend view replaces it);
 `/drift-watch` flags stale spend data; the budget-guard phases are
 tracked in
 `progress-tracker/plans/budget-guard-widening-plan.md`.

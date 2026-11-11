@@ -1,0 +1,113 @@
+# CWE-290: forward-without-strip identity header passthrough in reverse proxies.
+rules:
+  - id: traust-go-authentication-forwarded-identity-passthrough
+    languages: [go]
+    severity: ERROR
+    message: >-
+      Inbound identity headers reach the upstream request without being
+      stripped — X-Forwarded-(Access-Token|Email|User|Preferred-Username)
+      are trust assertions the upstream derives identity from, so a client
+      that sets them spoofs an authenticated principal through the proxy.
+      Delete the inbound identity headers before proxying and re-add only
+      values the proxy itself authenticated. CWE-290.
+    metadata:
+      cwe: ["CWE-290"]
+      category: authentication
+      asvs: ["V3"]
+      confidence: MEDIUM
+      references:
+        - "CWE-290 authentication bypass — X-Forwarded-* identity headers forwarded without stripping"
+    patterns:
+      - pattern-either:
+          # inbound header bag copied wholesale onto the upstream request
+          - patterns:
+              - pattern-either:
+                  - pattern: $OUT.Header = $R.Header
+                  - pattern: $OUT.Header = $R.Header.Clone()
+              - metavariable-regex:
+                  metavariable: $R
+                  regex: ^(r|req|request|inReq|inRequest|incoming)$
+          # identity header explicitly forwarded from the inbound request
+          - patterns:
+              - pattern-either:
+                  - pattern: $OUT.Header.Set($H, $R.Header.Get($H2))
+                  - pattern: $OUT.Header.Add($H, $R.Header.Get($H2))
+              - metavariable-regex:
+                  metavariable: $H2
+                  regex: (?i)^"x-forwarded-(access-token|email|user|preferred-username)"$
+          # reverse proxy constructed in a file that traffics in identity
+          # headers but never deletes ANY header — the vulnerable code is
+          # an absence (no strip before proxying), so the constraint is
+          # file-level co-occurrence
+          - patterns:
+              - pattern-either:
+                  - pattern: httputil.NewSingleHostReverseProxy($T)
+                  - pattern: wsutil.NewSingleHostReverseProxy($T)
+              - pattern-inside:
+                  pattern-regex: (?s)\A(?=.*(?i:x-forwarded-(access-token|email|user|preferred-username)))(?!.*(?i:header\.del)).*
+      # sanitizers: an identity-header strip precedes the forward in the
+      # same block (direct Del, or the range-over-header-list idiom)
+      - pattern-not-inside: |
+          $T.Header.Del($DH)
+          ...
+      - pattern-not-inside: |
+          for $I, $HN := range $HDRS {
+            $T.Header.Del($HN)
+          }
+          ...
+
+  # v1.8 credential-acceptance tranche. Go twin of
+  # traust-python-authentication-jwt-signature-unverified: a parse that
+  # skips signature verification, a key function that hands back no key,
+  # or the unsigned algorithm admitted — each lets the token's author pick
+  # its claims. ParseUnverified has a legitimate use (read the issuer or
+  # key id to choose the key, then verify), so it carries MEDIUM
+  # confidence and the judge checks that a verified parse follows.
+  - id: traust-go-authentication-jwt-signature-unverified
+    languages: [go]
+    severity: ERROR
+    message: >-
+      A JWT is accepted without signature verification — ParseUnverified,
+      a key function that returns no key, or the unsigned `none` algorithm
+      allowed. Whoever writes the token chooses its subject and claims.
+      This is a finding even behind a test/debug switch: trace where that
+      switch is set, including its shipped default. Verify every token
+      against a pinned key and an explicit WithValidMethods list; if a
+      claim must be read before the key is known, use it only to select
+      the key, then verify. CWE-347.
+    metadata:
+      cwe: ["CWE-347", "CWE-287"]
+      category: authentication
+      asvs: ["V9"]
+      confidence: MEDIUM
+      references:
+        - "seeded defect shape: token signature check skipped"
+    pattern-either:
+      - pattern: $P.ParseUnverified(...)
+      - pattern: jwt.UnsafeAllowNoneSignatureType
+      - pattern: jwt.SigningMethodNone
+      - patterns:
+          - pattern: jwt.WithValidMethods($METHODS)
+          - metavariable-regex:
+              metavariable: $METHODS
+              regex: (?is).*"none"
+      - pattern: |
+          jwt.Parse($TOK, func($T *jwt.Token) (interface{}, error) {
+              ...
+              return nil, nil
+          }, ...)
+      - pattern: |
+          jwt.ParseWithClaims($TOK, $CL, func($T *jwt.Token) (interface{}, error) {
+              ...
+              return nil, nil
+          }, ...)
+      - pattern: |
+          $PARSER.Parse($TOK, func($T *jwt.Token) (interface{}, error) {
+              ...
+              return nil, nil
+          })
+      - pattern: |
+          $PARSER.ParseWithClaims($TOK, $CL, func($T *jwt.Token) (interface{}, error) {
+              ...
+              return nil, nil
+          })

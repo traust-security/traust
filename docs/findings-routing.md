@@ -1,16 +1,17 @@
-# Findings routing — how a finding gets into the ledger
+# Findings routing — historical layer pipeline
 
-A **router** takes a producer's own report and turns its findings into ledger
-events. Routers do more than move findings — they mint campaign ids, pin claim
-hashes, enforce idempotence, write provenance back to the producer's report, and
-stamp and sign the layer they touch. This page covers all of it. Routers exist because nothing audit-grade may live only inside a
-producer's report: an unrouted finding has no owner, no SLA clock, no
-disposition history, and no dashboard presence — it is invisible risk.
+This is the historical design of the findings routers retired by the hub
+cutover, not a current invocation guide. It preserves their identity,
+idempotence and provenance requirements for the core skill ports.
+Core owns finding identity and intake; the ledger supplies proof, not a second
+state writer. Current ownership is in [components.md](components.md).
 
-This page is the canonical reference for **findings routing** — getting a
-producer's findings into the ledger. If another document disagrees, this one is
-authoritative for that; [disposition-ledger.md](disposition-ledger.md) owns the
-ledger's design and [artifacts.md](artifacts.md) maps the whole chain.
+The active track-findings human review workflow and machine-validation record
+door use core services; neither recreates layers. See the
+[record protocol](cli-reference.md#machine-validation-recording).
+Impact intake now belongs to core exposure/finding services; the historical
+impact router below is not its API. Novel/regression skill ports remain separate.
+Legacy shapes below are not write APIs.
 
 ### It is *not* the only kind of routing here
 
@@ -19,8 +20,8 @@ only the first is in scope for this page:
 
 | Kind | What it routes | Where it lives | Documented in |
 |---|---|---|---|
-| **Findings routing** | a producer's findings → ledger events | `route_regressions.py`, `route_impact_findings.py` | **this page** |
-| **Work routing** (the *rescan router*) | repos → one of 12 scan lanes (`full-audit`, `impact-lane`, `diff-scan`, `deps-lane`, `threat-model-review`, …) | `build_rescan_worklist.py` | [continuous-operations.md](continuous-operations.md) |
+| **Historical findings routing** | a producer's findings → ledger events | retired `route_regressions.py`, `route_impact_findings.py` | **this page** |
+| **Work routing** (the *rescan router*) | repos → one of 12 scan lanes (`full-audit`, `impact-lane`, `diff-scan`, `deps-lane`, `threat-model-review`, …) | `traust.ops.router` | [continuous-operations.md](continuous-operations.md) |
 | **Owner routing** | findings packages → teams and named maintainers | `/assign-findings-owners` (internal extension), `/reassign-findings-owners` | those skills |
 | **Defect routing** | findings → Jira issues | `/file-security-defect` (internal extension) | those skills |
 
@@ -33,11 +34,11 @@ baseline used to bypass (§1).
 
 ---
 
-## 1. The one rule everything else follows
+## 1. Historical baseline/layer boundary
 
-**Only `/secure-code-audit`, `/secure-rpm-audit` and `/secure-container-audit`
-may write an audit baseline (`*-{security,rpm,container}-audit.json`). Every
-other producer writes a LEDGER LAYER.**
+Only the audit producers were allowed to author a baseline; other producers
+recorded additions as events rather than mutating that claim set.
+That historical boundary does not authorize new layer-file writes.
 
 Enforced by gate **A15** in `check_skill_alignment.py`, not by convention.
 Mutating a baseline changes the claim set with *no event recording it*, which
@@ -66,23 +67,32 @@ migration — the event stays in history, the baseline takes over.
 
 ---
 
-## 2. Every writer that touches a layer
+## 2. Retired layer writers
 
-| Writer | Invoked by | What it records | Stamps + signs |
-|---|---|---|---|
-| `emit_triage_ledger_events.py` | `/triage` | triage verdicts → validity events | ✅ `:362` |
-| `emit_validation_ledger_events.py` | `/validate-findings` | live-validation verdicts (class-1 evidence) | ✅ `:555` |
-| `countersign.py` | `/countersign` | human decisions, overrides, severity changes | ✅ `:910` |
-| `build_cumulative.py` | `/track-findings` | rebuilds `*-findings-current.{json,md}`; re-stamps | ✅ `:689` |
-| `route_regressions.py` | `/verify-remediation`, `/track-findings` | `regressions[]` → findings-carrying events | ✅ `:338` |
-| `route_impact_findings.py` | `/dependency-watch`, `/impact-analysis` | reachable dependency CVEs → findings-carrying events | ✅ |
-| `rebaseline()` (traust-engine `_util/finding_identity.py`) | re-audit | re-points the layer at a new baseline | — re-points only; does not stamp |
+The following code is historical reference only. Its stamping and signing
+requirements must be retained by the owning core services, not restored as
+independent producer logic.
 
-Every writer calls `stamp_and_sign(layer)` immediately before serialising —
-stamp the Merkle root, then sign it if a key is configured. Signing a stale root
-is impossible by construction. `rebaseline()` is the one writer that does not
-stamp: it re-points the layer's `audit_report` and leaves the root to the next
-recording write.
+| Retired writer | Former caller | Historical purpose |
+|---|---|---|
+| `emit_triage_ledger_events.py` | `/triage` | Triage verdicts to validity events |
+| `emit_validation_ledger_events.py` | `/validate-findings` | Validation evidence and signoff routing |
+| `build_cumulative.py` | `/track-findings` | Rebuild findings-current from retained history |
+| `route_regressions.py` | `/verify-remediation`, `/track-findings` | Record newly discovered regressions |
+| `route_impact_findings.py` | `/dependency-watch`, `/impact-analysis` | Record advisory-impact findings |
+| `rebaseline()` | re-audit | Link a replacement baseline without rewriting history |
+
+The current track-findings human review workflow is documented in the
+[CLI reference](cli-reference.md#direct-human-severity-recording). Its findings
+queue, request, direct judgement and apply use core services, never retired
+layer-writing paths.
+
+For triage specifically, use `traust triage record <assessment-id> <triage.json>
+--repo <checkout>`: `FindingDecisions.record` binds every verdict to that assessment,
+records its decision/review atomically and seals through core's ledger owner.
+`traust findings refuted --repo-url <url>` reads the false-positive register.
+The 2026-10-23 triage hub retirement replaced `emit_triage_ledger_events.py`;
+its historical row above is not an executable route or a skill permission.
 
 ---
 
@@ -172,32 +182,21 @@ validity the truth axis ([§4](disposition-ledger.md)) — so a new finding is
 *open with validity unstated*. Nothing at routing time sets `confirmed`; that
 takes execution evidence or a human, and those verdicts flow through the ledger.
 
-`not_verified` is a **report-level** `validation_status`, never an event
-`validity`; the event vocabulary is `confirmed | false_positive | corrected |
-hardening`.
-
-Evidence class is 3 (machine static) for `impact_report`, `triage_report` and
-`vuln_scan_report`; `verification_report` and `validation_report` are class 1
-(execution-verified) and outrank human static determinations. Class decides
-precedence in `build_cumulative`, not recency or actor authority.
+These report/event vocabulary and source-class examples belong to the retired
+pipeline. Current accepted values come from core's installed contracts, and
+new evidence admission uses explicit grades rather than inferring strength from
+report kind, channel or actor. Do not reuse the historical class-1/2/3 ranking
+for new decisions.
 
 ---
 
-## 6. Invocation
+## 6. Current availability
 
-```bash
-# dependency CVEs — severity comes from the advisory, never invented
-python3 -m traust.cli route impact-findings \
-    analysis-results/impact/<cve>-impact-analysis.json \
-    --severity high [--include-likely] [--limit N] [--no-rebuild] [--dry-run]
-
-# verification regressions
-python3 -m traust.cli route regressions \
-    <path>/<repo>-remediation-verification.json \
-    [--audit <audit.json>] [--layer <layer.json>] [--no-rebuild] [--dry-run]
-```
-
-`--dry-run` reports what would be routed and writes nothing. `--no-rebuild`
-skips the `*-findings-current` rebuild; the layer is still stamped and signed.
+There is no supported invocation of the retired impact/regression routers.
+Their replacement finding-write boundary is core's `FindingIntake.accept`,
+which remains unfinished in the verified checkpoint. The corresponding
+assessment and skill ports must supply their inputs and consumers before these
+workflows can run. The human severity writer is not a substitute for new-finding
+intake, validity determinations or cumulative rebuilds.
 
 ---

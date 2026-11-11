@@ -1,6 +1,6 @@
 ---
 name: isolation-review
-description: Use when the user asks to review, assess, or score the tenant isolation of a multi-tenant service — resolving the service's repo set via the portfolio graph, building a customer-facing interface inventory from graph data and existing audit/threat-model findings, rating per-interface complexity, scoring five isolation-hardening dimensions (privilege, encryption, authentication, connectivity, operational hygiene) with cited evidence, and emitting a schema-validated isolation report under analysis-results/isolation/<service-slug>/.
+description: Use when the user asks to review, assess, or score the tenant isolation of a multi-tenant service — resolving the service's repo set via traust-core, building a customer-facing interface inventory from interface signals and existing audit/threat-model findings, rating per-interface complexity, scoring five isolation-hardening dimensions (privilege, encryption, authentication, connectivity, operational hygiene) with cited evidence, emitting a schema-validated isolation report under analysis-results/isolation/<service-slug>/, and recording canonical isolation_review assessments on every covered commit through traust-core.
 user-invocable: true
 metadata:
   harness.tier: "primary"
@@ -9,7 +9,7 @@ metadata:
 # Tenant-Isolation Review (service-level)
 
 > **Paths.** `analysis-results/…` and `progress-tracker/…` in this skill are the
-> default workspace layout. They resolve through `locations.yaml` in
+> default workspace layout. They resolve through `locations:` in `traust.yaml` in
 > `$TRAUST_CONFIG_HOME` (`docs/setup.md`, Storage locations); substitute your
 > configured roots.
 
@@ -43,17 +43,16 @@ methodology — [whitepaper v1.1 (PDF)](https://www.datocms-assets.com/75231/167
 
 ## Input
 
-`service` — a service name resolvable to a `product:service:<name>` node in
-the portfolio graph, or an explicit repo list for services not yet in the
-graph. Resolve the repo set from the graph's `ships` edges:
+`service` — a service name resolvable to a product registered in
+traust-core, or an explicit repo list for services not yet registered.
+Resolve the repo set from the commits the product's releases ship:
 
 ```bash
-sqlite3 analysis-results/graph/portfolio-graph.db \
-  "SELECT dst FROM edges WHERE rel='ships' AND src='product:service:<name>';"
+python3 -m traust.cli isolation repos <name>
 ```
 
-Record the graph DB path (plus its git ref or mtime) as `metadata.graph_ref`.
-If the service node does not exist, ask the user for the repo list and set
+Record the output's `graph_ref` (the product and when it was read) as `metadata.graph_ref`.
+If the product does not exist (the command exits 2), ask the user for the repo list and set
 `graph_ref` to `"manual"` with the reason in `notes`.
 
 ## Output (under `analysis-results/isolation/<service-slug>/`)
@@ -80,8 +79,11 @@ Sources, in order of authority:
    `peach_isolation_review.interfaces[]` block (when present), the threat
    model's entry-point/trust-boundary tables, and triage/validation reports.
    These seed the inventory and supply finding IDs as evidence.
-2. **Graph structure.** `rbac_grants`, `owns_crd`, `consumes_group`, and
-   `intercepts` edges on the service's repos surface CRDs, aggregated APIs,
+2. **Interface signals.** `rbac_grants`, `crds_defined` / `csv_owned_crds`,
+   `api_group_literals`, and `webhooks` in `tenancy_signals` in the
+   Kubernetes hardening pre-scan output (`<repo>-k8s-hardening.json`) that
+   secure-code-audit and vuln-scan write for each of the service's repos
+   surface CRDs, aggregated APIs,
    and webhook interception points that the per-repo artifacts may have
    missed.
 3. **Code, last.** Only read source to fill inventory holes (route tables,
@@ -142,7 +144,7 @@ Dimension definitions (original to this repository):
 `yes`): each cited item is either a `file:line` reference in a named repo
 (e.g. `github.com/openshift/foo//pkg/auth/token.go:88`) or a finding/threat
 ID from an existing artifact (e.g. `FOO-1a2b3c4-007`, `foo-threat-model:T3`).
-The validator rejects uncited `partial`/`no` results. Never invent evidence —
+`traust reporting record` rejects uncited `partial`/`no` results. Never invent evidence —
 if nothing supports a score, the score is wrong or the review is incomplete.
 
 ### Step 4 — posture and prioritized gaps
@@ -161,12 +163,15 @@ if nothing supports a score, the score is wrong or the review is incomplete.
    `critical-gap` (any `critical`). Write `posture.summary` as 2–5 sentences
    a service owner can act on: the strongest boundary, the weakest interface,
    and the single highest-payoff fix.
-3. Write `<service-slug>-isolation-review.{json,md}` and validate:
+3. Write `<service-slug>-isolation-review.{json,md}` and record it as an
+   isolation-review assessment of each commit in the repo set (one document,
+   filed on every commit it covers). `record` validates it first (the schema,
+   then every gap names a listed interface) and records nothing when it fails:
 
    ```bash
-   python3 harnessing/3-audit/isolation-review/scripts/validate_isolation_review.py \
-     analysis-results/isolation/<service-slug>/<service-slug>-isolation-review.json
-   # must print: isolation review valid: 0 errors
+   python3 -m traust.cli reporting record \
+     analysis-results/isolation/<service-slug>/<service-slug>-isolation-review.json \
+     --kind isolation_review --repo-url <repo url> --sha <commit> --branch <branch>   # once per repo
    ```
 
    The JSON shape is `isolation-review.schema.json` in traust-contracts.

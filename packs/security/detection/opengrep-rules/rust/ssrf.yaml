@@ -1,0 +1,39 @@
+rules:
+  - id: traust-rust-ssrf-request-taint
+    languages: [rust]
+    severity: ERROR
+    message: >-
+      A request value (a gRPC message field, or an axum / actix-web Query,
+      Path or Json extractor) is the destination of an outbound reqwest
+      call — callers reach internal services and cloud metadata. Allow-list
+      hosts, or resolve and refuse private addresses before connecting.
+      CWE-918.
+    metadata:
+      cwe: ["CWE-918"]
+      category: ssrf
+      asvs: ["V1"]
+      confidence: MEDIUM
+      references:
+        - "CWE-918 SSRF — request values as reqwest destinations"
+    mode: taint
+    pattern-sources:
+      - pattern-either:
+          - pattern: $R.into_inner()
+          - patterns:
+              - pattern-either:
+                  - pattern-inside: |
+                      async fn $F(..., Query($P): $T, ...) -> $RET { ... }
+                  - pattern-inside: |
+                      async fn $F(..., Path($P): $T, ...) -> $RET { ... }
+                  - pattern-inside: |
+                      async fn $F(..., Json($P): $T, ...) -> $RET { ... }
+              - pattern: $P
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: reqwest::get($U)
+              - pattern: reqwest::blocking::get($U)
+              - pattern: $C.get($U).send()
+              - pattern: $C.post($U).send()
+              - pattern: $C.request($M, $U)
+          - focus-metavariable: $U

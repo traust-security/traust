@@ -1,0 +1,44 @@
+# GDPR — technical-slice catalog (digital sovereignty).
+#
+# Article references are facts; the slice definitions below are
+# harness-authored (EUR-Lex reuse verified 2026-07-19 — but this file
+# deliberately cites article numbers only). Scope statement of record:
+# compliance-check-plan.md "GDPR technical slice". The skill produces
+# technical evidence; legal compliance judgment stays with counsel.
+# Which stores hold personal data is DECLARED input, never inferred.
+
+reviewed: "2026-07-19"  # last review against the living framework (drift-watch 180d window)
+framework: gdpr-technical
+slices:
+  - id: gdpr-residency
+    articles: ["44", "45", "46", "47", "48", "49"]
+    slice: where personal data physically resides and flows —
+      region-allowlist assertions over the inventory; cross-region
+      replication and transfer paths flagged. The skill reports where
+      data flows; whether the transfer mechanism suffices is counsel's
+      judgment.
+    classification_hint: deterministic
+  - id: gdpr-security-of-processing
+    articles: ["32"]
+    slice: encryption at rest and in transit on declared
+      personal-data stores; resilience and access controls on them.
+    classification_hint: deterministic-or-evidence_review
+  - id: gdpr-storage-limitation
+    articles: ["5(1)(e)"]
+    slice: retention configuration — lifecycle rules and TTLs on
+      declared personal-data stores.
+    classification_hint: evidence_review
+  - id: gdpr-erasure-capability
+    articles: ["17"]
+    slice: technical capability to delete — deletion APIs/procedures
+      exist for declared personal-data stores (capability, not
+      obligation-compliance).
+    classification_hint: evidence_review
+  - id: gdpr-access-audit
+    articles: ["30", "32"]
+    slice: access logging and audit trails on declared personal-data
+      stores.
+    classification_hint: deterministic-or-evidence_review
+out_of_scope_note: lawful basis, consent, DPIA obligations,
+  controller/processor agreements, transfer-adequacy judgments, and any
+  overall compliance claim — organizational/legal, never narrated.

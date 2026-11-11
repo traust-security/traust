@@ -1,7 +1,7 @@
 # LLM, agent and MCP application review
 
-Read this when the LLM application pre-scan (`traust adapters llm-app`)
-reports `llm_application: true`. Review the files it tags, plus the
+Read this when the LLM application pre-scan (`traust adapters llm-app`,
+traust-core's `code_facts.llm_app`) reports `llm_application: true`. Review the files it tags, plus the
 call paths that lead into and out of them. Read only the sections for the
 `kinds` it reports, plus the sections that apply to every LLM application
 (LLM01, LLM02, LLM05, LLM07, LLM10).

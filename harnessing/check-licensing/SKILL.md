@@ -17,7 +17,7 @@ allowed-tools:
 # Check Licensing
 
 > **Paths.** `analysis-results/…` and `progress-tracker/…` in this skill are the
-> default workspace layout. They resolve through `locations.yaml` in
+> default workspace layout. They resolve through `locations:` in `traust.yaml` in
 > `$TRAUST_CONFIG_HOME` (`docs/setup.md`, Storage locations); substitute your
 > configured roots.
 
@@ -90,7 +90,7 @@ pack:
    (tools / Python / MCP / data feeds / frameworks), with the
    licensing note; a risk tier of Medium or above is recorded in the
    deployment's commercialization assessment (progress-tracker).
-4. **Install note** — add the tool to `config/external-tools.yaml` (pin +
+4. **Install note** — add the tool to traust-core's shipped `external-tools.yaml` (pin +
    consumers) and to the capability row in `docs/requirements.md` if users
    must install it.
 5. **Pin for reproducibility** — version (and data/DB or ruleset SHA) must
@@ -123,7 +123,7 @@ candidates:
    retire now).
 3. **Retire deliberately, not silently**: remove the invocation site (if
    any), the `docs/external-dependencies.md` row, the manifest entry in
-   `config/external-tools.yaml`, and the `docs/requirements.md` mention in one commit whose message names the replacement or the reason;
+   traust-core's shipped `external-tools.yaml`, and the `docs/requirements.md` mention in one commit whose message names the replacement or the reason;
    note the retirement in the *Maintenance* section of
    `docs/external-dependencies.md` so the license history stays
    reconstructable.

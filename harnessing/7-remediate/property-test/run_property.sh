@@ -6,7 +6,7 @@
 # The evidence is the asymmetry, not the pass: a property that fails on the
 # base revision and passes on the patched one witnesses the finding and now
 # guards it. A property that passes on both may be a fine test but says
-# nothing about this fix. property_evidence.py holds that logic.
+# nothing about this fix. `traust remediation property-evidence` holds that logic.
 #
 # Containment (S9/S10). Both runs execute the target's test suite, which is
 # hostile-input execution, so this inherits run_checks.sh's boundary:
@@ -14,7 +14,7 @@
 # image, --network=none for the test runs. Dependencies are fetched in a
 # separate networked, script-less step (pip --no-deps on a pinned version,
 # rule S7) exactly as run_checks.sh prefetches. The mode comes from
-# `sandbox:` in $TRAUST_CONFIG_HOME/execution-boundaries.yaml (default
+# `execution.sandbox` in $TRAUST_CONFIG_HOME/traust.yaml (default
 # `none`); a configured `podman` mode is never silently downgraded.
 #
 # Neither run touches the caller's worktree. Both are disposable copies —
@@ -53,7 +53,6 @@ PROP_DEPS=(
 )
 IMG_PY="${REMEDIATION_IMG_PY:-docker.io/library/python@sha256:9bed8554e926c07c6f908841d5ee88c33e8df9236b191526bbce81a9062ab43a}"
 
-SCRIPTS="$(dirname "$0")/scripts"
 
 emit_not_attempted() {
   python3 - "$1" <<'INNER'
@@ -70,7 +69,7 @@ INNER
 
 # --- execution boundary (config, not environment) ----------------------------
 # How target build/test code runs is a deployment decision, read once from
-# $TRAUST_CONFIG_HOME/execution-boundaries.yaml:
+# `execution.sandbox` in $TRAUST_CONFIG_HOME/traust.yaml:
 #
 #   none    (default) run directly — scrubbed env, disposable copy
 #   podman  nested rootless container, --network=none, digest-pinned image
@@ -84,7 +83,7 @@ INNER
 #
 # The resolved mode is recorded in the emitted evidence.
 resolve_boundary() {
-  local cfg="${TRAUST_CONFIG_HOME:-$HOME/.traust/config}/execution-boundaries.yaml"
+  local cfg="${TRAUST_CONFIG_HOME:-$HOME/.traust/config}/traust.yaml"
   local mode
   mode="$(python3 - "$cfg" <<'CFG'
 import sys
@@ -93,7 +92,7 @@ try:
     import yaml
     with open(sys.argv[1], encoding="utf-8") as fh:
         doc = yaml.safe_load(fh) or {}
-    mode = str(doc.get("sandbox") or "none").strip().lower()
+    mode = str((doc.get("execution") or {}).get("sandbox") or "none").strip().lower()
 except Exception:
     pass  # absent or unreadable config -> the documented default
 print(mode if mode in ("none", "podman") else "none")
@@ -104,7 +103,7 @@ CFG
 
 BOUNDARY="$(resolve_boundary)"
 if [[ "$BOUNDARY" == podman ]] && ! podman info >/dev/null 2>&1; then
-  emit_not_attempted "execution-boundaries.yaml asks for sandbox: podman but no working podman runtime is available"
+  emit_not_attempted "traust.yaml asks for execution.sandbox: podman but no working podman runtime is available"
 fi
 [[ -f "$WORK/pyproject.toml" || -f "$WORK/setup.py" || -f "$WORK/setup.cfg" ]] \
   || emit_not_attempted "not a Python project; Go (rapid) and TS (fast-check) are not wired yet"
@@ -209,7 +208,7 @@ PATCHED_LOG="$OUT/property-patched.log"
 BASE_RC="$(run_one "$SB_BASE" "$BASE_LOG")"
 PATCHED_RC="$(run_one "$SB_PATCHED" "$PATCHED_LOG")"
 
-python3 "$SCRIPTS/property_evidence.py" \
+python3 -m traust.cli remediation property-evidence \
   --test-path "$TEST_PATH" --base-ref "$BASE_REF" \
   --base-rc "$BASE_RC" --patched-rc "$PATCHED_RC" \
   --tool-version "${HYPO_VERSION:+hypothesis $HYPO_VERSION}" \

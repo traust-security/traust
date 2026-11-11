@@ -1,0 +1,38 @@
+# Fixtures for the yaml cryptography config-defaults rules. All values
+# synthetic.
+database:
+  host: db.example.com
+  # ruleid: traust-yaml-cryptography-dsn-sslmode-disabled
+  sslMode: disable
+  # ruleid: traust-yaml-cryptography-dsn-sslmode-disabled
+  ssl_mode: "allow"
+  # ok: traust-yaml-cryptography-dsn-sslmode-disabled
+  sslmode: verify-full
+
+datasource:
+  # ruleid: traust-yaml-cryptography-dsn-sslmode-disabled
+  url: postgres://app@db.svc:5432/app?sslmode=disable
+  # ok: traust-yaml-cryptography-dsn-sslmode-disabled
+  urlSafe: postgres://app@db.svc:5432/app?sslmode=verify-full
+
+environment:
+  # ruleid: traust-yaml-cryptography-dsn-sslmode-disabled
+  - DATABASE_URL=postgres://app@db.svc:5432/app?sslmode=prefer
+
+gateway:
+  # ruleid: traust-yaml-cryptography-tls-verify-disabled
+  OPENSSL_VERIFY: "false"
+  # ruleid: traust-yaml-cryptography-tls-verify-disabled
+  verify_ssl: false
+  # ruleid: traust-yaml-cryptography-tls-verify-disabled
+  tlsInsecureSkipVerify: true
+  # ok: traust-yaml-cryptography-tls-verify-disabled
+  ssl_verify: true
+  # ok: traust-yaml-cryptography-tls-verify-disabled
+  insecure: false
+
+compose_env:
+  # ruleid: traust-yaml-cryptography-tls-verify-disabled
+  - OPENSSL_VERIFY=false
+  # ok: traust-yaml-cryptography-tls-verify-disabled
+  - OPENSSL_VERIFY=true

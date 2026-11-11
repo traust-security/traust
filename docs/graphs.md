@@ -9,9 +9,9 @@ and `portfolio-graph-summary.json` report yours after a build.
 
 | Graph | Artifact | Question it answers | Built by |
 |---|---|---|---|
-| **repo-graph** | `repo-graph.{json,dot,gexf,html}` + `repo-graph-stats.md` | which repos exist, who owns them, what has been audited | [`/repo-graph`](../harnessing/repo-graph/SKILL.md) |
-| **portfolio-graph** | `portfolio-graph.db` (SQLite) + `portfolio-graph-summary.json` | what the code depends on, and what a change reaches | [`/portfolio-graph`](../harnessing/portfolio-graph/SKILL.md) |
-| **ATT&CK coverage layer** | `attack-navigator-layer.json` (Navigator format 4.5) | which adversary techniques the portfolio's findings and validated chains cover | [`/attack-coverage`](../harnessing/attack-coverage/SKILL.md) |
+| **repo-graph** | `repo-graph.{json,dot,gexf,html}` + `repo-graph-stats.md` | which repos exist, who owns them, what has been audited | *retired*: traust-core's portfolio (`repository`, `product`, `release`, `component`, `ownership`) and assessment coverage answer it; nothing builds the file |
+| **portfolio-graph** | `portfolio-graph.db` (SQLite) + `portfolio-graph-summary.json` | what the code depends on, and what a change reaches | *retired*: traust-core records each commit's and image's SBOM ([`/portfolio-graph`](../harnessing/portfolio-graph/SKILL.md)); nothing builds the file |
+| **ATT&CK coverage layer** | `attack-coverage.json` `navigator_layer` (Navigator format 4.5) | which adversary techniques the portfolio's findings and validated chains cover | [`/attack-coverage`](../harnessing/attack-coverage/SKILL.md) |
 | **attack chains** | `attack_chains[]` inside validation reports | how a confirmed finding chains from entry point to terminal asset | [`/validate-findings`](../harnessing/5-validate/validate-findings/SKILL.md) |
 | **Joern Code Property Graph** | transient (temp dir, discarded with the run) | does an advisory's vulnerable symbol actually get called in this repo — the evidence that promotes a finding to `affected` | `adapters joern` (Java, C/C++) |
 | **govulncheck call graph** | transient, internal to the tool | the same question for Go, and the most precise reachability tier the harness has | `adapters govulncheck` |
@@ -30,7 +30,13 @@ census is the denominator authority
 
 ## repo-graph — coverage and ownership
 
-Built from the inputs inventory (segment CSVs + `owners.csv`) cross-referenced
+*Retired*: the `/repo-graph` skill is gone. traust-core holds the same facts as
+tables (products, releases, components, repositories, owner teams) and reads
+them through `PortfolioService` (`list_products_shipping`,
+`list_owned_repositories`) and `AssessmentService.coverage` (traust-core#123). The readers below
+still name `repo-graph.json` until their own ports.
+
+It was built from the inputs inventory (segment CSVs + `owners.csv`) cross-referenced
 against the findings tree.
 
 Hierarchy: `segment` → `release`/`product` → `product-version` → `category` →
@@ -52,10 +58,20 @@ Four outputs for four audiences: `.json` is canonical and machine-readable,
 **Read by:** `/census` (report population, and repo liveness),
 `/portfolio-graph` (as its L0 spine), `/secure-code-audit` (CVE enrichment),
 `/fleet-fix` (target selection), `/drift-watch` (staleness), plus
-`ops/build_crown_jewel_tiers` (tiering) and
 `migrations/resolve_docs_version_refs` (doc-version resolution).
 
 ## portfolio-graph — the code-level layers
+
+*Retired*: nothing builds `portfolio-graph.db`. traust-core records each commit's
+manifest SBOM (`impact sbom`) and each image's SBOM (`adapters image-sbom`);
+`portfolio dependencies` / `dependents`, `portfolio ships-module` (the images
+shipping a package) and the `dependency-reach` view read them, and `adapters
+checkov` reads a checkout's Kubernetes interfaces. The readers below still name
+`portfolio-graph.db` until their own ports.
+
+`drift-watch` names `portfolio-graph.db` only in its retired `pqc-backfeed`
+history. It does not reopen that database: native PQC reads use recorded facts,
+so there is no graph-enrichment copy for a rebuild to clobber.
 
 | Layer | Holds |
 |---|---|
@@ -65,7 +81,7 @@ Four outputs for four audiences: `.json` is canonical and machine-readable,
 | **L3** | artifacts / SBOM, built during a shallow clone→extract→delete sweep, cached per repo |
 | **L4** | symbols, via tree-sitter extraction |
 
-All four are implemented. L1's non-Go half (`deps-multi`) is tree-driven and
+All four are implemented. L1's non-Go half is tree-driven and
 resumable from a disk cache, which matters because a full rebuild is not cheap.
 
 **`repo-graph.json` is the L0 layer this builds on**, so repo-graph is a
@@ -82,7 +98,7 @@ crypto-dependency scans), `/isolation-review` (resolving a service's repo
 set), `/fleet-fix` (every repo affected by one systemic pattern),
 `/dependency-watch` (fleet advisory sweep), `/refresh-dashboards` (dependency
 exposure), `/drift-watch` (staleness), plus `cli/build_rescan_worklist`
-(rescan routing) and `ops/build_crown_jewel_tiers` (tiering).
+(rescan routing).
 
 ## Not a graph: `findings.db`
 
@@ -96,11 +112,11 @@ table inside it, `graph_edges`, *is* imported from repo-graph so findings can
 be joined to what ships them — but a single borrowed edge table does not make
 the database a graph, and nothing treats it as one.
 
-## attack-navigator-layer.json — ATT&CK coverage
+## attack-coverage navigator_layer — ATT&CK coverage
 
 Joins three sources into one Navigator layer, scored by evidence strength:
 **observed** (3) from confirmed `attack_chains[].mitre_attack_refs` in
-validation reports, **modeled** (2) from threat-model `attack_refs`, and
+validation reports (not yet recorded in traust-core), **modeled** (2) from threat-model `attack_refs`, and
 **derived** (1) from finding categories.
 
 The scoring is the point: a technique covered only by category inference is
@@ -175,6 +191,9 @@ there is no stored graph to open.
 ---
 
 ## Freshness
+
+*Retired*: nothing builds repo-graph or portfolio-graph any more (traust#303), so
+neither file can go stale.
 
 `/drift-watch` watches repo-graph and portfolio-graph, reporting `stale` when
 a graph predates the inputs inventory's HEAD, because inventory or ownership

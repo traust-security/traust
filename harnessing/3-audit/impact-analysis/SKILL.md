@@ -2,13 +2,15 @@
 name: impact-analysis
 description: Use when determining which portfolio repositories are affected by
   an advisory (CVE, GHSA, MAL-/malicious-package, or another OSV-native id).
-  Queries the portfolio graph for blast radius, then runs language-specific
-  analysis (govulncheck + ELF reachability for Go, the strongest tier;
+  Walks the commits' recorded SBOMs for blast radius, then runs language-specific
+  analysis (govulncheck reachability for Go, the strongest tier;
   manifest-level analyzers for npm, PyPI, Maven, Cargo, RubyGems, and NuGet;
-  a manifest-level SurfaceAnalyzer for the universal Docker/GitHub
-  Actions/Helm surfaces) to classify every importing repo. Emits a
-  schema-validated artifact consumed by /triage and /verify-remediation.
-argument-hint: "<advisory-id> --module <mod> [--ecosystem go|npm|pypi|maven|cargo|ruby|nuget|actions|docker|helm] [--packages <p1,p2>] [--feature-desc '...'] [--advisory-file <osv.json>] [--skip-scan] [--jobs N]"
+  manifest-level evidence for the universal Docker/GitHub
+  Actions/Helm surfaces) to classify every importing repo. Records a
+  schema-validated artifact per commit in traust-core, consumed by /triage
+  and /verify-remediation. New unjudged findings omit validity assertions;
+  affectedness evidence does not author a Core validity judgment.
+argument-hint: "<advisory-id> [--repo-url <url> --sha <commit>] [--symbols <s1,s2>] [--feature-desc '...'] [--scan]"
 user-invocable: true
 metadata:
   harness.tier: "primary"
@@ -18,79 +20,80 @@ allowed-tools:
   - Grep
   - Write
   - Task
+  - Bash(python3 *-m traust.cli impact find:*)
+  - Bash(python3 *-m traust.cli impact sbom:*)
+  - Bash(python3 *-m traust.cli impact symbols:*)
   - Bash(python3 *-m traust.cli impact analyze:*)
-  - Bash(python3 *-m traust.cli portfolio:*)
-  - Bash(python3 *-m traust.cli reporting validate:*)
+  - Bash(python3 *-m traust.cli impact export:*)
   # (Bash(git:*) dropped 2026-07-31 P1-W4: no git invocation in this skill's flow)
   - Bash(jq:*)
-  - Bash(python3 *harnessing/3-audit/impact-analysis/scripts/fetch_advisory.py:*)
-  - Bash(sqlite3:*)
+  - Bash(python3 *-m traust.cli impact document:*)
 ---
 
 # Impact Analysis
 
 > **Paths.** `analysis-results/…` and `progress-tracker/…` in this skill are the
-> default workspace layout. They resolve through `locations.yaml` in
+> default workspace layout. They resolve through `locations:` in `traust.yaml` in
 > `$TRAUST_CONFIG_HOME` (`docs/setup.md`, Storage locations); substitute your
 > configured roots.
 
 
 Determine per-repo CVE affectedness across the portfolio. Takes a CVE
-identifier, queries the portfolio graph for the blast radius, runs
+identifier, walks the commits' recorded SBOMs for the blast radius, runs
 language-specific analysis, and classifies every importing repo. Output
-is a structured artifact that feeds `/triage` Phase 2f and
-`/verify-remediation` full-sweep scoping.
+is a structured artifact per commit, recorded in traust-core, that feeds
+`/triage` Phase 2f and `/verify-remediation` full-sweep scoping.
 
 ## How it works
 
-The script python3 -m traust.cli impact analyze does all the work:
+python3 -m traust.cli impact analyze does all the work, on traust-core's
+`ExposureService`:
 
-1. **Blast radius** — queries portfolio-graph.db for all repos that
-   `depends_on` the affected module. Filters by version range.
-2. **L4 refinement** — queries `imports_package` edges to see which repos
-   actually import the vulnerable *package* (not just the module).
-3. **Deep scan** — for repos still classified `likely_affected` or
-   `inconclusive`, clones and runs the language-specific analyzer.
+1. **Blast radius** — walks the recorded SBOMs for every commit that holds
+   the advisory's packages, directly, through a base image or through an
+   internal library. Each commit's version is then checked against the
+   advisory's version ranges.
+2. **L4 refinement** — *retired:* the model has no package-import edges;
+   the deep scan's govulncheck and source-import tiers answer it.
+3. **Deep scan** — with `--scan`, for commits still classified
+   `likely_affected` or `inconclusive`, clones the commit at its sha and
+   runs the language-specific analyzer.
 4. **Classification** — each repo gets a classification based on the
    accumulated evidence.
-5. **Artifact emission** — writes `<cve>-impact-analysis.json`.
+5. **Artifact emission** — records an `impact` assessment with its
+   `impact-analysis` document per commit in traust-core.
 
 ### Language analyzers
 
-Analysis is **per-ecosystem**: the analyzer is selected from `--ecosystem`,
-not from a single-language guess of the clone. When `--ecosystem` names a
-specific non-Go ecosystem (`npm`/`pypi`/`cargo`/`maven`/`ruby`/`nuget`, or a
-`SurfaceAnalyzer` surface), that analyzer runs regardless of what language
-the repo looks like — so a Go module that also ships a JS UI subdir,
-analyzed with `--ecosystem npm`, scans its `web/ui/react-app/package.json`
-(the lockfile analyzers rglob manifests anywhere in the tree) instead of
-being misrouted to the Go analyzer by `go.mod`-wins language precedence. The
-default/unspecified ecosystem `go` keeps the legacy `detect_language`
-routing (byte-identical: a Go repo detects `go` and runs the Go analyzer).
-The blast-radius seed is already per-ecosystem (`blast_radius_seed`), so the
-analyzer matches it. Each analyzer owns the full tool chain for its
+Analysis is **per-ecosystem**: the analyzer is selected from the
+advisory's package ecosystem, not from a single-language guess of the
+clone. A non-Go ecosystem (`npm`/`pypi`/`cargo`/`maven`/`ruby`/`nuget`, or a
+manifest surface) gets its analyzer regardless of what language the repo
+looks like — so a Go module that also ships a JS UI subdir, analyzed for an
+npm advisory, scans its `web/ui/react-app/` sources instead of being
+misrouted to the Go analyzer by `go.mod`-wins language precedence. The
+blast radius is already per-ecosystem (packages are ecosystem + name), so
+the analyzer matches it. Each analyzer owns the full tool chain for its
 ecosystem.
 
 **Go** (symbol-level — the strongest tier):
 - `govulncheck` source mode → symbol reachability
-- ELF string scan → package path presence in shipped binaries
+- ELF string scan → package path presence in shipped binaries (*retired:*
+  it read extracted image binaries nothing produced, so it never ran)
 - Unsafe/reflect detection → flags repos needing manual trace
 
 **GitHub Actions, Docker, Helm** (manifest surfaces, no reachability tier):
-a `SurfaceAnalyzer` re-checks the clone's `.github/workflows/*.y{,a}ml` /
-`Dockerfile*` / `Chart.yaml` manifests with the same parsers that put the
-`depends_on` edge in the portfolio graph — is the action/base-image/chart
-still declared, and (when a range is given) is the declared version in
-range. There is no package-manifest language or call-graph tool for these
+the commit's SBOM says whether the action/base-image/chart is declared, and
+whether the declared version is in the advisory's range. There is no package-manifest language or call-graph tool for these
 surfaces to deep-scan, so the classification ceiling is `likely_affected`,
 never `affected`, regardless of how confirmatory the manifest match is.
 
 **Python, Rust, JavaScript, Java, Ruby, NuGet** (manifest-level):
-lockfile/manifest pin extraction (`requirements*.txt`/`Pipfile.lock`/
-`poetry.lock`/`pyproject.toml`, `Cargo.lock`/`Cargo.toml`,
-`package-lock.json`/`yarn.lock`, `pom.xml`/gradle, `Gemfile.lock`/
-`Gemfile`, `packages.lock.json`/`*.csproj`) with version-range
-comparison, plus a source import scan. **The ceiling for
+the lockfile/manifest pins in the commit's SBOM (syft reads
+`requirements*.txt`/`Pipfile.lock`/`poetry.lock`, `Cargo.lock`,
+`package-lock.json`/`yarn.lock`, `pom.xml`/gradle, `Gemfile.lock`,
+`packages.lock.json`/`*.csproj`) with version-range comparison, plus a
+source import scan. **The ceiling for
 manifest evidence is `likely_affected`** — a lockfile pin proves the
 dependency is present at a vulnerable version, never that the vulnerable
 symbol is reachable. A pin outside the range yields
@@ -99,24 +102,29 @@ imports yields `not_observed` (at manifest level).
 
 **C/C++** (binary + source level): header-include grep
 (`#include <lib/…>`) plus a DT_NEEDED linked-library scan of shipped
-image binaries via python3 -m traust.cli util elf. `linked` caps at
-`likely_affected`; `not_linked` with no includes yields `not_observed`.
+image binaries (*retired:* it read extracted image binaries nothing
+produced, so it never ran). `linked` caps at `likely_affected`;
+`not_linked` with no includes yields `not_observed`.
 
 **Assurance boosters (all languages):**
 - **Symbol-usage scan** — when the advisory names vulnerable symbols
-  (`--symbols`), source is grepped for calls to them
-  (`symbol_usage_scan`), and for C/C++ the shipped binary's strings are
-  scanned for the symbol names (`binary_symbol_scan`) — the binary
-  references the vulnerable *function*, not just the library. Textual
+  (published by its source, mined from its fix commits by
+  `traust impact symbols`, or passed with `--symbols`), source is grepped
+  for calls to them (`symbol_usage_scan`), and for C/C++ the shipped
+  binary's strings are scanned for the symbol names (`binary_symbol_scan`,
+  *retired* with the other binary tiers) — the binary references the
+  vulnerable *function*, not just the library. Textual
   usage is stronger than a pin, weaker than reachability: evidence
   level `symbol-usage`, ceiling still `likely_affected`.
-- **SBOM cross-check** — syft SBOMs persisted by
-  `/secure-container-audit` (`analysis-results/graph/sboms/`) are
-  checked for the module: `sbom_scan`/`sbom_shipped_version` record
+- **SBOM cross-check** — the SBOMs of images built from the commit
+  (recorded in traust-core) are checked for the module: `sbom_scan`/`sbom_shipped_version` record
   what the **delivered image** actually contains, vs what the lockfile
   intended. Evidence only, never a verdict by itself.
 - **Joern call-site reachability (Java v0.231.0, C/C++ v0.232.0)** —
-  the analogue of govulncheck's symbol tier.
+  the analogue of govulncheck's symbol tier. *Not run today:* the Java
+  tier was withdrawn (interface dispatch, zero promotions); the C/C++
+  tier returns once the impact-analysis schema carries its evidence
+  fields. The rules below hold when it does.
   python3 -m traust.cli adapters joern builds a CPG of the repo's
   first-party sources (joern-parse/javasrc2cpg, external pinned tool —
   see docs/external-dependencies.md) and reports resolved call sites
@@ -150,9 +158,8 @@ image binaries via python3 -m traust.cli util elf. `linked` caps at
 Every repo entry records `evidence.evidence_level`
 (`symbol > symbol-usage > binary > manifest > none`) so downstream
 consumers weigh a govulncheck reachability verdict above a lockfile
-pin. Adding a new language means subclassing `LanguageAnalyzer` (or
-`LockfileAnalyzer` for manifest ecosystems) in the script and
-registering it in `ANALYZERS`.
+pin. Adding a new language means an `ImpactAnalyzer` provider in
+traust-core (`providers/impact.py`).
 
 **Assurance promotion beyond static:** `affected` is machine-static
 evidence (ledger class 3). To reach execution evidence (class 1), feed
@@ -170,98 +177,105 @@ Parse from `$ARGUMENTS`:
 
 - `<advisory-id>` (positional, required) — `CVE`/`GHSA`/`MAL`/`PYSEC`/`GO`/
   `RUSTSEC`/`OSV`-prefixed, e.g. `CVE-2026-33186` or a `MAL-` malicious-package
-  advisory.
-- `--module <module-path>` (required) — affected module.
-- `--ecosystem <eco>` — package ecosystem of `--module`: `go` (default),
-  `npm`, `pypi`, `maven`, `cargo`, `ruby`, `nuget`, `actions`, `docker`,
-  `helm`. Seeds the blast-radius query's node-id resolution and
-  version-parsing semantics, so an advisory against a non-Go package
-  resolves against the multi-ecosystem portfolio-graph L1 layer the same
-  way Go does; `actions`/`docker`/`helm` route to the manifest-level
-  `SurfaceAnalyzer` (no reachability tier, ceiling `likely_affected`).
-  OSV publishes no `docker` or `helm` advisories, so those are not
-  assessed (the range has no record to come from).
-- `--packages <p1,p2>` — vulnerable packages within the module.
-- `--symbols <s1,s2>` — vulnerable symbols (informational).
-- **No range or fixed-version flags.** `analyze` fetches the advisory's OSV
-  record through the feeds registry (`config/feeds.yaml`, the `osv` source)
-  and decides every version on the record's spans, lower bounds and separate
-  release lines included. The record's URL goes into `advisory_sources`; the
-  artifact's `vulnerable_range` renders the spans and `fixed_version` is the
-  highest fix. An ID OSV doesn't serve for the package (a CVE whose records
-  are GHSA/PYSEC entries) is found through the package's advisories, and
-  every record used is recorded. A record that can't be fetched, or that
-  names no affected version of `--module`, exits 2: the advisory is **not
-  assessed**.
-- `--advisory-file <osv.json>` — the advisory's OSV record, exported on a
-  connected host. Required when the `osv` source is `access: air-gapped`;
-  its `file://` path is the recorded source.
-- `--verified-version <v>` (repeatable) with `--verified-by <verdicts.json>`
-  — dependency-watch's below-range lane only: versions two blind reviews
-  and a judge verified affected although the record leaves them out. Each
-  needs a final `applicable` verdict in the file for that package, version
-  and advisory; the file joins `advisory_sources`.
+  advisory. A CVE whose record names no package takes the packages its
+  GHSA/GO/PYSEC aliases name.
+- The affected module, its ecosystem, the vulnerable packages, the
+  vulnerable range (every span, lower and upper bounds) and the fixed
+  version come from the advisory's record (`traust impact find`), not
+  from arguments.
+- `--symbols <s1,s2>` — vulnerable symbols you identified (Step 1); they
+  join any the advisory publishes or its fix commits yield.
 - `--feature-desc "..."` — what capability must be in use.
-- `--db <path>` — portfolio-graph.db (default:
-  `analysis-results/graph/portfolio-graph.db`).
-- `--skip-scan` — graph queries only, no cloning or scanning.
-- `--jobs N` — parallel clone+analyze workers (default 4).
-- `--out <path>` — output file (default: `<cve>-impact-analysis.json`).
+- `--repo-url <url> --sha <commit> [--branch <branch>]` — assess one commit instead of every
+  commit the advisory reaches.
+- `--scan` — clone undecided commits and run the deep scan; without it,
+  SBOM evidence only, no cloning or scanning.
+- `--advisory-file <path>` — repeatable exported raw OSV JSON input for
+  `find`, `symbols`, and `analyze` (also `sweep` for offline feed sweeps).
+  When supplied, advisory lookup uses only these documents, never the live
+  OSV provider. An absent requested advisory is an error, not a network fallback.
 
 ## Procedure
 
 ### Step 1: Parse CVE and identify attack surface
 
 Fetch the advisory to extract affected module, version range, vulnerable
-symbols/packages, and feature description:
+symbols/packages, and feature description. `traust impact find` returns the
+OSV record `analyze` itself works from:
 
 All advisory fetches go through the scoped fetcher — the skill's only
-network egress (three fixed hosts, default TLS; a raw `curl` grant
+network egress (the hosts registered in the feeds registry traust-core ships, default TLS; a raw `curl` grant
 would be an arbitrary-destination exfiltration channel under
 injection — audit D7):
 
 ```bash
-# OSV (Go ecosystem)
-python3 harnessing/3-audit/impact-analysis/scripts/fetch_advisory.py osv <module> --ecosystem Go
+# OSV (the record analyze uses)
+python3 -m traust.cli impact find <ADVISORY-ID>
+# Offline alternative: pass the same exported OSV records to find, symbols and analyze
+python3 -m traust.cli impact find <ADVISORY-ID> --advisory-file <osv-export.json>
 
 # NVD
-python3 harnessing/3-audit/impact-analysis/scripts/fetch_advisory.py nvd <CVE-ID>
+python3 -m traust.cli impact document nvd <CVE-ID>
 
-# Red Hat CSAF
-python3 harnessing/3-audit/impact-analysis/scripts/fetch_advisory.py csaf <cve-id>
+# Red Hat CSAF VEX (CVE-keyed)
+python3 -m traust.cli impact document vex <cve-id>
 ```
 
 When symbols aren't in the advisory, read the fix commit diff to identify
-the affected API surface.
+the affected API surface (`python3 -m traust.cli impact symbols
+<ADVISORY-ID>` mines the fix commits first; read the diff when it reports
+`no_symbols_in_diff`, `no_fix_commit` or `degraded`) and pass what you find
+with `--symbols`.
 
-**The vulnerable range and fixed version come from the fetched OSV record,
-never from memory.** Step 2 fetches it itself and records it in
-`advisory_sources`; the fetches above are for reading the advisory (affected
-packages, symbols, the feature in question), not for supplying a range. If
-`analyze` exits 2 because the record is unavailable, report the CVE as not
-assessed.
+**The vulnerable range and fixed version come from a fetched advisory or
+an explicitly supplied raw OSV export, never from memory.** If neither
+source supplies the advisory, stop and report it as not assessed. Pass
+the same repeatable `--advisory-file` inputs to `symbols` and `analyze`
+when operating offline. `advisory_sources` retains the sources used;
+`--scan` may still require repository checkout access.
 
 ### Step 2: Run the analysis
 
 ```bash
 python3 -m traust.cli impact analyze <CVE-ID> \
-    --module <module> \
-    --packages <p1,p2> \
+    --symbols <s1,s2> \
     --feature-desc 'description of the vulnerable feature' \
-    --db analysis-results/graph/portfolio-graph.db \
-    --jobs 4
+    --scan
 ```
 
-The script handles everything: graph queries, cloning, language-specific
-analysis, classification, and artifact emission.
+The script handles everything: blast radius, cloning, language-specific
+analysis, classification, artifact recording, and filing a dependency
+finding for each `affected` commit/package. Every affected ecosystem,
+module and held version gets its own document with its own range and fix.
 
-Use `--skip-scan` for a fast graph-only pass (no cloning).
+Leave out `--scan` for a fast SBOM-only pass (no cloning). A commit
+with no recorded SBOM is not in the blast radius. The SBOM's source decides
+what its silence means:
+
+- **A manifest scan of the commit**
+  (`python3 -m traust.cli impact sbom --repo-url <url> --sha <commit> [--branch <branch>]`,
+  no file: syft over that commit's manifests) records the SBOM with its coverage, so
+  a package it lacks is `not_imported`, unless a manifest it couldn't resolve leaves
+  that ecosystem `inconclusive`. The `manifest_sbom` asset (`impact manifest-sbom --repo <url>`)
+  does the same, but only for the repository's observed default head.
+- **An SBOM given as a document**
+  (`python3 -m traust.cli impact sbom <file> --repo-url <url> --sha <commit> [--branch <branch>]`)
+  has no scan behind it, so its coverage is unknown. A package it lacks is
+  `inconclusive`, never `not_imported`. Its pins still classify (`likely_affected`,
+  `version_not_in_range`).
+
+`impact sbom` without the file scans only a commit that has no SBOM yet. For a
+commit that has one, it returns that SBOM unchanged. A later document replaces the
+recorded SBOM, and clears a scan's coverage. Nothing replaces a document with a
+scan, so record the scan first when you'll need absence evidence. For a commit that
+already holds a document SBOM, no command records that evidence. `impact analyze --scan`
+clones the commits still undecided and runs the language analyzer, which can settle a
+classification (`not_observed`, `affected`). It records an analysis, though, never a
+manifest SBOM with coverage, so the package's absence from the SBOM stays unproven.
 
 ### Step 3: Validate and review
 
-```bash
-python3 -m traust.cli reporting validate <cve>-impact-analysis.json
-```
+Each document is validated against the schema when it is recorded.
 
 Review the summary: how many affected vs not_observed? Do the numbers
 make sense given what the CVE is about?
@@ -270,16 +284,38 @@ Repos classified `inconclusive` with `needs_manual_trace: true` have
 unsafe pointer or reflection usage that may hide reachability — these
 need human review.
 
+### Step 4: Export the fleet view for consumers
+
+```bash
+python3 -m traust.cli impact export <ADVISORY-ID> \
+    --out <output-dir>/<advisory-id>-impact-analysis.json
+```
+
+Use the configured `locations.analysis_results` output root when choosing
+`<output-dir>`. Export reads the already recorded artifacts, including
+non-affected and undecided classifications; it does not fetch or re-analyze.
+Its `commits` count is distinct commits; `analyses` counts the exported
+commit/ecosystem/module/version rows. Each row carries the exact complete
+native document under `document`, plus classification, evidence, repository
+URL, SHA and recorded assessment/artifact/finding identifiers. Export selects
+the latest complete preparation scope. Preserve each native document's
+`metadata.preparation_scope`: its digest and full member set identify the
+package/version snapshot prepared together. An incomplete newer scope cannot
+clear a previous complete result; a complete corrected SBOM snapshot replaces
+obsolete modules and versions. Distinct members within that snapshot remain
+separate. Summary and timeline count its worst verdict once per commit/advisory,
+not whichever safe package packet happened to finish last.
+
 ## Classification rubric
 
 | Classification | Meaning | Evidence |
 |---|---|---|
 | `affected` | Vulnerable symbol reachable or feature in use | govulncheck `symbol_reachable` or feature-pattern match |
-| `likely_affected` | Package imported, no deep scan yet | L4 import + no govulncheck/ELF result |
-| `not_observed` | Vulnerable package/symbol not observed | govulncheck `*_not_observed`, L4 no import (Go only: an installed PyPI/npm/… dependency is loaded by other libraries without a first-party import, so there the manifest scan decides), or binary scan negative |
-| `version_not_in_range` | At safe version | L1 version ≥ fix |
-| `not_imported` | Module not in dep graph | blast-radius miss |
-| `inconclusive` | Analysis hit limits | clone failed, non-Go repo, unsafe/reflect |
+| `likely_affected` | Package imported, no deep scan yet | manifest pin in range, imports found or symbols used + no govulncheck result |
+| `not_observed` | Vulnerable package/symbol not observed | govulncheck `*_not_observed`, or not in manifests and no imports |
+| `version_not_in_range` | At safe version | SBOM version ≥ fix |
+| `not_imported` | Module not in dep graph | blast-radius miss against a manifest-scanned SBOM (coverage known) |
+| `inconclusive` | Analysis hit limits | clone failed, non-Go repo, unsafe/reflect, a Go pin in range not yet scanned (`--scan`), a package absent from an SBOM given as a document (coverage unknown) |
 
 `not_observed` means "not observed by the tools we ran" — same vocabulary
 discipline as govulncheck. It is evidence for a human decision, not a
@@ -289,22 +325,22 @@ machine verdict.
 
 To add support for a new ecosystem:
 
-1. Subclass `LanguageAnalyzer` in python3 -m traust.cli impact analyze.
-2. Implement `analyze()` with the language's tool chain:
+1. Add an `ImpactAnalyzer` provider in traust-core (`providers/impact.py`).
+2. Implement `evidence()` with the language's tool chain:
    - What's the equivalent of govulncheck? (cargo-audit for Rust,
      pip-audit for Python, etc.)
    - What binary analysis applies? (JAR inspection for Java,
      statically-linked binary scan for Rust, etc.)
    - What indicates inconclusive results needing manual trace?
-3. Register in the `ANALYZERS` dict.
-4. Add `detect_language()` check if needed.
+3. Wire it in `Context.services()` with the ecosystems it covers.
 
 The classification rubric and artifact schema are language-agnostic —
 only the analysis path varies.
 
 ## Output schema
 
-See `contracts/schemas/impact-analysis.schema.json`. Key structure:
+Each native per-commit/package document follows the installed
+`impact-analysis` contract schema. Key structure:
 
 ```json
 {
@@ -312,20 +348,20 @@ See `contracts/schemas/impact-analysis.schema.json`. Key structure:
     "cve": "CVE-2026-33186",
     "module": "google.golang.org/grpc",
     "vulnerable_range": "< v1.64.1",
-    "tiers_executed": ["L1", "L4", "govulncheck_source"],
+    "tiers_executed": ["L1", "govulncheck"],
     ...
   },
   "summary": {
-    "repos_in_blast_radius": 1412,
-    "affected": 4,
-    "not_observed": 876,
+    "repos_in_blast_radius": 1,
+    "affected": 0,
+    "not_observed": 1,
     ...
   },
   "repos": [
     {
       "repo": "repo:github.com/openshift/foo",
       "classification": "not_observed",
-      "evidence": { "l4_package_imported": false, ... }
+      "evidence": { "govulncheck": "package_imported_not_observed", ... }
     }
   ]
 }
@@ -333,23 +369,32 @@ See `contracts/schemas/impact-analysis.schema.json`. Key structure:
 
 ## Downstream consumption
 
-Campaign runs write the artifact to the canonical location
-`analysis-results/impact/<cve>-impact-analysis.json` so consumers can
-discover it without being told (pass `--out` accordingly).
+Every run records native commit/package artifacts in traust-core (an
+`impact` assessment each). `traust impact export` produces the portable
+advisory-wide `ImpactExport` view described in Step 4, not a second
+persisted report or a native artifact to re-import. Consumers of its
+`.repos` use `repository_url` and `sha`; native metadata and all original
+fields remain under each row's `document`. The view includes every
+classification, not only the findings that `analyze` filed.
 
-- **`/dependency-watch` → python3 -m traust.cli route impact-findings** — the
+- **`/dependency-watch` → python3 -m traust.cli impact analyze** — the
   filing leg (harness ≥ 0.197.0): every `affected` repo's dependency
-  finding is routed into its disposition ledger — carried on the event, never written to the baseline (gate A15) — at
-  `validation_status: not_verified` (direct-entry convention,
-  `source.type: impact_report`, class-3 machine-static), making the
+  finding is filed through traust-core's intake — never written to the
+  baseline (gate A15) — with unauthored `validation_status` omitted
+  (`source.type: impact_report`, class-3 machine-static), making the
   classification an owned, SLA-clocked finding — not just analysis.
+  Preserve the affectedness/reachability rationale as evidence; validity
+  judgments belong to Core's decision services and installed contracts
+  registry, per [Validity authoring](../../../docs/report-structure.md#validity-authoring).
 - **`/triage` Phase 2f** — triage reads the impact-analysis artifact to
   give verifiers portfolio-wide context.
-- **`/verify-remediation` full-sweep** — accepts `--impact-filter` to
-  scope verification to `affected`/`likely_affected` repos only.
-- **`/portfolio-graph`** — the graph is this skill's backbone (L1
-  `depends_on` + L4 `imports_package`); keep the graph fresh
-  (`/drift-watch` flags staleness) or the blast radius lies.
+- **`/verify-remediation` full-sweep** — pass the exported JSON as
+  `traust remediation verify-sweep --impact-filter <path>` to scope
+  verification to `affected`/`likely_affected` repositories. The adapter
+  intersects any explicit repository/product scope and deduplicates URLs;
+  no matching rows mean an empty worklist, never the full fleet.
+- **SBOMs** — the commits' recorded SBOMs are this skill's backbone;
+  keep them current (`traust impact sbom`) or the blast radius lies.
 - **`/secure-container-audit`** — sbom-grype CVE hits check the impact
   artifact for the repo's classification before promotion (a
   `not_observed` at symbol level is dismissal evidence with citation).
@@ -362,8 +407,8 @@ discover it without being told (pass `--out` accordingly).
   auto-closure.
 - **Tracker evidence** — per-repo classification + evidence block is
   machine evidence for closing OCPBUGS trackers.
-- **`/findings-db`** — artifacts are projected into the `impact` table
-  on every DB rebuild, so per-CVE affectedness is queryable via SQL.
+- **`/findings-db`** — query kept impact analyses through Core exposure
+  services or consume the exported view; never rebuild a parallel impact table.
 - **`/secure-rpm-audit`** — vendored-dependency CVE hits cite the source
   repo's classification (same convention as secure-code-audit K07).
 - **`/validate-findings`** — `affected` + `attacker_influence: plausible`
@@ -371,11 +416,11 @@ discover it without being told (pass `--out` accordingly).
   interface to drive. Confirmed exploitation = class-1 evidence.
 - **`/remediate-finding`** — dependency-bump remediations consult the
   trace for fix placement; upstream fixes verify consumption via
-  `check_fix_propagation.py` + `/verify-remediation --fix-repo`.
+  `traust check fix-propagation` + `/verify-remediation --fix-repo`.
 
 ## Hard rules
 
-- The portfolio graph is the backbone — L1 + L4 queries alone separate
+- The SBOMs are the backbone — the blast radius alone separates
   the handful of affected repos from the hundreds of unaffected ones,
   without cloning anything.
 - `not_observed` never auto-closes a tracker.

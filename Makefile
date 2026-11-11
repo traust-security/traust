@@ -1,12 +1,18 @@
-.PHONY: help install test doctor setup update-vuln-dbs build-image lint lint-fix hooks sync status bump $(BUMP_PARTS)
+.PHONY: help install test doctor setup update-vuln-dbs build-image build-tools-image lint lint-fix hooks sync
 .PHONY: skillsaw-lint skillsaw-fix skillsaw-badge
+.PHONY: ops-up ops-down ops-reset ops-run ops-claim ops-approve ops-approve-all ops-sh ops-scan ops-smoke ops-doctor
 
 PROFILE    ?= secure-code-audit
 CLI        := uv run python -m traust.cli.toolchain
 PYTHON     ?= python3
-RELEASE    := ./release.py
-BUMP_PARTS := patch minor major
 SKILLSAW_VERSION := 0.20.0
+# ops-approve's selector travels through the environment (never interpolated
+# into the recipe text): a value carrying quotes or semicolons reaches the
+# script as one literal argument for cmd_approve to validate, not as shell
+# syntax the recipe would execute.
+# Keep Make expressions literal too; export must not evaluate a selector.
+override ORDER := $(value ORDER)
+export ORDER
 
 help: ## Show targets
 	@grep -E '^[a-z][-a-z]+:.*## ' $(MAKEFILE_LIST) | \
@@ -30,8 +36,11 @@ setup: sync ## Install toolchain for PROFILE
 update-vuln-dbs: ## Download/update vulnerability DBs for PROFILE
 	$(CLI) fetch-dbs --profile $(PROFILE)
 
-build-image: ## Build the complete toolchain image (binaries + Python + data)
+build-image: ## Build traust-toolchain (scanner binaries) and traust-runtime (FROM it, by digest)
 	bash scripts/build-toolchain-image.sh
+
+build-tools-image: ## Build only traust-toolchain (scanner binaries, no Python stack)
+	bash scripts/build-toolchain-image.sh --tools-only
 
 lint: ## ruff check + format --check
 	uv run ruff check .
@@ -40,6 +49,29 @@ lint: ## ruff check + format --check
 lint-fix: ## ruff --fix + format
 	uv run ruff check --fix .
 	uv run ruff format .
+
+ops-up: ## Local continuous-ops rig: Postgres + config home + compressed pack
+	bash scripts/local_ops.sh up
+ops-down: ## Stop the rig's Postgres (data kept)
+	bash scripts/local_ops.sh down
+ops-reset: ## Fresh rig: drop the volume, regenerate config and overlay pack
+	bash scripts/local_ops.sh reset
+ops-run: ## Engine tick loop, pane 1 (make ops-run OPS_EVERY=5m)
+	bash scripts/local_ops.sh run
+ops-claim: ## Claim loop, pane 2
+	bash scripts/local_ops.sh claim
+ops-approve: ## Operator door: approve exactly one awaiting order (ORDER=<unambiguous id prefix>)
+	bash scripts/local_ops.sh approve "$$ORDER"
+ops-approve-all: ## Operator door: explicitly approve all awaiting orders
+	bash scripts/local_ops.sh approve --all
+ops-sh: ## Shell with the rig's environment (TRAUST_CONFIG_HOME, .local-ops/env)
+	bash scripts/local_ops.sh sh
+ops-scan: ## Walk the workflow by hand: onboard + observe + one scan (REPO=https://...)
+	bash scripts/local_ops.sh scan $(REPO)
+ops-smoke: ## One bounded engine cycle with asserts (the CI entry)
+	bash scripts/local_ops.sh smoke
+ops-doctor: ## Check the rig: container, engine, config home, tokens
+	bash scripts/local_ops.sh doctor
 
 skillsaw-badge: ## Regenerate the committed skillsaw grade badge (Podman)
 	podman run --rm -v "$(CURDIR):/workspace:Z" ghcr.io/stbenjam/skillsaw:v$(SKILLSAW_VERSION) badge
@@ -53,17 +85,3 @@ skillsaw-fix: ## Apply safe skillsaw autofixes (Podman)
 hooks: ## Enable .githooks for this clone
 	git config core.hooksPath .githooks
 	@chmod +x .githooks/* 2>/dev/null || true
-
-status: ## Current version, tag, git state
-	$(PYTHON) $(RELEASE) status
-
-$(BUMP_PARTS):
-	@:
-
-bump: ## Bump VERSION + pyproject.toml: make bump patch|minor|major
-	@part="$(filter $(BUMP_PARTS),$(MAKECMDGOALS))"; \
-	if [ -z "$$part" ]; then \
-		echo "usage: make bump patch|minor|major" >&2; \
-		exit 1; \
-	fi; \
-	$(PYTHON) $(RELEASE) bump $$part

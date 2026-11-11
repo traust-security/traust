@@ -5,13 +5,15 @@ Adapter base class and shared types.
 from __future__ import annotations
 
 import hashlib
-import json
-import re
 import shlex
 import subprocess
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import ClassVar
+
+from traust.context import load
+
+from .credentials import redact_credentials
 
 
 @dataclass
@@ -61,6 +63,9 @@ class StepResult:
     duration_ms: int = 0
     finding_ref: str | None = None
     novel_ref: str | None = None
+    controls: list[dict] = field(default_factory=list)
+    differential: dict | None = None
+    replay: dict | None = None
 
     def to_dict(self):
         return {k: v for k, v in asdict(self).items() if v not in (None, "")}
@@ -153,8 +158,8 @@ class AdapterBase:
 
     # Step text originates in finding prose — hostile per the threat
     # model. Validation and execution of string-form (PoC-derived)
-    # steps delegate to traust_engine._util.safe_exec under the
-    # "validation-step" profile ($TRAUST_CONFIG_HOME/safe-exec-profiles.yaml):
+    # steps delegate to traust-core's safe-exec under the
+    # "validation-step" profile (the safe-exec-profiles.yaml traust-core ships):
     # substitution/operator denies, per-segment binary allowlist, and
     # native pipeline execution with a scrubbed environment — no shell
     # at any point (closes audit C2 / plan P2.13; sandbox-adoption
@@ -181,15 +186,13 @@ class AdapterBase:
         }
     )
 
-    _safe_exec_mod = None
+    _safe_exec_policy = None
 
     @classmethod
     def _safe_exec(cls):
-        if cls._safe_exec_mod is None:
-            import importlib
-
-            cls._safe_exec_mod = importlib.import_module("traust_engine._util.safe_exec")
-        return cls._safe_exec_mod
+        if cls._safe_exec_policy is None:
+            cls._safe_exec_policy = load().safe_exec
+        return cls._safe_exec_policy
 
     @classmethod
     def _vet_shell_string(cls, cmd: str) -> tuple[list[str] | None, str]:
@@ -197,7 +200,7 @@ class AdapterBase:
         (argv, "") for a pipeless command, (None, "") for an approved
         pipeline, or (None, reason) when rejected."""
         se = cls._safe_exec()
-        v = se.vet_command_string(cmd, se.get_profile(cls._SAFE_EXEC_PROFILE))
+        v = se.vet_command_string(cmd, se.profile(cls._SAFE_EXEC_PROFILE))
         if not v.ok:
             return None, v.reason
         if len(v.segments) == 1:
@@ -210,7 +213,7 @@ class AdapterBase:
     ) -> tuple[int, str, str]:
         if isinstance(cmd, str):
             se = cls._safe_exec()
-            profile = se.get_profile(cls._SAFE_EXEC_PROFILE)
+            profile = se.profile(cls._SAFE_EXEC_PROFILE)
             v = se.vet_command_string(cmd, profile)
             if not v.ok:
                 return 126, "", f"[step blocked: {v.reason}]"
@@ -232,152 +235,7 @@ class AdapterBase:
             return 124, out, err + f"\n[timeout after {timeout}s]"
         return proc.returncode, proc.stdout, proc.stderr
 
-    # ---- credential redaction ----------------------------------------
-    # Artifacts and observed-text are committed to analysis-results.  On
-    # shared-CI clusters probe output can
-    # contain LIVE cloud credentials.  Scrub before anything hits disk.
-    _REDACT_PATTERNS: ClassVar[list] = [
-        # PEM private-key blocks (RSA/EC/OPENSSH/PKCS8)
-        (
-            re.compile(
-                r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?"
-                r"-----END [A-Z ]*PRIVATE KEY-----",
-                re.S,
-            ),
-            "pem-privkey",
-        ),
-        # kubeconfig / SA JSON embedded keys
-        (
-            re.compile(
-                r"(client-key-data|private_key)\"?\s*[:=]\s*\"?"
-                r"([A-Za-z0-9+/\\n=_-]{40,})",
-                re.I,
-            ),
-            "key-data",
-        ),
-        # AWS access key id + secret
-        (re.compile(r"\b(AKIA|ASIA)[0-9A-Z]{16}\b"), "aws-akid"),
-        (
-            re.compile(
-                r"(aws_secret_access_key|secretAccessKey)\"?\s*[:=]\s*\"?"
-                r"([A-Za-z0-9+/=]{30,})",
-                re.I,
-            ),
-            "aws-secret",
-        ),
-        # Azure SP / GCP SA secrets
-        (
-            re.compile(
-                r"(client[_-]?secret|clientSecret|client_secret_data)"
-                r"\"?\s*[:=]\s*\"?([A-Za-z0-9~._+/=-]{20,})",
-                re.I,
-            ),
-            "cloud-client-secret",
-        ),
-        # Bearer / OpenShift sha256~ tokens / JWTs
-        (re.compile(r"\b(sha256~[A-Za-z0-9_-]{20,})\b"), "oc-token"),
-        (re.compile(r"\bBearer\s+([A-Za-z0-9._~+/=-]{20,})", re.I), "bearer"),
-        (
-            re.compile(
-                r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}"
-                r"\.[A-Za-z0-9_-]{10,}\b"
-            ),
-            "jwt",
-        ),
-        # Pull-secret / dockerconfigjson auth blobs
-        (re.compile(r"(\"auth\"\s*:\s*\")([A-Za-z0-9+/=]{40,})"), "registry-auth"),
-        # base64-encoded PEM material ("LS0tLS1CRUdJTi" = b64("-----BEGIN"))
-        # — k8s Secret data values dodge the plaintext-PEM rule entirely
-        # (assessment 2026-07-31 F3, execution-confirmed miss)
-        (re.compile(r"LS0tLS1CRUdJTi[A-Za-z0-9+/=]{40,}"), "b64-pem"),
-        # .dockerconfigjson data values (b64 of '{"auths"' = eyJhdXRo)
-        (re.compile(r"\beyJhdXRo[A-Za-z0-9+/=]{20,}"), "b64-dockerconfig"),
-        # forge / chat tokens
-        (re.compile(r"\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{20,}\b"), "github-token"),
-        (re.compile(r"\bgithub_pat_[A-Za-z0-9_]{20,}\b"), "github-pat"),
-        (re.compile(r"\bglpat-[A-Za-z0-9_-]{16,}\b"), "gitlab-pat"),
-        (re.compile(r"\bxox[baprs]-[A-Za-z0-9-]{10,}\b"), "slack-token"),
-        (
-            re.compile(
-                r"(aws_session_token)\"?\s*[:=]\s*\"?"
-                r"([A-Za-z0-9+/=]{40,})",
-                re.I,
-            ),
-            "aws-session",
-        ),
-        # Generic password=… / token=… — key prefix included: the old
-        # \b anchor let bind_password / MY_PASSWORD / admin_token pass
-        # untouched (assessment 2026-07-31 F3, execution-confirmed)
-        (
-            re.compile(
-                r"([A-Za-z0-9_.\-]*(?:password|passwd|token|"
-                r"api[_-]?key|secret))"
-                r"\"?\s*[:=]\s*\"?([^\s\"',;]{12,})",
-                re.I,
-            ),
-            "generic-secret",
-        ),
-    ]
-
-    # Keys whose ENTIRE value maps are secret material when they appear
-    # in kubectl/oc JSON output (structure-aware pass — keyword rules
-    # cannot enumerate every key name a Secret might carry).
-    _SECRET_MAP_KEYS = ("data", "stringData")
-
-    @classmethod
-    def _redact_credentials(cls, text: str) -> str:
-        if not text:
-            return text
-        out = cls._redact_secret_maps(text)
-        for pat, tag in cls._REDACT_PATTERNS:
-
-            def _sub(m, _tag=tag):
-                full = m.group(0)
-                # If there's a key=value capture, keep the key, redact value.
-                if m.lastindex and m.lastindex >= 2:
-                    val = m.group(m.lastindex)
-                    h = hashlib.sha256(val.encode()).hexdigest()[:12]
-                    return full.replace(val, f"[REDACTED:{_tag}:{len(val)}b:sha256:{h}]")
-                h = hashlib.sha256(full.encode()).hexdigest()[:12]
-                return f"[REDACTED:{_tag}:{len(full)}b:sha256:{h}]"
-
-            out = pat.sub(_sub, out)
-        return out
-
-    @classmethod
-    def _redact_secret_maps(cls, text: str) -> str:
-        """Structure-aware pass (assessment 2026-07-31 F3): when the
-        output is kubectl/oc JSON carrying Secret objects, redact EVERY
-        value under data/stringData wholesale — keyword patterns cannot
-        enumerate arbitrary Secret key names, and the confirmed miss
-        list (tls.key, .dockerconfigjson, bind_password, admin_token,
-        AWS_SESSION_TOKEN) all lived in these maps."""
-        if '"data"' not in text and '"stringData"' not in text:
-            return text
-        try:
-            doc = json.loads(text)
-        except (json.JSONDecodeError, ValueError):
-            return text
-
-        def scrub(node):
-            if isinstance(node, dict):
-                is_secretish = (
-                    str(node.get("kind", "")).lower() in ("secret", "secretlist") or "data" in node
-                )
-                for k, v in list(node.items()):
-                    if k in cls._SECRET_MAP_KEYS and isinstance(v, dict) and is_secretish:
-                        node[k] = {
-                            dk: f"[REDACTED:secret-data:{len(str(dv))}b]" for dk, dv in v.items()
-                        }
-                    else:
-                        scrub(v)
-            elif isinstance(node, list):
-                for item in node:
-                    scrub(item)
-
-        scrub(doc)
-        return json.dumps(doc, indent=1)
-
+    # ----- artifact storage -------------------------------------------
     @classmethod
     def _save_artifact(
         cls, artifacts_dir: Path, step_id: str, kind: str, content: str, ext: str = "log"
@@ -387,7 +245,7 @@ class AdapterBase:
         # sha256 of the ORIGINAL content (so evidence integrity is provable)
         # but the REDACTED content is what hits disk.
         sha = hashlib.sha256(content.encode("utf-8")).hexdigest()
-        redacted = cls._redact_credentials(content)
+        redacted = redact_credentials(content)
         path.write_text(redacted, encoding="utf-8")
         meta = {
             "type": kind,

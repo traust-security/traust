@@ -1,4 +1,4 @@
-# Resolve campaign paths from $TRAUST_CONFIG_HOME / locations.yaml.
+# Resolve campaign paths from `locations:` in $TRAUST_CONFIG_HOME/traust.yaml.
 # Source from harness scripts; requires traust importable (uv sync in traust/).
 # The interpreter is $TRAUST_PYTHON, else the harness venv next to this lib,
 # else python3 — so callers spawned outside an activated venv (tests, cron)
@@ -14,27 +14,20 @@ _traust_path() {
 from traust.context import (
     analysis_results_dir,
     findings_tree_dir,
-    load_engine,
+    load,
     workspace_dir,
 )
 import sys
-e = load_engine()
+core = load()
 m = {
     'workspace': workspace_dir,
     'analysis_results': analysis_results_dir,
     'findings': findings_tree_dir,
 }
-print(m[sys.argv[1]](e).resolve())
+print(m[sys.argv[1]](core).resolve())
 " "$1"
 }
 
-# Remediation flow settings (remediation.yaml in the config home; env overrides).
-# Exports FORK_ORG (fails loud when unset) and REMEDIATION_PREFIX.
-traust_load_remediation() {
-  FORK_ORG="$("$(_traust_py)" -c 'from traust.context import require_fork_org; print(require_fork_org())')" || exit 1
-  REMEDIATION_PREFIX="$("$(_traust_py)" -c 'from traust.context import remediation_settings; print(remediation_settings()["naming_prefix"])')"
-  export FORK_ORG REMEDIATION_PREFIX HARNESS_FORK_ORG="$FORK_ORG"
-}
 traust_load_paths() {
   WS="$(_traust_path workspace)"
   AR="$(_traust_path analysis_results)"

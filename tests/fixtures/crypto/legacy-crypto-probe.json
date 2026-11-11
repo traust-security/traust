@@ -1,0 +1,344 @@
+[
+ {
+  "probe_id": "CRYPTO_GO_TOOLCHAIN",
+  "file": "go.mod",
+  "line": 1,
+  "detail": "go 1.24",
+  "provider": "go",
+  "version": "1.24",
+  "extra": {}
+ },
+ {
+  "probe_id": "CRYPTO_GO_FIPS_BACKEND",
+  "file": "go.mod",
+  "line": 1,
+  "detail": "golang-fips or boring crypto dependency in go.mod",
+  "provider": "go-fips",
+  "version": null,
+  "extra": {
+   "crypto_backend_swap": true,
+   "note": "Go stdlib crypto replaced by OpenSSL via CGo"
+  }
+ },
+ {
+  "probe_id": "CRYPTO_GO_FIPS_BACKEND",
+  "file": "go.sum",
+  "line": 1,
+  "detail": "golang-fips or boring crypto dependency in go.sum",
+  "provider": "go-fips",
+  "version": null,
+  "extra": {
+   "crypto_backend_swap": true
+  }
+ },
+ {
+  "probe_id": "CRYPTO_BASE_IMAGE",
+  "file": "Dockerfile",
+  "line": 1,
+  "detail": "registry.example.com/ubi9/go-toolset:1.24",
+  "provider": "base-image",
+  "version": null,
+  "extra": {}
+ },
+ {
+  "probe_id": "CRYPTO_BASE_IMAGE",
+  "file": "Dockerfile",
+  "line": 7,
+  "detail": "registry.example.com/ubi9/ubi-minimal:latest",
+  "provider": "base-image",
+  "version": null,
+  "extra": {}
+ },
+ {
+  "probe_id": "CRYPTO_OPENSSL_INSTALL",
+  "file": "Dockerfile",
+  "line": 9,
+  "detail": "microdnf install -y openssl-libs",
+  "provider": "openssl",
+  "version": null,
+  "extra": {}
+ },
+ {
+  "probe_id": "CRYPTO_DOCKERFILE_DIRECTIVE",
+  "file": "Dockerfile",
+  "line": 2,
+  "detail": "GOEXPERIMENT=strictfipsruntime",
+  "provider": "container-build",
+  "version": null,
+  "extra": {
+   "directive_type": "env",
+   "key": "GOEXPERIMENT",
+   "value": "strictfipsruntime"
+  }
+ },
+ {
+  "probe_id": "CRYPTO_DOCKERFILE_DIRECTIVE",
+  "file": "Dockerfile",
+  "line": 3,
+  "detail": "CGO_ENABLED=1",
+  "provider": "container-build",
+  "version": null,
+  "extra": {
+   "directive_type": "env",
+   "key": "CGO_ENABLED",
+   "value": "1"
+  }
+ },
+ {
+  "probe_id": "CRYPTO_DOCKERFILE_DIRECTIVE",
+  "file": "Dockerfile",
+  "line": 10,
+  "detail": "com.example.fips=true",
+  "provider": "container-build",
+  "version": null,
+  "extra": {
+   "directive_type": "label",
+   "key": "com.example.fips",
+   "value": "true"
+  }
+ },
+ {
+  "probe_id": "CRYPTO_NODE_VERSION",
+  "file": "web/.nvmrc",
+  "line": 1,
+  "detail": "node 22.4.0",
+  "provider": "node",
+  "version": "22.4.0",
+  "extra": {}
+ },
+ {
+  "probe_id": "CRYPTO_NODE_VERSION",
+  "file": "web/package.json",
+  "line": 1,
+  "detail": "engines.node >=20.11.0",
+  "provider": "node",
+  "version": "20.11.0",
+  "extra": {}
+ },
+ {
+  "probe_id": "CRYPTO_JDK_VERSION",
+  "file": "config/pom.xml",
+  "line": 1,
+  "detail": "jdk 21",
+  "provider": "jdk",
+  "version": "21",
+  "extra": {}
+ },
+ {
+  "probe_id": "CRYPTO_JVM_SECURITY_PROPERTY",
+  "file": "config/java.security",
+  "line": 1,
+  "detail": "jdk.tls.disabledAlgorithms=SSLv3, TLSv1, TLSv1.1, RC4, DES, MD5withRSA",
+  "provider": "jdk",
+  "version": null,
+  "extra": {}
+ },
+ {
+  "probe_id": "CRYPTO_JVM_SECURITY_PROPERTY",
+  "file": "config/java.security",
+  "line": 2,
+  "detail": "jdk.tls.namedGroups=X25519MLKEM768,x25519,secp256r1",
+  "provider": "jdk",
+  "version": null,
+  "extra": {}
+ },
+ {
+  "probe_id": "CRYPTO_PYTHON_VERSION",
+  "file": "svc/.python-version",
+  "line": 1,
+  "detail": "python 3.12.4",
+  "provider": "python",
+  "version": "3.12.4",
+  "extra": {}
+ },
+ {
+  "probe_id": "CRYPTO_PYTHON_CRYPTO_DEP",
+  "file": "svc/requirements.txt",
+  "line": 2,
+  "detail": "cryptography==43.0.1",
+  "provider": "python",
+  "version": "43.0.1",
+  "extra": {
+   "package": "cryptography"
+  }
+ },
+ {
+  "probe_id": "CRYPTO_PYTHON_CRYPTO_DEP",
+  "file": "svc/requirements.txt",
+  "line": 3,
+  "detail": "pyjwt==2.9.0",
+  "provider": "python",
+  "version": "2.9.0",
+  "extra": {
+   "package": "pyjwt"
+  }
+ },
+ {
+  "probe_id": "CRYPTO_PYTHON_VERSION",
+  "file": "svc/Pipfile",
+  "line": 2,
+  "detail": "python_version 3.11",
+  "provider": "python",
+  "version": "3.11",
+  "extra": {}
+ },
+ {
+  "probe_id": "CRYPTO_RUST_VERSION",
+  "file": "native/Cargo.toml",
+  "line": 1,
+  "detail": "rust 1.79",
+  "provider": "rust",
+  "version": "1.79",
+  "extra": {}
+ },
+ {
+  "probe_id": "CRYPTO_RUST_TLS_BACKEND",
+  "file": "native/Cargo.toml",
+  "line": 6,
+  "detail": "rustls 0.23.27",
+  "provider": "rustls",
+  "version": "0.23.27",
+  "extra": {}
+ },
+ {
+  "probe_id": "CRYPTO_RUST_TLS_BACKEND",
+  "file": "native/Cargo.toml",
+  "line": 7,
+  "detail": "ring 0.17.8",
+  "provider": "ring",
+  "version": "0.17.8",
+  "extra": {}
+ },
+ {
+  "probe_id": "CRYPTO_C_TLS_LIBRARY",
+  "file": "native/CMakeLists.txt",
+  "line": 1,
+  "detail": "find_package(OpenSSL)",
+  "provider": "openssl",
+  "version": null,
+  "extra": {}
+ },
+ {
+  "probe_id": "CRYPTO_C_TLS_LIBRARY",
+  "file": "native/CMakeLists.txt",
+  "line": 4,
+  "detail": "pkg_check_modules gnutls",
+  "provider": "gnutls",
+  "version": null,
+  "extra": {}
+ },
+ {
+  "probe_id": "CRYPTO_DOTNET_SDK",
+  "file": "dotnet/global.json",
+  "line": 1,
+  "detail": "dotnet sdk 8.0.401",
+  "provider": "dotnet",
+  "version": "8.0.401",
+  "extra": {}
+ },
+ {
+  "probe_id": "CRYPTO_DOTNET_TFM",
+  "file": "dotnet/Sample.csproj",
+  "line": 1,
+  "detail": "net8.0",
+  "provider": "dotnet",
+  "version": "8.0",
+  "extra": {}
+ },
+ {
+  "probe_id": "CRYPTO_DOTNET_CRYPTO_PKG",
+  "file": "dotnet/Sample.csproj",
+  "line": 6,
+  "detail": "BouncyCastle.Cryptography 2.4.0",
+  "provider": "dotnet",
+  "version": "2.4.0",
+  "extra": {
+   "package": "BouncyCastle.Cryptography"
+  }
+ },
+ {
+  "probe_id": "CRYPTO_RUBY_VERSION",
+  "file": ".ruby-version",
+  "line": 1,
+  "detail": "ruby 3.3.4",
+  "provider": "ruby",
+  "version": "3.3.4",
+  "extra": {}
+ },
+ {
+  "probe_id": "CRYPTO_RUBY_CRYPTO_GEM",
+  "file": "Gemfile",
+  "line": 2,
+  "detail": "gem openssl ~> 3.2",
+  "provider": "ruby",
+  "version": "3.2",
+  "extra": {
+   "gem": "openssl"
+  }
+ },
+ {
+  "probe_id": "CRYPTO_RPM_NEVRA",
+  "file": "rpms.lock.yaml",
+  "line": 1,
+  "detail": "openssl-libs 3.2.2-6.el9.x86_64.rpm",
+  "provider": "openssl-libs",
+  "version": "3.2.2-6.el9.x86_64.rpm",
+  "extra": {}
+ },
+ {
+  "probe_id": "CRYPTO_RPM_NEVRA",
+  "file": "rpms.lock.yaml",
+  "line": 1,
+  "detail": "crypto-policies 2.git626aa59.el9.noarch.rpm",
+  "provider": "crypto-policies",
+  "version": "2.git626aa59.el9.noarch.rpm",
+  "extra": {}
+ },
+ {
+  "probe_id": "CRYPTO_GODEBUG_TLS_KILLSWITCH",
+  "file": "hack/run-e2e.sh",
+  "line": 3,
+  "detail": "GODEBUG=tlsmlkem=0",
+  "provider": "go",
+  "version": null,
+  "extra": {}
+ },
+ {
+  "probe_id": "CRYPTO_FIPS140_GODEBUG",
+  "file": "hack/run-e2e.sh",
+  "line": 4,
+  "detail": "GODEBUG fips140=on",
+  "provider": "go",
+  "version": null,
+  "extra": {
+   "fips_mode": "on"
+  }
+ },
+ {
+  "probe_id": "CRYPTO_POLICY_SET",
+  "file": "hack/run-e2e.sh",
+  "line": 5,
+  "detail": "update-crypto-policies --set FIPS",
+  "provider": "crypto-policies",
+  "version": null,
+  "extra": {}
+ },
+ {
+  "probe_id": "CRYPTO_SBOM_COMPONENT",
+  "file": "sbom:pkg:rpm/redhat/openssl-libs@3.2.2-6.el9",
+  "line": 0,
+  "detail": "openssl-libs 3.2.2-6.el9",
+  "provider": "openssl",
+  "version": "3.2.2-6.el9",
+  "extra": {}
+ },
+ {
+  "probe_id": "CRYPTO_SBOM_COMPONENT",
+  "file": "sbom:pkg:golang/golang.org/x/crypto@v0.36.0",
+  "line": 0,
+  "detail": "golang.org/x/crypto v0.36.0",
+  "provider": "crypto",
+  "version": "v0.36.0",
+  "extra": {}
+ }
+]

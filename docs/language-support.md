@@ -14,9 +14,9 @@ matters more than any single table cell:
    This is where languages differ, and where the tables below apply.
 
 Each cell names the tool that provides the capability, so the table can be
-checked against the tree: the rule pack bundled in traust-engine
-(`traust_engine/data/secure-code-audit/opengrep-rules/`), the analyzers in
-`traust_engine.impact`, the fuzz templates under
+checked against the tree: the rule pack the security pack ships
+(`packs/security/detection/opengrep-rules/`), the impact tiers in
+traust-core (`providers/impact.py`), the fuzz templates under
 `harnessing/6-fuzz/create-fuzzing/harnesses/_templates/`, and the tool rows in
 [external-dependencies.md](external-dependencies.md).
 
@@ -75,10 +75,8 @@ root filesystems and source trees.
   advisory names. A Joern-based tier was built, measured at zero promotions on
   a full advisory sweep, and withdrawn (the structural note in
   [reachability.md](reachability.md) records why). Java advisories cap at
-  symbol-usage evidence. A separate library-side tool
-  (`traust_engine.impact.expand_advisory_entry_points`) expands an advisory's
-  internal symbol to the public API an application calls, which narrows what
-  the symbol-usage scan looks for.
+  symbol-usage evidence. (The library-side entry-point expansion was retired:
+  nothing read its output.)
 - **C/C++ / Joern** is **promotion-only** by design: a found direct call site
   upgrades evidence (`symbol` tier, `affected` with witness); an absent path
   proves nothing (function-pointer dispatch hides edges). File and caller
@@ -116,8 +114,8 @@ root filesystems and source trees.
 
 ## Adding a language's deterministic depth
 
-Follow the established patterns: a `LanguageAnalyzer`/`LockfileAnalyzer`
-subclass in `traust_engine.impact` for dependency analysis; a
+Follow the established patterns: an `ImpactAnalyzer` provider in
+traust-core (`providers/impact.py`) for dependency analysis; a
 `harnesses/_templates/` entry plus a Makefile lane for fuzzing; an opengrep
 tranche mined and calibrated through `/mine-ledger`; a tree-sitter grammar wheel
 (verified individually, see the licensing inventory) for graph symbols; and,

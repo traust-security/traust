@@ -1,6 +1,8 @@
 # crypto-packages.yaml — CURATED STARTER seed list of crypto-relevant
-# third-party packages, keyed by ecosystem, for the graph-backed
-# crypto-dependency discovery step (`scan_crypto_deps_graph.py`).
+# third-party packages, keyed by ecosystem — a note the agent consults for a
+# package's PQC posture (the graph-backed discovery step,
+# `scan_crypto_deps_graph.py`, is retired: the pqc-portfolio view lists the
+# crypto packages of each repository's manifest SBOM).
 #
 # WHY THIS EXISTS
 # ---------------
@@ -9,11 +11,11 @@
 #
 #     repo:<host>/<org>/<name>  -[depends_on {version, ecosystem, manifest}]->  pkg:<eco>/<name>
 #
-# This file names the packages that are *crypto-relevant* so the PQC lane can
-# discover crypto dependencies ACROSS LANGUAGES (npm/pypi/maven/cargo/ruby/
-# nuget) — not just the Go/TLS surface pqc_facts.py already covers. The scan
-# is a pure graph lookup: repos with a `depends_on` edge to one of these
-# packages, with the version + manifest provenance carried on the edge.
+# This file names packages that are *crypto-relevant* for cross-language
+# capability research (npm/pypi/maven/cargo/ruby/nuget). Core's native prescan
+# owns both source/provider facts and SBOM-only package evidence. The retired scan
+# was a pure graph lookup: repos with a `depends_on` edge to one of these
+# packages, with version + manifest provenance carried on the edge.
 #
 # THIS IS A CURATED STARTER SET — DELIBERATELY NOT EXHAUSTIVE.
 # Extend it freely; the scan re-reads it every run. To add a package:

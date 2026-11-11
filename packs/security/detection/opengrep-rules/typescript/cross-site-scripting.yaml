@@ -1,0 +1,187 @@
+rules:
+  - id: traust-ts-xss-dangerously-set-inner-html
+    languages: [typescript, javascript]
+    paths:
+      exclude:
+        - "*.test.*"
+        - "*.spec.*"
+        - "*/__tests__/*"
+        - "*/__mocks__/*"
+        - "*/mock-backend/*"
+        - "*/mocks/*"
+        - "*/test/*"
+        - "*/tests/*"
+    severity: ERROR
+    message: >-
+      A computed value is rendered as raw HTML through dangerouslySetInnerHTML
+      with no sanitizer — markup from log lines, WebSocket messages or API
+      data runs as script in the viewer's session. Render it as text, or pass
+      it through DOMPurify.sanitize first. CWE-79.
+    metadata:
+      cwe: ["CWE-79"]
+      category: cross-site-scripting
+      asvs: ["V5"]
+      confidence: MEDIUM
+      references:
+        - "CWE-79 DOM XSS — unsanitized dangerouslySetInnerHTML"
+    patterns:
+      - pattern: "{__html: $X}"
+      - pattern-not: "{__html: \"...\"}"
+      - pattern-not: "{__html: $SAN.sanitize(...)}"
+      - pattern-not: "{__html: sanitize(...)}"
+      - pattern-not: "{__html: sanitizeHtml(...)}"
+      - pattern-not: "{__html: DOMPurify.sanitize(...)}"
+      - pattern-not: "{__html: xss(...)}"
+      # translation strings and already-sanitized values: `t(...)`, `i18nX`, `props.i18nX(...)`,
+      # `sanitizedContent`
+      - metavariable-regex:
+          metavariable: $X
+          regex: (?is)^(?!\s*(?:[\w$]+\.)*(?:t|i18n\w*|sanitiz\w*|purif\w*)\b)
+
+  - id: traust-ts-xss-dom-html-sink
+    languages: [typescript, javascript]
+    paths:
+      exclude:
+        - "*.test.*"
+        - "*.spec.*"
+        - "*/__tests__/*"
+        - "*/__mocks__/*"
+        - "*/mock-backend/*"
+        - "*/mocks/*"
+        - "*/test/*"
+        - "*/tests/*"
+    severity: ERROR
+    message: >-
+      A computed value is written into the page as HTML (innerHTML,
+      outerHTML, insertAdjacentHTML, document.write or jQuery .html()) with
+      no sanitizer — markup in it executes as script. Use textContent, or
+      sanitize with DOMPurify first. CWE-79.
+    metadata:
+      cwe: ["CWE-79"]
+      category: cross-site-scripting
+      asvs: ["V5"]
+      confidence: MEDIUM
+      references:
+        - "CWE-79 DOM XSS — HTML sink fed a computed value"
+    patterns:
+      - pattern-either:
+          - pattern: $E.innerHTML = $X
+          - pattern: $E.outerHTML = $X
+          - pattern: $E.insertAdjacentHTML($POS, $X)
+          - pattern: document.write($X)
+          - pattern: document.writeln($X)
+          - pattern: $W.document.write($X)
+          - pattern: $J($SEL).html($X)
+      - pattern-not: $E.innerHTML = "..."
+      - pattern-not: $E.innerHTML = ""
+      - pattern-not: $E.outerHTML = "..."
+      - pattern-not: $E.insertAdjacentHTML($POS, "...")
+      - pattern-not: document.write("...")
+      - pattern-not: $W.document.write("...")
+      - pattern-not: $J($SEL).html("...")
+      - metavariable-pattern:
+          metavariable: $X
+          patterns:
+            - pattern-not: $SAN.sanitize(...)
+            - pattern-not: sanitize(...)
+            - pattern-not: sanitizeHtml(...)
+            - pattern-not: escapeHtml(...)
+
+  - id: traust-ts-xss-markdown-raw-html
+    languages: [typescript, javascript]
+    paths:
+      exclude:
+        - "*.test.*"
+        - "*.spec.*"
+        - "*/__tests__/*"
+        - "*/__mocks__/*"
+        - "*/mock-backend/*"
+        - "*/mocks/*"
+        - "*/test/*"
+        - "*/tests/*"
+    severity: WARNING
+    message: >-
+      Markdown is rendered with raw HTML enabled (rehype-raw) and no
+      rehype-sanitize step — HTML embedded in the Markdown source reaches the
+      page unfiltered. Add rehype-sanitize after rehype-raw, or drop raw HTML.
+      CWE-79.
+    metadata:
+      cwe: ["CWE-79"]
+      category: cross-site-scripting
+      asvs: ["V5"]
+      confidence: MEDIUM
+      references:
+        - "CWE-79 stored XSS — Markdown renderer passing raw HTML"
+    patterns:
+      - pattern: "[..., rehypeRaw, ...]"
+      - pattern-not: "[..., rehypeRaw, ..., rehypeSanitize, ...]"
+      - pattern-not: "[..., rehypeRaw, ..., [rehypeSanitize, ...], ...]"
+
+  - id: traust-ts-xss-reflected-response-taint
+    languages: [typescript, javascript]
+    paths:
+      exclude:
+        - "*.test.*"
+        - "*.spec.*"
+        - "*/__tests__/*"
+        - "*/__mocks__/*"
+        - "*/mock-backend/*"
+        - "*/mocks/*"
+        - "*/test/*"
+        - "*/tests/*"
+    severity: ERROR
+    message: >-
+      A request value is echoed into a response body that Express sends as
+      text/html — markup in the path, query or body runs in the caller's
+      browser (reflected XSS). Return JSON, set a text/plain content type, or
+      HTML-escape the value. CWE-79.
+    metadata:
+      cwe: ["CWE-79"]
+      category: cross-site-scripting
+      asvs: ["V5"]
+      confidence: MEDIUM
+      references:
+        - "CWE-79 reflected XSS — request value in an HTML response body"
+    mode: taint
+    pattern-sources:
+      - pattern-either:
+          - pattern: $REQ.query.$P
+          - pattern: $REQ.params.$P
+          - pattern: $REQ.body.$P
+          - pattern: $REQ.query[$K]
+          - pattern: $REQ.params[$K]
+          - patterns:
+              - pattern-inside: "const {...} = $REQ.$PART;"
+              - pattern: $V
+              - metavariable-regex:
+                  metavariable: $PART
+                  regex: ^(query|params|body)$
+          - patterns:
+              - pattern-either:
+                  - pattern: $R.headers.$H
+                  - pattern: $R.headers[$H]
+                  - pattern: $R.get($H)
+                  - pattern: $R.header($H)
+                  - pattern: $R.url
+                  - pattern: $R.originalUrl
+                  - pattern: $R.path
+              - metavariable-regex:
+                  metavariable: $R
+                  regex: ^(req|request)$
+    # JSON.stringify is not one: it leaves `<` and `>` as they are, and res.send(string) is HTML
+    pattern-sanitizers:
+      - pattern-either:
+          - pattern: escapeHtml(...)
+          - pattern: $X.escape(...)
+          - pattern: encodeURIComponent(...)
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: $RES.send(`...`)
+              - pattern: $RES.send(JSON.stringify(...))
+              - pattern: $RES.send("..." + $X)
+              - pattern: $RES.send($X + "...")
+              - pattern: $RES.status($C).send(`...`)
+              - pattern: $RES.status($C).send("..." + $X)
+              - pattern: $RES.write(`...`)
+              - pattern: $RES.end(`...`)

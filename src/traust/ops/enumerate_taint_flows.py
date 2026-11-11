@@ -2,8 +2,8 @@
 """Taint-flow enumerator (deep-fn Phase B4) — Joern source→sink flow
 facts for the flow-based injection classes syntactic rules can't see.
 
-Enumerate-then-judge, same contract as expand_config_matrix.py /
-enumerate_route_guards.py: every emitted flow is a judged row
+Enumerate-then-judge, same contract as `traust adapters config-matrix` /
+`traust adapters route-guards`: every emitted flow is a judged row
 (`judgement_required: true`), never a finding; un-modeled frameworks
 are named in `coverage_gaps`; caps produce an explicit `omitted`
 ledger; the run records to deterministic_steps/scanner_correlation

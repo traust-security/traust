@@ -1,0 +1,58 @@
+rules:
+  - id: traust-java-ssrf-request-taint
+    languages: [java]
+    severity: ERROR
+    message: >-
+      A request value is the destination of an outbound request
+      (RestTemplate, WebClient, java.net.http, URL.openConnection, Apache
+      HttpClient) — callers reach internal services and cloud metadata.
+      Allow-list hosts, or resolve and refuse private addresses before
+      connecting. CWE-918.
+    metadata:
+      cwe: ["CWE-918"]
+      category: ssrf
+      asvs: ["V1"]
+      confidence: MEDIUM
+      references:
+        - "CWE-918 SSRF — request values as Java HTTP client destinations"
+    mode: taint
+    pattern-sources:
+      - pattern-either:
+          - patterns:
+              - pattern-either:
+                  - pattern-inside: |
+                      $RT $M(..., @RequestParam $T $P, ...) { ... }
+                  - pattern-inside: |
+                      $RT $M(..., @RequestParam($A) $T $P, ...) { ... }
+                  - pattern-inside: |
+                      $RT $M(..., @PathVariable $T $P, ...) { ... }
+                  - pattern-inside: |
+                      $RT $M(..., @PathVariable($A) $T $P, ...) { ... }
+                  - pattern-inside: |
+                      $RT $M(..., @RequestHeader($A) $T $P, ...) { ... }
+                  - pattern-inside: |
+                      $RT $M(..., @QueryParam($A) $T $P, ...) { ... }
+                  - pattern-inside: |
+                      $RT $M(..., @PathParam($A) $T $P, ...) { ... }
+              - pattern: $P
+          - pattern: $REQ.getParameter(...)
+          - pattern: $REQ.getHeader(...)
+          - pattern: $REQ.getQueryString()
+          - pattern: $REQ.getPathInfo()
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: new URL($U)
+              - pattern: URI.create($U)
+              - pattern: new URI($U)
+              - pattern: $RT.getForObject($U, ...)
+              - pattern: $RT.getForEntity($U, ...)
+              - pattern: $RT.postForObject($U, ...)
+              - pattern: $RT.postForEntity($U, ...)
+              - pattern: $RT.exchange($U, ...)
+              - pattern: $WC.get().uri($U, ...)
+              - pattern: $WC.post().uri($U, ...)
+              - pattern: new HttpGet($U)
+              - pattern: new HttpPost($U)
+          - focus-metavariable: $U
+

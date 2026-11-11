@@ -1,0 +1,44 @@
+rules:
+  - id: traust-rust-cryptography-tls-verify-off
+    languages: [rust]
+    severity: ERROR
+    message: >-
+      TLS certificate or hostname verification turned off
+      (danger_accept_invalid_certs(true), danger_accept_invalid_hostnames(true),
+      or a rustls dangerous() custom verifier) — anyone on the network path
+      can impersonate the server. Keep verification on; add a private CA
+      with add_root_certificate. CWE-295.
+    metadata:
+      cwe: ["CWE-295"]
+      category: cryptography
+      asvs: ["V12"]
+      confidence: HIGH
+      references:
+        - "CWE-295 — reqwest / native-tls / rustls verification disabled"
+    pattern-either:
+      - pattern: $B.danger_accept_invalid_certs(true)
+      - pattern: $B.danger_accept_invalid_hostnames(true)
+      - pattern: $CFG.dangerous().set_certificate_verifier(...)
+      - pattern: $B.dangerous().with_custom_certificate_verifier(...)
+
+  - id: traust-rust-cryptography-weak-hash
+    languages: [rust]
+    severity: INFO
+    message: >-
+      MD5/SHA-1 in use — fine for non-security checksums, broken for
+      anything an attacker benefits from colliding (signatures, password
+      hashes, integrity of untrusted input). Judge the context; hash
+      passwords with argon2 or bcrypt. CWE-328.
+    metadata:
+      cwe: ["CWE-328", "CWE-327"]
+      category: cryptography
+      asvs: ["V11"]
+      confidence: LOW
+      references:
+        - "CWE-328/CWE-327 — weak hash algorithms in security context"
+    pattern-either:
+      - pattern: md5::compute(...)
+      - pattern: Md5::new()
+      - pattern: Md5::digest(...)
+      - pattern: Sha1::new()
+      - pattern: Sha1::digest(...)

@@ -1,9 +1,0 @@
-{
-  "repos": [{"repo_key": "findings/seeded/app",
-             "repo_url": "https://github.com/seeded/app"}],
-  "v_open": [
-    {"finding_id": "SEEDED-0000001-001", "severity": "critical",
-     "primary_cwe": "CWE-1104", "validity": "confirmed",
-     "repo_key": "findings/seeded/app"}
-  ]
-}

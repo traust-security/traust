@@ -1,37 +1,18 @@
 #!/usr/bin/env python3
-"""Tests for the vendored ATT&CK tables and attack_refs validator."""
+"""Tests for the vendored ATT&CK tables, read through traust-core's catalog."""
 
-import json
 import unittest
-from pathlib import Path
-
-ROOT = Path(__file__).resolve().parent.parent
 
 import attack_refs
 
 
 class TestAttackTables(unittest.TestCase):
-    def test_mapping_validates_against_schema(self):
-        import jsonschema
-
-        mapping = attack_refs.load_mapping()
-        from traust_contracts.paths import schema_path as _sp
-
-        schema = json.loads(_sp("attack-mapping").read_text())
-        jsonschema.validate(mapping, schema)
-
-    def test_mapping_referential_integrity(self):
-        self.assertEqual(attack_refs.validate_tables(), [])
-
-    def test_pinned_table_is_plausible(self):
-        t = attack_refs.load_techniques()
-        self.assertGreater(t["counts"]["techniques"], 500)
-        self.assertIn("attribution", t)
-        self.assertIn("MITRE", t["attribution"])
-        self.assertEqual(t["attack_version"], t.get("attack_version"))
-        esc = t["techniques"]["T1611"]
-        self.assertEqual(esc["name"], "Escape to Host")
-        self.assertTrue(esc["containers"])
+    def test_pinned_tables_load_through_core(self):
+        # core's loader gates the mapping schema, version agreement and referential integrity
+        catalog = attack_refs.catalog()
+        self.assertGreater(len(catalog.techniques), 500)
+        self.assertIn("MITRE", catalog.attribution)
+        self.assertEqual(catalog.techniques["T1611"].name, "Escape to Host")
 
     def test_validate_ids_rejects_bad_refs(self):
         self.assertEqual(attack_refs.validate_ids(["T1611"]), [])

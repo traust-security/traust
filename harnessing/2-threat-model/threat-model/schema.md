@@ -4,15 +4,14 @@
 > reports "file unchanged", the prior result was evicted from context; reload
 > with `cat .claude/skills/threat-model/schema.md` via Bash.
 
-Both `/threat-model interview` and `/threat-model bootstrap` write
-this file to `<target-dir>/<repo>-threat-model.md` (naming rule in
-`SKILL.md`; portfolio copies under `analysis-results/findings/` may be
-branch-suffixed and carry the identical contract). `THREAT_MODEL.md` is
-the legacy name — `lint_threat_model.py` and the register still accept
-it, but the skill never writes it. The format is markdown so humans
-can read and edit it, but the section headings, table columns, and enum values
-below are a contract: keep the headings and column order exactly as shown so
-downstream tooling can parse them with regex.
+Both `/threat-model interview` and `/threat-model bootstrap` author
+`<target-dir>/<repo>-threat-model.json`, then render its `.md` companion
+(naming rule in `SKILL.md`; portfolio copies under
+`analysis-results/findings/` may be branch-suffixed and carry the identical
+contract). `THREAT_MODEL.md` is the legacy read name; the skill never
+authors it. The section headings and table columns below describe the
+rendering and legacy read format. New JSON follows the schema's
+`#/$defs/canonical_write` contract; historical read acceptance is broader.
 
 ---
 
@@ -51,10 +50,11 @@ their absence. Section 10 applies **only to multi-tenant services** —
 single-tenant targets never carry it. Section 11 is present exactly when
 section 4 carries OWASP-rated threats, and the renderer writes it.
 
-**Deterministic gate:** python3 -m traust.cli reporting lint enforces this contract
-(sections, table columns, enums, the coverage invariant, ID stability,
-provenance completeness, evidence-cell hygiene). A new emission is not
-complete until it exits `Result: ALL PASSED`.
+**Deterministic gate:** follow SKILL.md *Step 2 — Shared output contract*
+to validate the JSON before rendering and recording it. `python3 -m
+traust.cli reporting lint` checks legacy prose models (sections, table
+columns, enums, coverage, provenance and evidence hygiene); it is not a
+substitute for the canonical-write contract.
 
 ---
 
@@ -171,6 +171,13 @@ multi-tenant services that carry a section 10:
 | id | threat | actor | surface | asset | impact | likelihood | status | controls | evidence | attack_refs | isolation_dimensions |
 |---|---|---|---|---|---|---|---|---|---|---|---|
 
+Two more optional trailing columns, `owasp_llm_references` and then
+`atlas_refs`, come last (after `review_surfaces` when present), either or
+both, and only when a threat against an LLM, agent or MCP component has
+values: OWASP Top 10 for LLM Applications category IDs (`LLM01`…) and MITRE
+ATLAS technique IDs (`AML.T0051`), the latter validated against the pinned
+ATLAS table.
+
 - `id`: `T1`, `T2`, … Stable across edits; do not renumber when rows are
   removed. In `update`/`review` passes a removed threat's id is **retired,
   never reused**: the row moves to section 5 with the removal reason and
@@ -203,8 +210,7 @@ multi-tenant services that carry a section 10:
   models): comma-separated MITRE ATT&CK technique IDs (`T1611`,
   `T1552.007`) naming the adversary behavior the threat describes. **Bounded selection, not narrative**: IDs must exist and be
   non-revoked/non-deprecated in the harness's pinned ATT&CK table — check
-  with `python3 traust/harnessing/attack-coverage/scripts/attack_refs.py
-  --validate <ids>`; sub-technique preferred over parent when one fits;
+  with `traust attack validate <ids>`; sub-technique preferred over parent when one fits;
   2 IDs is typical, more than 4 means the threat row is too broad — split
   it. Leave the cell empty rather than guessing: the `/attack-coverage`
   roll-up treats an explicit ID as *modeled* coverage, so a wrong ID
@@ -286,7 +292,28 @@ entire threat cluster regardless of which instance is found next.
 - `threat_ids`: comma-separated section 4 ids (e.g., `T1,T3`) this mitigation covers.
 - `closes_class`: `yes` | `partial` | `no` (`no` = worthwhile
   defense-in-depth that does not close the class).
-- `effort`: `XS` | `S` | `M` | `L`.
+- `effort`: required in the JSON, even when unknown. New emissions use
+  `xs` | `s` | `m` | `l` | `xl`, or JSON `null` for an unknown size.
+  These are ordered size labels, not duration bands; do not invent hour,
+  day or sprint thresholds. Unknown is not a size and must never rank
+  ahead of known sizes as the cheapest recommendation.
+- `blocked_external`: independent optional boolean in the JSON. Use
+  `true` for a known external block, `false` for known absence of one, and
+  omit the field when unknown. Never substitute a blocking label for
+  `effort`, infer blocking from the size, or default unknown blocking to
+  `false`. The rendering may carry it as an optional trailing column;
+  preserve a reported boolean when displaying or deriving recommendations,
+  and distinguish unknown from `false`.
+
+The source of truth is the
+[mitigation-effort registry](https://github.com/traust-security/traust-contracts/blob/development/enums/v1/mitigation-effort.json)
+and the threat-model schema's `#/$defs/canonical_write` contract.
+Historical `XS`, `S`, `M`, `L` remain readable; their only approved
+replacements in freshly authored canonical output are respectively `xs`,
+`s`, `m`, `l`. This is an exact alias mapping, not arbitrary lowercasing.
+Do not rewrite stored historical artifacts. Unknown effort is JSON
+`null`, not an omitted key or a guessed size. The rendered unknown marker
+is `-` for size or blocking; it is not a size estimate or a known `false`.
 
 Cells containing a literal `|` (regex alternations, `\|\| true`) must
 escape it as `\|` per GFM — an unescaped pipe fractures the row for every
@@ -520,7 +547,7 @@ writes a new version of a model (`update`, or `review --apply`) rates
 every threat that lacks `risk_rating` and drops its legacy labels.** The
 whole model moves at once, so a table never mixes the two scales for
 long. Until then, fleet roll-ups order legacy threats beside rated ones
-with a fixed crosswalk (`traust_engine.reporting.threat_rating`) and mark
+with a fixed crosswalk (traust-core's threat-register view) and mark
 them `legacy-crosswalk`. That crosswalk orders threats; it isn't a
 rating.
 

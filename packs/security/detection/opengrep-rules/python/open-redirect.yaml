@@ -1,0 +1,50 @@
+rules:
+  - id: traust-python-open-redirect-taint
+    languages: [python]
+    severity: ERROR
+    message: >-
+      A request value is the target of a redirect (Flask/Django redirect,
+      HttpResponseRedirect, Starlette RedirectResponse) with no allow-list
+      — the server sends users wherever the link says. Redirect only to
+      relative paths, or check the host (Django's
+      url_has_allowed_host_and_scheme). CWE-601.
+    metadata:
+      cwe: ["CWE-601"]
+      category: open-redirect
+      asvs: ["V3"]
+      confidence: MEDIUM
+      references:
+        - "CWE-601 open redirect — request-supplied redirect targets"
+    mode: taint
+    pattern-sources:
+      - pattern-either:
+          - pattern: request.args.get(...)
+          - pattern: request.args[...]
+          - pattern: request.form.get(...)
+          - pattern: request.values.get(...)
+          - pattern: request.GET.get(...)
+          - pattern: request.GET[...]
+          - pattern: request.POST.get(...)
+          - pattern: $REQ.query_params.get(...)
+          - pattern: $REQ.query_params[...]
+    # query-string building keeps the value in the query, so the host stays fixed
+    pattern-sanitizers:
+      - pattern-either:
+          - pattern: url_has_allowed_host_and_scheme(...)
+          - pattern: is_safe_url(...)
+          - pattern: url_for(...)
+          - pattern: urlencode(...)
+          - pattern: quote(...)
+          - pattern: quote_plus(...)
+          - patterns:
+              - pattern: $FMT % $X
+              - metavariable-regex:
+                  metavariable: $FMT
+                  regex: ^["'][?&].*
+    pattern-sinks:
+      - pattern-either:
+          - pattern: redirect($U, ...)
+          - pattern: flask.redirect($U, ...)
+          - pattern: HttpResponseRedirect($U, ...)
+          - pattern: RedirectResponse($U, ...)
+          - pattern: RedirectResponse(url=$U, ...)

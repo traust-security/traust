@@ -161,7 +161,7 @@ worth the overhead there.
 | Agent | Brief | Returns |
 |---|---|---|
 | **Docs reader** | Read `README*`, `SECURITY.md`, `CHANGELOG*`, top-level `docs/`, and the build manifest (`setup.py` / `Cargo.toml` / `package.json` / `CMakeLists.txt`). Summarize what the project says it is, who uses it, and any security claims or fix entries it documents. | Prose system description; list of self-documented security fixes. |
-| **Surface mapper** | Grep the source tree for entry-point signatures (table below). For each hit, name the surface, the file:function, and what crosses it. Include supply-chain surfaces (lockfiles, vendored deps, `curl \| sh` in build scripts). Bound the scan: exclude `vendor/`, `node_modules/`, `third_party/`, generated code; cap at ~5 representative hits per surface row. | Candidate section 3 rows: `{entry_point, description, trust_boundary, file_refs, review_surfaces}` (`review_surfaces` only on rows from the review-surface kinds below). |
+| **Surface mapper** | Grep the source tree for entry-point signatures (table below). For each hit, name the surface, the file:function, and what crosses it. Include supply-chain surfaces (lockfiles, vendored deps, `curl \| sh` in build scripts). Bound the scan: exclude `vendor/`, `node_modules/`, `third_party/`, generated code; cap at ~5 representative hits per surface row. | Candidate section 3 rows: `{entry_point, kind, description, trust_boundary, file_refs, review_surfaces}` (`review_surfaces` only on rows from the review-surface kinds below). |
 | **Infra reader** | Read deploy-time config: `*.tf`/`*.tfvars`, k8s manifests (`*.yaml` under `k8s/`/`deploy/`/`manifests/`), `Dockerfile*`, CI workflows, and any IAM/service-account/dataset-ACL files. For each, name (a) the identity it runs as and what that identity can reach, (b) any access grant not managed in this tree (ad-hoc IAM, hand-created SAs, missing column/policy tags), (c) credentials or principals that survive a migration or teardown. | Candidate section 3 rows for infra surfaces + candidate section 4 rows: `{threat, surface, asset}` where the config itself is the finding. |
 | **Asset finder** | Identify what the code protects or produces: sensitive data it reads/writes (secrets, keys, user records, DBs), process integrity (always present for native code), service availability, and downstream embedder assets if it's a library. | Candidate section 2 rows: `{asset, description, sensitivity}`. |
 | **History miner** | Two steps. **(a)** Glance at the build manifest and file extensions to identify language **and domain**, then derive 6-10 commit-message keywords specific to that stack on top of the base set `CVE- security vuln fix exploit`. Derive from what the code does, not from a lookup table; the three examples below illustrate the specificity bar, not coverage: native parser → `overflow OOB UAF integer`; web service → `injection SSRF IDOR traversal`; crypto → `timing constant-time nonce`. **(b)** `git -C <target-dir> log --all -i --grep='<base ∪ derived, \|-joined>' --oneline`, then read the full message + diff of each hit. Also grep any `issues/` or `bugs/` export in-tree. | Vuln rows: `{id (commit hash), title, component, class, vector}`. |
@@ -189,8 +189,9 @@ language/framework the target actually uses.
 | Security config flags (`security-flags`) | settings defaults and environment fallbacks that switch a control (e.g., `DEBUG`, `verify=`, `insecure`/`skip_*` options); keys or secrets in shipped config |
 | Outbound fetch (`outbound-fetch`) | server-side HTTP client calls whose destination someone other than the operator can influence: request input, config a lower-privileged role can edit, a value read from an unverified token (e.g., `requests.get(`); identity-provider discovery and key-set URLs; redirects the server follows. A destination only the operator sets, and links a user's browser follows, are not outbound fetches. |
 | Shared content stores (`stored-content-integrity`) | digest-keyed or deduplicated blob storage; multipart or chunk assembly; server-side copy |
+| LLM components (`llm-integration`) | the files `traust adapters llm-app` tags: model and agent-framework calls, MCP tool handlers, vector-store reads and writes, prompt templates |
 
-The last five rows are review surfaces from
+The last six rows are review surfaces from
 [review-surfaces.md](../../3-audit/secure-code-audit/review-surfaces.md);
 the tag each one produces is in brackets. Tag every entry point those rows
 produce with `review_surfaces`. The sixth surface, `scope-enforcement`, has no
@@ -206,7 +207,7 @@ surface, and the audit's coverage diff reads the tags from the JSON.
   "stage": 1,
   "swarm": {
     "docs_reader": "<returned text block>",
-    "surface_mapper": [ {entry_point, description, trust_boundary, file_refs, review_surfaces} ],
+    "surface_mapper": [ {entry_point, kind, description, trust_boundary, file_refs, review_surfaces} ],
     "infra_reader": { "surfaces": [...], "threats": [...] },
     "asset_finder": [ {asset, description, sensitivity} ],
     "history_miner": [ {id, title, component, class, vector} ],
@@ -275,7 +276,7 @@ into the model file verbatim. It becomes the `evidence` column in Stage 3.
   "stage": 2,
   "section1_context": "<markdown prose>",
   "section2_assets": [ {asset, description, sensitivity} ],
-  "section3_entry_points": [ {entry_point, description, trust_boundary, reachable_assets, review_surfaces} ],
+  "section3_entry_points": [ {entry_point, kind, description, trust_boundary, reachable_assets, review_surfaces} ],
   "vuln_table": [ {id, title, component, class, vector, entry_point} ]
 }
 ```
@@ -429,6 +430,10 @@ misses the classic defects, so also walk each tagged surface's check in
   deduplication?
 - **scope-enforcement:** does every route and credential type apply the
   scope check its siblings do?
+- **llm-integration:** can untrusted text reach a prompt that can call
+  tools, does model output reach a sink, and is each tool no broader than
+  its task (the checks in
+  [llm-application-review.md](../../3-audit/secure-code-audit/llm-application-review.md))?
 
 Each plausible answer is a section 4 row tagged with only the surfaces
 that threat exercises: a subset of the tags of the entry points its
@@ -521,10 +526,12 @@ pass.
 
 Populate `## 8. Recommended mitigations` from the Stage-3c working notes: one
 row per class-level `mitigation`, listing the `threat_ids` it covers, whether
-it `closes_class` (yes/partial), and a rough `effort` (S/M/L). If two
-clusters are closed by the same control, emit one row with both clusters'
-ids. Gap-fill threats from Stage 4 get rows here too where an obvious
-class-level control exists.
+it `closes_class` (yes/partial), and required `effort` per schema.md section 8:
+a canonical size when supported, or JSON `null` when unknown. Record
+`blocked_external` independently only when known; otherwise omit it, not
+`false`. If two clusters are closed by the same control, emit one row with
+both clusters' ids. Gap-fill threats from Stage 4 get rows here too where
+an obvious class-level control exists.
 
 **Emit the JSON, then render.** Compose `<target-dir>/<repo>-threat-model.json`
 against `threat-model.schema.json`, exactly as SKILL.md *Step 2 — Shared
@@ -569,7 +576,9 @@ Hand back to the user:
 3. Count of threats with evidence vs without (shows gap-fill ran).
 4. Stage-3b sibling locations as candidate leads for `/vuln-scan` or the
    pipeline `find` stage.
-5. The section 8 recommended mitigations, top 3 by (closes_class, effort asc).
+5. The section 8 recommended mitigations, top 3 by (closes_class, known
+   effort in size order). Keep unknown effort separate, never cheapest;
+   carry any reported external-blocking state with each recommendation.
 6. The section 6 open questions, framed as "ask the owner".
 7. If `--context` was used: per-source one-line ingestion summaries and any
    doc-vs-code conflicts recorded (so the user can course-correct a

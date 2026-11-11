@@ -1,0 +1,109 @@
+rules:
+  - id: traust-ruby-injection-kernel-open
+    languages: [ruby]
+    severity: ERROR
+    message: >-
+      Kernel#open (or URI.open from open-uri) on a non-literal value — a
+      value starting with '|' runs a shell command, and a URL is fetched
+      from wherever it points (SSRF, local file read). Use File.open for
+      files, and an HTTP client with an allow-list of hosts for URLs.
+      CWE-78 / CWE-918.
+    metadata:
+      cwe: ["CWE-78", "CWE-918"]
+      category: injection
+      asvs: ["V1"]
+      confidence: HIGH
+      references:
+        - "CWE-78 / CWE-918 — Kernel#open and open-uri on caller- or tenant-controlled values"
+    patterns:
+      - pattern-either:
+          - pattern: open($X, ...)
+          - pattern: Kernel.open($X, ...)
+          - pattern: URI.open($X, ...)
+          - pattern: URI.parse($X).open(...)
+          - pattern: URI($X).open(...)
+      - metavariable-pattern:
+          metavariable: $X
+          patterns:
+            - pattern-not: '"..."'
+
+  - id: traust-ruby-injection-erb-template
+    languages: [ruby]
+    severity: WARNING
+    message: >-
+      An ERB template built from non-literal text and rendered — whoever
+      controls the template text runs Ruby (<%= system(...) %>). Render
+      only templates shipped with the code; substitute untrusted values as
+      data, never as template source. CWE-94.
+    metadata:
+      cwe: ["CWE-94"]
+      category: injection
+      asvs: ["V1"]
+      confidence: MEDIUM
+      references:
+        - "CWE-94 code injection — ERB.new on imported or caller-supplied template text"
+    patterns:
+      - pattern-either:
+          - pattern: ERB.new($X, ...).result(...)
+          - pattern: ERB.new($X, ...).result_with_hash(...)
+      - metavariable-pattern:
+          metavariable: $X
+          patterns:
+            - pattern-not: '"..."'
+            - pattern-not: File.read(...)
+
+  - id: traust-ruby-injection-sql-interpolation
+    languages: [ruby]
+    severity: ERROR
+    message: >-
+      SQL built by string interpolation and passed to ActiveRecord (where,
+      order, joins, find_by_sql, connection.execute, …), or a request
+      parameter used as a raw ORDER BY — any interpolated value becomes SQL
+      syntax. Use hash conditions or placeholders (where("x = ?", v)), and
+      an allow-list for sort columns. CWE-89.
+    metadata:
+      cwe: ["CWE-89"]
+      category: injection
+      asvs: ["V1"]
+      confidence: HIGH
+      references:
+        - "CWE-89 SQL injection — interpolated SQL fragments in ActiveRecord query methods"
+    pattern-either:
+      - patterns:
+          - pattern: $R.$Q("...#{$X}...", ...)
+          - metavariable-regex:
+              metavariable: $Q
+              regex: ^(where|rewhere|not|or|having|order|reorder|group|joins|select|pluck|from|lock|find_by_sql|count_by_sql|exists\?|update_all|delete_all|calculate|execute|exec_query|exec_update|exec_delete|select_all|select_one|select_rows|select_value|select_values)$
+      - patterns:
+          - pattern-either:
+              - pattern: $R.order(params[...])
+              - pattern: $R.reorder(params[...])
+              - pattern: $R.order(params.fetch(...))
+              - pattern: $R.order("#{params[...]} ...")
+
+  - id: traust-ruby-injection-shell-interpolation
+    languages: [ruby]
+    severity: ERROR
+    message: >-
+      A command string built by interpolation runs through a shell
+      (system, exec, spawn, backticks, %x, IO.popen, Open3) — interpolated
+      values become shell syntax. Pass the program and each argument
+      separately (system("convert", path, "out.png")), never one string.
+      CWE-78.
+    metadata:
+      cwe: ["CWE-78"]
+      category: injection
+      asvs: ["V1"]
+      confidence: HIGH
+      references:
+        - "CWE-78 command injection — interpolated command strings in Ruby shell calls"
+    pattern-either:
+      - pattern: system("...#{$X}...", ...)
+      - pattern: exec("...#{$X}...", ...)
+      - pattern: spawn("...#{$X}...", ...)
+      - pattern: Kernel.system("...#{$X}...", ...)
+      - pattern: Process.spawn("...#{$X}...", ...)
+      - pattern: IO.popen("...#{$X}...", ...)
+      - pattern: Open3.$F("...#{$X}...", ...)
+      - pattern: '`...#{$X}...`'
+      - pattern: '%x(...#{$X}...)'

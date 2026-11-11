@@ -3,7 +3,7 @@
 `src/traust/context.py` calls `HarnessEngine.load()` once and turns
 `DeploymentConfigMissing` into a one-line `SystemExit(2)`. 93 modules call
 `load_engine()` and 96 call `add_config_home_arg()`, so every lane inherits the same
-config precedence (CLI flag > AUDIT_RESULTS_ROOT > `locations.yaml`) and the same
+config precedence (CLI flag > AUDIT_RESULTS_ROOT > `traust.yaml` locations) and the same
 fail-loud exit, pinned by `tests/test_context.py`. A second caller re-resolves config
 on its own terms and the guarantee stops being one.
 
@@ -85,12 +85,16 @@ def test_catches_direct_config_home_resolution(repo):
 
 
 def test_allows_the_composition_root_itself(repo):
-    """context.py is the one place both calls belong."""
+    """`_registry.load_engine` resolves the engine and context.py the config home."""
+    (repo / "src" / "traust" / "cli" / "groups").mkdir()
+    (repo / "src" / "traust" / "cli" / "groups" / "_registry.py").write_text(
+        "def load_engine(config_home=None):\n"
+        "    from traust_engine import HarnessEngine\n"
+        "    return HarnessEngine.load(config_home=config_home)\n",
+        "utf-8",
+    )
     (repo / "src" / "traust" / "context.py").write_text(
         "from traust_contracts.config import deployment_config_dir\n"
-        "from traust_engine import HarnessEngine\n"
-        "def load_engine(config_home=None):\n"
-        "    return HarnessEngine.load(config_home=config_home)\n"
         "def home():\n"
         "    return deployment_config_dir()\n",
         "utf-8",
@@ -180,6 +184,14 @@ def test_covers_the_harnessing_tree_too(repo):
     d.mkdir(parents=True)
     (d / "stray.py").write_text(
         "from traust_engine import HarnessEngine\ndef bad():\n    return HarnessEngine.load()\n",
+        "utf-8",
+    )
+    assert len(_run(repo)) == 1
+
+
+def test_context_py_no_longer_resolves_the_engine(repo):
+    (repo / "src" / "traust" / "context.py").write_text(
+        "from traust_engine import HarnessEngine\ndef load_engine():\n    return HarnessEngine.load()\n",
         "utf-8",
     )
     assert len(_run(repo)) == 1

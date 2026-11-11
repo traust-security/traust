@@ -93,33 +93,6 @@ def test_unparseable_registry_raises(tmp_path):
         fc.load(p)
 
 
-@pytest.mark.parametrize(
-    "ident,expected_year",
-    [
-        ("CVE-2021-44228", "2021"),
-        ("cve-2019-14540", "2019"),
-        # RHSA ids are RHSA-2024:6493 -- a '-' split yields '2024:6493' and
-        # silently produces a URL with an empty year segment.
-        ("RHSA-2024:6493", "2024"),
-    ],
-)
-def test_year_is_extracted_for_year_partitioned_trees(ident, expected_year):
-    spec = {"url_template": "https://h/{year}/{ident_lower}.json"}
-    assert f"/{expected_year}/" in fc.resolve_url(spec, ident)
-
-
-def test_rhsa_colon_becomes_underscore_in_path():
-    spec = {"url_template": "https://h/{year}/{ident_lower_us}.json"}
-    assert fc.resolve_url(spec, "RHSA-2024:6493").endswith("/2024/rhsa-2024_6493.json")
-
-
-def test_resolve_url_does_not_evaluate_caller_input():
-    """A template is config-supplied; an identifier is not a format string."""
-    spec = {"url_template": "https://h/{ident}"}
-    out = fc.resolve_url(spec, "{ident_upper}")
-    assert out == "https://h/{ident_upper}"
-
-
 def test_max_age_prefers_explicit_then_cadence_then_default():
     assert fc.max_age_hours({"max_age_hours": 6}) == 6
     assert fc.max_age_hours({"cadence": "weekly"}) == 24 * 7
@@ -130,12 +103,12 @@ def test_max_age_prefers_explicit_then_cadence_then_default():
 def test_cache_dir_honours_configured_location(tmp_path, monkeypatch):
     import yaml
 
-    from traust.context import load_engine
+    from traust.context import load
 
     home = tmp_path / "cfg"
     home.mkdir()
-    (home / "locations.yaml").write_text(
-        yaml.safe_dump({"feeds_cache": str(tmp_path / "elsewhere")}),
+    (home / "traust.yaml").write_text(
+        yaml.safe_dump({"locations": {"feeds_cache": str(tmp_path / "elsewhere")}}),
         encoding="utf-8",
     )
     fixture = Path(__file__).parent / "fixtures" / "config"
@@ -147,25 +120,22 @@ def test_cache_dir_honours_configured_location(tmp_path, monkeypatch):
     monkeypatch.setenv("TRAUST_CONFIG_HOME", str(home))
     monkeypatch.delenv("FEEDS_CACHE_DIR", raising=False)
 
-    assert fc.feeds_cache_dir(engine=load_engine()) == tmp_path / "elsewhere"
+    assert fc.feeds_cache_dir(core=load()) == tmp_path / "elsewhere"
 
 
 def test_cache_dir_never_lands_inside_the_harness_checkout(monkeypatch, tmp_path):
     """When workspace is the harness checkout, cache uses progress_tracker."""
     import yaml
 
-    from traust.context import load_engine, progress_tracker_dir
+    from traust.context import load, progress_tracker_dir
     from traust.paths import HARNESS_ROOT
 
     tracker = tmp_path / "progress-tracker"
     home = tmp_path / "cfg"
     home.mkdir()
-    (home / "locations.yaml").write_text(
+    (home / "traust.yaml").write_text(
         yaml.safe_dump(
-            {
-                "workspace": str(HARNESS_ROOT),
-                "progress_tracker": str(tracker),
-            }
+            {"locations": {"workspace": str(HARNESS_ROOT), "progress_tracker": str(tracker)}}
         ),
         encoding="utf-8",
     )
@@ -178,10 +148,10 @@ def test_cache_dir_never_lands_inside_the_harness_checkout(monkeypatch, tmp_path
     monkeypatch.setenv("TRAUST_CONFIG_HOME", str(home))
     monkeypatch.delenv("FEEDS_CACHE_DIR", raising=False)
     monkeypatch.chdir(HARNESS_ROOT)
-    engine = load_engine()
-    got = fc.feeds_cache_dir(engine=engine)
+    core = load()
+    got = fc.feeds_cache_dir(core=core)
     assert HARNESS_ROOT not in got.parents and got != HARNESS_ROOT
-    assert got == progress_tracker_dir(engine) / "feeds"
+    assert got == progress_tracker_dir(core) / "feeds"
 
 
 def test_cache_dir_is_not_under_analysis_results(monkeypatch, tmp_path):
@@ -189,16 +159,18 @@ def test_cache_dir_is_not_under_analysis_results(monkeypatch, tmp_path):
     data with opposite retention and redistribution properties."""
     import yaml
 
-    from traust.context import load_engine
+    from traust.context import load
 
     home = tmp_path / "cfg"
     home.mkdir()
-    (home / "locations.yaml").write_text(
+    (home / "traust.yaml").write_text(
         yaml.safe_dump(
             {
-                "workspace": str(tmp_path / "ws"),
-                "analysis_results": str(tmp_path / "ws" / "analysis-results"),
-                "progress_tracker": str(tmp_path / "ws" / "progress-tracker"),
+                "locations": {
+                    "workspace": str(tmp_path / "ws"),
+                    "analysis_results": str(tmp_path / "ws" / "analysis-results"),
+                    "progress_tracker": str(tmp_path / "ws" / "progress-tracker"),
+                }
             }
         ),
         encoding="utf-8",
@@ -211,4 +183,4 @@ def test_cache_dir_is_not_under_analysis_results(monkeypatch, tmp_path):
             shutil.copy2(name, home / name.name)
     monkeypatch.setenv("TRAUST_CONFIG_HOME", str(home))
     monkeypatch.delenv("FEEDS_CACHE_DIR", raising=False)
-    assert "analysis-results" not in str(fc.feeds_cache_dir(engine=load_engine()))
+    assert "analysis-results" not in str(fc.feeds_cache_dir(core=load()))

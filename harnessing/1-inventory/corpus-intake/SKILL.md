@@ -1,12 +1,13 @@
 ---
 name: corpus-intake
-description: Use when the user wants to register, update, or review a corpus tree or scan engagement — "add a new BU engagement", "register this tree", "onboard <name> scanning work", "why is this tree unregistered", "update the ownership of X" — or when any census/dashboard run reports an unregistered-tree drift warning. Interactively interviews for the registration fields (or takes them as arguments), validates and updates $TRAUST_CONFIG_HOME/corpus-config.yaml through corpus_intake.py (never hand-edited), then re-runs /census so the corpus manifest reflects the change immediately.
+description: Use when the user wants to register, update, or review a corpus tree or scan engagement — "add a new BU engagement", "register this tree", "onboard <name> scanning work", "why is this tree unregistered", "update the ownership of X" — or when any census/dashboard run reports an unregistered-tree drift warning. Interactively interviews for the registration fields (or takes them as arguments), validates and records them in traust-core (products and the corpus registry) through `traust products`, then re-runs /census so the corpus manifest reflects the change immediately.
 argument-hint: "[add|update|list] [<name>] [field=value ...]"
 metadata:
   harness.tier: "secondary"
 allowed-tools:
-  - Bash(python3 *traust/harnessing/1-inventory/corpus-intake/scripts/corpus_intake.py:*)
-  - Bash(python3 *traust/harnessing/census/scripts/build_census.py:*)
+  - Bash(traust products list:*)
+  - Bash(traust products add:*)
+  - Bash(traust products update:*)
   - Bash(ls:*)
   - Read
   # scoped 2026-07-31 (P1-W4): A11 grandfather retired —
@@ -16,15 +17,15 @@ allowed-tools:
 # Corpus Intake — register trees and engagements
 
 > **Paths.** `analysis-results/…` and `progress-tracker/…` in this skill are the
-> default workspace layout. They resolve through `locations.yaml` in
+> default workspace layout. They resolve through `locations:` in `traust.yaml` in
 > `$TRAUST_CONFIG_HOME` (`docs/setup.md`, Storage locations); substitute your
 > configured roots.
 
 
-`$TRAUST_CONFIG_HOME/corpus-config.yaml` is the single source of truth for which trees
+traust-core's products and corpus registry are the single source of truth for which trees
 under `analysis-results/` are in the report corpus and who owns them.
 This skill is its only supported write path: interview → validate →
-atomic write → census refresh. Never edit the file by hand.
+recorded (product, then registry) → census refresh.
 
 ## Input
 
@@ -39,23 +40,21 @@ fields the interview fills in.
 ### Step 1 — Show current state
 
 ```bash
-python3 harnessing/1-inventory/corpus-intake/scripts/corpus_intake.py list
+traust products list
 ```
 
-Present the registered trees/engagements and any DRIFT warnings. If the
+Present the registered trees/engagements (DRIFT warnings *retired*: status derives from assessments). If the
 user only asked to review ("list", "what's registered"), stop here.
 
 ### Step 2 — Interview for the registration fields
 
 Collect, one question at a time, anything not already provided:
 
-1. **Kind** — does the output tree already exist (or is it about to)
-   under `analysis-results/` (→ tree), or is this reserving a label for
-   an engagement that has not produced output yet (→ engagement)?
+1. **Kind** — *retired*: trees and engagements are both products in core.
 2. **Name** — the config key (engagement codename or tree directory
    name). Letters/digits/`._-` only.
-3. **Tree** (engagements only) — the directory the output will land in.
-   Convention: `<name>-findings/`, one tree per engagement.
+3. **Tree** — *retired*: the name is the tree.
+   Convention: name it `<engagement>-findings`, one tree per engagement.
 4. **Ownership tag** — exactly one of:
    - `owned` — Hybrid Platforms BU backlog (Lens 2 headline);
    - `upstream` — community code HP relies on; adjacent line, never
@@ -73,59 +72,53 @@ Collect, one question at a time, anything not already provided:
    counting the findings would double-count or distort?" (harness-qa).
 5. **Business unit** — the human-readable BU/initiative name shown on
    dashboards.
-6. **Inventory** (optional) — path to the input inventory CSV in
+6. **Inventory** (*retired*: core keys the corpus by ids, not paths) — path to the input inventory CSV in
    the inputs inventory (`locations.inputs`) if one exists.
-7. **Notes** (optional) — anything non-obvious, especially product-vs-BU
+7. **Notes** (NEED(contracts: a `notes` field on the corpus-registry subject; the schema's subject allows no other field, so nothing records them)) — anything non-obvious, especially product-vs-BU
    dualities (see the `ansible` entry: catalog operators inside
    `findings/` stay owned while the BU engagement is external).
 
 If the answers reveal a BU boundary cutting through an existing tree
 (some products owned, some not), do NOT force a tree-level tag — flag it
-to the user and record the exception in `notes`; per-product `overrides`
+to the user (recording the exception in notes: NEED(contracts: corpus-registry subject `notes`), flag only until then); per-product `overrides`
 support lands with a later phase.
 
 ### Step 3 — Apply
 
 ```bash
-python3 harnessing/1-inventory/corpus-intake/scripts/corpus_intake.py add-tree <name> \
-    --label <label> --ownership <tag> --business-unit "<BU>" \
-    [--notes "..."]
-# or
-python3 harnessing/1-inventory/corpus-intake/scripts/corpus_intake.py add-engagement <name> \
-    --label <label> --ownership <tag> --business-unit "<BU>" \
-    --tree <tree> [--inventory <path>] [--notes "..."]
+traust products add <name> \
+    --label <label> --ownership <tag> --business-unit "<BU>"
 # or targeted field changes
-python3 harnessing/1-inventory/corpus-intake/scripts/corpus_intake.py update \
-    (tree|engagement) <name> [--ownership ...] [--business-unit ...] ...
+traust products update \
+    <name> [--label ...] [--ownership ...] [--business-unit ...]
 ```
 
-The tool validates before writing (duplicate names/labels, overlapping
-tree mappings, ownership enum, name syntax), renders the file from its
-canonical template (documentation comments never rot), and writes
-atomically — a failed gate cannot corrupt the config. Exit 2 = validation
+The tool validates before writing (ownership enum, name syntax) and
+records the product, then the registry; adding a registered name with the same fields changes nothing,
+with different fields is refused (use `update`), and a concurrent edit is refused rather than overwritten. Exit 2 = validation
 error: relay the message, fix the field, retry.
 
 ### Step 4 — Refresh the census
 
 ```bash
-python3 harnessing/census/scripts/build_census.py
+python3 -m traust.cli dashboard view census \
+  --out <progress-tracker>/metrics/dashboards/census
 ```
 
-Confirm the new entry appears (engagements show "registered, no output"
-until their tree exists) and that no unexpected DRIFT warnings remain.
+Confirm the new product's registration with `traust products list` and its
+assessment population with `traust portfolio population`. The census view counts
+recorded assessments; a product with no assessed repositories has no exposure rows yet.
 
 ### Step 5 — Remind about inventory
 
 If the engagement has repos to scan and no inventory registered, remind
-the user to run `/add-inputs` to add them to the inputs inventory
-(and record the path here via `update ... --inventory`).
+the user to run `/add-inputs` to add them to the inputs inventory.
 
 ---
 
 ## Outputs
 
-- Updated `$TRAUST_CONFIG_HOME/corpus-config.yaml` (atomic, validated, canonical
-  layout).
+- Products and the corpus registry in traust-core (validated).
 - Refreshed `census.{json,md,html}` under
   `progress-tracker/metrics/dashboards/census/`. (`corpus-manifest.json` was
   retired 2026-08-20; the resolved record list lives in findings.db `repos`.)
@@ -134,7 +127,5 @@ the user to run `/add-inputs` to add them to the inputs inventory
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| `label 'x' is already in use` | Another tree/engagement claimed it | Pick a distinct label or update the existing entry instead. |
-| `tree 'x' is already mapped` | Tree collision with an existing entry | One tree per engagement — pick a new directory name. |
-| DRIFT warning persists after add | Tree on disk differs from the registered name | Register the exact directory name shown in the warning. |
-| Render round-trip mismatch | Bug — file untouched by design | Report it; nothing was written. |
+| `ConflictError: '<name>' is already registered` | The name is registered with other fields | Update the existing entry instead. |
+| `ConflictError` | Another edit landed between read and write | Re-run `traust products list`, then retry. |

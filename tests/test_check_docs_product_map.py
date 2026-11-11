@@ -24,7 +24,7 @@ def _ws(tmp_path, map_text=MAP):
     d = tmp_path / "inputs" / "adhoc"
     d.mkdir(parents=True)
     (d / "docs-product-map.yaml").write_text(map_text)
-    return tmp_path
+    return d.parent
 
 
 def _rows(ws, live, monkeypatch):

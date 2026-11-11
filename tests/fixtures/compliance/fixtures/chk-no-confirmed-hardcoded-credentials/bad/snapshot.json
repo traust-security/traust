@@ -1,8 +1,0 @@
-{
- "open_confirmed_hardcoded_credential_findings": [
-  {
-   "id": "F-2",
-   "primary_cwe": "CWE-798"
-  }
- ]
-}

@@ -1,0 +1,77 @@
+rules:
+  - id: traust-ruby-authorization-unscoped-find-beside-scoped
+    languages: [ruby]
+    severity: WARNING
+    message: >-
+      This action looks a record up by the request's id across the whole
+      table, while other actions in the same controller scope their lookups
+      to the signed-in user. Unless something else checks ownership, any
+      user can read or change anyone's record by changing the id. Scope
+      this lookup the same way, or authorize the record. CWE-639.
+    metadata:
+      cwe: ["CWE-639", "CWE-862"]
+      category: authorization
+      asvs: ["V8"]
+      confidence: MEDIUM
+      references:
+        - "CWE-639 insecure direct object reference — unscoped find beside scoped siblings"
+    patterns:
+      # another action in this controller scopes to the signed-in user
+      - pattern-inside: |
+          class $C < $BASE
+            ...
+            def $OTHER(...)
+              ...
+              $SCOPED
+              ...
+            end
+            ...
+          end
+      - metavariable-pattern:
+          metavariable: $SCOPED
+          patterns:
+            - pattern-either:
+                - pattern: current_user.$ASSOC.$FIND(...)
+                - pattern: '@current_user.$ASSOC.$FIND(...)'
+                - pattern: current_account.$ASSOC.$FIND(...)
+                - pattern: Current.user.$ASSOC.$FIND(...)
+            - metavariable-regex:
+                metavariable: $FIND
+                regex: ^(find|find_by!?|where)$
+      - pattern-either:
+          - pattern: $MODEL.find(params[...])
+          - pattern: '$MODEL.find_by(id: params[...])'
+          - pattern: '$MODEL.find_by!(id: params[...])'
+      - metavariable-regex:
+          metavariable: $MODEL
+          regex: ^[A-Z]\w*(::[A-Z]\w*)*$
+      # an authorization library call in the same action checks the record
+      - pattern-not-inside: |
+          def $M(...)
+            ...
+            authorize(...)
+            ...
+          end
+      - pattern-not-inside: |
+          def $M(...)
+            ...
+            authorize!(...)
+            ...
+          end
+      - pattern-not-inside:
+          patterns:
+            - pattern: |
+                def $M(...)
+                  ...
+                  $CHECKED
+                  ...
+                end
+            - metavariable-pattern:
+                metavariable: $CHECKED
+                patterns:
+                  - pattern-either:
+                      - pattern: $G.$CHECK(...)
+                      - pattern: $G.$CHECK
+                  - metavariable-regex:
+                      metavariable: $CHECK
+                      regex: ^(ensure_\w+!?|can_\w+\?|authorize!?|authorized\?|admin\?|staff\?)$

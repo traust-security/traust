@@ -1,0 +1,2841 @@
+{
+ "$schema": "http://cyclonedx.org/schema/bom-1.7.schema.json",
+ "bomFormat": "CycloneDX",
+ "specVersion": "1.7",
+ "serialNumber": "urn:uuid:00000000-0000-0000-0000-000000000000",
+ "version": 1,
+ "metadata": {
+  "timestamp": "2026-10-23T15:20:29-04:00",
+  "tools": {
+   "components": [
+    {
+     "type": "application",
+     "author": "anchore",
+     "name": "syft",
+     "version": "1.51.1"
+    }
+   ]
+  },
+  "component": {
+   "bom-ref": "a50b450048dc5bf2",
+   "type": "container",
+   "name": "registry.access.redhat.com/ubi9/ubi-minimal",
+   "version": "sha256:2d4c4551af6831dcd26bbf86108c4385de5183ec8fe6b5868f6f9640fe47f4ed"
+  }
+ },
+ "components": [
+  {
+   "bom-ref": "pkg:rpm/redhat/alternatives@1.24-2.el9?arch=aarch64&distro=rhel-9.8&package-id=6747614a3e8a9775&upstream=chkconfig-1.24-2.el9.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "alternatives",
+   "version": "1.24-2.el9",
+   "purl": "pkg:rpm/redhat/alternatives@1.24-2.el9?arch=aarch64&distro=rhel-9.8&upstream=chkconfig-1.24-2.el9.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/audit-libs@3.1.5-8.el9?arch=aarch64&distro=rhel-9.8&package-id=fefbad2923b22034&upstream=audit-3.1.5-8.el9.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "audit-libs",
+   "version": "3.1.5-8.el9",
+   "purl": "pkg:rpm/redhat/audit-libs@3.1.5-8.el9?arch=aarch64&distro=rhel-9.8&upstream=audit-3.1.5-8.el9.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/basesystem@11-13.el9?arch=noarch&distro=rhel-9.8&package-id=2cedbe7bd36d2161&upstream=basesystem-11-13.el9.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "basesystem",
+   "version": "11-13.el9",
+   "purl": "pkg:rpm/redhat/basesystem@11-13.el9?arch=noarch&distro=rhel-9.8&upstream=basesystem-11-13.el9.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/bash@5.1.8-9.el9?arch=aarch64&distro=rhel-9.8&package-id=4b3c9568449ead22&upstream=bash-5.1.8-9.el9.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "bash",
+   "version": "5.1.8-9.el9",
+   "purl": "pkg:rpm/redhat/bash@5.1.8-9.el9?arch=aarch64&distro=rhel-9.8&upstream=bash-5.1.8-9.el9.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/bzip2-libs@1.0.8-11.el9?arch=aarch64&distro=rhel-9.8&package-id=66f30f34e746a6d3&upstream=bzip2-1.0.8-11.el9.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "bzip2-libs",
+   "version": "1.0.8-11.el9",
+   "purl": "pkg:rpm/redhat/bzip2-libs@1.0.8-11.el9?arch=aarch64&distro=rhel-9.8&upstream=bzip2-1.0.8-11.el9.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/ca-certificates@2026.2.92_v9.0.319-90.3.el9_8?arch=noarch&distro=rhel-9.8&package-id=858460fe2c8f07c1&upstream=ca-certificates-2026.2.92_v9.0.319-90.3.el9_8.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "ca-certificates",
+   "version": "2026.2.92_v9.0.319-90.3.el9_8",
+   "purl": "pkg:rpm/redhat/ca-certificates@2026.2.92_v9.0.319-90.3.el9_8?arch=noarch&distro=rhel-9.8&upstream=ca-certificates-2026.2.92_v9.0.319-90.3.el9_8.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/coreutils-single@8.32-41.el9_8.1?arch=aarch64&distro=rhel-9.8&package-id=d75268dba19c3314&upstream=coreutils-8.32-41.el9_8.1.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "coreutils-single",
+   "version": "8.32-41.el9_8.1",
+   "purl": "pkg:rpm/redhat/coreutils-single@8.32-41.el9_8.1?arch=aarch64&distro=rhel-9.8&upstream=coreutils-8.32-41.el9_8.1.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/crypto-policies@20260224-1.gitea0f072.el9_8?arch=noarch&distro=rhel-9.8&package-id=120f7dc1996df9fd&upstream=crypto-policies-20260224-1.gitea0f072.el9_8.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "crypto-policies",
+   "version": "20260224-1.gitea0f072.el9_8",
+   "purl": "pkg:rpm/redhat/crypto-policies@20260224-1.gitea0f072.el9_8?arch=noarch&distro=rhel-9.8&upstream=crypto-policies-20260224-1.gitea0f072.el9_8.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/curl-minimal@7.76.1-40.el9_8.8?arch=aarch64&distro=rhel-9.8&package-id=1f47e2b236715dee&upstream=curl-7.76.1-40.el9_8.8.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "curl-minimal",
+   "version": "7.76.1-40.el9_8.8",
+   "purl": "pkg:rpm/redhat/curl-minimal@7.76.1-40.el9_8.8?arch=aarch64&distro=rhel-9.8&upstream=curl-7.76.1-40.el9_8.8.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/cyrus-sasl-lib@2.1.27-22.el9?arch=aarch64&distro=rhel-9.8&package-id=b1d1655549868e1b&upstream=cyrus-sasl-2.1.27-22.el9.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "cyrus-sasl-lib",
+   "version": "2.1.27-22.el9",
+   "purl": "pkg:rpm/redhat/cyrus-sasl-lib@2.1.27-22.el9?arch=aarch64&distro=rhel-9.8&upstream=cyrus-sasl-2.1.27-22.el9.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/dejavu-sans-fonts@2.37-18.el9?arch=noarch&distro=rhel-9.8&package-id=dfd23518c3ae46b3&upstream=dejavu-fonts-2.37-18.el9.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "dejavu-sans-fonts",
+   "version": "2.37-18.el9",
+   "purl": "pkg:rpm/redhat/dejavu-sans-fonts@2.37-18.el9?arch=noarch&distro=rhel-9.8&upstream=dejavu-fonts-2.37-18.el9.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/dnf-data@4.14.0-34.el9_8?arch=noarch&distro=rhel-9.8&package-id=c08e626361423975&upstream=dnf-4.14.0-34.el9_8.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "dnf-data",
+   "version": "4.14.0-34.el9_8",
+   "purl": "pkg:rpm/redhat/dnf-data@4.14.0-34.el9_8?arch=noarch&distro=rhel-9.8&upstream=dnf-4.14.0-34.el9_8.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/file-libs@5.39-17.el9?arch=aarch64&distro=rhel-9.8&package-id=ceb7887c6bcc0cc5&upstream=file-5.39-17.el9.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "file-libs",
+   "version": "5.39-17.el9",
+   "purl": "pkg:rpm/redhat/file-libs@5.39-17.el9?arch=aarch64&distro=rhel-9.8&upstream=file-5.39-17.el9.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/filesystem@3.16-5.el9?arch=aarch64&distro=rhel-9.8&package-id=229ca074c327da0a&upstream=filesystem-3.16-5.el9.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "filesystem",
+   "version": "3.16-5.el9",
+   "purl": "pkg:rpm/redhat/filesystem@3.16-5.el9?arch=aarch64&distro=rhel-9.8&upstream=filesystem-3.16-5.el9.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/findutils@4.8.0-7.el9?arch=aarch64&distro=rhel-9.8&epoch=1&package-id=0450ab612cf5006f&upstream=findutils-4.8.0-7.el9.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "findutils",
+   "version": "1:4.8.0-7.el9",
+   "purl": "pkg:rpm/redhat/findutils@4.8.0-7.el9?arch=aarch64&distro=rhel-9.8&epoch=1&upstream=findutils-4.8.0-7.el9.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/fonts-filesystem@2.0.5-7.el9.1?arch=noarch&distro=rhel-9.8&epoch=1&package-id=2635452dfff4321d&upstream=fonts-rpm-macros-2.0.5-7.el9.1.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "fonts-filesystem",
+   "version": "1:2.0.5-7.el9.1",
+   "purl": "pkg:rpm/redhat/fonts-filesystem@2.0.5-7.el9.1?arch=noarch&distro=rhel-9.8&epoch=1&upstream=fonts-rpm-macros-2.0.5-7.el9.1.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/gawk@5.1.0-6.el9_8.1?arch=aarch64&distro=rhel-9.8&package-id=5a81820fa21d0c83&upstream=gawk-5.1.0-6.el9_8.1.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "gawk",
+   "version": "5.1.0-6.el9_8.1",
+   "purl": "pkg:rpm/redhat/gawk@5.1.0-6.el9_8.1?arch=aarch64&distro=rhel-9.8&upstream=gawk-5.1.0-6.el9_8.1.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/gdbm-libs@1.23-1.el9?arch=aarch64&distro=rhel-9.8&epoch=1&package-id=a556c9c239aafa89&upstream=gdbm-1.23-1.el9.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "gdbm-libs",
+   "version": "1:1.23-1.el9",
+   "purl": "pkg:rpm/redhat/gdbm-libs@1.23-1.el9?arch=aarch64&distro=rhel-9.8&epoch=1&upstream=gdbm-1.23-1.el9.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/glib2@2.68.4-19.el9_8.10?arch=aarch64&distro=rhel-9.8&package-id=b6f6911f448b4d01&upstream=glib2-2.68.4-19.el9_8.10.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "glib2",
+   "version": "2.68.4-19.el9_8.10",
+   "purl": "pkg:rpm/redhat/glib2@2.68.4-19.el9_8.10?arch=aarch64&distro=rhel-9.8&upstream=glib2-2.68.4-19.el9_8.10.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/glibc@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&package-id=e409bc0e762cbe92&upstream=glibc-2.34-283.el9_8.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "glibc",
+   "version": "2.34-283.el9_8",
+   "purl": "pkg:rpm/redhat/glibc@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&upstream=glibc-2.34-283.el9_8.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/glibc-common@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&package-id=08099d6541806622&upstream=glibc-2.34-283.el9_8.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "glibc-common",
+   "version": "2.34-283.el9_8",
+   "purl": "pkg:rpm/redhat/glibc-common@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&upstream=glibc-2.34-283.el9_8.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/glibc-minimal-langpack@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&package-id=d7a3428a9d6a57df&upstream=glibc-2.34-283.el9_8.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "glibc-minimal-langpack",
+   "version": "2.34-283.el9_8",
+   "purl": "pkg:rpm/redhat/glibc-minimal-langpack@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&upstream=glibc-2.34-283.el9_8.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/gmp@6.2.0-13.el9?arch=aarch64&distro=rhel-9.8&epoch=1&package-id=96737d59722887b4&upstream=gmp-6.2.0-13.el9.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "gmp",
+   "version": "1:6.2.0-13.el9",
+   "purl": "pkg:rpm/redhat/gmp@6.2.0-13.el9?arch=aarch64&distro=rhel-9.8&epoch=1&upstream=gmp-6.2.0-13.el9.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/gnupg2@2.3.3-5.el9_7?arch=aarch64&distro=rhel-9.8&package-id=81b288bf09ff49fc&upstream=gnupg2-2.3.3-5.el9_7.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "gnupg2",
+   "version": "2.3.3-5.el9_7",
+   "purl": "pkg:rpm/redhat/gnupg2@2.3.3-5.el9_7?arch=aarch64&distro=rhel-9.8&upstream=gnupg2-2.3.3-5.el9_7.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/gnutls@3.8.10-9.el9_8?arch=aarch64&distro=rhel-9.8&package-id=8273b61ad7eb65b8&upstream=gnutls-3.8.10-9.el9_8.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "gnutls",
+   "version": "3.8.10-9.el9_8",
+   "purl": "pkg:rpm/redhat/gnutls@3.8.10-9.el9_8?arch=aarch64&distro=rhel-9.8&upstream=gnutls-3.8.10-9.el9_8.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/gobject-introspection@1.68.0-11.el9?arch=aarch64&distro=rhel-9.8&package-id=2a051ffa627f2f44&upstream=gobject-introspection-1.68.0-11.el9.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "gobject-introspection",
+   "version": "1.68.0-11.el9",
+   "purl": "pkg:rpm/redhat/gobject-introspection@1.68.0-11.el9?arch=aarch64&distro=rhel-9.8&upstream=gobject-introspection-1.68.0-11.el9.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/gpg-pubkey@5a6340b3-6229229e?distro=rhel-9.8&package-id=07413682000f3d88",
+   "type": "library",
+   "name": "gpg-pubkey",
+   "version": "5a6340b3-6229229e",
+   "purl": "pkg:rpm/redhat/gpg-pubkey@5a6340b3-6229229e?distro=rhel-9.8",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/gpg-pubkey@fd431d51-4ae0493b?distro=rhel-9.8&package-id=a243d3460507af96",
+   "type": "library",
+   "name": "gpg-pubkey",
+   "version": "fd431d51-4ae0493b",
+   "purl": "pkg:rpm/redhat/gpg-pubkey@fd431d51-4ae0493b?distro=rhel-9.8",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/gpgme@1.15.1-6.el9?arch=aarch64&distro=rhel-9.8&package-id=1dcdc8bba5279aec&upstream=gpgme-1.15.1-6.el9.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "gpgme",
+   "version": "1.15.1-6.el9",
+   "purl": "pkg:rpm/redhat/gpgme@1.15.1-6.el9?arch=aarch64&distro=rhel-9.8&upstream=gpgme-1.15.1-6.el9.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/grep@3.6-5.el9?arch=aarch64&distro=rhel-9.8&package-id=722481a63791f3ab&upstream=grep-3.6-5.el9.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "grep",
+   "version": "3.6-5.el9",
+   "purl": "pkg:rpm/redhat/grep@3.6-5.el9?arch=aarch64&distro=rhel-9.8&upstream=grep-3.6-5.el9.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/json-c@0.14-11.el9?arch=aarch64&distro=rhel-9.8&package-id=5438362c9bb2bba5&upstream=json-c-0.14-11.el9.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "json-c",
+   "version": "0.14-11.el9",
+   "purl": "pkg:rpm/redhat/json-c@0.14-11.el9?arch=aarch64&distro=rhel-9.8&upstream=json-c-0.14-11.el9.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/json-glib@1.6.6-1.el9?arch=aarch64&distro=rhel-9.8&package-id=6b6a632b69fc38ad&upstream=json-glib-1.6.6-1.el9.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "json-glib",
+   "version": "1.6.6-1.el9",
+   "purl": "pkg:rpm/redhat/json-glib@1.6.6-1.el9?arch=aarch64&distro=rhel-9.8&upstream=json-glib-1.6.6-1.el9.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/keyutils-libs@1.6.3-1.el9?arch=aarch64&distro=rhel-9.8&package-id=63dc7536c6e217ea&upstream=keyutils-1.6.3-1.el9.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "keyutils-libs",
+   "version": "1.6.3-1.el9",
+   "purl": "pkg:rpm/redhat/keyutils-libs@1.6.3-1.el9?arch=aarch64&distro=rhel-9.8&upstream=keyutils-1.6.3-1.el9.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/krb5-libs@1.21.1-10.el9_8?arch=aarch64&distro=rhel-9.8&package-id=e2ef190b2ee49a45&upstream=krb5-1.21.1-10.el9_8.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "krb5-libs",
+   "version": "1.21.1-10.el9_8",
+   "purl": "pkg:rpm/redhat/krb5-libs@1.21.1-10.el9_8?arch=aarch64&distro=rhel-9.8&upstream=krb5-1.21.1-10.el9_8.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/langpacks-core-en@3.0-16.el9?arch=noarch&distro=rhel-9.8&package-id=df5d3ce64e6dc98c&upstream=langpacks-3.0-16.el9.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "langpacks-core-en",
+   "version": "3.0-16.el9",
+   "purl": "pkg:rpm/redhat/langpacks-core-en@3.0-16.el9?arch=noarch&distro=rhel-9.8&upstream=langpacks-3.0-16.el9.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/langpacks-core-font-en@3.0-16.el9?arch=noarch&distro=rhel-9.8&package-id=d73e936743b685e7&upstream=langpacks-3.0-16.el9.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "langpacks-core-font-en",
+   "version": "3.0-16.el9",
+   "purl": "pkg:rpm/redhat/langpacks-core-font-en@3.0-16.el9?arch=noarch&distro=rhel-9.8&upstream=langpacks-3.0-16.el9.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/langpacks-en@3.0-16.el9?arch=noarch&distro=rhel-9.8&package-id=27488b456777ffc1&upstream=langpacks-3.0-16.el9.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "langpacks-en",
+   "version": "3.0-16.el9",
+   "purl": "pkg:rpm/redhat/langpacks-en@3.0-16.el9?arch=noarch&distro=rhel-9.8&upstream=langpacks-3.0-16.el9.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/libacl@2.4.0-1.el9_8?arch=aarch64&distro=rhel-9.8&package-id=01ce4dce20c7de9c&upstream=acl-2.4.0-1.el9_8.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "libacl",
+   "version": "2.4.0-1.el9_8",
+   "purl": "pkg:rpm/redhat/libacl@2.4.0-1.el9_8?arch=aarch64&distro=rhel-9.8&upstream=acl-2.4.0-1.el9_8.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/libarchive@3.5.3-11.el9_8?arch=aarch64&distro=rhel-9.8&package-id=ab5ec36069463f16&upstream=libarchive-3.5.3-11.el9_8.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "libarchive",
+   "version": "3.5.3-11.el9_8",
+   "purl": "pkg:rpm/redhat/libarchive@3.5.3-11.el9_8?arch=aarch64&distro=rhel-9.8&upstream=libarchive-3.5.3-11.el9_8.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/libassuan@2.5.5-3.el9?arch=aarch64&distro=rhel-9.8&package-id=a739fb53b7edb43a&upstream=libassuan-2.5.5-3.el9.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "libassuan",
+   "version": "2.5.5-3.el9",
+   "purl": "pkg:rpm/redhat/libassuan@2.5.5-3.el9?arch=aarch64&distro=rhel-9.8&upstream=libassuan-2.5.5-3.el9.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/libattr@2.6.0-1.el9_8?arch=aarch64&distro=rhel-9.8&package-id=914dd5cf344310b9&upstream=attr-2.6.0-1.el9_8.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "libattr",
+   "version": "2.6.0-1.el9_8",
+   "purl": "pkg:rpm/redhat/libattr@2.6.0-1.el9_8?arch=aarch64&distro=rhel-9.8&upstream=attr-2.6.0-1.el9_8.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/libblkid@2.37.4-25.el9?arch=aarch64&distro=rhel-9.8&package-id=c09ed81d4fc45574&upstream=util-linux-2.37.4-25.el9.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "libblkid",
+   "version": "2.37.4-25.el9",
+   "purl": "pkg:rpm/redhat/libblkid@2.37.4-25.el9?arch=aarch64&distro=rhel-9.8&upstream=util-linux-2.37.4-25.el9.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/libcap@2.48-10.el9_8.1?arch=aarch64&distro=rhel-9.8&package-id=b138e8d69659558e&upstream=libcap-2.48-10.el9_8.1.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "libcap",
+   "version": "2.48-10.el9_8.1",
+   "purl": "pkg:rpm/redhat/libcap@2.48-10.el9_8.1?arch=aarch64&distro=rhel-9.8&upstream=libcap-2.48-10.el9_8.1.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/libcap-ng@0.8.2-7.el9?arch=aarch64&distro=rhel-9.8&package-id=1fca23437c6289b9&upstream=libcap-ng-0.8.2-7.el9.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "libcap-ng",
+   "version": "0.8.2-7.el9",
+   "purl": "pkg:rpm/redhat/libcap-ng@0.8.2-7.el9?arch=aarch64&distro=rhel-9.8&upstream=libcap-ng-0.8.2-7.el9.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/libcom_err@1.46.5-8.el9?arch=aarch64&distro=rhel-9.8&package-id=09b045eb1f70a84e&upstream=e2fsprogs-1.46.5-8.el9.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "libcom_err",
+   "version": "1.46.5-8.el9",
+   "purl": "pkg:rpm/redhat/libcom_err@1.46.5-8.el9?arch=aarch64&distro=rhel-9.8&upstream=e2fsprogs-1.46.5-8.el9.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/libcurl-minimal@7.76.1-40.el9_8.8?arch=aarch64&distro=rhel-9.8&package-id=138eb5c24562c863&upstream=curl-7.76.1-40.el9_8.8.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "libcurl-minimal",
+   "version": "7.76.1-40.el9_8.8",
+   "purl": "pkg:rpm/redhat/libcurl-minimal@7.76.1-40.el9_8.8?arch=aarch64&distro=rhel-9.8&upstream=curl-7.76.1-40.el9_8.8.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/libdnf@0.69.0-18.el9?arch=aarch64&distro=rhel-9.8&package-id=a69d0eeb7aec3819&upstream=libdnf-0.69.0-18.el9.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "libdnf",
+   "version": "0.69.0-18.el9",
+   "purl": "pkg:rpm/redhat/libdnf@0.69.0-18.el9?arch=aarch64&distro=rhel-9.8&upstream=libdnf-0.69.0-18.el9.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/libevent@2.1.13-1.el9_8?arch=aarch64&distro=rhel-9.8&package-id=4602086c28c16de8&upstream=libevent-2.1.13-1.el9_8.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "libevent",
+   "version": "2.1.13-1.el9_8",
+   "purl": "pkg:rpm/redhat/libevent@2.1.13-1.el9_8?arch=aarch64&distro=rhel-9.8&upstream=libevent-2.1.13-1.el9_8.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/libffi@3.4.2-8.el9?arch=aarch64&distro=rhel-9.8&package-id=e09e373ce3f131b5&upstream=libffi-3.4.2-8.el9.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "libffi",
+   "version": "3.4.2-8.el9",
+   "purl": "pkg:rpm/redhat/libffi@3.4.2-8.el9?arch=aarch64&distro=rhel-9.8&upstream=libffi-3.4.2-8.el9.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/libgcc@11.5.0-14.el9?arch=aarch64&distro=rhel-9.8&package-id=24d06d6747240eff&upstream=gcc-11.5.0-14.el9.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "libgcc",
+   "version": "11.5.0-14.el9",
+   "purl": "pkg:rpm/redhat/libgcc@11.5.0-14.el9?arch=aarch64&distro=rhel-9.8&upstream=gcc-11.5.0-14.el9.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/libgcrypt@1.10.0-13.el9_8?arch=aarch64&distro=rhel-9.8&package-id=75f5dc4ca2bf6c8b&upstream=libgcrypt-1.10.0-13.el9_8.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "libgcrypt",
+   "version": "1.10.0-13.el9_8",
+   "purl": "pkg:rpm/redhat/libgcrypt@1.10.0-13.el9_8?arch=aarch64&distro=rhel-9.8&upstream=libgcrypt-1.10.0-13.el9_8.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/libgpg-error@1.42-5.el9?arch=aarch64&distro=rhel-9.8&package-id=f078756d5f7f5567&upstream=libgpg-error-1.42-5.el9.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "libgpg-error",
+   "version": "1.42-5.el9",
+   "purl": "pkg:rpm/redhat/libgpg-error@1.42-5.el9?arch=aarch64&distro=rhel-9.8&upstream=libgpg-error-1.42-5.el9.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/libidn2@2.3.0-7.el9?arch=aarch64&distro=rhel-9.8&package-id=da1ccf8f39eda3e0&upstream=libidn2-2.3.0-7.el9.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "libidn2",
+   "version": "2.3.0-7.el9",
+   "purl": "pkg:rpm/redhat/libidn2@2.3.0-7.el9?arch=aarch64&distro=rhel-9.8&upstream=libidn2-2.3.0-7.el9.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/libksba@1.5.1-7.el9?arch=aarch64&distro=rhel-9.8&package-id=05707870ef8accaa&upstream=libksba-1.5.1-7.el9.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "libksba",
+   "version": "1.5.1-7.el9",
+   "purl": "pkg:rpm/redhat/libksba@1.5.1-7.el9?arch=aarch64&distro=rhel-9.8&upstream=libksba-1.5.1-7.el9.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/libmodulemd@2.13.0-2.el9?arch=aarch64&distro=rhel-9.8&package-id=205e58333ff58e22&upstream=libmodulemd-2.13.0-2.el9.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "libmodulemd",
+   "version": "2.13.0-2.el9",
+   "purl": "pkg:rpm/redhat/libmodulemd@2.13.0-2.el9?arch=aarch64&distro=rhel-9.8&upstream=libmodulemd-2.13.0-2.el9.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/libmount@2.37.4-25.el9?arch=aarch64&distro=rhel-9.8&package-id=e7cd98a9f3e819ae&upstream=util-linux-2.37.4-25.el9.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "libmount",
+   "version": "2.37.4-25.el9",
+   "purl": "pkg:rpm/redhat/libmount@2.37.4-25.el9?arch=aarch64&distro=rhel-9.8&upstream=util-linux-2.37.4-25.el9.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/libnghttp2@1.43.0-6.el9_8.2?arch=aarch64&distro=rhel-9.8&package-id=ff9a4f7d716ce827&upstream=nghttp2-1.43.0-6.el9_8.2.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "libnghttp2",
+   "version": "1.43.0-6.el9_8.2",
+   "purl": "pkg:rpm/redhat/libnghttp2@1.43.0-6.el9_8.2?arch=aarch64&distro=rhel-9.8&upstream=nghttp2-1.43.0-6.el9_8.2.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/libpeas@1.30.0-4.el9?arch=aarch64&distro=rhel-9.8&package-id=425535c24ead4279&upstream=libpeas-1.30.0-4.el9.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "libpeas",
+   "version": "1.30.0-4.el9",
+   "purl": "pkg:rpm/redhat/libpeas@1.30.0-4.el9?arch=aarch64&distro=rhel-9.8&upstream=libpeas-1.30.0-4.el9.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/librepo@1.19.0-1.el9?arch=aarch64&distro=rhel-9.8&package-id=fe81dec9c2239452&upstream=librepo-1.19.0-1.el9.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "librepo",
+   "version": "1.19.0-1.el9",
+   "purl": "pkg:rpm/redhat/librepo@1.19.0-1.el9?arch=aarch64&distro=rhel-9.8&upstream=librepo-1.19.0-1.el9.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/libreport-filesystem@2.15.2-6.el9?arch=noarch&distro=rhel-9.8&package-id=53232b1db4311718&upstream=libreport-2.15.2-6.el9.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "libreport-filesystem",
+   "version": "2.15.2-6.el9",
+   "purl": "pkg:rpm/redhat/libreport-filesystem@2.15.2-6.el9?arch=noarch&distro=rhel-9.8&upstream=libreport-2.15.2-6.el9.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/librhsm@0.0.3-9.el9?arch=aarch64&distro=rhel-9.8&package-id=fb6141126ce26ed6&upstream=librhsm-0.0.3-9.el9.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "librhsm",
+   "version": "0.0.3-9.el9",
+   "purl": "pkg:rpm/redhat/librhsm@0.0.3-9.el9?arch=aarch64&distro=rhel-9.8&upstream=librhsm-0.0.3-9.el9.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/libselinux@3.6-3.el9?arch=aarch64&distro=rhel-9.8&package-id=7b8ec580e71dfbdf&upstream=libselinux-3.6-3.el9.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "libselinux",
+   "version": "3.6-3.el9",
+   "purl": "pkg:rpm/redhat/libselinux@3.6-3.el9?arch=aarch64&distro=rhel-9.8&upstream=libselinux-3.6-3.el9.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/libsemanage@3.6-5.el9_6?arch=aarch64&distro=rhel-9.8&package-id=7fcd05dd435c88d3&upstream=libsemanage-3.6-5.el9_6.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "libsemanage",
+   "version": "3.6-5.el9_6",
+   "purl": "pkg:rpm/redhat/libsemanage@3.6-5.el9_6?arch=aarch64&distro=rhel-9.8&upstream=libsemanage-3.6-5.el9_6.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/libsepol@3.6-3.el9?arch=aarch64&distro=rhel-9.8&package-id=65d1cead61cd3bcb&upstream=libsepol-3.6-3.el9.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "libsepol",
+   "version": "3.6-3.el9",
+   "purl": "pkg:rpm/redhat/libsepol@3.6-3.el9?arch=aarch64&distro=rhel-9.8&upstream=libsepol-3.6-3.el9.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/libsigsegv@2.13-4.el9?arch=aarch64&distro=rhel-9.8&package-id=2723389ac03b8290&upstream=libsigsegv-2.13-4.el9.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "libsigsegv",
+   "version": "2.13-4.el9",
+   "purl": "pkg:rpm/redhat/libsigsegv@2.13-4.el9?arch=aarch64&distro=rhel-9.8&upstream=libsigsegv-2.13-4.el9.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/libsmartcols@2.37.4-25.el9?arch=aarch64&distro=rhel-9.8&package-id=ffde649c76236817&upstream=util-linux-2.37.4-25.el9.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "libsmartcols",
+   "version": "2.37.4-25.el9",
+   "purl": "pkg:rpm/redhat/libsmartcols@2.37.4-25.el9?arch=aarch64&distro=rhel-9.8&upstream=util-linux-2.37.4-25.el9.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/libsolv@0.7.24-6.el9_8?arch=aarch64&distro=rhel-9.8&package-id=121b5838f3baf5fc&upstream=libsolv-0.7.24-6.el9_8.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "libsolv",
+   "version": "0.7.24-6.el9_8",
+   "purl": "pkg:rpm/redhat/libsolv@0.7.24-6.el9_8?arch=aarch64&distro=rhel-9.8&upstream=libsolv-0.7.24-6.el9_8.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/libstdc%2B%2B@11.5.0-14.el9?arch=aarch64&distro=rhel-9.8&package-id=fff6a36855a2c694&upstream=gcc-11.5.0-14.el9.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "libstdc++",
+   "version": "11.5.0-14.el9",
+   "purl": "pkg:rpm/redhat/libstdc%2B%2B@11.5.0-14.el9?arch=aarch64&distro=rhel-9.8&upstream=gcc-11.5.0-14.el9.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/libtasn1@4.16.0-10.el9_8?arch=aarch64&distro=rhel-9.8&package-id=3df3f0b829ab60e6&upstream=libtasn1-4.16.0-10.el9_8.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "libtasn1",
+   "version": "4.16.0-10.el9_8",
+   "purl": "pkg:rpm/redhat/libtasn1@4.16.0-10.el9_8?arch=aarch64&distro=rhel-9.8&upstream=libtasn1-4.16.0-10.el9_8.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/libtool-ltdl@2.4.6-46.el9?arch=aarch64&distro=rhel-9.8&package-id=b52a8ab1255f3cfe&upstream=libtool-2.4.6-46.el9.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "libtool-ltdl",
+   "version": "2.4.6-46.el9",
+   "purl": "pkg:rpm/redhat/libtool-ltdl@2.4.6-46.el9?arch=aarch64&distro=rhel-9.8&upstream=libtool-2.4.6-46.el9.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/libunistring@0.9.10-15.el9?arch=aarch64&distro=rhel-9.8&package-id=e8a97414aa1b97a0&upstream=libunistring-0.9.10-15.el9.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "libunistring",
+   "version": "0.9.10-15.el9",
+   "purl": "pkg:rpm/redhat/libunistring@0.9.10-15.el9?arch=aarch64&distro=rhel-9.8&upstream=libunistring-0.9.10-15.el9.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/libusbx@1.0.30-1.el9_8?arch=aarch64&distro=rhel-9.8&package-id=43c2ae5bd8a0ccc6&upstream=libusbx-1.0.30-1.el9_8.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "libusbx",
+   "version": "1.0.30-1.el9_8",
+   "purl": "pkg:rpm/redhat/libusbx@1.0.30-1.el9_8?arch=aarch64&distro=rhel-9.8&upstream=libusbx-1.0.30-1.el9_8.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/libuuid@2.37.4-25.el9?arch=aarch64&distro=rhel-9.8&package-id=de293ef224096b8a&upstream=util-linux-2.37.4-25.el9.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "libuuid",
+   "version": "2.37.4-25.el9",
+   "purl": "pkg:rpm/redhat/libuuid@2.37.4-25.el9?arch=aarch64&distro=rhel-9.8&upstream=util-linux-2.37.4-25.el9.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/libverto@0.3.2-3.el9?arch=aarch64&distro=rhel-9.8&package-id=43bcd9bde70091d9&upstream=libverto-0.3.2-3.el9.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "libverto",
+   "version": "0.3.2-3.el9",
+   "purl": "pkg:rpm/redhat/libverto@0.3.2-3.el9?arch=aarch64&distro=rhel-9.8&upstream=libverto-0.3.2-3.el9.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/libxcrypt@4.4.18-3.el9?arch=aarch64&distro=rhel-9.8&package-id=662c63f30533dcd5&upstream=libxcrypt-4.4.18-3.el9.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "libxcrypt",
+   "version": "4.4.18-3.el9",
+   "purl": "pkg:rpm/redhat/libxcrypt@4.4.18-3.el9?arch=aarch64&distro=rhel-9.8&upstream=libxcrypt-4.4.18-3.el9.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/libxml2@2.9.13-14.el9_8.5?arch=aarch64&distro=rhel-9.8&package-id=ed30eeac550611c2&upstream=libxml2-2.9.13-14.el9_8.5.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "libxml2",
+   "version": "2.9.13-14.el9_8.5",
+   "purl": "pkg:rpm/redhat/libxml2@2.9.13-14.el9_8.5?arch=aarch64&distro=rhel-9.8&upstream=libxml2-2.9.13-14.el9_8.5.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/libyaml@0.2.5-7.el9?arch=aarch64&distro=rhel-9.8&package-id=32e3d1e82f7a4ce4&upstream=libyaml-0.2.5-7.el9.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "libyaml",
+   "version": "0.2.5-7.el9",
+   "purl": "pkg:rpm/redhat/libyaml@0.2.5-7.el9?arch=aarch64&distro=rhel-9.8&upstream=libyaml-0.2.5-7.el9.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/libzstd@1.5.5-1.el9?arch=aarch64&distro=rhel-9.8&package-id=20fe277db28156c0&upstream=zstd-1.5.5-1.el9.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "libzstd",
+   "version": "1.5.5-1.el9",
+   "purl": "pkg:rpm/redhat/libzstd@1.5.5-1.el9?arch=aarch64&distro=rhel-9.8&upstream=zstd-1.5.5-1.el9.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/lua-libs@5.4.4-4.el9?arch=aarch64&distro=rhel-9.8&package-id=c0b633aa16a03747&upstream=lua-5.4.4-4.el9.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "lua-libs",
+   "version": "5.4.4-4.el9",
+   "purl": "pkg:rpm/redhat/lua-libs@5.4.4-4.el9?arch=aarch64&distro=rhel-9.8&upstream=lua-5.4.4-4.el9.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/lz4-libs@1.9.3-5.el9?arch=aarch64&distro=rhel-9.8&package-id=e72e04779c761339&upstream=lz4-1.9.3-5.el9.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "lz4-libs",
+   "version": "1.9.3-5.el9",
+   "purl": "pkg:rpm/redhat/lz4-libs@1.9.3-5.el9?arch=aarch64&distro=rhel-9.8&upstream=lz4-1.9.3-5.el9.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/microdnf@3.9.1-3.el9?arch=aarch64&distro=rhel-9.8&package-id=65406d06f9515f31&upstream=microdnf-3.9.1-3.el9.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "microdnf",
+   "version": "3.9.1-3.el9",
+   "purl": "pkg:rpm/redhat/microdnf@3.9.1-3.el9?arch=aarch64&distro=rhel-9.8&upstream=microdnf-3.9.1-3.el9.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/mpfr@4.1.0-10.el9?arch=aarch64&distro=rhel-9.8&package-id=f83b072362c7d809&upstream=mpfr-4.1.0-10.el9.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "mpfr",
+   "version": "4.1.0-10.el9",
+   "purl": "pkg:rpm/redhat/mpfr@4.1.0-10.el9?arch=aarch64&distro=rhel-9.8&upstream=mpfr-4.1.0-10.el9.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/ncurses-base@6.2-12.20210508.el9?arch=noarch&distro=rhel-9.8&package-id=ecae56e691f56928&upstream=ncurses-6.2-12.20210508.el9.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "ncurses-base",
+   "version": "6.2-12.20210508.el9",
+   "purl": "pkg:rpm/redhat/ncurses-base@6.2-12.20210508.el9?arch=noarch&distro=rhel-9.8&upstream=ncurses-6.2-12.20210508.el9.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/ncurses-libs@6.2-12.20210508.el9?arch=aarch64&distro=rhel-9.8&package-id=f5190ed4eac9d202&upstream=ncurses-6.2-12.20210508.el9.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "ncurses-libs",
+   "version": "6.2-12.20210508.el9",
+   "purl": "pkg:rpm/redhat/ncurses-libs@6.2-12.20210508.el9?arch=aarch64&distro=rhel-9.8&upstream=ncurses-6.2-12.20210508.el9.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/nettle@3.10.1-1.el9?arch=aarch64&distro=rhel-9.8&package-id=ae297d9f43a1dd57&upstream=nettle-3.10.1-1.el9.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "nettle",
+   "version": "3.10.1-1.el9",
+   "purl": "pkg:rpm/redhat/nettle@3.10.1-1.el9?arch=aarch64&distro=rhel-9.8&upstream=nettle-3.10.1-1.el9.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/npth@1.6-8.el9?arch=aarch64&distro=rhel-9.8&package-id=6aa4cfc4b8856851&upstream=npth-1.6-8.el9.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "npth",
+   "version": "1.6-8.el9",
+   "purl": "pkg:rpm/redhat/npth@1.6-8.el9?arch=aarch64&distro=rhel-9.8&upstream=npth-1.6-8.el9.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/openldap@2.6.8-4.el9?arch=aarch64&distro=rhel-9.8&package-id=61e65a3f91fe1188&upstream=openldap-2.6.8-4.el9.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "openldap",
+   "version": "2.6.8-4.el9",
+   "purl": "pkg:rpm/redhat/openldap@2.6.8-4.el9?arch=aarch64&distro=rhel-9.8&upstream=openldap-2.6.8-4.el9.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/openssl-fips-provider@3.0.7-11.el9_8?arch=aarch64&distro=rhel-9.8&package-id=81ae3176dfa92401&upstream=openssl-fips-provider-3.0.7-11.el9_8.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "openssl-fips-provider",
+   "version": "3.0.7-11.el9_8",
+   "purl": "pkg:rpm/redhat/openssl-fips-provider@3.0.7-11.el9_8?arch=aarch64&distro=rhel-9.8&upstream=openssl-fips-provider-3.0.7-11.el9_8.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/openssl-fips-provider-so@3.0.7-11.el9_8?arch=aarch64&distro=rhel-9.8&package-id=f5f180740fd3fe32&upstream=openssl-fips-provider-3.0.7-11.el9_8.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "openssl-fips-provider-so",
+   "version": "3.0.7-11.el9_8",
+   "purl": "pkg:rpm/redhat/openssl-fips-provider-so@3.0.7-11.el9_8?arch=aarch64&distro=rhel-9.8&upstream=openssl-fips-provider-3.0.7-11.el9_8.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/openssl-libs@3.5.8-2.el9_8?arch=aarch64&distro=rhel-9.8&epoch=1&package-id=d3de037e5ccb5dff&upstream=openssl-3.5.8-2.el9_8.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "openssl-libs",
+   "version": "1:3.5.8-2.el9_8",
+   "purl": "pkg:rpm/redhat/openssl-libs@3.5.8-2.el9_8?arch=aarch64&distro=rhel-9.8&epoch=1&upstream=openssl-3.5.8-2.el9_8.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/p11-kit@0.26.4-1.el9_8?arch=aarch64&distro=rhel-9.8&package-id=8430ea60eae8edcf&upstream=p11-kit-0.26.4-1.el9_8.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "p11-kit",
+   "version": "0.26.4-1.el9_8",
+   "purl": "pkg:rpm/redhat/p11-kit@0.26.4-1.el9_8?arch=aarch64&distro=rhel-9.8&upstream=p11-kit-0.26.4-1.el9_8.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/p11-kit-trust@0.26.4-1.el9_8?arch=aarch64&distro=rhel-9.8&package-id=1f03a0e08522a853&upstream=p11-kit-0.26.4-1.el9_8.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "p11-kit-trust",
+   "version": "0.26.4-1.el9_8",
+   "purl": "pkg:rpm/redhat/p11-kit-trust@0.26.4-1.el9_8?arch=aarch64&distro=rhel-9.8&upstream=p11-kit-0.26.4-1.el9_8.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/pcre@8.44-4.el9?arch=aarch64&distro=rhel-9.8&package-id=a3d4795343c502ce&upstream=pcre-8.44-4.el9.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "pcre",
+   "version": "8.44-4.el9",
+   "purl": "pkg:rpm/redhat/pcre@8.44-4.el9?arch=aarch64&distro=rhel-9.8&upstream=pcre-8.44-4.el9.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/pcre2@10.40-7.el9_8?arch=aarch64&distro=rhel-9.8&package-id=48457b85eb8cf93b&upstream=pcre2-10.40-7.el9_8.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "pcre2",
+   "version": "10.40-7.el9_8",
+   "purl": "pkg:rpm/redhat/pcre2@10.40-7.el9_8?arch=aarch64&distro=rhel-9.8&upstream=pcre2-10.40-7.el9_8.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/pcre2-syntax@10.40-7.el9_8?arch=noarch&distro=rhel-9.8&package-id=564863bbdb4b6c77&upstream=pcre2-10.40-7.el9_8.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "pcre2-syntax",
+   "version": "10.40-7.el9_8",
+   "purl": "pkg:rpm/redhat/pcre2-syntax@10.40-7.el9_8?arch=noarch&distro=rhel-9.8&upstream=pcre2-10.40-7.el9_8.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/popt@1.18-8.el9?arch=aarch64&distro=rhel-9.8&package-id=417293d626e76d2a&upstream=popt-1.18-8.el9.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "popt",
+   "version": "1.18-8.el9",
+   "purl": "pkg:rpm/redhat/popt@1.18-8.el9?arch=aarch64&distro=rhel-9.8&upstream=popt-1.18-8.el9.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/readline@8.1-4.el9?arch=aarch64&distro=rhel-9.8&package-id=1b5bc2165591d412&upstream=readline-8.1-4.el9.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "readline",
+   "version": "8.1-4.el9",
+   "purl": "pkg:rpm/redhat/readline@8.1-4.el9?arch=aarch64&distro=rhel-9.8&upstream=readline-8.1-4.el9.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/redhat-release@9.8-1.0.el9?arch=aarch64&distro=rhel-9.8&package-id=4be24643b460ace1&upstream=redhat-release-9.8-1.0.el9.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "redhat-release",
+   "version": "9.8-1.0.el9",
+   "purl": "pkg:rpm/redhat/redhat-release@9.8-1.0.el9?arch=aarch64&distro=rhel-9.8&upstream=redhat-release-9.8-1.0.el9.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/rootfiles@8.1-35.el9?arch=noarch&distro=rhel-9.8&package-id=a47c9240c2cecefa&upstream=rootfiles-8.1-35.el9.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "rootfiles",
+   "version": "8.1-35.el9",
+   "purl": "pkg:rpm/redhat/rootfiles@8.1-35.el9?arch=noarch&distro=rhel-9.8&upstream=rootfiles-8.1-35.el9.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/rpm@4.16.1.3-40.el9?arch=aarch64&distro=rhel-9.8&package-id=4c27e3958f93e55f&upstream=rpm-4.16.1.3-40.el9.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "rpm",
+   "version": "4.16.1.3-40.el9",
+   "purl": "pkg:rpm/redhat/rpm@4.16.1.3-40.el9?arch=aarch64&distro=rhel-9.8&upstream=rpm-4.16.1.3-40.el9.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/rpm-libs@4.16.1.3-40.el9?arch=aarch64&distro=rhel-9.8&package-id=3b9a8d8022b9c2fe&upstream=rpm-4.16.1.3-40.el9.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "rpm-libs",
+   "version": "4.16.1.3-40.el9",
+   "purl": "pkg:rpm/redhat/rpm-libs@4.16.1.3-40.el9?arch=aarch64&distro=rhel-9.8&upstream=rpm-4.16.1.3-40.el9.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/sed@4.8-10.el9?arch=aarch64&distro=rhel-9.8&package-id=1fcc4edb2613be96&upstream=sed-4.8-10.el9.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "sed",
+   "version": "4.8-10.el9",
+   "purl": "pkg:rpm/redhat/sed@4.8-10.el9?arch=aarch64&distro=rhel-9.8&upstream=sed-4.8-10.el9.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/setup@2.13.7-10.el9?arch=noarch&distro=rhel-9.8&package-id=29ecd837676f423f&upstream=setup-2.13.7-10.el9.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "setup",
+   "version": "2.13.7-10.el9",
+   "purl": "pkg:rpm/redhat/setup@2.13.7-10.el9?arch=noarch&distro=rhel-9.8&upstream=setup-2.13.7-10.el9.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/shadow-utils@4.9-16.el9?arch=aarch64&distro=rhel-9.8&epoch=2&package-id=44f10469d955b065&upstream=shadow-utils-4.9-16.el9.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "shadow-utils",
+   "version": "2:4.9-16.el9",
+   "purl": "pkg:rpm/redhat/shadow-utils@4.9-16.el9?arch=aarch64&distro=rhel-9.8&epoch=2&upstream=shadow-utils-4.9-16.el9.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/sqlite-libs@3.34.1-11.el9_8?arch=aarch64&distro=rhel-9.8&package-id=b088e65e05a35cb3&upstream=sqlite-3.34.1-11.el9_8.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "sqlite-libs",
+   "version": "3.34.1-11.el9_8",
+   "purl": "pkg:rpm/redhat/sqlite-libs@3.34.1-11.el9_8?arch=aarch64&distro=rhel-9.8&upstream=sqlite-3.34.1-11.el9_8.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/systemd-libs@252-67.el9_8.6?arch=aarch64&distro=rhel-9.8&package-id=cd5502dc7f418bd0&upstream=systemd-252-67.el9_8.6.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "systemd-libs",
+   "version": "252-67.el9_8.6",
+   "purl": "pkg:rpm/redhat/systemd-libs@252-67.el9_8.6?arch=aarch64&distro=rhel-9.8&upstream=systemd-252-67.el9_8.6.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/tzdata@2026e-1.el9_8?arch=noarch&distro=rhel-9.8&package-id=c4d90b71cfa88111&upstream=tzdata-2026e-1.el9_8.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "tzdata",
+   "version": "2026e-1.el9_8",
+   "purl": "pkg:rpm/redhat/tzdata@2026e-1.el9_8?arch=noarch&distro=rhel-9.8&upstream=tzdata-2026e-1.el9_8.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/xz-libs@5.2.5-8.el9_0?arch=aarch64&distro=rhel-9.8&package-id=da087bef6307a2fa&upstream=xz-5.2.5-8.el9_0.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "xz-libs",
+   "version": "5.2.5-8.el9_0",
+   "purl": "pkg:rpm/redhat/xz-libs@5.2.5-8.el9_0?arch=aarch64&distro=rhel-9.8&upstream=xz-5.2.5-8.el9_0.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "pkg:rpm/redhat/zlib@1.2.11-40.el9?arch=aarch64&distro=rhel-9.8&package-id=8d8e6893cf9471f2&upstream=zlib-1.2.11-40.el9.src.rpm",
+   "type": "library",
+   "publisher": "Red Hat, Inc.",
+   "name": "zlib",
+   "version": "1.2.11-40.el9",
+   "purl": "pkg:rpm/redhat/zlib@1.2.11-40.el9?arch=aarch64&distro=rhel-9.8&upstream=zlib-1.2.11-40.el9.src.rpm",
+   "properties": [
+    {
+     "name": "syft:package:foundBy",
+     "value": "rpm-db-cataloger"
+    },
+    {
+     "name": "syft:location:0:path",
+     "value": "/var/lib/rpm/rpmdb.sqlite"
+    }
+   ]
+  },
+  {
+   "bom-ref": "os:rhel@9.8",
+   "type": "operating-system",
+   "name": "rhel",
+   "version": "9.8",
+   "description": "Red Hat Enterprise Linux 9.8 (Plow)",
+   "swid": {
+    "tagId": "rhel",
+    "name": "rhel",
+    "version": "9.8"
+   },
+   "externalReferences": [
+    {
+     "url": "https://issues.redhat.com/",
+     "type": "issue-tracker"
+    },
+    {
+     "url": "https://www.redhat.com/",
+     "type": "website"
+    }
+   ],
+   "properties": []
+  }
+ ],
+ "dependencies": [
+  {
+   "ref": "pkg:rpm/redhat/alternatives@1.24-2.el9?arch=aarch64&distro=rhel-9.8&package-id=6747614a3e8a9775&upstream=chkconfig-1.24-2.el9.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/glibc@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&package-id=e409bc0e762cbe92&upstream=glibc-2.34-283.el9_8.src.rpm"
+   ]
+  },
+  {
+   "ref": "pkg:rpm/redhat/audit-libs@3.1.5-8.el9?arch=aarch64&distro=rhel-9.8&package-id=fefbad2923b22034&upstream=audit-3.1.5-8.el9.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/glibc@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&package-id=e409bc0e762cbe92&upstream=glibc-2.34-283.el9_8.src.rpm",
+    "pkg:rpm/redhat/libcap-ng@0.8.2-7.el9?arch=aarch64&distro=rhel-9.8&package-id=1fca23437c6289b9&upstream=libcap-ng-0.8.2-7.el9.src.rpm"
+   ]
+  },
+  {
+   "ref": "pkg:rpm/redhat/basesystem@11-13.el9?arch=noarch&distro=rhel-9.8&package-id=2cedbe7bd36d2161&upstream=basesystem-11-13.el9.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/filesystem@3.16-5.el9?arch=aarch64&distro=rhel-9.8&package-id=229ca074c327da0a&upstream=filesystem-3.16-5.el9.src.rpm",
+    "pkg:rpm/redhat/setup@2.13.7-10.el9?arch=noarch&distro=rhel-9.8&package-id=29ecd837676f423f&upstream=setup-2.13.7-10.el9.src.rpm"
+   ]
+  },
+  {
+   "ref": "pkg:rpm/redhat/bash@5.1.8-9.el9?arch=aarch64&distro=rhel-9.8&package-id=4b3c9568449ead22&upstream=bash-5.1.8-9.el9.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/filesystem@3.16-5.el9?arch=aarch64&distro=rhel-9.8&package-id=229ca074c327da0a&upstream=filesystem-3.16-5.el9.src.rpm",
+    "pkg:rpm/redhat/glibc@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&package-id=e409bc0e762cbe92&upstream=glibc-2.34-283.el9_8.src.rpm",
+    "pkg:rpm/redhat/ncurses-libs@6.2-12.20210508.el9?arch=aarch64&distro=rhel-9.8&package-id=f5190ed4eac9d202&upstream=ncurses-6.2-12.20210508.el9.src.rpm"
+   ]
+  },
+  {
+   "ref": "pkg:rpm/redhat/bzip2-libs@1.0.8-11.el9?arch=aarch64&distro=rhel-9.8&package-id=66f30f34e746a6d3&upstream=bzip2-1.0.8-11.el9.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/glibc@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&package-id=e409bc0e762cbe92&upstream=glibc-2.34-283.el9_8.src.rpm"
+   ]
+  },
+  {
+   "ref": "pkg:rpm/redhat/ca-certificates@2026.2.92_v9.0.319-90.3.el9_8?arch=noarch&distro=rhel-9.8&package-id=858460fe2c8f07c1&upstream=ca-certificates-2026.2.92_v9.0.319-90.3.el9_8.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/bash@5.1.8-9.el9?arch=aarch64&distro=rhel-9.8&package-id=4b3c9568449ead22&upstream=bash-5.1.8-9.el9.src.rpm",
+    "pkg:rpm/redhat/coreutils-single@8.32-41.el9_8.1?arch=aarch64&distro=rhel-9.8&package-id=d75268dba19c3314&upstream=coreutils-8.32-41.el9_8.1.src.rpm",
+    "pkg:rpm/redhat/findutils@4.8.0-7.el9?arch=aarch64&distro=rhel-9.8&epoch=1&package-id=0450ab612cf5006f&upstream=findutils-4.8.0-7.el9.src.rpm",
+    "pkg:rpm/redhat/grep@3.6-5.el9?arch=aarch64&distro=rhel-9.8&package-id=722481a63791f3ab&upstream=grep-3.6-5.el9.src.rpm",
+    "pkg:rpm/redhat/libffi@3.4.2-8.el9?arch=aarch64&distro=rhel-9.8&package-id=e09e373ce3f131b5&upstream=libffi-3.4.2-8.el9.src.rpm",
+    "pkg:rpm/redhat/p11-kit-trust@0.26.4-1.el9_8?arch=aarch64&distro=rhel-9.8&package-id=1f03a0e08522a853&upstream=p11-kit-0.26.4-1.el9_8.src.rpm",
+    "pkg:rpm/redhat/sed@4.8-10.el9?arch=aarch64&distro=rhel-9.8&package-id=1fcc4edb2613be96&upstream=sed-4.8-10.el9.src.rpm"
+   ]
+  },
+  {
+   "ref": "pkg:rpm/redhat/coreutils-single@8.32-41.el9_8.1?arch=aarch64&distro=rhel-9.8&package-id=d75268dba19c3314&upstream=coreutils-8.32-41.el9_8.1.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/glibc@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&package-id=e409bc0e762cbe92&upstream=glibc-2.34-283.el9_8.src.rpm",
+    "pkg:rpm/redhat/libacl@2.4.0-1.el9_8?arch=aarch64&distro=rhel-9.8&package-id=01ce4dce20c7de9c&upstream=acl-2.4.0-1.el9_8.src.rpm",
+    "pkg:rpm/redhat/libattr@2.6.0-1.el9_8?arch=aarch64&distro=rhel-9.8&package-id=914dd5cf344310b9&upstream=attr-2.6.0-1.el9_8.src.rpm",
+    "pkg:rpm/redhat/libcap@2.48-10.el9_8.1?arch=aarch64&distro=rhel-9.8&package-id=b138e8d69659558e&upstream=libcap-2.48-10.el9_8.1.src.rpm",
+    "pkg:rpm/redhat/libselinux@3.6-3.el9?arch=aarch64&distro=rhel-9.8&package-id=7b8ec580e71dfbdf&upstream=libselinux-3.6-3.el9.src.rpm"
+   ]
+  },
+  {
+   "ref": "pkg:rpm/redhat/crypto-policies@20260224-1.gitea0f072.el9_8?arch=noarch&distro=rhel-9.8&package-id=120f7dc1996df9fd&upstream=crypto-policies-20260224-1.gitea0f072.el9_8.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/bash@5.1.8-9.el9?arch=aarch64&distro=rhel-9.8&package-id=4b3c9568449ead22&upstream=bash-5.1.8-9.el9.src.rpm"
+   ]
+  },
+  {
+   "ref": "pkg:rpm/redhat/curl-minimal@7.76.1-40.el9_8.8?arch=aarch64&distro=rhel-9.8&package-id=1f47e2b236715dee&upstream=curl-7.76.1-40.el9_8.8.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/glibc@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&package-id=e409bc0e762cbe92&upstream=glibc-2.34-283.el9_8.src.rpm",
+    "pkg:rpm/redhat/libcurl-minimal@7.76.1-40.el9_8.8?arch=aarch64&distro=rhel-9.8&package-id=138eb5c24562c863&upstream=curl-7.76.1-40.el9_8.8.src.rpm"
+   ]
+  },
+  {
+   "ref": "pkg:rpm/redhat/cyrus-sasl-lib@2.1.27-22.el9?arch=aarch64&distro=rhel-9.8&package-id=b1d1655549868e1b&upstream=cyrus-sasl-2.1.27-22.el9.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/gdbm-libs@1.23-1.el9?arch=aarch64&distro=rhel-9.8&epoch=1&package-id=a556c9c239aafa89&upstream=gdbm-1.23-1.el9.src.rpm",
+    "pkg:rpm/redhat/glibc@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&package-id=e409bc0e762cbe92&upstream=glibc-2.34-283.el9_8.src.rpm",
+    "pkg:rpm/redhat/krb5-libs@1.21.1-10.el9_8?arch=aarch64&distro=rhel-9.8&package-id=e2ef190b2ee49a45&upstream=krb5-1.21.1-10.el9_8.src.rpm",
+    "pkg:rpm/redhat/libcom_err@1.46.5-8.el9?arch=aarch64&distro=rhel-9.8&package-id=09b045eb1f70a84e&upstream=e2fsprogs-1.46.5-8.el9.src.rpm",
+    "pkg:rpm/redhat/libxcrypt@4.4.18-3.el9?arch=aarch64&distro=rhel-9.8&package-id=662c63f30533dcd5&upstream=libxcrypt-4.4.18-3.el9.src.rpm"
+   ]
+  },
+  {
+   "ref": "pkg:rpm/redhat/dejavu-sans-fonts@2.37-18.el9?arch=noarch&distro=rhel-9.8&package-id=dfd23518c3ae46b3&upstream=dejavu-fonts-2.37-18.el9.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/fonts-filesystem@2.0.5-7.el9.1?arch=noarch&distro=rhel-9.8&epoch=1&package-id=2635452dfff4321d&upstream=fonts-rpm-macros-2.0.5-7.el9.1.src.rpm"
+   ]
+  },
+  {
+   "ref": "pkg:rpm/redhat/dnf-data@4.14.0-34.el9_8?arch=noarch&distro=rhel-9.8&package-id=c08e626361423975&upstream=dnf-4.14.0-34.el9_8.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/libreport-filesystem@2.15.2-6.el9?arch=noarch&distro=rhel-9.8&package-id=53232b1db4311718&upstream=libreport-2.15.2-6.el9.src.rpm"
+   ]
+  },
+  {
+   "ref": "pkg:rpm/redhat/file-libs@5.39-17.el9?arch=aarch64&distro=rhel-9.8&package-id=ceb7887c6bcc0cc5&upstream=file-5.39-17.el9.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/glibc@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&package-id=e409bc0e762cbe92&upstream=glibc-2.34-283.el9_8.src.rpm",
+    "pkg:rpm/redhat/zlib@1.2.11-40.el9?arch=aarch64&distro=rhel-9.8&package-id=8d8e6893cf9471f2&upstream=zlib-1.2.11-40.el9.src.rpm"
+   ]
+  },
+  {
+   "ref": "pkg:rpm/redhat/filesystem@3.16-5.el9?arch=aarch64&distro=rhel-9.8&package-id=229ca074c327da0a&upstream=filesystem-3.16-5.el9.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/bash@5.1.8-9.el9?arch=aarch64&distro=rhel-9.8&package-id=4b3c9568449ead22&upstream=bash-5.1.8-9.el9.src.rpm",
+    "pkg:rpm/redhat/setup@2.13.7-10.el9?arch=noarch&distro=rhel-9.8&package-id=29ecd837676f423f&upstream=setup-2.13.7-10.el9.src.rpm"
+   ]
+  },
+  {
+   "ref": "pkg:rpm/redhat/findutils@4.8.0-7.el9?arch=aarch64&distro=rhel-9.8&epoch=1&package-id=0450ab612cf5006f&upstream=findutils-4.8.0-7.el9.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/glibc@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&package-id=e409bc0e762cbe92&upstream=glibc-2.34-283.el9_8.src.rpm",
+    "pkg:rpm/redhat/libselinux@3.6-3.el9?arch=aarch64&distro=rhel-9.8&package-id=7b8ec580e71dfbdf&upstream=libselinux-3.6-3.el9.src.rpm"
+   ]
+  },
+  {
+   "ref": "pkg:rpm/redhat/gawk@5.1.0-6.el9_8.1?arch=aarch64&distro=rhel-9.8&package-id=5a81820fa21d0c83&upstream=gawk-5.1.0-6.el9_8.1.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/filesystem@3.16-5.el9?arch=aarch64&distro=rhel-9.8&package-id=229ca074c327da0a&upstream=filesystem-3.16-5.el9.src.rpm",
+    "pkg:rpm/redhat/glibc@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&package-id=e409bc0e762cbe92&upstream=glibc-2.34-283.el9_8.src.rpm",
+    "pkg:rpm/redhat/gmp@6.2.0-13.el9?arch=aarch64&distro=rhel-9.8&epoch=1&package-id=96737d59722887b4&upstream=gmp-6.2.0-13.el9.src.rpm",
+    "pkg:rpm/redhat/libsigsegv@2.13-4.el9?arch=aarch64&distro=rhel-9.8&package-id=2723389ac03b8290&upstream=libsigsegv-2.13-4.el9.src.rpm",
+    "pkg:rpm/redhat/mpfr@4.1.0-10.el9?arch=aarch64&distro=rhel-9.8&package-id=f83b072362c7d809&upstream=mpfr-4.1.0-10.el9.src.rpm",
+    "pkg:rpm/redhat/readline@8.1-4.el9?arch=aarch64&distro=rhel-9.8&package-id=1b5bc2165591d412&upstream=readline-8.1-4.el9.src.rpm"
+   ]
+  },
+  {
+   "ref": "pkg:rpm/redhat/gdbm-libs@1.23-1.el9?arch=aarch64&distro=rhel-9.8&epoch=1&package-id=a556c9c239aafa89&upstream=gdbm-1.23-1.el9.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/glibc@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&package-id=e409bc0e762cbe92&upstream=glibc-2.34-283.el9_8.src.rpm"
+   ]
+  },
+  {
+   "ref": "pkg:rpm/redhat/glib2@2.68.4-19.el9_8.10?arch=aarch64&distro=rhel-9.8&package-id=b6f6911f448b4d01&upstream=glib2-2.68.4-19.el9_8.10.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/bash@5.1.8-9.el9?arch=aarch64&distro=rhel-9.8&package-id=4b3c9568449ead22&upstream=bash-5.1.8-9.el9.src.rpm",
+    "pkg:rpm/redhat/glibc@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&package-id=e409bc0e762cbe92&upstream=glibc-2.34-283.el9_8.src.rpm",
+    "pkg:rpm/redhat/gnutls@3.8.10-9.el9_8?arch=aarch64&distro=rhel-9.8&package-id=8273b61ad7eb65b8&upstream=gnutls-3.8.10-9.el9_8.src.rpm",
+    "pkg:rpm/redhat/libffi@3.4.2-8.el9?arch=aarch64&distro=rhel-9.8&package-id=e09e373ce3f131b5&upstream=libffi-3.4.2-8.el9.src.rpm",
+    "pkg:rpm/redhat/libmount@2.37.4-25.el9?arch=aarch64&distro=rhel-9.8&package-id=e7cd98a9f3e819ae&upstream=util-linux-2.37.4-25.el9.src.rpm",
+    "pkg:rpm/redhat/libselinux@3.6-3.el9?arch=aarch64&distro=rhel-9.8&package-id=7b8ec580e71dfbdf&upstream=libselinux-3.6-3.el9.src.rpm",
+    "pkg:rpm/redhat/pcre@8.44-4.el9?arch=aarch64&distro=rhel-9.8&package-id=a3d4795343c502ce&upstream=pcre-8.44-4.el9.src.rpm",
+    "pkg:rpm/redhat/zlib@1.2.11-40.el9?arch=aarch64&distro=rhel-9.8&package-id=8d8e6893cf9471f2&upstream=zlib-1.2.11-40.el9.src.rpm"
+   ]
+  },
+  {
+   "ref": "pkg:rpm/redhat/glibc-common@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&package-id=08099d6541806622&upstream=glibc-2.34-283.el9_8.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/bash@5.1.8-9.el9?arch=aarch64&distro=rhel-9.8&package-id=4b3c9568449ead22&upstream=bash-5.1.8-9.el9.src.rpm",
+    "pkg:rpm/redhat/glibc@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&package-id=e409bc0e762cbe92&upstream=glibc-2.34-283.el9_8.src.rpm",
+    "pkg:rpm/redhat/tzdata@2026e-1.el9_8?arch=noarch&distro=rhel-9.8&package-id=c4d90b71cfa88111&upstream=tzdata-2026e-1.el9_8.src.rpm"
+   ]
+  },
+  {
+   "ref": "pkg:rpm/redhat/glibc-minimal-langpack@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&package-id=d7a3428a9d6a57df&upstream=glibc-2.34-283.el9_8.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/glibc-common@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&package-id=08099d6541806622&upstream=glibc-2.34-283.el9_8.src.rpm",
+    "pkg:rpm/redhat/glibc@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&package-id=e409bc0e762cbe92&upstream=glibc-2.34-283.el9_8.src.rpm"
+   ]
+  },
+  {
+   "ref": "pkg:rpm/redhat/glibc@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&package-id=e409bc0e762cbe92&upstream=glibc-2.34-283.el9_8.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/basesystem@11-13.el9?arch=noarch&distro=rhel-9.8&package-id=2cedbe7bd36d2161&upstream=basesystem-11-13.el9.src.rpm",
+    "pkg:rpm/redhat/glibc-common@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&package-id=08099d6541806622&upstream=glibc-2.34-283.el9_8.src.rpm",
+    "pkg:rpm/redhat/glibc-minimal-langpack@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&package-id=d7a3428a9d6a57df&upstream=glibc-2.34-283.el9_8.src.rpm",
+    "pkg:rpm/redhat/libgcc@11.5.0-14.el9?arch=aarch64&distro=rhel-9.8&package-id=24d06d6747240eff&upstream=gcc-11.5.0-14.el9.src.rpm"
+   ]
+  },
+  {
+   "ref": "pkg:rpm/redhat/gmp@6.2.0-13.el9?arch=aarch64&distro=rhel-9.8&epoch=1&package-id=96737d59722887b4&upstream=gmp-6.2.0-13.el9.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/glibc@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&package-id=e409bc0e762cbe92&upstream=glibc-2.34-283.el9_8.src.rpm"
+   ]
+  },
+  {
+   "ref": "pkg:rpm/redhat/gnupg2@2.3.3-5.el9_7?arch=aarch64&distro=rhel-9.8&package-id=81b288bf09ff49fc&upstream=gnupg2-2.3.3-5.el9_7.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/bash@5.1.8-9.el9?arch=aarch64&distro=rhel-9.8&package-id=4b3c9568449ead22&upstream=bash-5.1.8-9.el9.src.rpm",
+    "pkg:rpm/redhat/bzip2-libs@1.0.8-11.el9?arch=aarch64&distro=rhel-9.8&package-id=66f30f34e746a6d3&upstream=bzip2-1.0.8-11.el9.src.rpm",
+    "pkg:rpm/redhat/glibc@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&package-id=e409bc0e762cbe92&upstream=glibc-2.34-283.el9_8.src.rpm",
+    "pkg:rpm/redhat/gnutls@3.8.10-9.el9_8?arch=aarch64&distro=rhel-9.8&package-id=8273b61ad7eb65b8&upstream=gnutls-3.8.10-9.el9_8.src.rpm",
+    "pkg:rpm/redhat/libassuan@2.5.5-3.el9?arch=aarch64&distro=rhel-9.8&package-id=a739fb53b7edb43a&upstream=libassuan-2.5.5-3.el9.src.rpm",
+    "pkg:rpm/redhat/libgcrypt@1.10.0-13.el9_8?arch=aarch64&distro=rhel-9.8&package-id=75f5dc4ca2bf6c8b&upstream=libgcrypt-1.10.0-13.el9_8.src.rpm",
+    "pkg:rpm/redhat/libgpg-error@1.42-5.el9?arch=aarch64&distro=rhel-9.8&package-id=f078756d5f7f5567&upstream=libgpg-error-1.42-5.el9.src.rpm",
+    "pkg:rpm/redhat/libksba@1.5.1-7.el9?arch=aarch64&distro=rhel-9.8&package-id=05707870ef8accaa&upstream=libksba-1.5.1-7.el9.src.rpm",
+    "pkg:rpm/redhat/npth@1.6-8.el9?arch=aarch64&distro=rhel-9.8&package-id=6aa4cfc4b8856851&upstream=npth-1.6-8.el9.src.rpm",
+    "pkg:rpm/redhat/openldap@2.6.8-4.el9?arch=aarch64&distro=rhel-9.8&package-id=61e65a3f91fe1188&upstream=openldap-2.6.8-4.el9.src.rpm",
+    "pkg:rpm/redhat/readline@8.1-4.el9?arch=aarch64&distro=rhel-9.8&package-id=1b5bc2165591d412&upstream=readline-8.1-4.el9.src.rpm",
+    "pkg:rpm/redhat/sqlite-libs@3.34.1-11.el9_8?arch=aarch64&distro=rhel-9.8&package-id=b088e65e05a35cb3&upstream=sqlite-3.34.1-11.el9_8.src.rpm",
+    "pkg:rpm/redhat/zlib@1.2.11-40.el9?arch=aarch64&distro=rhel-9.8&package-id=8d8e6893cf9471f2&upstream=zlib-1.2.11-40.el9.src.rpm"
+   ]
+  },
+  {
+   "ref": "pkg:rpm/redhat/gnutls@3.8.10-9.el9_8?arch=aarch64&distro=rhel-9.8&package-id=8273b61ad7eb65b8&upstream=gnutls-3.8.10-9.el9_8.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/crypto-policies@20260224-1.gitea0f072.el9_8?arch=noarch&distro=rhel-9.8&package-id=120f7dc1996df9fd&upstream=crypto-policies-20260224-1.gitea0f072.el9_8.src.rpm",
+    "pkg:rpm/redhat/glibc@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&package-id=e409bc0e762cbe92&upstream=glibc-2.34-283.el9_8.src.rpm",
+    "pkg:rpm/redhat/libidn2@2.3.0-7.el9?arch=aarch64&distro=rhel-9.8&package-id=da1ccf8f39eda3e0&upstream=libidn2-2.3.0-7.el9.src.rpm",
+    "pkg:rpm/redhat/libtasn1@4.16.0-10.el9_8?arch=aarch64&distro=rhel-9.8&package-id=3df3f0b829ab60e6&upstream=libtasn1-4.16.0-10.el9_8.src.rpm",
+    "pkg:rpm/redhat/libunistring@0.9.10-15.el9?arch=aarch64&distro=rhel-9.8&package-id=e8a97414aa1b97a0&upstream=libunistring-0.9.10-15.el9.src.rpm",
+    "pkg:rpm/redhat/nettle@3.10.1-1.el9?arch=aarch64&distro=rhel-9.8&package-id=ae297d9f43a1dd57&upstream=nettle-3.10.1-1.el9.src.rpm",
+    "pkg:rpm/redhat/p11-kit-trust@0.26.4-1.el9_8?arch=aarch64&distro=rhel-9.8&package-id=1f03a0e08522a853&upstream=p11-kit-0.26.4-1.el9_8.src.rpm",
+    "pkg:rpm/redhat/p11-kit@0.26.4-1.el9_8?arch=aarch64&distro=rhel-9.8&package-id=8430ea60eae8edcf&upstream=p11-kit-0.26.4-1.el9_8.src.rpm"
+   ]
+  },
+  {
+   "ref": "pkg:rpm/redhat/gobject-introspection@1.68.0-11.el9?arch=aarch64&distro=rhel-9.8&package-id=2a051ffa627f2f44&upstream=gobject-introspection-1.68.0-11.el9.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/glib2@2.68.4-19.el9_8.10?arch=aarch64&distro=rhel-9.8&package-id=b6f6911f448b4d01&upstream=glib2-2.68.4-19.el9_8.10.src.rpm",
+    "pkg:rpm/redhat/glibc@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&package-id=e409bc0e762cbe92&upstream=glibc-2.34-283.el9_8.src.rpm",
+    "pkg:rpm/redhat/libffi@3.4.2-8.el9?arch=aarch64&distro=rhel-9.8&package-id=e09e373ce3f131b5&upstream=libffi-3.4.2-8.el9.src.rpm"
+   ]
+  },
+  {
+   "ref": "pkg:rpm/redhat/gpgme@1.15.1-6.el9?arch=aarch64&distro=rhel-9.8&package-id=1dcdc8bba5279aec&upstream=gpgme-1.15.1-6.el9.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/glibc@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&package-id=e409bc0e762cbe92&upstream=glibc-2.34-283.el9_8.src.rpm",
+    "pkg:rpm/redhat/gnupg2@2.3.3-5.el9_7?arch=aarch64&distro=rhel-9.8&package-id=81b288bf09ff49fc&upstream=gnupg2-2.3.3-5.el9_7.src.rpm",
+    "pkg:rpm/redhat/libassuan@2.5.5-3.el9?arch=aarch64&distro=rhel-9.8&package-id=a739fb53b7edb43a&upstream=libassuan-2.5.5-3.el9.src.rpm",
+    "pkg:rpm/redhat/libgpg-error@1.42-5.el9?arch=aarch64&distro=rhel-9.8&package-id=f078756d5f7f5567&upstream=libgpg-error-1.42-5.el9.src.rpm"
+   ]
+  },
+  {
+   "ref": "pkg:rpm/redhat/grep@3.6-5.el9?arch=aarch64&distro=rhel-9.8&package-id=722481a63791f3ab&upstream=grep-3.6-5.el9.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/bash@5.1.8-9.el9?arch=aarch64&distro=rhel-9.8&package-id=4b3c9568449ead22&upstream=bash-5.1.8-9.el9.src.rpm",
+    "pkg:rpm/redhat/glibc@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&package-id=e409bc0e762cbe92&upstream=glibc-2.34-283.el9_8.src.rpm",
+    "pkg:rpm/redhat/libsigsegv@2.13-4.el9?arch=aarch64&distro=rhel-9.8&package-id=2723389ac03b8290&upstream=libsigsegv-2.13-4.el9.src.rpm",
+    "pkg:rpm/redhat/pcre@8.44-4.el9?arch=aarch64&distro=rhel-9.8&package-id=a3d4795343c502ce&upstream=pcre-8.44-4.el9.src.rpm"
+   ]
+  },
+  {
+   "ref": "pkg:rpm/redhat/json-c@0.14-11.el9?arch=aarch64&distro=rhel-9.8&package-id=5438362c9bb2bba5&upstream=json-c-0.14-11.el9.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/glibc@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&package-id=e409bc0e762cbe92&upstream=glibc-2.34-283.el9_8.src.rpm"
+   ]
+  },
+  {
+   "ref": "pkg:rpm/redhat/json-glib@1.6.6-1.el9?arch=aarch64&distro=rhel-9.8&package-id=6b6a632b69fc38ad&upstream=json-glib-1.6.6-1.el9.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/glib2@2.68.4-19.el9_8.10?arch=aarch64&distro=rhel-9.8&package-id=b6f6911f448b4d01&upstream=glib2-2.68.4-19.el9_8.10.src.rpm",
+    "pkg:rpm/redhat/glibc@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&package-id=e409bc0e762cbe92&upstream=glibc-2.34-283.el9_8.src.rpm"
+   ]
+  },
+  {
+   "ref": "pkg:rpm/redhat/keyutils-libs@1.6.3-1.el9?arch=aarch64&distro=rhel-9.8&package-id=63dc7536c6e217ea&upstream=keyutils-1.6.3-1.el9.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/glibc@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&package-id=e409bc0e762cbe92&upstream=glibc-2.34-283.el9_8.src.rpm"
+   ]
+  },
+  {
+   "ref": "pkg:rpm/redhat/krb5-libs@1.21.1-10.el9_8?arch=aarch64&distro=rhel-9.8&package-id=e2ef190b2ee49a45&upstream=krb5-1.21.1-10.el9_8.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/bash@5.1.8-9.el9?arch=aarch64&distro=rhel-9.8&package-id=4b3c9568449ead22&upstream=bash-5.1.8-9.el9.src.rpm",
+    "pkg:rpm/redhat/coreutils-single@8.32-41.el9_8.1?arch=aarch64&distro=rhel-9.8&package-id=d75268dba19c3314&upstream=coreutils-8.32-41.el9_8.1.src.rpm",
+    "pkg:rpm/redhat/crypto-policies@20260224-1.gitea0f072.el9_8?arch=noarch&distro=rhel-9.8&package-id=120f7dc1996df9fd&upstream=crypto-policies-20260224-1.gitea0f072.el9_8.src.rpm",
+    "pkg:rpm/redhat/gawk@5.1.0-6.el9_8.1?arch=aarch64&distro=rhel-9.8&package-id=5a81820fa21d0c83&upstream=gawk-5.1.0-6.el9_8.1.src.rpm",
+    "pkg:rpm/redhat/glibc@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&package-id=e409bc0e762cbe92&upstream=glibc-2.34-283.el9_8.src.rpm",
+    "pkg:rpm/redhat/grep@3.6-5.el9?arch=aarch64&distro=rhel-9.8&package-id=722481a63791f3ab&upstream=grep-3.6-5.el9.src.rpm",
+    "pkg:rpm/redhat/keyutils-libs@1.6.3-1.el9?arch=aarch64&distro=rhel-9.8&package-id=63dc7536c6e217ea&upstream=keyutils-1.6.3-1.el9.src.rpm",
+    "pkg:rpm/redhat/libcom_err@1.46.5-8.el9?arch=aarch64&distro=rhel-9.8&package-id=09b045eb1f70a84e&upstream=e2fsprogs-1.46.5-8.el9.src.rpm",
+    "pkg:rpm/redhat/libselinux@3.6-3.el9?arch=aarch64&distro=rhel-9.8&package-id=7b8ec580e71dfbdf&upstream=libselinux-3.6-3.el9.src.rpm",
+    "pkg:rpm/redhat/libverto@0.3.2-3.el9?arch=aarch64&distro=rhel-9.8&package-id=43bcd9bde70091d9&upstream=libverto-0.3.2-3.el9.src.rpm",
+    "pkg:rpm/redhat/openssl-libs@3.5.8-2.el9_8?arch=aarch64&distro=rhel-9.8&epoch=1&package-id=d3de037e5ccb5dff&upstream=openssl-3.5.8-2.el9_8.src.rpm",
+    "pkg:rpm/redhat/sed@4.8-10.el9?arch=aarch64&distro=rhel-9.8&package-id=1fcc4edb2613be96&upstream=sed-4.8-10.el9.src.rpm"
+   ]
+  },
+  {
+   "ref": "pkg:rpm/redhat/langpacks-core-en@3.0-16.el9?arch=noarch&distro=rhel-9.8&package-id=df5d3ce64e6dc98c&upstream=langpacks-3.0-16.el9.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/langpacks-core-font-en@3.0-16.el9?arch=noarch&distro=rhel-9.8&package-id=d73e936743b685e7&upstream=langpacks-3.0-16.el9.src.rpm"
+   ]
+  },
+  {
+   "ref": "pkg:rpm/redhat/langpacks-core-font-en@3.0-16.el9?arch=noarch&distro=rhel-9.8&package-id=d73e936743b685e7&upstream=langpacks-3.0-16.el9.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/dejavu-sans-fonts@2.37-18.el9?arch=noarch&distro=rhel-9.8&package-id=dfd23518c3ae46b3&upstream=dejavu-fonts-2.37-18.el9.src.rpm"
+   ]
+  },
+  {
+   "ref": "pkg:rpm/redhat/langpacks-en@3.0-16.el9?arch=noarch&distro=rhel-9.8&package-id=27488b456777ffc1&upstream=langpacks-3.0-16.el9.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/langpacks-core-en@3.0-16.el9?arch=noarch&distro=rhel-9.8&package-id=df5d3ce64e6dc98c&upstream=langpacks-3.0-16.el9.src.rpm"
+   ]
+  },
+  {
+   "ref": "pkg:rpm/redhat/libacl@2.4.0-1.el9_8?arch=aarch64&distro=rhel-9.8&package-id=01ce4dce20c7de9c&upstream=acl-2.4.0-1.el9_8.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/glibc@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&package-id=e409bc0e762cbe92&upstream=glibc-2.34-283.el9_8.src.rpm"
+   ]
+  },
+  {
+   "ref": "pkg:rpm/redhat/libarchive@3.5.3-11.el9_8?arch=aarch64&distro=rhel-9.8&package-id=ab5ec36069463f16&upstream=libarchive-3.5.3-11.el9_8.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/bzip2-libs@1.0.8-11.el9?arch=aarch64&distro=rhel-9.8&package-id=66f30f34e746a6d3&upstream=bzip2-1.0.8-11.el9.src.rpm",
+    "pkg:rpm/redhat/glibc@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&package-id=e409bc0e762cbe92&upstream=glibc-2.34-283.el9_8.src.rpm",
+    "pkg:rpm/redhat/libacl@2.4.0-1.el9_8?arch=aarch64&distro=rhel-9.8&package-id=01ce4dce20c7de9c&upstream=acl-2.4.0-1.el9_8.src.rpm",
+    "pkg:rpm/redhat/libxml2@2.9.13-14.el9_8.5?arch=aarch64&distro=rhel-9.8&package-id=ed30eeac550611c2&upstream=libxml2-2.9.13-14.el9_8.5.src.rpm",
+    "pkg:rpm/redhat/libzstd@1.5.5-1.el9?arch=aarch64&distro=rhel-9.8&package-id=20fe277db28156c0&upstream=zstd-1.5.5-1.el9.src.rpm",
+    "pkg:rpm/redhat/lz4-libs@1.9.3-5.el9?arch=aarch64&distro=rhel-9.8&package-id=e72e04779c761339&upstream=lz4-1.9.3-5.el9.src.rpm",
+    "pkg:rpm/redhat/openssl-libs@3.5.8-2.el9_8?arch=aarch64&distro=rhel-9.8&epoch=1&package-id=d3de037e5ccb5dff&upstream=openssl-3.5.8-2.el9_8.src.rpm",
+    "pkg:rpm/redhat/xz-libs@5.2.5-8.el9_0?arch=aarch64&distro=rhel-9.8&package-id=da087bef6307a2fa&upstream=xz-5.2.5-8.el9_0.src.rpm",
+    "pkg:rpm/redhat/zlib@1.2.11-40.el9?arch=aarch64&distro=rhel-9.8&package-id=8d8e6893cf9471f2&upstream=zlib-1.2.11-40.el9.src.rpm"
+   ]
+  },
+  {
+   "ref": "pkg:rpm/redhat/libassuan@2.5.5-3.el9?arch=aarch64&distro=rhel-9.8&package-id=a739fb53b7edb43a&upstream=libassuan-2.5.5-3.el9.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/glibc@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&package-id=e409bc0e762cbe92&upstream=glibc-2.34-283.el9_8.src.rpm",
+    "pkg:rpm/redhat/libgpg-error@1.42-5.el9?arch=aarch64&distro=rhel-9.8&package-id=f078756d5f7f5567&upstream=libgpg-error-1.42-5.el9.src.rpm"
+   ]
+  },
+  {
+   "ref": "pkg:rpm/redhat/libattr@2.6.0-1.el9_8?arch=aarch64&distro=rhel-9.8&package-id=914dd5cf344310b9&upstream=attr-2.6.0-1.el9_8.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/glibc@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&package-id=e409bc0e762cbe92&upstream=glibc-2.34-283.el9_8.src.rpm"
+   ]
+  },
+  {
+   "ref": "pkg:rpm/redhat/libblkid@2.37.4-25.el9?arch=aarch64&distro=rhel-9.8&package-id=c09ed81d4fc45574&upstream=util-linux-2.37.4-25.el9.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/bash@5.1.8-9.el9?arch=aarch64&distro=rhel-9.8&package-id=4b3c9568449ead22&upstream=bash-5.1.8-9.el9.src.rpm",
+    "pkg:rpm/redhat/coreutils-single@8.32-41.el9_8.1?arch=aarch64&distro=rhel-9.8&package-id=d75268dba19c3314&upstream=coreutils-8.32-41.el9_8.1.src.rpm",
+    "pkg:rpm/redhat/glibc@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&package-id=e409bc0e762cbe92&upstream=glibc-2.34-283.el9_8.src.rpm",
+    "pkg:rpm/redhat/libuuid@2.37.4-25.el9?arch=aarch64&distro=rhel-9.8&package-id=de293ef224096b8a&upstream=util-linux-2.37.4-25.el9.src.rpm"
+   ]
+  },
+  {
+   "ref": "pkg:rpm/redhat/libcap-ng@0.8.2-7.el9?arch=aarch64&distro=rhel-9.8&package-id=1fca23437c6289b9&upstream=libcap-ng-0.8.2-7.el9.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/glibc@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&package-id=e409bc0e762cbe92&upstream=glibc-2.34-283.el9_8.src.rpm"
+   ]
+  },
+  {
+   "ref": "pkg:rpm/redhat/libcap@2.48-10.el9_8.1?arch=aarch64&distro=rhel-9.8&package-id=b138e8d69659558e&upstream=libcap-2.48-10.el9_8.1.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/glibc@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&package-id=e409bc0e762cbe92&upstream=glibc-2.34-283.el9_8.src.rpm",
+    "pkg:rpm/redhat/libgcc@11.5.0-14.el9?arch=aarch64&distro=rhel-9.8&package-id=24d06d6747240eff&upstream=gcc-11.5.0-14.el9.src.rpm"
+   ]
+  },
+  {
+   "ref": "pkg:rpm/redhat/libcom_err@1.46.5-8.el9?arch=aarch64&distro=rhel-9.8&package-id=09b045eb1f70a84e&upstream=e2fsprogs-1.46.5-8.el9.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/glibc@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&package-id=e409bc0e762cbe92&upstream=glibc-2.34-283.el9_8.src.rpm"
+   ]
+  },
+  {
+   "ref": "pkg:rpm/redhat/libcurl-minimal@7.76.1-40.el9_8.8?arch=aarch64&distro=rhel-9.8&package-id=138eb5c24562c863&upstream=curl-7.76.1-40.el9_8.8.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/glibc@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&package-id=e409bc0e762cbe92&upstream=glibc-2.34-283.el9_8.src.rpm",
+    "pkg:rpm/redhat/krb5-libs@1.21.1-10.el9_8?arch=aarch64&distro=rhel-9.8&package-id=e2ef190b2ee49a45&upstream=krb5-1.21.1-10.el9_8.src.rpm",
+    "pkg:rpm/redhat/libcom_err@1.46.5-8.el9?arch=aarch64&distro=rhel-9.8&package-id=09b045eb1f70a84e&upstream=e2fsprogs-1.46.5-8.el9.src.rpm",
+    "pkg:rpm/redhat/libnghttp2@1.43.0-6.el9_8.2?arch=aarch64&distro=rhel-9.8&package-id=ff9a4f7d716ce827&upstream=nghttp2-1.43.0-6.el9_8.2.src.rpm",
+    "pkg:rpm/redhat/openssl-libs@3.5.8-2.el9_8?arch=aarch64&distro=rhel-9.8&epoch=1&package-id=d3de037e5ccb5dff&upstream=openssl-3.5.8-2.el9_8.src.rpm",
+    "pkg:rpm/redhat/zlib@1.2.11-40.el9?arch=aarch64&distro=rhel-9.8&package-id=8d8e6893cf9471f2&upstream=zlib-1.2.11-40.el9.src.rpm"
+   ]
+  },
+  {
+   "ref": "pkg:rpm/redhat/libdnf@0.69.0-18.el9?arch=aarch64&distro=rhel-9.8&package-id=a69d0eeb7aec3819&upstream=libdnf-0.69.0-18.el9.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/glib2@2.68.4-19.el9_8.10?arch=aarch64&distro=rhel-9.8&package-id=b6f6911f448b4d01&upstream=glib2-2.68.4-19.el9_8.10.src.rpm",
+    "pkg:rpm/redhat/glibc@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&package-id=e409bc0e762cbe92&upstream=glibc-2.34-283.el9_8.src.rpm",
+    "pkg:rpm/redhat/gpgme@1.15.1-6.el9?arch=aarch64&distro=rhel-9.8&package-id=1dcdc8bba5279aec&upstream=gpgme-1.15.1-6.el9.src.rpm",
+    "pkg:rpm/redhat/json-c@0.14-11.el9?arch=aarch64&distro=rhel-9.8&package-id=5438362c9bb2bba5&upstream=json-c-0.14-11.el9.src.rpm",
+    "pkg:rpm/redhat/libgcc@11.5.0-14.el9?arch=aarch64&distro=rhel-9.8&package-id=24d06d6747240eff&upstream=gcc-11.5.0-14.el9.src.rpm",
+    "pkg:rpm/redhat/libmodulemd@2.13.0-2.el9?arch=aarch64&distro=rhel-9.8&package-id=205e58333ff58e22&upstream=libmodulemd-2.13.0-2.el9.src.rpm",
+    "pkg:rpm/redhat/librepo@1.19.0-1.el9?arch=aarch64&distro=rhel-9.8&package-id=fe81dec9c2239452&upstream=librepo-1.19.0-1.el9.src.rpm",
+    "pkg:rpm/redhat/librhsm@0.0.3-9.el9?arch=aarch64&distro=rhel-9.8&package-id=fb6141126ce26ed6&upstream=librhsm-0.0.3-9.el9.src.rpm",
+    "pkg:rpm/redhat/libselinux@3.6-3.el9?arch=aarch64&distro=rhel-9.8&package-id=7b8ec580e71dfbdf&upstream=libselinux-3.6-3.el9.src.rpm",
+    "pkg:rpm/redhat/libsmartcols@2.37.4-25.el9?arch=aarch64&distro=rhel-9.8&package-id=ffde649c76236817&upstream=util-linux-2.37.4-25.el9.src.rpm",
+    "pkg:rpm/redhat/libsolv@0.7.24-6.el9_8?arch=aarch64&distro=rhel-9.8&package-id=121b5838f3baf5fc&upstream=libsolv-0.7.24-6.el9_8.src.rpm",
+    "pkg:rpm/redhat/libstdc%2B%2B@11.5.0-14.el9?arch=aarch64&distro=rhel-9.8&package-id=fff6a36855a2c694&upstream=gcc-11.5.0-14.el9.src.rpm",
+    "pkg:rpm/redhat/rpm-libs@4.16.1.3-40.el9?arch=aarch64&distro=rhel-9.8&package-id=3b9a8d8022b9c2fe&upstream=rpm-4.16.1.3-40.el9.src.rpm",
+    "pkg:rpm/redhat/sqlite-libs@3.34.1-11.el9_8?arch=aarch64&distro=rhel-9.8&package-id=b088e65e05a35cb3&upstream=sqlite-3.34.1-11.el9_8.src.rpm"
+   ]
+  },
+  {
+   "ref": "pkg:rpm/redhat/libevent@2.1.13-1.el9_8?arch=aarch64&distro=rhel-9.8&package-id=4602086c28c16de8&upstream=libevent-2.1.13-1.el9_8.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/glibc@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&package-id=e409bc0e762cbe92&upstream=glibc-2.34-283.el9_8.src.rpm",
+    "pkg:rpm/redhat/openssl-libs@3.5.8-2.el9_8?arch=aarch64&distro=rhel-9.8&epoch=1&package-id=d3de037e5ccb5dff&upstream=openssl-3.5.8-2.el9_8.src.rpm"
+   ]
+  },
+  {
+   "ref": "pkg:rpm/redhat/libffi@3.4.2-8.el9?arch=aarch64&distro=rhel-9.8&package-id=e09e373ce3f131b5&upstream=libffi-3.4.2-8.el9.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/glibc@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&package-id=e409bc0e762cbe92&upstream=glibc-2.34-283.el9_8.src.rpm"
+   ]
+  },
+  {
+   "ref": "pkg:rpm/redhat/libgcc@11.5.0-14.el9?arch=aarch64&distro=rhel-9.8&package-id=24d06d6747240eff&upstream=gcc-11.5.0-14.el9.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/glibc@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&package-id=e409bc0e762cbe92&upstream=glibc-2.34-283.el9_8.src.rpm"
+   ]
+  },
+  {
+   "ref": "pkg:rpm/redhat/libgcrypt@1.10.0-13.el9_8?arch=aarch64&distro=rhel-9.8&package-id=75f5dc4ca2bf6c8b&upstream=libgcrypt-1.10.0-13.el9_8.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/glibc@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&package-id=e409bc0e762cbe92&upstream=glibc-2.34-283.el9_8.src.rpm",
+    "pkg:rpm/redhat/libgpg-error@1.42-5.el9?arch=aarch64&distro=rhel-9.8&package-id=f078756d5f7f5567&upstream=libgpg-error-1.42-5.el9.src.rpm"
+   ]
+  },
+  {
+   "ref": "pkg:rpm/redhat/libgpg-error@1.42-5.el9?arch=aarch64&distro=rhel-9.8&package-id=f078756d5f7f5567&upstream=libgpg-error-1.42-5.el9.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/glibc@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&package-id=e409bc0e762cbe92&upstream=glibc-2.34-283.el9_8.src.rpm"
+   ]
+  },
+  {
+   "ref": "pkg:rpm/redhat/libidn2@2.3.0-7.el9?arch=aarch64&distro=rhel-9.8&package-id=da1ccf8f39eda3e0&upstream=libidn2-2.3.0-7.el9.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/glibc@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&package-id=e409bc0e762cbe92&upstream=glibc-2.34-283.el9_8.src.rpm",
+    "pkg:rpm/redhat/libunistring@0.9.10-15.el9?arch=aarch64&distro=rhel-9.8&package-id=e8a97414aa1b97a0&upstream=libunistring-0.9.10-15.el9.src.rpm"
+   ]
+  },
+  {
+   "ref": "pkg:rpm/redhat/libksba@1.5.1-7.el9?arch=aarch64&distro=rhel-9.8&package-id=05707870ef8accaa&upstream=libksba-1.5.1-7.el9.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/glibc@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&package-id=e409bc0e762cbe92&upstream=glibc-2.34-283.el9_8.src.rpm",
+    "pkg:rpm/redhat/libgpg-error@1.42-5.el9?arch=aarch64&distro=rhel-9.8&package-id=f078756d5f7f5567&upstream=libgpg-error-1.42-5.el9.src.rpm"
+   ]
+  },
+  {
+   "ref": "pkg:rpm/redhat/libmodulemd@2.13.0-2.el9?arch=aarch64&distro=rhel-9.8&package-id=205e58333ff58e22&upstream=libmodulemd-2.13.0-2.el9.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/file-libs@5.39-17.el9?arch=aarch64&distro=rhel-9.8&package-id=ceb7887c6bcc0cc5&upstream=file-5.39-17.el9.src.rpm",
+    "pkg:rpm/redhat/glib2@2.68.4-19.el9_8.10?arch=aarch64&distro=rhel-9.8&package-id=b6f6911f448b4d01&upstream=glib2-2.68.4-19.el9_8.10.src.rpm",
+    "pkg:rpm/redhat/glibc@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&package-id=e409bc0e762cbe92&upstream=glibc-2.34-283.el9_8.src.rpm",
+    "pkg:rpm/redhat/libgcc@11.5.0-14.el9?arch=aarch64&distro=rhel-9.8&package-id=24d06d6747240eff&upstream=gcc-11.5.0-14.el9.src.rpm",
+    "pkg:rpm/redhat/libyaml@0.2.5-7.el9?arch=aarch64&distro=rhel-9.8&package-id=32e3d1e82f7a4ce4&upstream=libyaml-0.2.5-7.el9.src.rpm",
+    "pkg:rpm/redhat/rpm-libs@4.16.1.3-40.el9?arch=aarch64&distro=rhel-9.8&package-id=3b9a8d8022b9c2fe&upstream=rpm-4.16.1.3-40.el9.src.rpm"
+   ]
+  },
+  {
+   "ref": "pkg:rpm/redhat/libmount@2.37.4-25.el9?arch=aarch64&distro=rhel-9.8&package-id=e7cd98a9f3e819ae&upstream=util-linux-2.37.4-25.el9.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/glibc@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&package-id=e409bc0e762cbe92&upstream=glibc-2.34-283.el9_8.src.rpm",
+    "pkg:rpm/redhat/libblkid@2.37.4-25.el9?arch=aarch64&distro=rhel-9.8&package-id=c09ed81d4fc45574&upstream=util-linux-2.37.4-25.el9.src.rpm",
+    "pkg:rpm/redhat/libselinux@3.6-3.el9?arch=aarch64&distro=rhel-9.8&package-id=7b8ec580e71dfbdf&upstream=libselinux-3.6-3.el9.src.rpm",
+    "pkg:rpm/redhat/libuuid@2.37.4-25.el9?arch=aarch64&distro=rhel-9.8&package-id=de293ef224096b8a&upstream=util-linux-2.37.4-25.el9.src.rpm"
+   ]
+  },
+  {
+   "ref": "pkg:rpm/redhat/libnghttp2@1.43.0-6.el9_8.2?arch=aarch64&distro=rhel-9.8&package-id=ff9a4f7d716ce827&upstream=nghttp2-1.43.0-6.el9_8.2.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/glibc@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&package-id=e409bc0e762cbe92&upstream=glibc-2.34-283.el9_8.src.rpm"
+   ]
+  },
+  {
+   "ref": "pkg:rpm/redhat/libpeas@1.30.0-4.el9?arch=aarch64&distro=rhel-9.8&package-id=425535c24ead4279&upstream=libpeas-1.30.0-4.el9.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/glib2@2.68.4-19.el9_8.10?arch=aarch64&distro=rhel-9.8&package-id=b6f6911f448b4d01&upstream=glib2-2.68.4-19.el9_8.10.src.rpm",
+    "pkg:rpm/redhat/glibc@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&package-id=e409bc0e762cbe92&upstream=glibc-2.34-283.el9_8.src.rpm",
+    "pkg:rpm/redhat/gobject-introspection@1.68.0-11.el9?arch=aarch64&distro=rhel-9.8&package-id=2a051ffa627f2f44&upstream=gobject-introspection-1.68.0-11.el9.src.rpm"
+   ]
+  },
+  {
+   "ref": "pkg:rpm/redhat/librepo@1.19.0-1.el9?arch=aarch64&distro=rhel-9.8&package-id=fe81dec9c2239452&upstream=librepo-1.19.0-1.el9.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/glib2@2.68.4-19.el9_8.10?arch=aarch64&distro=rhel-9.8&package-id=b6f6911f448b4d01&upstream=glib2-2.68.4-19.el9_8.10.src.rpm",
+    "pkg:rpm/redhat/glibc@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&package-id=e409bc0e762cbe92&upstream=glibc-2.34-283.el9_8.src.rpm",
+    "pkg:rpm/redhat/gpgme@1.15.1-6.el9?arch=aarch64&distro=rhel-9.8&package-id=1dcdc8bba5279aec&upstream=gpgme-1.15.1-6.el9.src.rpm",
+    "pkg:rpm/redhat/libcurl-minimal@7.76.1-40.el9_8.8?arch=aarch64&distro=rhel-9.8&package-id=138eb5c24562c863&upstream=curl-7.76.1-40.el9_8.8.src.rpm",
+    "pkg:rpm/redhat/libgcc@11.5.0-14.el9?arch=aarch64&distro=rhel-9.8&package-id=24d06d6747240eff&upstream=gcc-11.5.0-14.el9.src.rpm",
+    "pkg:rpm/redhat/libselinux@3.6-3.el9?arch=aarch64&distro=rhel-9.8&package-id=7b8ec580e71dfbdf&upstream=libselinux-3.6-3.el9.src.rpm",
+    "pkg:rpm/redhat/libxml2@2.9.13-14.el9_8.5?arch=aarch64&distro=rhel-9.8&package-id=ed30eeac550611c2&upstream=libxml2-2.9.13-14.el9_8.5.src.rpm",
+    "pkg:rpm/redhat/openssl-libs@3.5.8-2.el9_8?arch=aarch64&distro=rhel-9.8&epoch=1&package-id=d3de037e5ccb5dff&upstream=openssl-3.5.8-2.el9_8.src.rpm"
+   ]
+  },
+  {
+   "ref": "pkg:rpm/redhat/librhsm@0.0.3-9.el9?arch=aarch64&distro=rhel-9.8&package-id=fb6141126ce26ed6&upstream=librhsm-0.0.3-9.el9.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/glib2@2.68.4-19.el9_8.10?arch=aarch64&distro=rhel-9.8&package-id=b6f6911f448b4d01&upstream=glib2-2.68.4-19.el9_8.10.src.rpm",
+    "pkg:rpm/redhat/glibc@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&package-id=e409bc0e762cbe92&upstream=glibc-2.34-283.el9_8.src.rpm",
+    "pkg:rpm/redhat/json-glib@1.6.6-1.el9?arch=aarch64&distro=rhel-9.8&package-id=6b6a632b69fc38ad&upstream=json-glib-1.6.6-1.el9.src.rpm",
+    "pkg:rpm/redhat/libgcc@11.5.0-14.el9?arch=aarch64&distro=rhel-9.8&package-id=24d06d6747240eff&upstream=gcc-11.5.0-14.el9.src.rpm",
+    "pkg:rpm/redhat/openssl-libs@3.5.8-2.el9_8?arch=aarch64&distro=rhel-9.8&epoch=1&package-id=d3de037e5ccb5dff&upstream=openssl-3.5.8-2.el9_8.src.rpm"
+   ]
+  },
+  {
+   "ref": "pkg:rpm/redhat/libselinux@3.6-3.el9?arch=aarch64&distro=rhel-9.8&package-id=7b8ec580e71dfbdf&upstream=libselinux-3.6-3.el9.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/glibc@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&package-id=e409bc0e762cbe92&upstream=glibc-2.34-283.el9_8.src.rpm",
+    "pkg:rpm/redhat/libsepol@3.6-3.el9?arch=aarch64&distro=rhel-9.8&package-id=65d1cead61cd3bcb&upstream=libsepol-3.6-3.el9.src.rpm",
+    "pkg:rpm/redhat/pcre2@10.40-7.el9_8?arch=aarch64&distro=rhel-9.8&package-id=48457b85eb8cf93b&upstream=pcre2-10.40-7.el9_8.src.rpm"
+   ]
+  },
+  {
+   "ref": "pkg:rpm/redhat/libsemanage@3.6-5.el9_6?arch=aarch64&distro=rhel-9.8&package-id=7fcd05dd435c88d3&upstream=libsemanage-3.6-5.el9_6.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/audit-libs@3.1.5-8.el9?arch=aarch64&distro=rhel-9.8&package-id=fefbad2923b22034&upstream=audit-3.1.5-8.el9.src.rpm",
+    "pkg:rpm/redhat/bzip2-libs@1.0.8-11.el9?arch=aarch64&distro=rhel-9.8&package-id=66f30f34e746a6d3&upstream=bzip2-1.0.8-11.el9.src.rpm",
+    "pkg:rpm/redhat/glibc@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&package-id=e409bc0e762cbe92&upstream=glibc-2.34-283.el9_8.src.rpm",
+    "pkg:rpm/redhat/libselinux@3.6-3.el9?arch=aarch64&distro=rhel-9.8&package-id=7b8ec580e71dfbdf&upstream=libselinux-3.6-3.el9.src.rpm",
+    "pkg:rpm/redhat/libsepol@3.6-3.el9?arch=aarch64&distro=rhel-9.8&package-id=65d1cead61cd3bcb&upstream=libsepol-3.6-3.el9.src.rpm"
+   ]
+  },
+  {
+   "ref": "pkg:rpm/redhat/libsepol@3.6-3.el9?arch=aarch64&distro=rhel-9.8&package-id=65d1cead61cd3bcb&upstream=libsepol-3.6-3.el9.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/glibc@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&package-id=e409bc0e762cbe92&upstream=glibc-2.34-283.el9_8.src.rpm"
+   ]
+  },
+  {
+   "ref": "pkg:rpm/redhat/libsigsegv@2.13-4.el9?arch=aarch64&distro=rhel-9.8&package-id=2723389ac03b8290&upstream=libsigsegv-2.13-4.el9.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/glibc@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&package-id=e409bc0e762cbe92&upstream=glibc-2.34-283.el9_8.src.rpm"
+   ]
+  },
+  {
+   "ref": "pkg:rpm/redhat/libsmartcols@2.37.4-25.el9?arch=aarch64&distro=rhel-9.8&package-id=ffde649c76236817&upstream=util-linux-2.37.4-25.el9.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/glibc@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&package-id=e409bc0e762cbe92&upstream=glibc-2.34-283.el9_8.src.rpm"
+   ]
+  },
+  {
+   "ref": "pkg:rpm/redhat/libsolv@0.7.24-6.el9_8?arch=aarch64&distro=rhel-9.8&package-id=121b5838f3baf5fc&upstream=libsolv-0.7.24-6.el9_8.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/bzip2-libs@1.0.8-11.el9?arch=aarch64&distro=rhel-9.8&package-id=66f30f34e746a6d3&upstream=bzip2-1.0.8-11.el9.src.rpm",
+    "pkg:rpm/redhat/glibc@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&package-id=e409bc0e762cbe92&upstream=glibc-2.34-283.el9_8.src.rpm",
+    "pkg:rpm/redhat/libxml2@2.9.13-14.el9_8.5?arch=aarch64&distro=rhel-9.8&package-id=ed30eeac550611c2&upstream=libxml2-2.9.13-14.el9_8.5.src.rpm",
+    "pkg:rpm/redhat/libzstd@1.5.5-1.el9?arch=aarch64&distro=rhel-9.8&package-id=20fe277db28156c0&upstream=zstd-1.5.5-1.el9.src.rpm",
+    "pkg:rpm/redhat/openssl-libs@3.5.8-2.el9_8?arch=aarch64&distro=rhel-9.8&epoch=1&package-id=d3de037e5ccb5dff&upstream=openssl-3.5.8-2.el9_8.src.rpm",
+    "pkg:rpm/redhat/rpm-libs@4.16.1.3-40.el9?arch=aarch64&distro=rhel-9.8&package-id=3b9a8d8022b9c2fe&upstream=rpm-4.16.1.3-40.el9.src.rpm",
+    "pkg:rpm/redhat/xz-libs@5.2.5-8.el9_0?arch=aarch64&distro=rhel-9.8&package-id=da087bef6307a2fa&upstream=xz-5.2.5-8.el9_0.src.rpm",
+    "pkg:rpm/redhat/zlib@1.2.11-40.el9?arch=aarch64&distro=rhel-9.8&package-id=8d8e6893cf9471f2&upstream=zlib-1.2.11-40.el9.src.rpm"
+   ]
+  },
+  {
+   "ref": "pkg:rpm/redhat/libstdc%2B%2B@11.5.0-14.el9?arch=aarch64&distro=rhel-9.8&package-id=fff6a36855a2c694&upstream=gcc-11.5.0-14.el9.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/glibc@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&package-id=e409bc0e762cbe92&upstream=glibc-2.34-283.el9_8.src.rpm",
+    "pkg:rpm/redhat/libgcc@11.5.0-14.el9?arch=aarch64&distro=rhel-9.8&package-id=24d06d6747240eff&upstream=gcc-11.5.0-14.el9.src.rpm"
+   ]
+  },
+  {
+   "ref": "pkg:rpm/redhat/libtasn1@4.16.0-10.el9_8?arch=aarch64&distro=rhel-9.8&package-id=3df3f0b829ab60e6&upstream=libtasn1-4.16.0-10.el9_8.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/glibc@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&package-id=e409bc0e762cbe92&upstream=glibc-2.34-283.el9_8.src.rpm"
+   ]
+  },
+  {
+   "ref": "pkg:rpm/redhat/libtool-ltdl@2.4.6-46.el9?arch=aarch64&distro=rhel-9.8&package-id=b52a8ab1255f3cfe&upstream=libtool-2.4.6-46.el9.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/glibc@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&package-id=e409bc0e762cbe92&upstream=glibc-2.34-283.el9_8.src.rpm"
+   ]
+  },
+  {
+   "ref": "pkg:rpm/redhat/libunistring@0.9.10-15.el9?arch=aarch64&distro=rhel-9.8&package-id=e8a97414aa1b97a0&upstream=libunistring-0.9.10-15.el9.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/glibc@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&package-id=e409bc0e762cbe92&upstream=glibc-2.34-283.el9_8.src.rpm"
+   ]
+  },
+  {
+   "ref": "pkg:rpm/redhat/libusbx@1.0.30-1.el9_8?arch=aarch64&distro=rhel-9.8&package-id=43c2ae5bd8a0ccc6&upstream=libusbx-1.0.30-1.el9_8.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/glibc@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&package-id=e409bc0e762cbe92&upstream=glibc-2.34-283.el9_8.src.rpm",
+    "pkg:rpm/redhat/systemd-libs@252-67.el9_8.6?arch=aarch64&distro=rhel-9.8&package-id=cd5502dc7f418bd0&upstream=systemd-252-67.el9_8.6.src.rpm"
+   ]
+  },
+  {
+   "ref": "pkg:rpm/redhat/libuuid@2.37.4-25.el9?arch=aarch64&distro=rhel-9.8&package-id=de293ef224096b8a&upstream=util-linux-2.37.4-25.el9.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/glibc@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&package-id=e409bc0e762cbe92&upstream=glibc-2.34-283.el9_8.src.rpm"
+   ]
+  },
+  {
+   "ref": "pkg:rpm/redhat/libverto@0.3.2-3.el9?arch=aarch64&distro=rhel-9.8&package-id=43bcd9bde70091d9&upstream=libverto-0.3.2-3.el9.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/glibc@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&package-id=e409bc0e762cbe92&upstream=glibc-2.34-283.el9_8.src.rpm"
+   ]
+  },
+  {
+   "ref": "pkg:rpm/redhat/libxcrypt@4.4.18-3.el9?arch=aarch64&distro=rhel-9.8&package-id=662c63f30533dcd5&upstream=libxcrypt-4.4.18-3.el9.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/glibc@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&package-id=e409bc0e762cbe92&upstream=glibc-2.34-283.el9_8.src.rpm"
+   ]
+  },
+  {
+   "ref": "pkg:rpm/redhat/libxml2@2.9.13-14.el9_8.5?arch=aarch64&distro=rhel-9.8&package-id=ed30eeac550611c2&upstream=libxml2-2.9.13-14.el9_8.5.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/glibc@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&package-id=e409bc0e762cbe92&upstream=glibc-2.34-283.el9_8.src.rpm",
+    "pkg:rpm/redhat/xz-libs@5.2.5-8.el9_0?arch=aarch64&distro=rhel-9.8&package-id=da087bef6307a2fa&upstream=xz-5.2.5-8.el9_0.src.rpm",
+    "pkg:rpm/redhat/zlib@1.2.11-40.el9?arch=aarch64&distro=rhel-9.8&package-id=8d8e6893cf9471f2&upstream=zlib-1.2.11-40.el9.src.rpm"
+   ]
+  },
+  {
+   "ref": "pkg:rpm/redhat/libyaml@0.2.5-7.el9?arch=aarch64&distro=rhel-9.8&package-id=32e3d1e82f7a4ce4&upstream=libyaml-0.2.5-7.el9.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/glibc@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&package-id=e409bc0e762cbe92&upstream=glibc-2.34-283.el9_8.src.rpm"
+   ]
+  },
+  {
+   "ref": "pkg:rpm/redhat/libzstd@1.5.5-1.el9?arch=aarch64&distro=rhel-9.8&package-id=20fe277db28156c0&upstream=zstd-1.5.5-1.el9.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/glibc@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&package-id=e409bc0e762cbe92&upstream=glibc-2.34-283.el9_8.src.rpm"
+   ]
+  },
+  {
+   "ref": "pkg:rpm/redhat/lua-libs@5.4.4-4.el9?arch=aarch64&distro=rhel-9.8&package-id=c0b633aa16a03747&upstream=lua-5.4.4-4.el9.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/glibc@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&package-id=e409bc0e762cbe92&upstream=glibc-2.34-283.el9_8.src.rpm"
+   ]
+  },
+  {
+   "ref": "pkg:rpm/redhat/lz4-libs@1.9.3-5.el9?arch=aarch64&distro=rhel-9.8&package-id=e72e04779c761339&upstream=lz4-1.9.3-5.el9.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/glibc@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&package-id=e409bc0e762cbe92&upstream=glibc-2.34-283.el9_8.src.rpm"
+   ]
+  },
+  {
+   "ref": "pkg:rpm/redhat/microdnf@3.9.1-3.el9?arch=aarch64&distro=rhel-9.8&package-id=65406d06f9515f31&upstream=microdnf-3.9.1-3.el9.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/dnf-data@4.14.0-34.el9_8?arch=noarch&distro=rhel-9.8&package-id=c08e626361423975&upstream=dnf-4.14.0-34.el9_8.src.rpm",
+    "pkg:rpm/redhat/glib2@2.68.4-19.el9_8.10?arch=aarch64&distro=rhel-9.8&package-id=b6f6911f448b4d01&upstream=glib2-2.68.4-19.el9_8.10.src.rpm",
+    "pkg:rpm/redhat/glibc@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&package-id=e409bc0e762cbe92&upstream=glibc-2.34-283.el9_8.src.rpm",
+    "pkg:rpm/redhat/libdnf@0.69.0-18.el9?arch=aarch64&distro=rhel-9.8&package-id=a69d0eeb7aec3819&upstream=libdnf-0.69.0-18.el9.src.rpm",
+    "pkg:rpm/redhat/libgcc@11.5.0-14.el9?arch=aarch64&distro=rhel-9.8&package-id=24d06d6747240eff&upstream=gcc-11.5.0-14.el9.src.rpm",
+    "pkg:rpm/redhat/libpeas@1.30.0-4.el9?arch=aarch64&distro=rhel-9.8&package-id=425535c24ead4279&upstream=libpeas-1.30.0-4.el9.src.rpm",
+    "pkg:rpm/redhat/libsmartcols@2.37.4-25.el9?arch=aarch64&distro=rhel-9.8&package-id=ffde649c76236817&upstream=util-linux-2.37.4-25.el9.src.rpm",
+    "pkg:rpm/redhat/rpm-libs@4.16.1.3-40.el9?arch=aarch64&distro=rhel-9.8&package-id=3b9a8d8022b9c2fe&upstream=rpm-4.16.1.3-40.el9.src.rpm"
+   ]
+  },
+  {
+   "ref": "pkg:rpm/redhat/mpfr@4.1.0-10.el9?arch=aarch64&distro=rhel-9.8&package-id=f83b072362c7d809&upstream=mpfr-4.1.0-10.el9.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/glibc@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&package-id=e409bc0e762cbe92&upstream=glibc-2.34-283.el9_8.src.rpm",
+    "pkg:rpm/redhat/gmp@6.2.0-13.el9?arch=aarch64&distro=rhel-9.8&epoch=1&package-id=96737d59722887b4&upstream=gmp-6.2.0-13.el9.src.rpm"
+   ]
+  },
+  {
+   "ref": "pkg:rpm/redhat/ncurses-libs@6.2-12.20210508.el9?arch=aarch64&distro=rhel-9.8&package-id=f5190ed4eac9d202&upstream=ncurses-6.2-12.20210508.el9.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/glibc@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&package-id=e409bc0e762cbe92&upstream=glibc-2.34-283.el9_8.src.rpm",
+    "pkg:rpm/redhat/ncurses-base@6.2-12.20210508.el9?arch=noarch&distro=rhel-9.8&package-id=ecae56e691f56928&upstream=ncurses-6.2-12.20210508.el9.src.rpm"
+   ]
+  },
+  {
+   "ref": "pkg:rpm/redhat/nettle@3.10.1-1.el9?arch=aarch64&distro=rhel-9.8&package-id=ae297d9f43a1dd57&upstream=nettle-3.10.1-1.el9.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/glibc@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&package-id=e409bc0e762cbe92&upstream=glibc-2.34-283.el9_8.src.rpm"
+   ]
+  },
+  {
+   "ref": "pkg:rpm/redhat/npth@1.6-8.el9?arch=aarch64&distro=rhel-9.8&package-id=6aa4cfc4b8856851&upstream=npth-1.6-8.el9.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/glibc@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&package-id=e409bc0e762cbe92&upstream=glibc-2.34-283.el9_8.src.rpm"
+   ]
+  },
+  {
+   "ref": "pkg:rpm/redhat/openldap@2.6.8-4.el9?arch=aarch64&distro=rhel-9.8&package-id=61e65a3f91fe1188&upstream=openldap-2.6.8-4.el9.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/cyrus-sasl-lib@2.1.27-22.el9?arch=aarch64&distro=rhel-9.8&package-id=b1d1655549868e1b&upstream=cyrus-sasl-2.1.27-22.el9.src.rpm",
+    "pkg:rpm/redhat/glibc@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&package-id=e409bc0e762cbe92&upstream=glibc-2.34-283.el9_8.src.rpm",
+    "pkg:rpm/redhat/libevent@2.1.13-1.el9_8?arch=aarch64&distro=rhel-9.8&package-id=4602086c28c16de8&upstream=libevent-2.1.13-1.el9_8.src.rpm",
+    "pkg:rpm/redhat/libtool-ltdl@2.4.6-46.el9?arch=aarch64&distro=rhel-9.8&package-id=b52a8ab1255f3cfe&upstream=libtool-2.4.6-46.el9.src.rpm",
+    "pkg:rpm/redhat/openssl-libs@3.5.8-2.el9_8?arch=aarch64&distro=rhel-9.8&epoch=1&package-id=d3de037e5ccb5dff&upstream=openssl-3.5.8-2.el9_8.src.rpm",
+    "pkg:rpm/redhat/shadow-utils@4.9-16.el9?arch=aarch64&distro=rhel-9.8&epoch=2&package-id=44f10469d955b065&upstream=shadow-utils-4.9-16.el9.src.rpm"
+   ]
+  },
+  {
+   "ref": "pkg:rpm/redhat/openssl-fips-provider-so@3.0.7-11.el9_8?arch=aarch64&distro=rhel-9.8&package-id=f5f180740fd3fe32&upstream=openssl-fips-provider-3.0.7-11.el9_8.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/coreutils-single@8.32-41.el9_8.1?arch=aarch64&distro=rhel-9.8&package-id=d75268dba19c3314&upstream=coreutils-8.32-41.el9_8.1.src.rpm",
+    "pkg:rpm/redhat/glibc@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&package-id=e409bc0e762cbe92&upstream=glibc-2.34-283.el9_8.src.rpm"
+   ]
+  },
+  {
+   "ref": "pkg:rpm/redhat/openssl-fips-provider@3.0.7-11.el9_8?arch=aarch64&distro=rhel-9.8&package-id=81ae3176dfa92401&upstream=openssl-fips-provider-3.0.7-11.el9_8.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/openssl-fips-provider-so@3.0.7-11.el9_8?arch=aarch64&distro=rhel-9.8&package-id=f5f180740fd3fe32&upstream=openssl-fips-provider-3.0.7-11.el9_8.src.rpm"
+   ]
+  },
+  {
+   "ref": "pkg:rpm/redhat/openssl-libs@3.5.8-2.el9_8?arch=aarch64&distro=rhel-9.8&epoch=1&package-id=d3de037e5ccb5dff&upstream=openssl-3.5.8-2.el9_8.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/ca-certificates@2026.2.92_v9.0.319-90.3.el9_8?arch=noarch&distro=rhel-9.8&package-id=858460fe2c8f07c1&upstream=ca-certificates-2026.2.92_v9.0.319-90.3.el9_8.src.rpm",
+    "pkg:rpm/redhat/crypto-policies@20260224-1.gitea0f072.el9_8?arch=noarch&distro=rhel-9.8&package-id=120f7dc1996df9fd&upstream=crypto-policies-20260224-1.gitea0f072.el9_8.src.rpm",
+    "pkg:rpm/redhat/glibc@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&package-id=e409bc0e762cbe92&upstream=glibc-2.34-283.el9_8.src.rpm",
+    "pkg:rpm/redhat/openssl-fips-provider@3.0.7-11.el9_8?arch=aarch64&distro=rhel-9.8&package-id=81ae3176dfa92401&upstream=openssl-fips-provider-3.0.7-11.el9_8.src.rpm",
+    "pkg:rpm/redhat/zlib@1.2.11-40.el9?arch=aarch64&distro=rhel-9.8&package-id=8d8e6893cf9471f2&upstream=zlib-1.2.11-40.el9.src.rpm"
+   ]
+  },
+  {
+   "ref": "pkg:rpm/redhat/p11-kit-trust@0.26.4-1.el9_8?arch=aarch64&distro=rhel-9.8&package-id=1f03a0e08522a853&upstream=p11-kit-0.26.4-1.el9_8.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/alternatives@1.24-2.el9?arch=aarch64&distro=rhel-9.8&package-id=6747614a3e8a9775&upstream=chkconfig-1.24-2.el9.src.rpm",
+    "pkg:rpm/redhat/bash@5.1.8-9.el9?arch=aarch64&distro=rhel-9.8&package-id=4b3c9568449ead22&upstream=bash-5.1.8-9.el9.src.rpm",
+    "pkg:rpm/redhat/glibc@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&package-id=e409bc0e762cbe92&upstream=glibc-2.34-283.el9_8.src.rpm",
+    "pkg:rpm/redhat/libtasn1@4.16.0-10.el9_8?arch=aarch64&distro=rhel-9.8&package-id=3df3f0b829ab60e6&upstream=libtasn1-4.16.0-10.el9_8.src.rpm",
+    "pkg:rpm/redhat/p11-kit@0.26.4-1.el9_8?arch=aarch64&distro=rhel-9.8&package-id=8430ea60eae8edcf&upstream=p11-kit-0.26.4-1.el9_8.src.rpm"
+   ]
+  },
+  {
+   "ref": "pkg:rpm/redhat/p11-kit@0.26.4-1.el9_8?arch=aarch64&distro=rhel-9.8&package-id=8430ea60eae8edcf&upstream=p11-kit-0.26.4-1.el9_8.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/glibc@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&package-id=e409bc0e762cbe92&upstream=glibc-2.34-283.el9_8.src.rpm",
+    "pkg:rpm/redhat/libffi@3.4.2-8.el9?arch=aarch64&distro=rhel-9.8&package-id=e09e373ce3f131b5&upstream=libffi-3.4.2-8.el9.src.rpm",
+    "pkg:rpm/redhat/libtasn1@4.16.0-10.el9_8?arch=aarch64&distro=rhel-9.8&package-id=3df3f0b829ab60e6&upstream=libtasn1-4.16.0-10.el9_8.src.rpm"
+   ]
+  },
+  {
+   "ref": "pkg:rpm/redhat/pcre2@10.40-7.el9_8?arch=aarch64&distro=rhel-9.8&package-id=48457b85eb8cf93b&upstream=pcre2-10.40-7.el9_8.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/glibc@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&package-id=e409bc0e762cbe92&upstream=glibc-2.34-283.el9_8.src.rpm",
+    "pkg:rpm/redhat/pcre2-syntax@10.40-7.el9_8?arch=noarch&distro=rhel-9.8&package-id=564863bbdb4b6c77&upstream=pcre2-10.40-7.el9_8.src.rpm"
+   ]
+  },
+  {
+   "ref": "pkg:rpm/redhat/pcre@8.44-4.el9?arch=aarch64&distro=rhel-9.8&package-id=a3d4795343c502ce&upstream=pcre-8.44-4.el9.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/glibc@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&package-id=e409bc0e762cbe92&upstream=glibc-2.34-283.el9_8.src.rpm"
+   ]
+  },
+  {
+   "ref": "pkg:rpm/redhat/popt@1.18-8.el9?arch=aarch64&distro=rhel-9.8&package-id=417293d626e76d2a&upstream=popt-1.18-8.el9.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/glibc@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&package-id=e409bc0e762cbe92&upstream=glibc-2.34-283.el9_8.src.rpm"
+   ]
+  },
+  {
+   "ref": "pkg:rpm/redhat/readline@8.1-4.el9?arch=aarch64&distro=rhel-9.8&package-id=1b5bc2165591d412&upstream=readline-8.1-4.el9.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/glibc@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&package-id=e409bc0e762cbe92&upstream=glibc-2.34-283.el9_8.src.rpm",
+    "pkg:rpm/redhat/ncurses-libs@6.2-12.20210508.el9?arch=aarch64&distro=rhel-9.8&package-id=f5190ed4eac9d202&upstream=ncurses-6.2-12.20210508.el9.src.rpm"
+   ]
+  },
+  {
+   "ref": "pkg:rpm/redhat/rootfiles@8.1-35.el9?arch=noarch&distro=rhel-9.8&package-id=a47c9240c2cecefa&upstream=rootfiles-8.1-35.el9.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/bash@5.1.8-9.el9?arch=aarch64&distro=rhel-9.8&package-id=4b3c9568449ead22&upstream=bash-5.1.8-9.el9.src.rpm"
+   ]
+  },
+  {
+   "ref": "pkg:rpm/redhat/rpm-libs@4.16.1.3-40.el9?arch=aarch64&distro=rhel-9.8&package-id=3b9a8d8022b9c2fe&upstream=rpm-4.16.1.3-40.el9.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/audit-libs@3.1.5-8.el9?arch=aarch64&distro=rhel-9.8&package-id=fefbad2923b22034&upstream=audit-3.1.5-8.el9.src.rpm",
+    "pkg:rpm/redhat/bzip2-libs@1.0.8-11.el9?arch=aarch64&distro=rhel-9.8&package-id=66f30f34e746a6d3&upstream=bzip2-1.0.8-11.el9.src.rpm",
+    "pkg:rpm/redhat/glibc@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&package-id=e409bc0e762cbe92&upstream=glibc-2.34-283.el9_8.src.rpm",
+    "pkg:rpm/redhat/libacl@2.4.0-1.el9_8?arch=aarch64&distro=rhel-9.8&package-id=01ce4dce20c7de9c&upstream=acl-2.4.0-1.el9_8.src.rpm",
+    "pkg:rpm/redhat/libcap@2.48-10.el9_8.1?arch=aarch64&distro=rhel-9.8&package-id=b138e8d69659558e&upstream=libcap-2.48-10.el9_8.1.src.rpm",
+    "pkg:rpm/redhat/libzstd@1.5.5-1.el9?arch=aarch64&distro=rhel-9.8&package-id=20fe277db28156c0&upstream=zstd-1.5.5-1.el9.src.rpm",
+    "pkg:rpm/redhat/lua-libs@5.4.4-4.el9?arch=aarch64&distro=rhel-9.8&package-id=c0b633aa16a03747&upstream=lua-5.4.4-4.el9.src.rpm",
+    "pkg:rpm/redhat/openssl-libs@3.5.8-2.el9_8?arch=aarch64&distro=rhel-9.8&epoch=1&package-id=d3de037e5ccb5dff&upstream=openssl-3.5.8-2.el9_8.src.rpm",
+    "pkg:rpm/redhat/popt@1.18-8.el9?arch=aarch64&distro=rhel-9.8&package-id=417293d626e76d2a&upstream=popt-1.18-8.el9.src.rpm",
+    "pkg:rpm/redhat/rpm@4.16.1.3-40.el9?arch=aarch64&distro=rhel-9.8&package-id=4c27e3958f93e55f&upstream=rpm-4.16.1.3-40.el9.src.rpm",
+    "pkg:rpm/redhat/sqlite-libs@3.34.1-11.el9_8?arch=aarch64&distro=rhel-9.8&package-id=b088e65e05a35cb3&upstream=sqlite-3.34.1-11.el9_8.src.rpm",
+    "pkg:rpm/redhat/xz-libs@5.2.5-8.el9_0?arch=aarch64&distro=rhel-9.8&package-id=da087bef6307a2fa&upstream=xz-5.2.5-8.el9_0.src.rpm",
+    "pkg:rpm/redhat/zlib@1.2.11-40.el9?arch=aarch64&distro=rhel-9.8&package-id=8d8e6893cf9471f2&upstream=zlib-1.2.11-40.el9.src.rpm"
+   ]
+  },
+  {
+   "ref": "pkg:rpm/redhat/rpm@4.16.1.3-40.el9?arch=aarch64&distro=rhel-9.8&package-id=4c27e3958f93e55f&upstream=rpm-4.16.1.3-40.el9.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/bash@5.1.8-9.el9?arch=aarch64&distro=rhel-9.8&package-id=4b3c9568449ead22&upstream=bash-5.1.8-9.el9.src.rpm",
+    "pkg:rpm/redhat/coreutils-single@8.32-41.el9_8.1?arch=aarch64&distro=rhel-9.8&package-id=d75268dba19c3314&upstream=coreutils-8.32-41.el9_8.1.src.rpm",
+    "pkg:rpm/redhat/curl-minimal@7.76.1-40.el9_8.8?arch=aarch64&distro=rhel-9.8&package-id=1f47e2b236715dee&upstream=curl-7.76.1-40.el9_8.8.src.rpm",
+    "pkg:rpm/redhat/glibc@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&package-id=e409bc0e762cbe92&upstream=glibc-2.34-283.el9_8.src.rpm",
+    "pkg:rpm/redhat/libarchive@3.5.3-11.el9_8?arch=aarch64&distro=rhel-9.8&package-id=ab5ec36069463f16&upstream=libarchive-3.5.3-11.el9_8.src.rpm",
+    "pkg:rpm/redhat/popt@1.18-8.el9?arch=aarch64&distro=rhel-9.8&package-id=417293d626e76d2a&upstream=popt-1.18-8.el9.src.rpm",
+    "pkg:rpm/redhat/rpm-libs@4.16.1.3-40.el9?arch=aarch64&distro=rhel-9.8&package-id=3b9a8d8022b9c2fe&upstream=rpm-4.16.1.3-40.el9.src.rpm"
+   ]
+  },
+  {
+   "ref": "pkg:rpm/redhat/sed@4.8-10.el9?arch=aarch64&distro=rhel-9.8&package-id=1fcc4edb2613be96&upstream=sed-4.8-10.el9.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/glibc@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&package-id=e409bc0e762cbe92&upstream=glibc-2.34-283.el9_8.src.rpm",
+    "pkg:rpm/redhat/libacl@2.4.0-1.el9_8?arch=aarch64&distro=rhel-9.8&package-id=01ce4dce20c7de9c&upstream=acl-2.4.0-1.el9_8.src.rpm",
+    "pkg:rpm/redhat/libselinux@3.6-3.el9?arch=aarch64&distro=rhel-9.8&package-id=7b8ec580e71dfbdf&upstream=libselinux-3.6-3.el9.src.rpm"
+   ]
+  },
+  {
+   "ref": "pkg:rpm/redhat/setup@2.13.7-10.el9?arch=noarch&distro=rhel-9.8&package-id=29ecd837676f423f&upstream=setup-2.13.7-10.el9.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/redhat-release@9.8-1.0.el9?arch=aarch64&distro=rhel-9.8&package-id=4be24643b460ace1&upstream=redhat-release-9.8-1.0.el9.src.rpm"
+   ]
+  },
+  {
+   "ref": "pkg:rpm/redhat/shadow-utils@4.9-16.el9?arch=aarch64&distro=rhel-9.8&epoch=2&package-id=44f10469d955b065&upstream=shadow-utils-4.9-16.el9.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/audit-libs@3.1.5-8.el9?arch=aarch64&distro=rhel-9.8&package-id=fefbad2923b22034&upstream=audit-3.1.5-8.el9.src.rpm",
+    "pkg:rpm/redhat/glibc@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&package-id=e409bc0e762cbe92&upstream=glibc-2.34-283.el9_8.src.rpm",
+    "pkg:rpm/redhat/libacl@2.4.0-1.el9_8?arch=aarch64&distro=rhel-9.8&package-id=01ce4dce20c7de9c&upstream=acl-2.4.0-1.el9_8.src.rpm",
+    "pkg:rpm/redhat/libattr@2.6.0-1.el9_8?arch=aarch64&distro=rhel-9.8&package-id=914dd5cf344310b9&upstream=attr-2.6.0-1.el9_8.src.rpm",
+    "pkg:rpm/redhat/libselinux@3.6-3.el9?arch=aarch64&distro=rhel-9.8&package-id=7b8ec580e71dfbdf&upstream=libselinux-3.6-3.el9.src.rpm",
+    "pkg:rpm/redhat/libsemanage@3.6-5.el9_6?arch=aarch64&distro=rhel-9.8&package-id=7fcd05dd435c88d3&upstream=libsemanage-3.6-5.el9_6.src.rpm",
+    "pkg:rpm/redhat/libxcrypt@4.4.18-3.el9?arch=aarch64&distro=rhel-9.8&package-id=662c63f30533dcd5&upstream=libxcrypt-4.4.18-3.el9.src.rpm",
+    "pkg:rpm/redhat/setup@2.13.7-10.el9?arch=noarch&distro=rhel-9.8&package-id=29ecd837676f423f&upstream=setup-2.13.7-10.el9.src.rpm"
+   ]
+  },
+  {
+   "ref": "pkg:rpm/redhat/sqlite-libs@3.34.1-11.el9_8?arch=aarch64&distro=rhel-9.8&package-id=b088e65e05a35cb3&upstream=sqlite-3.34.1-11.el9_8.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/glibc@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&package-id=e409bc0e762cbe92&upstream=glibc-2.34-283.el9_8.src.rpm",
+    "pkg:rpm/redhat/zlib@1.2.11-40.el9?arch=aarch64&distro=rhel-9.8&package-id=8d8e6893cf9471f2&upstream=zlib-1.2.11-40.el9.src.rpm"
+   ]
+  },
+  {
+   "ref": "pkg:rpm/redhat/systemd-libs@252-67.el9_8.6?arch=aarch64&distro=rhel-9.8&package-id=cd5502dc7f418bd0&upstream=systemd-252-67.el9_8.6.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/bash@5.1.8-9.el9?arch=aarch64&distro=rhel-9.8&package-id=4b3c9568449ead22&upstream=bash-5.1.8-9.el9.src.rpm",
+    "pkg:rpm/redhat/coreutils-single@8.32-41.el9_8.1?arch=aarch64&distro=rhel-9.8&package-id=d75268dba19c3314&upstream=coreutils-8.32-41.el9_8.1.src.rpm",
+    "pkg:rpm/redhat/glibc-common@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&package-id=08099d6541806622&upstream=glibc-2.34-283.el9_8.src.rpm",
+    "pkg:rpm/redhat/glibc@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&package-id=e409bc0e762cbe92&upstream=glibc-2.34-283.el9_8.src.rpm",
+    "pkg:rpm/redhat/grep@3.6-5.el9?arch=aarch64&distro=rhel-9.8&package-id=722481a63791f3ab&upstream=grep-3.6-5.el9.src.rpm",
+    "pkg:rpm/redhat/libcap@2.48-10.el9_8.1?arch=aarch64&distro=rhel-9.8&package-id=b138e8d69659558e&upstream=libcap-2.48-10.el9_8.1.src.rpm",
+    "pkg:rpm/redhat/libgcc@11.5.0-14.el9?arch=aarch64&distro=rhel-9.8&package-id=24d06d6747240eff&upstream=gcc-11.5.0-14.el9.src.rpm",
+    "pkg:rpm/redhat/libgcrypt@1.10.0-13.el9_8?arch=aarch64&distro=rhel-9.8&package-id=75f5dc4ca2bf6c8b&upstream=libgcrypt-1.10.0-13.el9_8.src.rpm",
+    "pkg:rpm/redhat/libselinux@3.6-3.el9?arch=aarch64&distro=rhel-9.8&package-id=7b8ec580e71dfbdf&upstream=libselinux-3.6-3.el9.src.rpm",
+    "pkg:rpm/redhat/libxcrypt@4.4.18-3.el9?arch=aarch64&distro=rhel-9.8&package-id=662c63f30533dcd5&upstream=libxcrypt-4.4.18-3.el9.src.rpm",
+    "pkg:rpm/redhat/libzstd@1.5.5-1.el9?arch=aarch64&distro=rhel-9.8&package-id=20fe277db28156c0&upstream=zstd-1.5.5-1.el9.src.rpm",
+    "pkg:rpm/redhat/lz4-libs@1.9.3-5.el9?arch=aarch64&distro=rhel-9.8&package-id=e72e04779c761339&upstream=lz4-1.9.3-5.el9.src.rpm",
+    "pkg:rpm/redhat/openssl-libs@3.5.8-2.el9_8?arch=aarch64&distro=rhel-9.8&epoch=1&package-id=d3de037e5ccb5dff&upstream=openssl-3.5.8-2.el9_8.src.rpm",
+    "pkg:rpm/redhat/p11-kit@0.26.4-1.el9_8?arch=aarch64&distro=rhel-9.8&package-id=8430ea60eae8edcf&upstream=p11-kit-0.26.4-1.el9_8.src.rpm",
+    "pkg:rpm/redhat/sed@4.8-10.el9?arch=aarch64&distro=rhel-9.8&package-id=1fcc4edb2613be96&upstream=sed-4.8-10.el9.src.rpm",
+    "pkg:rpm/redhat/xz-libs@5.2.5-8.el9_0?arch=aarch64&distro=rhel-9.8&package-id=da087bef6307a2fa&upstream=xz-5.2.5-8.el9_0.src.rpm"
+   ]
+  },
+  {
+   "ref": "pkg:rpm/redhat/xz-libs@5.2.5-8.el9_0?arch=aarch64&distro=rhel-9.8&package-id=da087bef6307a2fa&upstream=xz-5.2.5-8.el9_0.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/glibc@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&package-id=e409bc0e762cbe92&upstream=glibc-2.34-283.el9_8.src.rpm"
+   ]
+  },
+  {
+   "ref": "pkg:rpm/redhat/zlib@1.2.11-40.el9?arch=aarch64&distro=rhel-9.8&package-id=8d8e6893cf9471f2&upstream=zlib-1.2.11-40.el9.src.rpm",
+   "dependsOn": [
+    "pkg:rpm/redhat/glibc@2.34-283.el9_8?arch=aarch64&distro=rhel-9.8&package-id=e409bc0e762cbe92&upstream=glibc-2.34-283.el9_8.src.rpm"
+   ]
+  }
+ ]
+}

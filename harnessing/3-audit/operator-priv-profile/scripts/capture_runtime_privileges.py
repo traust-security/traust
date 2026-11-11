@@ -15,6 +15,9 @@ campaign's authorization (see validate-findings scope rules).
 Usage:
   capture_runtime_privileges.py --namespace <ns> --name <operator-name> \
       --out-dir <dir> --i-am-authorized [--kubeconfig <path>]
+
+Home: tools package (plan 15). Not ported: a live-cluster capture would go through
+ClusterProvider and ValidationService, which the skill port leaves alone.
 """
 
 from __future__ import annotations

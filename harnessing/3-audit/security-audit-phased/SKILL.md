@@ -1,6 +1,6 @@
 ---
 name: security-audit-phased
-description: Use when a reviewer wants to steer a security code audit between phases — Phase 1 reconnaissance, Phase 2 prior-vuln pattern analysis, Phase 3 systematic CWE-taxonomy weakness hunt (including PEACH tenant isolation), Phase 4 cross-cutting analysis and final report, Phase 6 reproducer generation, plus review/CVSS/follow-up-seed helpers. Each phase is a separate slash command that reads the previous phase's JSON and writes its own.
+description: Use when a reviewer wants to steer a security code audit between phases — Phase 1 reconnaissance, Phase 2 prior-vuln pattern analysis, Phase 3 systematic CWE-taxonomy weakness hunt (including PEACH tenant isolation), Phase 4 cross-cutting analysis and final report, Phase 6 reproducer generation, plus review/CVSS/follow-up-seed helpers. Each phase is a separate slash command that reads the previous phase's JSON and writes its own; publishing a campaign report uses secure-code-audit's canonical remediation guidance and Core record door.
 metadata:
   harness.tier: "primary"
 ---
@@ -8,7 +8,7 @@ metadata:
 # Phased Security Code Audit
 
 > **Paths.** `analysis-results/…` and `progress-tracker/…` in this skill are the
-> default workspace layout. They resolve through `locations.yaml` in
+> default workspace layout. They resolve through `locations:` in `traust.yaml` in
 > `$TRAUST_CONFIG_HOME` (`docs/setup.md`, Storage locations); substitute your
 > configured roots.
 
@@ -55,7 +55,7 @@ Findings that violate a PEACH parameter carry a `peach_references` array (`["PEA
 
 ## Relationship to `/secure-code-audit`
 
-The phased workflow's `phase4-final.json` is **not** a `contracts/schemas/report.schema.json` document — it is an intermediate artifact for human review. To publish results into the campaign's `analysis-results/findings/` tree, transcribe accepted findings into a `<repo>-security-audit.json` report per `/secure-code-audit` and validate with python3 -m traust.cli reporting validate.
+The phased workflow's `phase4-final.json` is **not** a `contracts/schemas/report.schema.json` document — it is an intermediate artifact for human review. To publish results into the campaign's `analysis-results/findings/` tree, transcribe accepted findings into a `<repo>-security-audit.json` report per `/secure-code-audit`, following the shared [Remediation authoring](../../../docs/report-structure.md#remediation-authoring) rules, then validate and record it through that skill's `traust reporting record` door. Keep the phase JSON and raw notes unchanged: their prose and old labels do not establish effort size or required roadmap priority, and missing external-blocking evidence does not establish `false`.
 
 ## Integrations
 

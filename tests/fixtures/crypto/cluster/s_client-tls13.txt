@@ -1,0 +1,50 @@
+CONNECTED(00000003)
+---
+Certificate chain
+ 0 s:CN=svc.example.com, O=Example
+   i:CN=svc.example.com, O=Example
+   a:PKEY: RSA, 2048 (bit); sigalg: sha256WithRSAEncryption
+   v:NotBefore: Oct 23 19:20:52 2026 GMT; NotAfter: Oct 24 19:20:52 2026 GMT
+---
+Server certificate
+-----BEGIN CERTIFICATE-----
+MIIDOTCCAiGgAwIBAgIUXlONNnJiIaRxEIHpVIc0OZAMFSkwDQYJKoZIhvcNAQEL
+BQAwLDEYMBYGA1UEAwwPc3ZjLmV4YW1wbGUuY29tMRAwDgYDVQQKDAdFeGFtcGxl
+MB4XDTI2MTAyMzE5MjA1MloXDTI2MTAyNDE5MjA1MlowLDEYMBYGA1UEAwwPc3Zj
+LmV4YW1wbGUuY29tMRAwDgYDVQQKDAdFeGFtcGxlMIIBIjANBgkqhkiG9w0BAQEF
+AAOCAQ8AMIIBCgKCAQEAri8ccnxjVDHQBjklLnxeO3HgnS8sPs2o3qswZV91aqmI
+BhdPanSX2rtNmzqG255XIvQrUPuR2a86X3+Y7u6akrc4emt6O5PtOd0NhGM14JWk
+VOlxjkudyRUGFglF89CrsxMtgQ2R1dV/p9xVDN1xgSsp3ZGgQ9JXPYNOEcNo2ic3
+52w1qkwIBe0M/LXQyCCKpGGZ0zW/YDLCsqUDwiYNq0xrv9pydFeAkucD5sjUtgVv
++C+PFkfRTmFWTOSaIt8WGicOGbQk5w1cVs6B3rm/NEv7etFP0Ts9ouI1+d0c5R65
+Dl7uvJdP3tILlJjOFlQ2hDq1/kTPb3XpWNU2LY921wIDAQABo1MwUTAdBgNVHQ4E
+FgQUH2+W3xB1zX46hAHjGsiSdrt2pfswHwYDVR0jBBgwFoAUH2+W3xB1zX46hAHj
+GsiSdrt2pfswDwYDVR0TAQH/BAUwAwEB/zANBgkqhkiG9w0BAQsFAAOCAQEAJxNO
+gK3vCV6Q6293iwGPzGhSn+03WrNBFhI2a8RWy8LmAP4TDA1D2OkN0WXkS9pGnkVk
+myiRSrWEJECmbkFuVSNkn2YmcUmEzGsO95bPxec4Njz26mtIllTca/O3ohv+kDd7
+zgab0e7J3724lWEU4JAnikCUURoow/T179naL611Fq2nBuQFErjJBsFKIwGAVFHM
+nvKMJMhVClj8Tf0b87pGrozXCw7zMIR3RzwrkEc7FwlbzYcuIiSH5MCqbvalKJPC
+3sOM8s71M2pBbkb2wDuiURp6509/rAyMu3v44xr5h7iYQQjHw2l6s0zaM46y5oVK
+K9CPIr4BpWnFL66aPw==
+-----END CERTIFICATE-----
+subject=CN=svc.example.com, O=Example
+issuer=CN=svc.example.com, O=Example
+---
+No client certificate CA names sent
+Peer signing digest: SHA256
+Peer signature type: rsa_pss_rsae_sha256
+Negotiated TLS1.3 group: X25519MLKEM768
+---
+SSL handshake has read 2473 bytes and written 1602 bytes
+Verification error: self-signed certificate
+---
+New, TLSv1.3, Cipher is TLS_AES_256_GCM_SHA384
+Protocol: TLSv1.3
+Server public key is 2048 bit
+This TLS version forbids renegotiation.
+Compression: NONE
+Expansion: NONE
+No ALPN negotiated
+Early data was not sent
+Verify return code: 18 (self-signed certificate)
+---

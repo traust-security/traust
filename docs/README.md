@@ -73,7 +73,7 @@ Lookup docs used across roles during normal work.
 
 | Doc | What it covers |
 |-----|----------------|
-| [skills.md](skills.md) | All 52 skills: description, stage, tier, slash command — *generated; regenerate with `python3 -m traust.cli build skills-reference`* |
+| [skills.md](skills.md) | All 51 skills: description, stage, tier, slash command — *generated; regenerate with `python3 -m traust.cli build skills-reference`* |
 | [cli-reference.md](cli-reference.md) | Every `traust <group> <op>` command |
 | [graphs.md](graphs.md) | The six graphs the workflow engine builds or reads: which question each answers and who consumes it |
 | [routers.md](routers.md) | The seven kinds of routing in the workflow engine: what each does and which components implement it |

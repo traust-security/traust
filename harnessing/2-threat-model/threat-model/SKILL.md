@@ -10,8 +10,9 @@ description: >-
   "update" applies targeted feedback without regenerating; "pr" threat-models
   a diff and returns an approve/request-changes assessment. Output is always
   named after the target (<repo>-threat-model.md); legacy THREAT_MODEL.md
-  files are still read and are migrated on write. Emissions share one schema
-  gated by python3 -m traust.cli reporting lint. Use when
+  files are still read and are migrated on write. Mitigations use canonical
+  effort sizes or explicit unknown, with independent optional external blocking.
+  Emissions share one JSON schema, validated before rendering. Use when
   asked to "threat model", "map the attack surface", "is the threat model
   still current", "threat model this MR/PR/diff", or "what should we be
   worried about in this codebase".
@@ -23,7 +24,8 @@ allowed-tools:
   - Read
   - Glob
   - Bash(python3 *-m traust.cli.checkpoint:*)
-  - Bash(python3 *-m traust_engine.reporting.lint:*)
+  - Bash(python3 *-m traust.cli reporting lint:*)
+  - Bash(python3 *-m traust.cli reporting record:*)
   - Grep
   - Write
   - Bash(git log:*)
@@ -44,7 +46,7 @@ allowed-tools:
 # threat-model
 
 > **Paths.** `analysis-results/…` and `progress-tracker/…` in this skill are the
-> default workspace layout. They resolve through `locations.yaml` in
+> default workspace layout. They resolve through `locations:` in `traust.yaml` in
 > `$TRAUST_CONFIG_HOME` (`docs/setup.md`, Storage locations); substitute your
 > configured roots.
 
@@ -308,16 +310,24 @@ rendered from it. A security report does exactly this. A threat model is
 not an exception.
 
 `threat-model.schema.json` in `traust-contracts` defines the model. All
-modes MUST compose `<target-dir>/<repo>-threat-model.json` against that
-schema, then validate and render it with the SAME two commands every
-other artifact uses:
+modes MUST compose `<target-dir>/<repo>-threat-model.json` against its
+`#/$defs/canonical_write` contract, then validate and render it with the
+SAME commands every other artifact uses:
 
 ```bash
 python3 -m traust.cli reporting rate-threats <repo>-threat-model.json
 python3 -m traust.cli reporting validate <repo>-threat-model.json
 python3 -m traust.cli reporting render   <repo>-threat-model.json \
     -o <repo>-threat-model.md
+python3 -m traust.cli reporting record <repo>-threat-model.json --kind threat_model \
+    --repo-url <https URL of the origin remote> --sha <the modelled commit>
 ```
+
+`reporting record` records the validated model in traust-core as a
+threat-model assessment of that commit (the JSON published as its
+artifact; the same model again is the same run, by `provenance.date`);
+the audits' `traust assessments prepare` hands it to them. `pr` mode
+writes no model and records nothing.
 
 `rate-threats` fills each `risk_rating`'s scores, levels and severity
 from the factors you scored. Author only the factors, the basis and the
@@ -340,6 +350,21 @@ routing time; in interview mode the gap between routing and emit can be
 many turns, and an early read will be evicted before it is used.
 `schema.md` in this directory documents what each section means and the
 scoring guide; the JSON Schema is what your output is checked against.
+
+**Mitigation effort (every mode that writes).** Each `mitigations` entry
+MUST include `effort`: a canonical size, or JSON `null` when the size is
+unknown. Follow [section 8](schema.md#8-recommended-mitigations); do not
+infer a size from a missing estimate or invent duration thresholds.
+`blocked_external` is an independent optional boolean: include `true` or
+`false` only when that state is known, otherwise omit it. A known block
+does not determine the size, and a known size does not determine blocking.
+When recommending the lowest-effort controls, order known sizes by the
+registry's size order; keep unknown sizes separate, never cheapest.
+Historical uppercase labels remain readable. Only the exact registry
+replacements apply when composing a fresh canonical artifact; never
+arbitrarily lowercase other inputs or rewrite stored historical artifacts
+as part of this cutover. Preserve reported blocking when carrying a
+mitigation into a new artifact or a recommendation.
 
 **A non-zero exit is a defect in the document you just wrote, not a step
 to skip.** The command names every failing path — usually an
@@ -368,10 +393,29 @@ threat on a surface goes unmapped. A tagged section 5 row records that the
 surface was checked and the threat set aside, which is a different claim
 from never tagging the surface.
 
+**Entry-point kind.** New emissions give every section 3 entry point a
+`kind` from traust-contracts' `entry_point_kind` vocabulary (the
+entry-point-kind file under `enums/v1`, whose note defines each value), for
+example `grpc-api` for a gRPC service and
+`ci-supply-chain` for a build pipeline. `traust check coverage` matches each
+entry point to the deterministic pre-scan for its kind, so an entry point
+without one is reported as unexplained. Use `other` only when no kind fits.
+
+**LLM components.** When the target is an LLM, agent or MCP application
+(`traust adapters llm-app` reports `llm_application: true`), map its LLM
+components as entry points and assets: the model endpoint, the agent or
+orchestrator, its tools (including MCP tools), retrieval and the vector
+store, and training or fine-tuning data. A threat against one of them
+carries its OWASP Top 10 for LLM Applications category IDs in
+`owasp_llm_references` (for example `["LLM01"]`) and its MITRE ATLAS
+technique IDs in `atlas_refs` (for example `["AML.T0051"]`), next to any
+`attack_refs`. Leave either out when none fits; never guess. ATLAS IDs are
+validated against the harness's pinned ATLAS table, and both render as
+optional trailing threats-table columns.
+
 **Findings-tree placement (wiring contract, 2026-07-31).** The checkout
 copy alone is invisible to every downstream consumer — `/secure-code-audit`
-(coverage diff), `/vuln-scan`, `/triage`, `/threat-register`, and
-`traust_engine.corpus.resolver` all resolve threat models from the campaign findings
+(coverage diff), `/vuln-scan`, `/triage`, and `/threat-register` all resolve threat models from the campaign findings
 tree, and target checkouts are disposable. Whenever the target has a
 findings directory (`analysis-results/findings/<product>/<repo>/`), copy
 the emitted `<model-file>` there in the same step that writes it. If no
@@ -423,6 +467,8 @@ Then print to the user:
 - Downstream consumers: `/triage` (threat-model answers shape verifier
   environment/threat context) and the secure-code-audit reports whose
   findings feed threat likelihood as evidence.
+- MITRE, *MITRE ATLAS*, <https://atlas.mitre.org/>: technique IDs only, from
+  the pinned table (licence terms: `docs/external-dependencies.md`).
 - OWASP Foundation, *OWASP Risk Rating Methodology*,
   <https://owasp.org/www-community/OWASP_Risk_Rating_Methodology>.
   Reimplemented in original wording; no text adapted (licence terms:
@@ -467,14 +513,13 @@ The **Markdown** is consumed by `/secure-code-audit` (coverage diff),
 the JSON, the source; the rendering repeats them as a trailing column in
 sections 3, 4 and 5.
 
-The **JSON** is the contract artifact, and its consumer is the storage
-layer rather than another skill: `traust_engine.corpus.store_ingest`
-routes it as the `threat-model` family, and
-`traust_contracts.v1.storage` projects it into the `threat` table
-behind the `threat_current` and `threat_exposure` views. That is the
+The **JSON** is the contract artifact, and its consumer is traust-core
+rather than another skill: `traust reporting record` records it as a
+threat-model assessment, and `AssessmentService.threats` reads its
+threats back (the latest completed model per repository). That is the
 adopter-neutral read surface — a deployment on Postgres gets the same
-rows without any skill in the path, which is the point of emitting it.
-The skills above still read the Markdown; migrating them onto the views
+threats without any skill in the path, which is the point of emitting it.
+The skills above still read the Markdown; migrating them onto those reads
 is dashboard work, not threat-model work.
 
 Context passes may also emit doc-variance records via
@@ -484,17 +529,17 @@ python3 -m traust.cli ledger doc-variance.
 shipped 2026-08-05 — `docs/continuous-operations.md`, plan
 `progress-tracker/plans/threat-model-cadence-plan.md`). Models are no
 longer written once at bootstrap and left to age; three router lanes
-re-model them, and `harnessing/2-threat-model/threat-model/scripts/emit_drain_tranche.py` puts each row in a
-weekly tranche the orchestrator dispatches headless:
+re-model them, and the pack router paces each row into the runs
+the orchestrator dispatches headless:
 
 | Trigger | Router output | Mode dispatched |
 |---|---|---|
 | diff-lane change touching a sensitive path or an interface-bearing path | `threat_model_pr` stamp on the existing diff row | `pr <clone> --base <anchor>` — **report-only**, on the clone the diff scan already made; writes no model |
-| major/minor release (`release_change` from `harnessing/2-threat-model/threat-model/scripts/build_release_events.py`) | `threat-model-review` lane row | `review <clone> --auto` |
+| major/minor release (`bump` from `traust portfolio release-changes`) | `threat-model-review` lane row | `review <clone> --auto` |
 | model older than 92d with no change-triggered re-model | `threat-model-quarterly` lane row (trickle-drained over a quarter) | `review <clone> --auto` |
 
 The provenance `date:` this skill stamps in section 7 is what the
-router and `check_drift.py`'s `threat-model` row both measure — that
+router and traust-core's freshness view (`assessments:threat-model`) both measure — that
 row is the dead-timer that fires if the quarterly lane stops draining.
 Auto-applying `update` is deliberately NOT wired: Phase 1 is
 report-only pending a calibration window.

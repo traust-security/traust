@@ -1,0 +1,45 @@
+{
+  "type": "result",
+  "subtype": "success",
+  "is_error": false,
+  "duration_ms": 412093,
+  "duration_api_ms": 398120,
+  "num_turns": 41,
+  "stop_reason": "end_turn",
+  "session_id": "00000000-0000-4000-8000-000000000001",
+  "total_cost_usd": 2.71,
+  "usage": {
+    "input_tokens": 1520,
+    "cache_creation_input_tokens": 61000,
+    "cache_read_input_tokens": 1830000,
+    "output_tokens": 24100,
+    "server_tool_use": {"web_search_requests": 0, "web_fetch_requests": 0},
+    "service_tier": "standard"
+  },
+  "modelUsage": {
+    "claude-opus-5-5": {
+      "inputTokens": 1500,
+      "outputTokens": 24000,
+      "cacheReadInputTokens": 1830000,
+      "cacheCreationInputTokens": 60000,
+      "webSearchRequests": 0,
+      "costUSD": 2.69,
+      "contextWindow": 200000,
+      "maxOutputTokens": 32000
+    },
+    "claude-haiku-4-5-20251001": {
+      "inputTokens": 20,
+      "outputTokens": 100,
+      "cacheReadInputTokens": 0,
+      "cacheCreationInputTokens": 1000,
+      "webSearchRequests": 0,
+      "costUSD": 0.0018,
+      "contextWindow": 200000,
+      "maxOutputTokens": 32000
+    }
+  },
+  "permission_denials": [],
+  "terminal_reason": "completed",
+  "result": "Scan recorded: 2 findings.",
+  "uuid": "00000000-0000-4000-8000-000000000002"
+}

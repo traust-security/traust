@@ -10,16 +10,16 @@ checkout beside two data repositories — a **findings store** (scan and
 assessment results plus the ledgers) and a **metrics tree** (roll-ups and
 dashboards). In a typical mono-checkout they are named `analysis-results` and
 `progress-tracker`; a deployment may call them anything. Set the paths in
-`$TRAUST_CONFIG_HOME/locations.yaml` (copy from
-`config/locations.example.yaml`).
+`locations:` in `$TRAUST_CONFIG_HOME/traust.yaml` (template:
+`config/traust.example.yaml`).
 
 | Data | Where it lives | Configured by | Notes |
 |---|---|---|---|
-| **Disposition ledgers** (`*-findings-layer.json`) | the findings store, under version control — **or** the Ledger database | `locations.yaml` → `analysis_results` (local path); optional `ledger.yaml` → `dsn` (copy `config/ledger.example.yaml`) | The record of truth. Append-only, Merkle-stamped, signed. Without `ledger.yaml` `dsn`, the files are the ledger and stay in a repository. With it, the database is the authority: every ledger CLI takes `--ledger-layer` / `--product-repo`, and the layer file is a read-only snapshot (`traust ledger pull`) with a `.snapshot` marker that file mode refuses to write over. `ledger.yaml` also carries signing and token-verification settings; install with `traust[ledger-db]`. |
-| **Scan and assessment results** (baselines, triage, validation, verification, threat models, per-target inventories) | the findings store: a local checkout **or** object storage | `locations.yaml` → `analysis_results` (path, `file://`, `s3://`, `gs://`, `az://`); `HARNESS_STORAGE_OPTIONS` (JSON) for private S3-compatible endpoints | Each ledger records the sha256 of the report it annotates and of every sibling artifact, inside its signature, so a copy is verifiable wherever it is stored. Remote artifacts materialise into `HARNESS_REMOTE_CACHE` (default `~/.cache/traust-engine/remote`). |
-| **Roll-ups, dashboards, metrics ledgers** | the metrics tree | `locations.yaml` → `progress_tracker` | Aggregates only, never per-target detail (the rollups-only discipline in [artifacts.md](artifacts.md)). |
-| **Projections and caches** — `findings.db`, the portfolio graph, the security-feed cache, remote materialisations | beside the findings store, or remote | `locations.yaml` → `portfolio_graph` (defaults to `<analysis_results>/graph/portfolio-graph.db`); `locations.yaml` → `feeds_cache` (**no default** — unset, feed fetch fails closed); `HARNESS_REMOTE_CACHE` | Regenerable. Deleting any of them loses nothing; the drift checker reports when one is stale. `findings.db` is never a write target. |
-| **Operational configuration** (corpus registry, product map, budget policy, safe-exec profiles, allowlists, weights, vocabulary, signing public key) | the deployment's private config directory | `TRAUST_CONFIG_HOME` (default `~/.traust/config`) | Never in a shipping repository; this repo holds templates only. See [config/README.md](../config/README.md). The signing **private** key lives in the deployment's secret store, referenced by `ledger.yaml` → `signing.key_path`. |
+| **Disposition ledgers** (`*-findings-layer.json`) | the findings store, under version control — **or** the Ledger database | `traust.yaml` → `locations.analysis_results` (local path); `traust.yaml` → `database.url` (the record store) | The record of truth. Append-only, Merkle-stamped, signed. The ledger's dsn (`ledger.yaml`) is retired: ledger layers are contract tables in the record store. Signing and token verification are `traust.yaml`'s `ledger:` and `identity:` sections. |
+| **Scan and assessment results** (baselines, triage, validation, verification, threat models, per-target inventories) | the findings store: a local checkout **or** object storage | `traust.yaml` → `locations.analysis_results` (path, `file://`, `s3://`, `gs://`, `az://`); `HARNESS_STORAGE_OPTIONS` (JSON) for private S3-compatible endpoints (*retired* with the engine's remote materialiser; object storage is traust-core's `ObjectStore`) | Each ledger records the sha256 of the report it annotates and of every sibling artifact, inside its signature, so a copy is verifiable wherever it is stored. Remote artifacts materialise into `HARNESS_REMOTE_CACHE` (*retired*, as above). |
+| **Roll-ups, dashboards, metrics ledgers** | the metrics tree | `traust.yaml` → `locations.progress_tracker` | Aggregates only, never per-target detail (the rollups-only discipline in [artifacts.md](artifacts.md)). |
+| **Projections and caches** — `findings.db`, the product-definitions cache, remote materialisations | beside the findings store, or remote | `traust.yaml` → `locations.feeds_cache` (**no default** — unset, `feeds fetch-products` fails closed; the security feeds are traust-core snapshots); `HARNESS_REMOTE_CACHE` (*retired*) | Regenerable. Deleting any of them loses nothing. `findings.db` is never a write target. |
+| **Operational configuration** (`traust.yaml`: database, identity, ledger keys, budgets, locations; the model registry, product map, vocabulary) | the deployment's private config directory | `TRAUST_CONFIG_HOME` (default `~/.traust/config`) | Never in a shipping repository; this repo holds templates only. See [config/README.md](../config/README.md). The signing **private** key lives in the deployment's secret store, referenced by `traust.yaml` → `ledger.key_path`. |
 
 Two rules follow from the table:
 
@@ -28,7 +28,7 @@ Two rules follow from the table:
   changes where bytes are fetched from and nothing about what a verifier can
   check. A ledger never leaves version control.
 - **Location is configuration, not code.** Every path above is read from
-  `$TRAUST_CONFIG_HOME/locations.yaml` via `traust_engine.locations`; there are
+  `locations:` in `$TRAUST_CONFIG_HOME/traust.yaml` via traust-core's `Locations`; there are
   no environment overrides for workspace, analysis-results, progress-tracker,
   or feeds-cache. A skill that hard-codes a location fails the alignment gate.
   Where a field is unset the code returns nothing rather than guessing, so a

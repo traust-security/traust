@@ -1,0 +1,119 @@
+# CWE-400/CWE-770: missing HTTP client/server timeouts and unbounded body reads.
+rules:
+  - id: traust-go-resource-management-http-client-no-timeout
+    languages: [go]
+    severity: WARNING
+    message: >-
+      http.Client constructed without a Timeout — the zero value means no
+      deadline, so one unresponsive peer pins a goroutine and its
+      connection forever; controllers and services accumulate these until
+      exhaustion. Set Timeout on the client, or judge whether every call
+      site drives requests with a context deadline instead. CWE-400.
+    metadata:
+      cwe: ["CWE-400"]
+      category: resource-management
+      asvs: ["V10"]
+      confidence: MEDIUM
+      references:
+        - "CWE-400 resource exhaustion — http.Client without Timeout"
+    patterns:
+      - pattern: http.Client{...}
+      - pattern-not: 'http.Client{..., Timeout: $T, ...}'
+      # sanitizer: Timeout set on the same client after construction
+      - pattern-not-inside: |
+          $C := &http.Client{...}
+          ...
+          $C.Timeout = $T
+      - pattern-not-inside: |
+          $C := http.Client{...}
+          ...
+          $C.Timeout = $T
+
+  - id: traust-go-resource-management-http-server-no-timeouts
+    languages: [go]
+    severity: WARNING
+    message: >-
+      http.Server constructed with none of ReadTimeout, ReadHeaderTimeout,
+      WriteTimeout, or IdleTimeout — slow-header/slow-body clients
+      (Slowloris) hold connections open indefinitely and exhaust the
+      listener. Set ReadHeaderTimeout at minimum; judge the exposure of
+      the listen address. Fires only when ALL four are absent — partially
+      timed-out servers are the judge's business. CWE-400.
+    metadata:
+      cwe: ["CWE-400"]
+      category: resource-management
+      asvs: ["V10"]
+      confidence: MEDIUM
+      references:
+        - "CWE-400 resource exhaustion — http.Server without read/write/idle timeouts"
+    patterns:
+      - pattern: http.Server{...}
+      - pattern-not: 'http.Server{..., ReadTimeout: $T, ...}'
+      - pattern-not: 'http.Server{..., ReadHeaderTimeout: $T, ...}'
+      - pattern-not: 'http.Server{..., WriteTimeout: $T, ...}'
+      - pattern-not: 'http.Server{..., IdleTimeout: $T, ...}'
+      # sanitizers: any of the four timeouts set on the same server
+      # after construction (both literal forms)
+      - pattern-not-inside: |
+          $S := &http.Server{...}
+          ...
+          $S.ReadTimeout = $T
+      - pattern-not-inside: |
+          $S := &http.Server{...}
+          ...
+          $S.ReadHeaderTimeout = $T
+      - pattern-not-inside: |
+          $S := &http.Server{...}
+          ...
+          $S.WriteTimeout = $T
+      - pattern-not-inside: |
+          $S := &http.Server{...}
+          ...
+          $S.IdleTimeout = $T
+      - pattern-not-inside: |
+          $S := http.Server{...}
+          ...
+          $S.ReadTimeout = $T
+      - pattern-not-inside: |
+          $S := http.Server{...}
+          ...
+          $S.ReadHeaderTimeout = $T
+      - pattern-not-inside: |
+          $S := http.Server{...}
+          ...
+          $S.WriteTimeout = $T
+      - pattern-not-inside: |
+          $S := http.Server{...}
+          ...
+          $S.IdleTimeout = $T
+
+  - id: traust-go-resource-management-unbounded-request-body-read
+    languages: [go]
+    severity: WARNING
+    message: >-
+      Request body read into memory without a size bound — a client can
+      stream an arbitrarily large body and exhaust process memory. Wrap
+      the body with http.MaxBytesReader (or io.LimitReader) before
+      reading. Judge who can reach the handler and whether an upstream
+      proxy already bounds bodies. CWE-400/CWE-770.
+    metadata:
+      cwe: ["CWE-400", "CWE-770"]
+      category: resource-management
+      asvs: ["V10"]
+      confidence: MEDIUM
+      references:
+        - "CWE-400/CWE-770 — unbounded inbound request body read"
+    patterns:
+      - pattern-either:
+          - pattern: io.ReadAll($R.Body)
+          - pattern: ioutil.ReadAll($R.Body)
+          - pattern: io.Copy($DST, $R.Body)
+      # inbound-request receivers only (resp/response bodies are the
+      # separate client-side shape, not this rule)
+      - metavariable-regex:
+          metavariable: $R
+          regex: ^(r|req|request|hr|httpReq|httpRequest)$
+      # sanitizer: body re-bound with MaxBytesReader before the read
+      - pattern-not-inside: |
+          $R.Body = http.MaxBytesReader(...)
+          ...

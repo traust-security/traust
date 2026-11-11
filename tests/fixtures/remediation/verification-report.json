@@ -1,0 +1,75 @@
+{
+  "title": "Remediation verification of the upload handler fix",
+  "metadata": {
+    "date": "2026-10-24",
+    "harness_version": "1.4.0-abcdef1",
+    "original_report": "example-service-security-audit.json",
+    "original_commit": "0123456789abcdef0123456789abcdef01234567",
+    "patched_commit": "89abcdef0123456789abcdef0123456789abcdef",
+    "patched_ref": "fix/finding/unbounded-read",
+    "repository": "https://github.com/example-org/example-service",
+    "auditor": "agent"
+  },
+  "summary": {
+    "total_findings": 1,
+    "by_verdict": {
+      "resolved": 1,
+      "partially_resolved": 0,
+      "unresolved": 0,
+      "new_approach": 0,
+      "regression": 0,
+      "false_positive": 0,
+      "risk_accepted": 0
+    },
+    "regressions": 1
+  },
+  "verified_findings": [
+    {
+      "original_id": "FINDING_ID",
+      "original_title": "Unbounded read of the request body",
+      "original_severity": "high",
+      "verdict": "resolved",
+      "remediation_commits": [
+        {
+          "sha": "89abcdef0123456789abcdef0123456789abcdef",
+          "short_sha": "89abcde",
+          "date": "2026-10-23T10:00:00+00:00",
+          "author": "Example Agent",
+          "subject": "fix(upload): bound the request body read",
+          "pr_number": 42,
+          "relevance": "direct"
+        }
+      ],
+      "unattributed": false,
+      "evidence": {
+        "original_code": "body, err := io.ReadAll(r.Body)",
+        "patched_code": "body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxUpload))",
+        "explanation": "The read is now bounded by http.MaxBytesReader at the configured limit, so an oversized body is refused before it is buffered.",
+        "framework_reference": "CWE-400"
+      }
+    }
+  ],
+  "regressions": [
+    {
+      "id": "EXAMPLE_SERVICE-89abcde-REG-001",
+      "title": "Upload limit error leaks the internal path",
+      "severity": "low",
+      "cwes": ["CWE-209"],
+      "locations": [{"path": "pkg/upload/handler.go", "lines": "61-63"}],
+      "description": "The new 413 branch formats the wrapped error into the response body, which includes the server's temporary upload directory.",
+      "remediation": "Return a fixed message for the 413 response.",
+      "introduced_by": "89abcde"
+    }
+  ],
+  "commit_timeline": [
+    {
+      "sha": "89abcde",
+      "full_sha": "89abcdef0123456789abcdef0123456789abcdef",
+      "date": "2026-10-23T10:00:00+00:00",
+      "author": "Example Agent",
+      "subject": "fix(upload): bound the request body read",
+      "pr_number": 42,
+      "addresses": ["FINDING_ID"]
+    }
+  ]
+}

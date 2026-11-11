@@ -4,15 +4,14 @@
 # enumeration recipe: enumerator + filter predicate over that enumerator's
 # ACTUAL output fields + the one judge question per matched row. Cards compile
 # to worklist generators via
-# python3 -m traust.ops.compile_precedent_cards or are REJECTED —
-# never shipped as prose checklists. Compiler output
-# (sweep-candidates-semantic.json) is the sweep_engine generic-candidate shape;
+# python3 -m traust.cli sweep cards or are REJECTED —
+# never shipped as prose checklists. Sweep output (`candidates[]`) is the
+# sweep_engine generic-candidate shape;
 # /triage ingests it unchanged and every match is a candidate, never a finding.
 #
-# Validate: python3 -m traust.ops.compile_precedent_cards \
-#             --cards harnessing/mine-ledger/precedent-cards/pilot.yaml \
-#             --validate-only
-# Compile:  ... --repo <checkout> [--card <id>]
+# Validate: python3 -m traust.cli sweep cards \
+#             harnessing/mine-ledger/precedent-cards/pilot.yaml
+# Sweep:    ... --checkout <checkout> [--card <id>] [--out <file>]
 #
 # `source_findings` are illustrative here (EXAMPLE ids). In practice each card
 # cites the confirmed findings it generalizes; the /mine-ledger skill authors

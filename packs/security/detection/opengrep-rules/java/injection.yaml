@@ -1,0 +1,138 @@
+rules:
+  - id: traust-java-injection-sql-concat
+    languages: [java]
+    severity: ERROR
+    message: >-
+      SQL, JPQL or HQL built by string concatenation or String.format and
+      handed to a JDBC, JPA or Hibernate query call, inline or through a
+      local variable — any interpolated value becomes query syntax. Use a
+      PreparedStatement or a parameterized query (setParameter) for every
+      variable part. CWE-89; SEI CERT IDS00-J.
+    metadata:
+      cwe: ["CWE-89"]
+      category: injection
+      asvs: ["V1"]
+      cert: ["IDS00-J"]
+      confidence: HIGH
+      references:
+        - "seed rule: SEI CERT Oracle Coding Standard for Java, IDS00-J (cited by ID; pattern and text original to this pack)"
+        - "CWE-89 — query text built by String.format or held in a variable before the call"
+    patterns:
+      - pattern-either:
+          # concatenated with a non-literal value, inline or through a local
+          - patterns:
+              - pattern-either:
+                  - pattern: $S.$EXEC("..." + $X, ...)
+                  - pattern: $S.$EXEC("..." + $X + "...", ...)
+                  - pattern: $S.$EXEC("..." + $X + "..." + $Y, ...)
+                  - pattern: $S.$EXEC("..." + $X + "..." + $Y + "...", ...)
+                  - patterns:
+                      - pattern-either:
+                          - pattern-inside: |
+                              $T $Q = "..." + $X;
+                              ...
+                          - pattern-inside: |
+                              $T $Q = "..." + $X + "...";
+                              ...
+                          - pattern-inside: |
+                              $Q = "..." + $X;
+                              ...
+                          - pattern-inside: |
+                              $Q = "..." + $X + "...";
+                              ...
+                          - pattern-inside: |
+                              $T $Q = "..." + $X + "..." + $Y + "...";
+                              ...
+                          - pattern-inside: |
+                              $T $Q = "..." + $X + "..." + $Y;
+                              ...
+                      - pattern: $S.$EXEC($Q, ...)
+              # a literal, or a value declared numeric, can't carry query syntax
+              - metavariable-pattern:
+                  metavariable: $X
+                  patterns:
+                    - pattern-not: '"..."'
+                    - pattern-not: (int $V)
+                    - pattern-not: (Integer $V)
+                    - pattern-not: (long $V)
+                    - pattern-not: (Long $V)
+                    - pattern-not: (short $V)
+                    - pattern-not: (Short $V)
+          # formatted, inline or through a local
+          - pattern: $S.$EXEC(String.format("...", $A, ...), ...)
+          - pattern: $S.$EXEC(format("...", $A, ...), ...)
+          - pattern: $S.$EXEC("...".formatted($A, ...), ...)
+          - patterns:
+              - pattern-either:
+                  - pattern-inside: |
+                      $T $Q = String.format("...", $A, ...);
+                      ...
+                  - pattern-inside: |
+                      $Q = String.format("...", $A, ...);
+                      ...
+              - pattern: $S.$EXEC($Q, ...)
+      - metavariable-regex:
+          metavariable: $EXEC
+          regex: ^(executeQuery|executeUpdate|executeLargeUpdate|execute|addBatch|prepareStatement|prepareCall|createQuery|createNativeQuery|createSQLQuery|queryForObject|queryForList|queryForMap|queryForRowSet|batchUpdate)$
+
+  - id: traust-java-injection-exec-concat
+    languages: [java]
+    severity: ERROR
+    message: >-
+      OS command built by string concatenation and executed — interpolated
+      values become shell/argument syntax. Pass a fixed program with an
+      argument array (ProcessBuilder list form) and validate each argument.
+      CWE-78; SEI CERT IDS07-J.
+    metadata:
+      cwe: ["CWE-78"]
+      category: injection
+      asvs: ["V1"]
+      cert: ["IDS07-J"]
+      confidence: HIGH
+      references:
+        - "seed rule: SEI CERT Oracle Coding Standard for Java, IDS07-J (cited by ID; pattern and text original to this pack)"
+    patterns:
+      - pattern-either:
+          - pattern: Runtime.getRuntime().exec("..." + $X)
+          - pattern: Runtime.getRuntime().exec("..." + $X + "...")
+          - pattern: $RT.exec("..." + $X)
+          - pattern: $RT.exec("..." + $X + "...")
+          - pattern: new ProcessBuilder("sh", "-c", "..." + $X)
+          - pattern: new ProcessBuilder("bash", "-c", "..." + $X)
+          - pattern: new ProcessBuilder("cmd", "/c", "..." + $X)
+
+  - id: traust-java-injection-expression-language
+    languages: [java]
+    severity: ERROR
+    message: >-
+      A non-literal string is evaluated as an expression or script (Spring
+      SpEL parseExpression, Jakarta EL, OGNL, MVEL, a javax.script
+      ScriptEngine) — whoever controls the text can call methods, read
+      beans and run code. Evaluate only expressions shipped with the code;
+      pass user values as variables in a SimpleEvaluationContext. CWE-917 /
+      CWE-94.
+    metadata:
+      cwe: ["CWE-917", "CWE-94"]
+      category: injection
+      asvs: ["V1"]
+      confidence: MEDIUM
+      references:
+        - "CWE-917 expression language injection — SpEL, EL, OGNL, MVEL and script engines on dynamic text"
+    patterns:
+      - pattern-either:
+          - pattern: $PARSER.parseExpression($X, ...)
+          - pattern: $ELP.eval($X)
+          - pattern: $FACTORY.createValueExpression($CTX, $X, ...)
+          - pattern: $FACTORY.createMethodExpression($CTX, $X, ...)
+          - pattern: Ognl.getValue($X, ...)
+          - pattern: Ognl.parseExpression($X)
+          - pattern: MVEL.eval($X, ...)
+          - pattern: MVEL.compileExpression($X, ...)
+          - pattern: $ENGINE.eval($X, ...)
+      - metavariable-pattern:
+          metavariable: $X
+          patterns:
+            - pattern-not: '"..."'
+      - pattern-not-inside: |
+          $T $C = "...";
+          ...

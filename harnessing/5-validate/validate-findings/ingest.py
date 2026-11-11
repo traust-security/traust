@@ -18,7 +18,7 @@ from pathlib import Path
 
 from traust.context import (
     add_config_home_arg,
-    load_engine,
+    load,
     progress_tracker_dir,
     resolve_results_root,
 )
@@ -285,6 +285,7 @@ class Finding:
     # path to the *-security-audit.{json,md} this finding was parsed
     # from — drives ``validated_findings[].source_report`` in report.py
     source_report_path: str | None = None
+    source_id: str | None = None
     # attack surface classification — drives which adapter (if any)
     # can validate this finding.  See ``classify_surface()``.
     #   runtime    — operator/operand/cluster behaviour (k8s adapter)
@@ -403,7 +404,7 @@ def _processed_results_root(
 ) -> Path:
     if processed_root is not None:
         return processed_root
-    return progress_tracker_dir(load_engine(config_home)) / "processed-results"
+    return progress_tracker_dir(load(config_home)) / "processed-results"
 
 
 # ---------------------------------------------------------------------------
@@ -704,6 +705,7 @@ def _ingest_repo_dir(repo_dir: Path, n: Normalized, *, repo_label: str | None = 
     repo_findings = n.findings[pre_count:]
     for f in repo_findings:
         f.source_report_path = sa_path
+        f.source_id = f.id
 
     if (tr := reports.get("triage")) is not None:
         n.source_reports.append({"kind": "triage", "path": str(tr), "sha256": _sha256(tr)})

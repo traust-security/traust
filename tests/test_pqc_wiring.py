@@ -3,7 +3,6 @@
 decision-tree artifact, probe catalogue, chain vocabulary, validator."""
 
 import json
-import sys
 import unittest
 from pathlib import Path
 
@@ -11,7 +10,7 @@ ROOT = Path(__file__).resolve().parent.parent
 
 
 def _load_schema(name):
-    from traust_contracts.paths import schema_path as _sp
+    from traust.paths import schema_path as _sp
 
     return json.loads(_sp(name).read_text(encoding="utf-8"))
 
@@ -20,14 +19,33 @@ class TestDecisionTree(unittest.TestCase):
     def _load(self, rel):
         return json.loads((ROOT / rel).read_text(encoding="utf-8"))
 
+    def _write_validator(self):
+        import jsonschema
+        from referencing import Registry, Resource
+
+        tree = _load_schema("pqc-decision-tree")
+        report = _load_schema("report")
+        resources = [(schema["$id"], Resource.from_contents(schema)) for schema in (tree, report)]
+        return jsonschema.Draft202012Validator(
+            {"$ref": tree["$id"] + "#/definitions/canonical_write"},
+            registry=Registry().with_resources(resources),
+        )
+
     def test_tree_validates_against_schema(self):
+        tree = self._load(
+            "harnessing/3-audit/pqc-readiness/notes/reference/pqc-readiness-decision-tree.json"
+        )
+        self._write_validator().validate(tree)
+
+    def test_external_blocking_is_not_a_new_effort_size(self):
         import jsonschema
 
         tree = self._load(
             "harnessing/3-audit/pqc-readiness/notes/reference/pqc-readiness-decision-tree.json"
         )
-        schema = _load_schema("pqc-decision-tree")
-        jsonschema.validate(tree, schema)
+        tree["remediation_effort"]["rules"][0]["effort"] = "blocked-external"
+        with self.assertRaises(jsonschema.ValidationError):
+            self._write_validator().validate(tree)
 
     def test_crosswalk_covers_every_provenance_class(self):
         tree = self._load(
@@ -139,76 +157,3 @@ class TestPqcCaps(unittest.TestCase):
 
         self.assertFalse(set(chain.PQC_CAPS) & set(chain.MITRE_MAP))
         self.assertFalse(set(chain.PQC_CAPS) & set(chain.CAP_IMPLIES))
-
-
-class TestReadinessValidatorNewFields(unittest.TestCase):
-    def _base(self):
-        return {
-            "title": "t",
-            "metadata": {"repository": "https://x/y", "assessment_basis": "source", "tool": {}},
-            "summary": {"by_rule": {}},
-            "status": "ready",
-            "who_sets_tls": "this_app",
-            "quantum_ready": "yes_by_default",
-            "why_not": [],
-            "do_next": [],
-            "capabilities": {},
-            "scores": {d: {"score": 0, "checks": []} for d in ("VULN", "AGIL", "PQCA", "HNDL")},
-            "flags": {
-                "has_2030_clock_items": False,
-                "hndl_priority": False,
-                "runtime_verification_required": True,
-            },
-            "provenance_summary": {"counts": {}, "dominant": "none"},
-            "readiness_bucket": "ready",
-        }
-
-    def _run(self, doc):
-        import subprocess
-        import tempfile
-
-        p = Path(tempfile.mkdtemp()) / "r.json"
-        p.write_text(json.dumps(doc))
-        return subprocess.run(
-            [
-                sys.executable,
-                str(ROOT / "harnessing/3-audit/pqc-readiness/scripts/pqc_facts.py"),
-                "--validate-readiness",
-                str(p),
-            ],
-            capture_output=True,
-            text=True,
-        ).returncode
-
-    def test_valid_new_fields_pass(self):
-        doc = self._base()
-        doc["readiness_bucket"] = "partial"
-        doc["clock_items"] = [
-            {
-                "fact_ids": ["f1"],
-                "primitive": "RSA-2048",
-                "disallowed_after": 2035,
-                "remediation_effort": "trivial",
-            }
-        ]
-        doc["fips_interaction"] = {"verdict": "no-penalty", "fact_ids": ["f2"]}
-        self.assertEqual(self._run(doc), 0)
-
-    def test_bad_bucket_and_effort_fail(self):
-        doc = self._base()
-        doc["readiness_bucket"] = "great"
-        self.assertEqual(self._run(doc), 1)
-        doc = self._base()
-        doc["clock_items"] = [
-            {
-                "fact_ids": [],
-                "primitive": "x",
-                "disallowed_after": None,
-                "remediation_effort": "easy",
-            }
-        ]
-        self.assertEqual(self._run(doc), 1)
-
-
-if __name__ == "__main__":
-    unittest.main()

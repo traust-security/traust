@@ -1,0 +1,83 @@
+rules:
+  - id: traust-go-xss-reflected-response-taint
+    languages: [go]
+    severity: ERROR
+    message: >-
+      A request value is written into the response body unescaped
+      (fmt.Fprintf / Fprint / io.WriteString / w.Write on the
+      ResponseWriter). Go sniffs an unset Content-Type, so HTML in the
+      value runs as script. Render through html/template, or escape with
+      html.EscapeString and set a non-HTML Content-Type. CWE-79.
+    metadata:
+      cwe: ["CWE-79"]
+      category: cross-site-scripting
+      asvs: ["V1"]
+      confidence: MEDIUM
+      references:
+        - "CWE-79 reflected XSS — request values written to http.ResponseWriter"
+    mode: taint
+    pattern-sources:
+      - pattern-either:
+          - pattern: $R.URL.Query().Get(...)
+          - pattern: $R.FormValue(...)
+          - pattern: $R.PostFormValue(...)
+          - pattern: mux.Vars($R)
+    pattern-sanitizers:
+      - pattern-either:
+          - pattern: html.EscapeString(...)
+          - pattern: template.HTMLEscapeString(...)
+          - pattern: url.QueryEscape(...)
+          - pattern: strconv.Atoi(...)
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: fmt.Fprintf($W, $FMT, ..., $V, ...)
+              - pattern: fmt.Fprint($W, ..., $V, ...)
+              - pattern: fmt.Fprintln($W, ..., $V, ...)
+              - pattern: io.WriteString($W, $V)
+              - pattern: $W.Write([]byte($V))
+          - metavariable-regex:
+              metavariable: $W
+              regex: ^(w|rw|resp|res|writer|response)$
+          - focus-metavariable: $V
+
+  - id: traust-go-xss-template-trusted-type
+    languages: [go]
+    severity: ERROR
+    message: >-
+      A request value converted to one of html/template's trusted types
+      (template.HTML, HTMLAttr, JS, JSStr, URL, CSS, Srcset) — the
+      conversion turns off html/template's escaping for it, so the
+      caller's markup or script is injected as is. Keep it a plain string
+      and let the template escape it, or sanitize first (bluemonday).
+      CWE-79.
+    metadata:
+      cwe: ["CWE-79"]
+      category: cross-site-scripting
+      asvs: ["V1"]
+      confidence: MEDIUM
+      references:
+        - "CWE-79 — html/template trusted-type conversion of request values"
+    mode: taint
+    pattern-sources:
+      - pattern-either:
+          - pattern: $R.URL.Query().Get(...)
+          - pattern: $R.FormValue(...)
+          - pattern: $R.PostFormValue(...)
+          - pattern: mux.Vars($R)
+          - pattern: $C.Query(...)
+          - pattern: $C.PostForm(...)
+    pattern-sanitizers:
+      - pattern-either:
+          - pattern: html.EscapeString(...)
+          - pattern: template.HTMLEscapeString(...)
+          - pattern: $POLICY.Sanitize(...)
+    pattern-sinks:
+      - pattern-either:
+          - pattern: template.HTML(...)
+          - pattern: template.HTMLAttr(...)
+          - pattern: template.JS(...)
+          - pattern: template.JSStr(...)
+          - pattern: template.URL(...)
+          - pattern: template.CSS(...)
+          - pattern: template.Srcset(...)

@@ -4,6 +4,7 @@
 # Usage:
 #   ./scripts/install-toolchain.sh secure-code-audit
 #   ./scripts/install-toolchain.sh secure-container-audit
+#   ./scripts/install-toolchain.sh local-ops
 #   ./scripts/install-toolchain.sh --all
 #
 # This script installs the actual binaries. It is the "one command" the
@@ -11,8 +12,8 @@
 # should pass.
 #
 # Every binary comes straight from its upstream project's GitHub release,
-# at the version pinned in config/external-tools.yaml (the single source of
-# truth — the same pins Containerfile.toolchain consumes). No third-party
+# at the version pinned in the external-tools.yaml traust-core ships (the single
+# source of truth — the same pins Containerfile.tools consumes). No third-party
 # package manager or package index sits in between. Where upstream publishes
 # a checksum file, the download is verified against it before install.
 #
@@ -24,7 +25,12 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-TOOLS_YAML="$REPO_ROOT/config/external-tools.yaml"
+# The pins ship with the installed traust-core package (`uv sync` first).
+PY="$REPO_ROOT/.venv/bin/python"; [[ -x "$PY" ]] || PY=python3
+TOOLS_YAML="$("$PY" -c 'from traust_core.v1.context.config import SHIPPED_EXTERNAL_TOOLS as p; print(p)')" || {
+  echo "FATAL: traust-core not importable — run \`uv sync\` in the traust checkout first" >&2
+  exit 1
+}
 
 # Where directly-downloaded binaries land. Must be on PATH.
 BIN_DIR="${HARNESS_BIN_DIR:-$HOME/.local/bin}"
@@ -49,6 +55,7 @@ dependency-watch:gitleaks
 impact-analysis:joern
 triage:govulncheck
 ledger-signing:cosign
+local-ops:syft gitleaks
 '
 
 # All profile names, space-separated.
@@ -114,7 +121,7 @@ detect_platform() {
   esac
 }
 
-# --- Version pins (single source of truth: config/external-tools.yaml) ---
+# --- Version pins (single source of truth: traust-core's shipped external-tools.yaml) ---
 
 # Print the `expected:` pin for tool $1. Fails loudly when missing so a
 # renamed or dropped manifest entry cannot silently install "latest".
@@ -335,7 +342,7 @@ install_tool() {
     yara)        install_yara ;;
     pip-audit)   install_pip_audit ;;
     joern)       install_joern ;;
-    # checkov handled separately (pinned version in run_checkov.py)
+    # checkov handled separately (pinned in traust-core's models/cloud_config.py)
     *)           ;;
   esac
 }

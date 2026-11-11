@@ -1,0 +1,31 @@
+rules:
+  - id: traust-python-xss-mark-safe-taint
+    languages: [python]
+    severity: ERROR
+    message: >-
+      Request-derived value is marked safe for HTML rendering —
+      Django's autoescaping is bypassed for attacker-controlled
+      content (stored/reflected XSS). Escape first (format_html with
+      the value as an ARGUMENT, or conditional_escape) and never
+      mark_safe() tainted data; a tainted format STRING in
+      format_html() has the same effect. CWE-79.
+    metadata:
+      cwe: ["CWE-79"]
+      category: cross-site-scripting
+      asvs: ["V5"]
+      confidence: HIGH
+      references:
+        - "CWE-79 XSS — Django mark_safe/format_html with tainted input"
+    mode: taint
+    pattern-sources:
+      - pattern-either:
+          - pattern: request.GET.get(...)
+          - pattern: request.GET[...]
+          - pattern: request.POST.get(...)
+          - pattern: request.data[...]
+          - pattern: request.args.get(...)
+          - pattern: request.form.get(...)
+    pattern-sinks:
+      - pattern-either:
+          - pattern: mark_safe(...)
+          - pattern: format_html($FMT)

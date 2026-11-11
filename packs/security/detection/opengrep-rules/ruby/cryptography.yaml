@@ -1,0 +1,70 @@
+rules:
+  - id: traust-ruby-cryptography-tls-verify-none
+    languages: [ruby]
+    severity: ERROR
+    message: >-
+      TLS certificate verification turned off (OpenSSL::SSL::VERIFY_NONE,
+      Faraday ssl verify false, HTTParty verify false, RestClient
+      verify_ssl false) — anyone on the network path can impersonate the
+      server. Keep verification on; trust a private CA by adding it to the
+      store. CWE-295.
+    metadata:
+      cwe: ["CWE-295"]
+      category: cryptography
+      asvs: ["V12"]
+      confidence: HIGH
+      references:
+        - "CWE-295 — Ruby HTTP clients with certificate verification off"
+    pattern-either:
+      - pattern: OpenSSL::SSL::VERIFY_NONE
+      - pattern: '{ ..., verify: false, ... }'
+      - pattern: '{ ..., verify_ssl: false, ... }'
+      - pattern: '$C.new(..., ssl: { ..., verify: false, ... }, ...)'
+      - pattern: '$M.$VERB($U, ..., verify: false, ...)'
+
+  - id: traust-ruby-cryptography-weak-hash
+    languages: [ruby]
+    severity: INFO
+    message: >-
+      MD5/SHA-1 in use — fine for non-security checksums, broken for
+      anything an attacker benefits from colliding (signatures, password
+      hashes, integrity of untrusted input). Judge the context; hash
+      passwords with bcrypt or argon2. CWE-328.
+    metadata:
+      cwe: ["CWE-328", "CWE-327"]
+      category: cryptography
+      asvs: ["V11"]
+      confidence: LOW
+      references:
+        - "CWE-328/CWE-327 — weak hash algorithms in security context"
+    pattern-either:
+      - pattern: Digest::MD5.$F(...)
+      - pattern: Digest::SHA1.$F(...)
+      - pattern: OpenSSL::Digest::MD5.new(...)
+      - pattern: OpenSSL::Digest::SHA1.new(...)
+
+  - id: traust-ruby-cryptography-weak-random-secret
+    languages: [ruby]
+    severity: WARNING
+    message: >-
+      Kernel#rand / Random output assigned to a secret-looking variable —
+      it is a seedable Mersenne Twister, so tokens, codes and passwords
+      built from it are predictable. Use SecureRandom (hex, urlsafe_base64,
+      random_number). CWE-338.
+    metadata:
+      cwe: ["CWE-338"]
+      category: cryptography
+      asvs: ["V11"]
+      confidence: MEDIUM
+      references:
+        - "CWE-338 — Kernel#rand used for secret-shaped values"
+    patterns:
+      - pattern-either:
+          - pattern: $X = rand(...)
+          - pattern: $X = Random.rand(...)
+          - pattern: $X = Random.new.rand(...)
+          - pattern: $X = $A.sample(...)
+          - pattern: $X = $A.shuffle.join
+      - metavariable-regex:
+          metavariable: $X
+          regex: (?i).*(token|secret|password|passwd|nonce|otp|api_key|apikey|session_id|reset_code).*

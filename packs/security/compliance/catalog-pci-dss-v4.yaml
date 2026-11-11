@@ -1,0 +1,36 @@
+# PCI DSS v4.x — requirement-ID catalog.
+#
+# Requirement IDs and principal-requirement area labels only (facts,
+# citable). PCI DSS text is PCI SSC copyright — it never appears here
+# or anywhere in the workspace (harness content-guard rule 4). Area
+# labels below are HARNESS-AUTHORED shorthand, not the standard's
+# headings. A declared CDE boundary is mandatory input for every PCI
+# run; requirements are assessed only against systems inside it.
+#
+# The technical starter set lists sub-requirements the mapping registry
+# seeds with checks or crosswalks; full-requirement enumeration grows
+# with registry coverage, not ahead of it.
+
+reviewed: "2026-07-19"  # last review against the living framework (drift-watch 180d window)
+framework: pci-dss-v4
+principal_requirements:
+  - {id: "1",  area: network security controls}
+  - {id: "2",  area: secure component configuration}
+  - {id: "3",  area: stored account data protection}
+  - {id: "4",  area: transmission cryptography}
+  - {id: "5",  area: anti-malware}
+  - {id: "6",  area: secure systems and software}
+  - {id: "7",  area: access restriction / need-to-know}
+  - {id: "8",  area: identification and authentication}
+  - {id: "9",  area: physical access}
+  - {id: "10", area: logging and monitoring}
+  - {id: "11", area: security testing}
+  - {id: "12", area: organizational security policy}
+technical_starter_set:
+  - {id: "3.5.1",  crosswalk: ["nist-800-53-rev5:sc-28"]}
+  - {id: "4.2.1",  crosswalk: ["nist-800-53-rev5:sc-8"]}
+  - {id: "6.3.3",  crosswalk: ["nist-800-53-rev5:si-2"]}
+  - {id: "8.3.6",  crosswalk: ["nist-800-53-rev5:ia-5"]}
+  - {id: "10.2.1", crosswalk: ["nist-800-53-rev5:au-2"]}
+  - {id: "11.3.1", crosswalk: ["nist-800-53-rev5:ra-5"]}
+organizational_examples: ["12.1.1", "12.6.1", "9.2.1"]

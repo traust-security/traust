@@ -1,0 +1,28 @@
+rules:
+  - id: traust-rust-cors-any-origin-with-credentials
+    languages: [rust]
+    severity: ERROR
+    message: >-
+      The CORS layer echoes any request's Origin back and allows credentials
+      (tower-http's very_permissive or mirror_request, actix-cors's
+      permissive or allow_any_origin with supports_credentials), so any site
+      can make requests with the user's cookies and read the responses. List
+      the allowed origins explicitly. CWE-942.
+    metadata:
+      cwe: ["CWE-942", "CWE-346"]
+      category: cors
+      asvs: ["V3"]
+      confidence: HIGH
+      references:
+        - "CWE-942 permissive cross-origin policy — mirrored origin with credentials"
+    pattern-either:
+      - pattern: CorsLayer::very_permissive()
+      - pattern: Cors::very_permissive($S)
+      - pattern: Cors::permissive()
+      - patterns:
+          - pattern-either:
+              - pattern: $C.allow_origin(AllowOrigin::mirror_request())
+              - pattern: $C.allow_origin(AllowOrigin::predicate(|$O, $P| true))
+              - pattern: $C.allow_any_origin()
+          - pattern-inside:
+              pattern-regex: (?s)\A(?=.*(?:allow_credentials\s*\(\s*true\s*\)|supports_credentials\s*\(\s*\))).*

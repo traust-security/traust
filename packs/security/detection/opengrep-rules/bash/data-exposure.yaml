@@ -1,0 +1,62 @@
+rules:
+  - id: traust-bash-data-exposure-cred-in-argv
+    languages: [bash]
+    severity: ERROR
+    message: >-
+      Credential passed on a command line — argv is visible to every
+      process on the host and is echoed verbatim into CI logs whenever
+      xtrace is on. Use the tool's stdin/credential-file mechanism
+      (e.g. `--password-stdin`). CWE-532/CWE-214.
+    metadata:
+      cwe: ["CWE-532", "CWE-214"]
+      category: data-exposure
+      asvs: ["V16"]
+      confidence: HIGH
+      references:
+        - "CWE-532/CWE-214 — credentials on command line in shell scripts"
+    patterns:
+      - pattern-either:
+          - pattern: $TOOL login ... -p $VAL ...
+          - pattern: $TOOL login ... -p=$VAL ...
+          - pattern: $TOOL login ... --password $VAL ...
+          - pattern: $TOOL login ... --password=$VAL ...
+          - pattern: $TOOL login -p $VAL ...
+          - pattern: $TOOL login -p=$VAL ...
+      - metavariable-regex:
+          metavariable: $TOOL
+          regex: ^(podman|docker|skopeo|oc|buildah|helm|cosign)$
+
+  - id: traust-bash-data-exposure-xtrace
+    languages: [bash]
+    severity: INFO
+    message: >-
+      Shell tracing enabled in a script that references credential-shaped
+      identifiers — every expanded value, including those secrets, echoes
+      into the job log. Drop the x flag or bracket the sensitive section
+      with `set +x`; judge whether the referenced values are live
+      credentials in this script's scope. CWE-532.
+    metadata:
+      cwe: ["CWE-532"]
+      category: data-exposure
+      asvs: ["V16"]
+      confidence: LOW
+      references:
+        - "CWE-532 — shell tracing with credential lexicon or remote script source"
+    patterns:
+      - pattern-either:
+          - patterns:
+              - pattern-either:
+                  - pattern: set $FLAGS
+                  - pattern: set $FLAGS ...
+              - metavariable-regex:
+                  metavariable: $FLAGS
+                  regex: ^-[a-w]*x[a-w]*$
+          - pattern: set -o xtrace
+      # co-occurrence constraint: the script must mention a
+      # credential-shaped identifier (var, heredoc, flag) OR source/pipe a
+      # remotely fetched script (whose credential handling inherits this
+      # shell's xtrace) — the anchored lookahead makes the regex span the
+      # whole file, so pattern-inside keeps xtrace hits only in scripts
+      # where the trace can expose secret material
+      - pattern-inside:
+          pattern-regex: (?is)\A(?=.*(password|passwd|secret|token|api[_-]?key|credential|bearer|aws_access_key|aws_secret_access|source\s*<\(\s*curl|curl[^\n]*\|\s*(ba|z)?sh)).*

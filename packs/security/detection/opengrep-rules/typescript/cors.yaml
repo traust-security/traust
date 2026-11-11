@@ -1,0 +1,37 @@
+rules:
+  - id: traust-ts-cors-any-origin-with-credentials
+    languages: [typescript, javascript]
+    severity: ERROR
+    message: >-
+      CORS echoes any request's Origin back (origin: true, a match-all
+      regex, a callback that always allows, or the Origin header copied into
+      Access-Control-Allow-Origin) and allows credentials, so any site can
+      make requests with the user's cookies and read the responses. List
+      the allowed origins explicitly. CWE-942.
+    metadata:
+      cwe: ["CWE-942", "CWE-346"]
+      category: cors
+      asvs: ["V3"]
+      confidence: HIGH
+      references:
+        - "CWE-942 permissive cross-origin policy — reflected origin with credentials"
+    pattern-either:
+      # cors, @fastify/cors, Nest enableCors, Apollo: the options object
+      - patterns:
+          - pattern-either:
+              - pattern: '{..., origin: true, ...}'
+              - pattern: '{..., origin: /.*/, ...}'
+              - pattern: '{..., origin: /^.*$/, ...}'
+              - pattern: '{..., origin: ($O, $CB) => $CB(null, true), ...}'
+              - pattern: '{..., origin: function ($O, $CB) { $CB(null, true); }, ...}'
+          - pattern: '{..., credentials: true, ...}'
+      - patterns:
+          - pattern-either:
+              - pattern: $RES.setHeader("Access-Control-Allow-Origin", $REQ.headers.origin)
+              - pattern: $RES.header("Access-Control-Allow-Origin", $REQ.headers.origin)
+              - pattern: $RES.set("Access-Control-Allow-Origin", $REQ.headers.origin)
+              - pattern: $RES.setHeader("Access-Control-Allow-Origin", $REQ.get("origin"))
+              - pattern: $RES.header("Access-Control-Allow-Origin", $REQ.get("origin"))
+              - pattern: $RES.set("Access-Control-Allow-Origin", $REQ.get("origin"))
+          - pattern-inside:
+              pattern-regex: (?si)\A(?=.*Access-Control-Allow-Credentials["']\s*,\s*["']?true).*

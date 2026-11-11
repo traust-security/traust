@@ -1,6 +1,6 @@
 ---
 name: secure-container-audit
-description: Use when the user asks to perform a security audit, vulnerability scan, SBOM analysis, or supply-chain assessment of a container image (registry reference, payload image, or batch of images) using skopeo, syft, and grype — covering image configuration, known CVEs in shipped packages, signature/provenance posture, and drift between the image contents and its source repository.
+description: Use when the user asks to perform a security audit, vulnerability scan, SBOM analysis, or supply-chain assessment of a container image (registry reference, payload image, or batch of images) using skopeo, syft, and grype — covering image configuration, known CVEs in shipped packages, signature/provenance posture, and drift between the image contents and its source repository. Omits unauthored validity answers; authors canonical remediation sizes or explicit unknowns, independent blocking, and explicit roadmap priorities through Core's report record door.
 metadata:
   harness.tier: "primary"
 allowed-tools:
@@ -20,12 +20,15 @@ allowed-tools:
   - Bash(jq:*)
   - Bash(ls:*)
   - Bash(mktemp:*)
-  - Bash(python3 *traust* -m traust_engine.adapters.checkov:*)
-  - Bash(python3 *traust* -m traust_engine.adapters.yara:*)
+  - Bash(python3 *traust* -m traust.cli adapters checkov:*)
+  - Bash(python3 *traust* -m traust.cli adapters yara:*)
   - Bash(python3 *traust* -m traust.cli adapters osv:*)
+  - Bash(python3 *traust* -m traust.cli adapters image-sbom:*)
+  - Bash(python3 *traust* -m traust.cli adapters image-packages:*)
+  - Bash(python3 *traust* -m traust.cli adapters priv-profile:*)
   - Bash(python3 *traust* -m traust.cli reporting validate:*)
+  - Bash(python3 *traust* -m traust.cli reporting record:*)
   - Bash(python3 *traust* -m traust_engine.reporting.render:*)
-  - Bash(python3 *traust* -m traust.cli corpus finding-identity:*)
   # Confinement added 2026-07-31 (P1 gate rework — the
   # widened S1 privilege tokens made this skill's missing
   # allowlist visible; assessment root-cause 3). Never
@@ -35,7 +38,7 @@ allowed-tools:
 # Secure Container Audit
 
 > **Paths.** `analysis-results/…` and `progress-tracker/…` in this skill are the
-> default workspace layout. They resolve through `locations.yaml` in
+> default workspace layout. They resolve through `locations:` in `traust.yaml` in
 > `$TRAUST_CONFIG_HOME` (`docs/setup.md`, Storage locations); substitute your
 > configured roots.
 
@@ -73,6 +76,10 @@ If the registry requires authentication (e.g. `registry.redhat.io`), verify acce
 
 2. **A payload analysis CSV file** (the same files `secure-code-audit` consumes). Use the **Payload Image Key(s)** column as the image list and the **GitHub URL** + **Branch** columns as the declared source for the drift check (Phase 5). Resolve image keys to full pullspecs via the release payload or operator bundle they came from (the `inventory-repositories` outputs record these).
 
+   Release-routed batches also carry **Inventory Source**, the original inventory CSV path.
+   Use it to resolve bare keys against that payload or operator bundle; never treat a bare key
+   as a globally unique pullspec. The batch contains the changed image identities only.
+
 3. **A plain text file of image references**, one per line (comments with `#` allowed).
 
 ### Deduplication
@@ -86,10 +93,11 @@ For multi-arch manifest lists, audit the `amd64` image by default and record the
 Images are immutable: a published digest's audit never goes stale — the
 *next tag/digest* does. Re-audits are therefore **release-event-driven,
 never calendar-driven**: the continuous-operations router
-(docs/continuous-operations.md) surfaces container release events via its
-`release-passthrough` lane (`rescan-events.jsonl`, `source: release`),
-and base-image CVE waves route through `/impact-analysis` + grype
-re-scan rather than a full re-audit. A quarterly full pass over the
+(docs/continuous-operations.md) routes container release events to its
+`release-passthrough` lane, whose asset refuses until traust-core has a release feed
+(NEED(release-passthrough)); release discovery from inventory files is retired.
+Base-image CVE waves route through `/impact-analysis` + grype re-scan rather than a full
+re-audit. A quarterly full pass over the
 flagship image set is the only calendar backstop.
 
 ---
@@ -156,8 +164,8 @@ The `KHS-*` facts (exact `file:line` inside the extracted tree — record the la
 **Bundle privilege profile.** For operator **bundle images** specifically, additionally run the least-privilege profiler over the extracted `/manifests` tree so the bundle's SCC requests, securityContexts, and complete RBAC enumeration are persisted (the CSV is the authoritative statement of what the operator ships to clusters — sometimes ahead of or divergent from the source repo):
 
 ```bash
-python harnessing/3-audit/operator-priv-profile/scripts/build_priv_profile.py \
-    --repo <extracted-bundle-root> --name <repo> --out-dir <report-output-dir>/
+python3 -m traust.cli adapters priv-profile <extracted-bundle-root> --name <repo> \
+    --out <report-output-dir>/<repo>-priv-profile.json
 ```
 
 Judge its flags per `/operator-priv-profile`'s interpretation rules (any-SCC `use`, wildcard grants, privileged workloads without SCC requests); the tier-2 kubebuilder diff is n/a for bundles (no Go source in the image) — say so rather than reporting zero surplus. Record `"priv-profile": "ran"`/`"skipped: <reason>"` in `deterministic_steps`.
@@ -186,16 +194,24 @@ against language packages an RPM installed. On `ubi9/python-311` (measured
 requests and setuptools under `/usr/lib/python3.*`, all carrying Red Hat
 backports. **The CycloneDX file is for the graph**:
 
-**Persist the SBOM for the portfolio graph**: copy it to
-`analysis-results/graph/sboms/<shortdigest>.cdx.json` (first 7+ hex chars
-of the audited digest as the filename stem). `/portfolio-graph`'s artifact
-layer ingests that directory into `ships_module`/`ships_package` edges, so
-every container audit accrues into the graph automatically. The grype JSON
+**Persist the SBOM for the portfolio graph**: record it on the audited
+digest, with the platform and, when Phase 1's `vcs-url`/`vcs-ref` labels
+declare it, the source commit:
+
+```bash
+python3 -m traust.cli adapters image-sbom <name>@<digest> --sbom /tmp/<name>-sbom.cdx.json \
+  --platform linux/amd64 [--repo-url <vcs-url> --sha <vcs-ref>]
+```
+
+traust-core keeps the image's packages as SBOM rows that the portfolio's
+dependency reads walk, so every container audit accrues into the graph
+automatically (image rows are append-only: the same digest again takes the
+same SBOM, platform and source). The grype JSON
 below remains an intermediate — do not persist it.
 
 (`syft` pulls via the registry directly; if Phase 1 already produced an OCI copy, use `syft oci-dir:/tmp/<name>-oci` instead.)
 
-Record in `metadata.additional.sbom_packages` the total package count and the per-ecosystem breakdown (rpm, go-module, npm, python, …).
+Record in `metadata.additional.sbom_packages` the total package count and the per-ecosystem breakdown (rpm, go-module, npm, python, …) (`python3 -m traust.cli adapters image-packages <digest>` prints both from the recorded SBOM).
 
 **Attribution-coverage check (assertive posture trigger).** syft can
 only inventory what it can attribute: static/vendored binaries,
@@ -262,12 +278,12 @@ Each candidate it shares with grype is tagged `also_in_grype: true`.
   `"osv-scanner": "ran"`.
 - Record `skipped_os_installed` (the language packages left to grype) in
   `metadata.additional.sbom_packages`.
-- Air-gapped deployments (`access: air-gapped` on the `osv` source in
-  `feeds.yaml`) run the same command; osv-scanner offline reads the
+- Air-gapped deployments (`feeds.osv_access: air-gapped` in
+  `traust.yaml`) run the same command; osv-scanner offline reads the
   filtered packages.
 
 - **Every match** becomes a `dependency_audit` entry: `package`, `version`, `status` (`vulnerable`/`fix-available`/`wont-fix` per upstream data), `notes` with the CVE/GHSA ID and fixed-in version. Negligible-severity or no-fix matches may be summarized in `dependency_audit.prose`.
-- **Promote to a finding** only matches that are plausibly exploitable in this image's role: the vulnerable binary/library actually ships and is executed or network-reachable (a CVE in an unused `dnf` plugin in a distroless-adjacent image is `dependency_audit`-only). **Every promotion to critical/high must additionally pass the Precision Gate below** — its dependency and advisory gate is this skill's measured FP path. Category `supply-chain`, cite K07 for operator images, carry the CVE's CVSS vector, and set `validation_status: not_verified` — a version match is not execution evidence.
+- **Promote to a finding** only matches that are plausibly exploitable in this image's role: the vulnerable binary/library actually ships and is executed or network-reachable (a CVE in an unused `dnf` plugin in a distroless-adjacent image is `dependency_audit`-only). **Every promotion to critical/high must additionally pass the Precision Gate below** — its dependency and advisory gate is this skill's measured FP path. Category `supply-chain`, cite K07 for operator images, carry the CVE's CVSS vector, and omit unauthored `validation_status` — a version match is not execution evidence.
 - **Respect Red Hat security data**: for RPM packages grype consumes RHSA data — report the RHSA severity/fix state rather than second-guessing NVD when they disagree, and say so in `notes`. The same holds for a language package an RPM installed: its fixes arrive in the RPM, so an upstream GHSA/CVE match against it is not evidence; check the owning RPM's RHSA state instead.
 - **Consult portfolio impact artifacts**: when `analysis-results/impact/<cve>-impact-analysis.json` exists (from `/impact-analysis`) and covers this image's source repo, cite its classification as promotion/dismissal context — `affected` at symbol level strengthens promotion; `not_observed` at symbol level is documented dismissal evidence; manifest-level classifications inform but never decide. Record the artifact path in the finding's evidence.
 - Never mark CVE matches `confirmed` from scanner output alone; the fuzzing/validation stages own that transition.
@@ -277,9 +293,9 @@ Each candidate it shares with grype is tagged `also_in_grype: true`.
 When the SBOM/CVE scan reveals crypto-relevant packages or libraries
 (e.g. openssl, gnutls, golang crypto), delegate to the `crypto-analysis`
 skill for full crypto posture extraction. That skill owns invocation of
-`crypto_audit.py image` and all interpretation of its output (governance
+`traust adapters crypto-image` and all interpretation of its output (governance
 chains, PQC classification, FIPS compliance). Do not invoke
-`crypto_audit.py` directly from this skill.
+`adapters crypto-image` directly from this skill.
 
 ## Phase 4 — Cross-Reference Existing Coverage
 
@@ -389,33 +405,31 @@ first-party shipped code, not a dependency — the Phase 5 drift check is
 where it surfaces); live functional credentials (path pre-filter
 below); and the severity floors below.
 
-### FP-precedent gate (shared components, optional-degrade)
+### Shared-component precedent handoff (post-record, not an audit-time gate)
 
-Base-image packages and shared vendored binaries (kube-rbac-proxy and
-the like) are the measured re-refutation treadmill — the same FP
-re-litigated per image that ships the component. Before filing a
-critical/high dependency/CVE candidate on a package that ships across
-many images (base-image layer, shared sidecar binary), consult the
-portfolio precedent cache exactly as `/secure-code-audit` does:
+For candidates in base-image packages or shared vendored binaries,
+independently check **this image's own reachability, entrypoints and
+configuration**. Apply the audit-time gates and file using only evidence
+available before recording; another image's or repo's context does not
+establish this one's applicability.
 
-```bash
-python3 -m traust.cli corpus precedent match \
-    --cache ../analysis-results/graph/fp-precedent-cache.json \
-    --findings <candidates.json>
-```
-
-A match at `max_strength: human_countersigned` is citeable prior
-adjudication: record it in `precision_gates.fired` (gate
-`"fp-precedent"`, plus the precedent's source repo + date in the entry)
-and apply the standard downgrade-not-drop posture — the observation
-moves to `dependency_audit`/lower severity with the precedent cited,
-never silently disappears, and **this image's own reachability is still
-checked** (a precedent from another image or repo does not prove this
-one's context matches). `machine_refuted_sound` matches are context
-only — never gate evidence at audit time; they surface again at
-/triage Phase 2g. A missing/empty cache skips this gate silently
-(clean no-op by contract); audit judgment stays independent — the
-precedent is evidence to cite, never a verdict to copy.
+Successful canonical `reporting record --kind container` stores the
+assessment/artifact and atomically admits its findings under Core's
+recorded schema. Pass the returned assessment ID directly to `traust
+triage prepare`; current-finding lookups can read the admitted findings
+without another intake or wait. Precedent matching is post-record only, for actual native
+items. A canonical report with zero findings is a valid empty native
+batch, not proof the image is secure. Do not rewrite or convert the report.
+For admitted candidates, `/triage` Phase 2g owns the supplied `precedents`,
+their provenance, verification routing and subsequent adjudication.
+Do not require a pre-filing match, downgrade on an
+unavailable match, or add an `"fp-precedent"` entry to
+`precision_gates.fired`. Human-countersigned matches reduce triage votes,
+never skip verification; machine matches are context only with full votes.
+Any supported downgrade-not-drop decision belongs in the new triage
+determination after independent verification, not in a retroactive edit
+to this audit's findings, `dependency_audit` or gate metadata. A match
+never supplies an automatic false-positive verdict.
 
 ### Crit/high reporting bar
 
@@ -460,7 +474,7 @@ must pass all of:
    checked/reviewed" rationales are audit leads, not findings. A
    finding requires concrete evidence in THIS artifact (a config
    value, a shipped package, a signature absence). Plausible but
-   unestablished exposure → medium, `validation_status: not_verified`,
+   unestablished exposure → medium, omit `validation_status`,
    with the unestablished step named.
 
 **Severity floors (identical to `/secure-code-audit`'s)** —
@@ -553,6 +567,20 @@ Example: `CONSOLE_RHEL9-3a7f9c1-004`. This satisfies the existing schema regex `
 
 **The structure tables live in one place: [`docs/report-structure.md`](../../../docs/report-structure.md).** Read it before writing the report; this skill's profile deltas are the `container` section there. Do not restate the tables here.
 
+Follow the shared
+[Validity authoring](../../../docs/report-structure.md#validity-authoring)
+rules: unjudged findings omit `validation_status`, not `null` or a default
+confirmation. Core's installed contracts registry owns explicit new
+assertions; scanner confidence does not supply one. Preserve evidence and
+correction context in existing fields, not as a validity status.
+
+Follow the shared
+[Remediation authoring](../../../docs/report-structure.md#remediation-authoring)
+rules for findings and roadmap items. Scanner/advisory severity, fixed-in
+versions, source drift, or an upstream dependency do not establish a size
+or roadmap priority. Preserve unknown size and omit unknown blocking;
+author each required roadmap priority explicitly.
+
 Key profile obligations for this skill:
 
 - `metadata.audit_profile: "container"`.
@@ -564,7 +592,7 @@ Key profile obligations for this skill:
 - `dependency_audit` populated from Phase 3; findings only for reachable/shipping vulnerabilities.
 - `peach_isolation_review` always emitted — normally `{"applicable": false, "rationale": …}` pointing at the source repo's code-profile report.
 - No `loc_breakdown`; record `metadata.additional.sbom_packages` instead.
-- After validation: python3 -m traust.cli corpus finding-identity fingerprint <report.json> --write.
+- Successful canonical `reporting record --kind container` atomically admits the report's findings by Core-computed identity. Preserve its receipt and use the returned assessment ID for native triage preparation; current-finding reads can use the admitted findings without separate intake.
 
 ### Report Validation
 
@@ -574,35 +602,63 @@ Identical gate to the other audit profiles — **a report is not complete until 
 python3 -m traust.cli reporting validate <path-to-report.json>
 python3 -m traust.cli reporting validate --strict <path-to-report.json>   # address warnings
 python3 -m traust.cli reporting render <path-to-report.json> -o <path-to-report.md>
+python3 -m traust.cli reporting record <path-to-report.json> --kind container \
+  --repo-url <vcs-url> --sha <vcs-ref>   # when Phase 1's labels declare the source
 ```
 
-Do not begin the next image until the current report passes.
+Do not begin the next image until the current report passes validation
+and Core accepts its record, including the new-report remediation fields.
+Compatibility validation and rendering alone are not publication; do not
+rewrite historical reports or stored runs to satisfy new-authorship rules.
+
+**Native finding handoff:** successful canonical container recording admits
+the report's findings under the returned assessment ID. Pass that ID
+directly to `traust triage prepare`; current-finding lookups can read the
+admitted findings without another intake. Genuine zero-finding canonical
+reports follow the valid empty-batch contract. Keep the report unchanged;
+admission does not author a validity verdict or guarantee a precedent match.
 
 ### Disposition Flow (after the audit)
 
 The report is an **immutable baseline**, and this skill never writes
-disposition state — the same invariant as every audit profile. Post-audit
-truth flows through the disposition ledger
-([`docs/disposition-ledger.md`](../../../docs/disposition-ledger.md)):
-`/triage` and `/validate-findings` verdicts reach the ledger via
-python3 -m traust.cli ledger emit-triage /
-python3 -m traust.cli ledger emit-validation, and `/track-findings`
-regenerates the cumulative view. Container-specific rules:
+disposition state — the same invariant as every audit profile. For
+admitted native findings, post-audit truth flows through Core findings
+([`docs/disposition-ledger.md`](../../../docs/disposition-ledger.md)).
+Successful canonical container recording supplies those native findings.
+`traust triage record` records triage verdicts and queues human review;
+`/track-findings` reads derived state and records explicit human judgements
+through `traust findings`. The former layer emitters remain retired.
+Bound machine validation uses `traust validation record`. Regenerate the
+derived container view after recording an audit or changing a decision:
 
-- **Naming.** The report shares its directory with the source repo's
-  code audit, so ledger artifacts keep the full report stem:
-  `<image>-container-audit-findings-layer.json` and
-  `<image>-container-audit-findings-current.{json,md}` — never the
-  short `<image>-findings-*` names, which belong to the code audit.
-  The ledger tooling derives this naming by default.
-- **Identity across rebuilds.** Finding IDs are digest-keyed; a fixed
-  image rebuild is a **new digest → new report → new finding IDs**.
-  Dispositions do not carry forward by editing the old report: re-audit
+```bash
+python3 -m traust.cli dashboard view container-findings \
+  --assessment-id <recorded-container-assessment-uuid> \
+  --report-stem <image>-container-audit --out <report-directory>
+```
+
+- **Naming and population.** The full stem is required; output is
+  `<image>-container-audit-findings-current.{json,md,html}`, never the
+  code audit's short `<image>-findings-*` names. The assessment anchors the
+  source repository and image repository from `metadata.repository`.
+  All stored container reports for that image repository across tags and
+  digests contribute occurrences; unrelated images and code audits do not.
+  A registry port is part of the image repository. Preserve digest-pinned
+  image provenance when recording; a source URL is not image provenance.
+  JSON includes report provenance, scoped occurrences, canonical decisions
+  and folded current state. `--as-of` bounds reports and decisions.
+  A rendered projection is not the admission receipt; retain the successful
+  canonical container record receipt for native assessment binding.
+- **Identity across rebuilds.** Report-local finding labels are
+  digest-keyed; a fixed image rebuild is a **new digest → new report →
+  new report-local labels**, not proof of native finding admission.
+  Dispositions do not carry forward by editing the old report. Re-audit
   the new digest (the container analog of `/verify-remediation`) and
-  let the python3 -m traust.cli corpus finding-identity fingerprint match ladder join
-  old dispositions to the new baseline — the same mechanism branch
-  re-audits use. A CVE absent from the rebuilt image's report resolves
-  the old finding through that join, not through a hand edit.
+  record its canonical report: container recording atomically admits the
+  new occurrences, allowing Core to match native identities and associate
+  prior decisions without rewriting the old report. No separate intake is
+  required. Never claim automatic resolution merely because a CVE is
+  absent from a new report.
 - **Census cut.** Container reports are their own census block
   (`container_audit`, like `cloud_config`) and are **never blended
   into the distinct-vulnerability headline** — an image finding is

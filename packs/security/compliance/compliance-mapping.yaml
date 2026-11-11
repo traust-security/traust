@@ -1,0 +1,275 @@
+# Control-mapping registry — POLICY DATA, schema-gated by
+# ai-security-harness/schema/compliance-mapping.schema.json.
+#
+# Every in-scope control is pre-classified here (deterministic /
+# evidence_review / organizational); the LLM never classifies at run
+# time. Deterministic checks are declarative assertion records evaluated
+# by `traust compliance evaluate` — one engine, no per-check code.
+# Changing a classification or an assertion is a reviewed config change.
+# Ships with the security pack (packs/security/compliance/); a deployment that needs a
+# different mapping passes --registry. Each check's `fixtures:` path is
+# relative to traust's tests/fixtures/compliance/.
+#
+# Snapshot contracts (what each collector materializes; Phase 2/3):
+#   findings_db      pre-shaped views over analysis-results/graph/
+#                    findings.db for the target's repos:
+#                    open_confirmed_hardcoded_credential_findings[],
+#                    open_critical_dependency_findings[]
+#                    (view definitions live with the Phase 3 runner —
+#                    pre-shaping keeps the assertion DSL filter-free)
+#   cloud_inventory  compliance-check's collect_cloud_inventory.py canonical
+#                    snapshot: resources[] each carrying region,
+#                    encryption_at_rest, public_exposure, logging …
+#   scan_k8s_hardening  the KHS fact scanner's JSON output verbatim
+#                    (results[].check, summary.<KHS-id> counts)
+#   crypto_audit     crypto-audit/v1 over traust-core's crypto census
+#                    (facts[].probe_id — provider census / image /
+#                    runtime tiers; tier recorded in the snapshot)
+#
+# Multi-check controls: verdict = satisfied only when EVERY listed
+# check is satisfied (runner semantic; a single not_satisfied wins).
+#
+# Coverage grows control-by-control, never by narration.
+
+version: 2
+note: 23 controls across four frameworks, 9 checks (findings_db,
+  scan_k8s_hardening, cloud_inventory, crypto_audit collectors).
+
+controls:
+  # ---- NIST 800-53 rev 5 (spine; FedRAMP M/H select from it) --------
+  - framework: nist-800-53-rev5
+    control_id: si-2
+    classification: deterministic
+    checks: [chk-no-open-critical-dependency-vulns]
+    note: flaw remediation — open confirmed critical dependency CVEs
+      in the target's repos contradict it
+  - framework: nist-800-53-rev5
+    control_id: ia-5.7
+    classification: deterministic
+    checks: [chk-no-confirmed-hardcoded-credentials]
+    note: no embedded static authenticators — triage-confirmed
+      hardcoded-credential findings are the counter-evidence (raw
+      gitleaks candidates are never a verdict; the ledger concludes)
+  - framework: nist-800-53-rev5
+    control_id: sc-28
+    classification: deterministic
+    checks: [chk-encryption-at-rest]
+  - framework: nist-800-53-rev5
+    control_id: sc-8
+    classification: evidence_review
+    evidence_request: TLS posture for in-scope service endpoints
+      (termination points, minimum versions) — deterministic check
+      lands with the Phase 2 cloud collector
+  - framework: nist-800-53-rev5
+    control_id: ac-2
+    classification: evidence_review
+    evidence_request: account-review records for the target environment
+    parameters: [account_review_frequency_days]
+  - framework: nist-800-53-rev5
+    control_id: ra-5
+    classification: evidence_review
+    evidence_request: vulnerability-scanning cadence and coverage
+      evidence for the target (the campaign's own audit trail qualifies)
+  - framework: nist-800-53-rev5
+    control_id: at-2
+    classification: organizational
+    note: literacy training — out of technical scope
+  - framework: nist-800-53-rev5
+    control_id: ac-6
+    classification: deterministic
+    checks: [chk-no-privileged-workloads, chk-no-rbac-wildcards]
+    note: least privilege — privileged containers (KHS-W01) and RBAC
+      wildcards (KHS-R01) in the target's manifests contradict it
+  - framework: nist-800-53-rev5
+    control_id: cm-6
+    classification: deterministic
+    checks: [chk-no-privilege-escalation]
+    note: configuration settings — allowPrivilegeEscalation left
+      enabled (KHS-W02) is a baseline-configuration deviation
+
+  - framework: nist-800-53-rev5
+    control_id: sc-13
+    classification: deterministic
+    checks: [chk-no-pqc-tls-killswitch]
+    note: cryptographic protection — a GODEBUG PQC-TLS killswitch
+      (tlsmlkem=0 / tlskyber=0) declared in build config disables
+      approved post-quantum key exchange; crypto-analysis governance
+      chains resolve ownership when it fires
+
+  # ---- more PCI / SOC 2 rows on the new KHS checks ------------------
+  - framework: pci-dss-v4
+    control_id: "2.2.1"
+    classification: deterministic
+    checks: [chk-no-privilege-escalation, chk-no-privileged-workloads]
+    crosswalk: ["nist-800-53-rev5:cm-6"]
+  - framework: pci-dss-v4
+    control_id: "7.2.1"
+    classification: deterministic
+    checks: [chk-no-rbac-wildcards]
+    crosswalk: ["nist-800-53-rev5:ac-6"]
+  - framework: soc2-tsc
+    control_id: CC6.3
+    classification: deterministic
+    checks: [chk-no-rbac-wildcards, chk-no-privileged-workloads]
+    crosswalk: ["nist-800-53-rev5:ac-6"]
+  - framework: soc2-tsc
+    control_id: CC6.7
+    classification: deterministic
+    checks: [chk-no-pqc-tls-killswitch]
+    crosswalk: ["nist-800-53-rev5:sc-13"]
+  - framework: soc2-tsc
+    control_id: C1.1
+    classification: deterministic
+    checks: [chk-no-secrets-in-env]
+    note: confidential-information protection — secrets exposed via
+      container environment variables (KHS-W13) contradict it
+
+  # ---- PCI DSS v4 (ids only; CDE boundary is declared input) --------
+  - framework: pci-dss-v4
+    control_id: "3.5.1"
+    classification: deterministic
+    checks: [chk-encryption-at-rest]
+    crosswalk: ["nist-800-53-rev5:sc-28"]
+  - framework: pci-dss-v4
+    control_id: "6.3.3"
+    classification: deterministic
+    checks: [chk-no-open-critical-dependency-vulns]
+    crosswalk: ["nist-800-53-rev5:si-2"]
+  - framework: pci-dss-v4
+    control_id: "12.1.1"
+    classification: organizational
+    note: security-policy maintenance — out of technical scope
+
+  # ---- SOC 2 TSC (ids only; categories are declared input) ----------
+  - framework: soc2-tsc
+    control_id: CC6.1
+    classification: deterministic
+    checks: [chk-encryption-at-rest]
+    crosswalk: ["nist-800-53-rev5:sc-28"]
+  - framework: soc2-tsc
+    control_id: CC7.1
+    classification: deterministic
+    checks: [chk-no-open-critical-dependency-vulns]
+    crosswalk: ["nist-800-53-rev5:si-2"]
+  - framework: soc2-tsc
+    control_id: CC1.1
+    classification: organizational
+    note: control-environment / conduct — out of technical scope
+  - framework: soc2-tsc
+    control_id: A1.2
+    classification: evidence_review
+    evidence_request: backup and recovery evidence (schedules, restore
+      tests) for the target environment
+
+  # ---- GDPR technical slice (personal-data stores declared) ---------
+  - framework: gdpr-technical
+    control_id: gdpr-residency
+    classification: deterministic
+    checks: [chk-region-allowlist]
+    parameters: [allowed_data_regions]
+  - framework: gdpr-technical
+    control_id: gdpr-security-of-processing
+    classification: deterministic
+    checks: [chk-encryption-at-rest]
+
+checks:
+  - id: chk-no-open-critical-dependency-vulns
+    description: the findings-db view of the target's repos contains no
+      open, triage-confirmed critical dependency-CVE finding
+    collector: findings_db
+    assertion:
+      path: open_critical_dependency_findings[*]
+      operator: absent
+    fixtures: fixtures/chk-no-open-critical-dependency-vulns/
+  - id: chk-no-confirmed-hardcoded-credentials
+    description: no open, triage-confirmed hardcoded-credential finding
+      (CWE-798/321 class) in the target's repos
+    collector: findings_db
+    assertion:
+      path: open_confirmed_hardcoded_credential_findings[*]
+      operator: absent
+    fixtures: fixtures/chk-no-confirmed-hardcoded-credentials/
+  - id: chk-encryption-at-rest
+    description: every in-scope inventory resource that persists data
+      reports encryption at rest enabled
+    collector: cloud_inventory
+    assertion:
+      path: resources[*].encryption_at_rest
+      operator: equals
+      expected: true
+    applies_when:
+      path: resources[*]
+      operator: exists
+    fixtures: fixtures/chk-encryption-at-rest/
+  - id: chk-region-allowlist
+    description: every in-scope inventory resource sits in a declared
+      allowed region (sovereignty/residency)
+    collector: cloud_inventory
+    assertion:
+      path: resources[*].region
+      operator: in
+      expected: "param:allowed_data_regions"
+    applies_when:
+      path: resources[*]
+      operator: exists
+    fixtures: fixtures/chk-region-allowlist/
+  - id: chk-no-pqc-tls-killswitch
+    description: no GODEBUG PQC-TLS killswitch (tlsmlkem=0/tlskyber=0)
+      declared anywhere the crypto census scanned
+    collector: crypto_audit
+    assertion:
+      path: facts[*].probe_id
+      operator: not_equals
+      expected: CRYPTO_GODEBUG_TLS_KILLSWITCH
+    applies_when:
+      path: facts[*]
+      operator: exists
+    fixtures: fixtures/chk-no-pqc-tls-killswitch/
+  - id: chk-no-privileged-workloads
+    description: no privileged container in the target's manifests
+      (KHS-W01 fires zero times)
+    collector: scan_k8s_hardening
+    assertion:
+      path: summary.KHS-W01
+      operator: absent
+    applies_when:
+      path: stats.k8s_docs
+      operator: gte
+      expected: 1
+    fixtures: fixtures/chk-no-privileged-workloads/
+  - id: chk-no-rbac-wildcards
+    description: no wildcard verbs/resources in RBAC rules (KHS-R01
+      fires zero times)
+    collector: scan_k8s_hardening
+    assertion:
+      path: summary.KHS-R01
+      operator: absent
+    applies_when:
+      path: stats.k8s_docs
+      operator: gte
+      expected: 1
+    fixtures: fixtures/chk-no-rbac-wildcards/
+  - id: chk-no-privilege-escalation
+    description: allowPrivilegeEscalation disabled everywhere
+      (KHS-W02 fires zero times)
+    collector: scan_k8s_hardening
+    assertion:
+      path: summary.KHS-W02
+      operator: absent
+    applies_when:
+      path: stats.k8s_docs
+      operator: gte
+      expected: 1
+    fixtures: fixtures/chk-no-privilege-escalation/
+  - id: chk-no-secrets-in-env
+    description: no secret exposed via container environment variable
+      (KHS-W13 fires zero times)
+    collector: scan_k8s_hardening
+    assertion:
+      path: summary.KHS-W13
+      operator: absent
+    applies_when:
+      path: stats.k8s_docs
+      operator: gte
+      expected: 1
+    fixtures: fixtures/chk-no-secrets-in-env/

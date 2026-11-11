@@ -1,0 +1,63 @@
+rules:
+  - id: traust-java-path-traversal-request-taint
+    languages: [java]
+    severity: ERROR
+    message: >-
+      A request value (a Spring or JAX-RS parameter, or a servlet
+      parameter or header) becomes part of a filesystem path that is read,
+      written, served or deleted — '../' segments escape the intended
+      directory. Resolve the path, normalize it and check it stays under
+      the base (startsWith on the real path), or keep only getFileName().
+      CWE-22.
+    metadata:
+      cwe: ["CWE-22"]
+      category: path-traversal
+      asvs: ["V5"]
+      confidence: MEDIUM
+      references:
+        - "CWE-22 path traversal — request values into Java file APIs"
+    mode: taint
+    pattern-sources:
+      - pattern-either:
+          - patterns:
+              - pattern-either:
+                  - pattern-inside: |
+                      $RT $M(..., @RequestParam $T $P, ...) { ... }
+                  - pattern-inside: |
+                      $RT $M(..., @RequestParam($A) $T $P, ...) { ... }
+                  - pattern-inside: |
+                      $RT $M(..., @PathVariable $T $P, ...) { ... }
+                  - pattern-inside: |
+                      $RT $M(..., @PathVariable($A) $T $P, ...) { ... }
+                  - pattern-inside: |
+                      $RT $M(..., @RequestHeader($A) $T $P, ...) { ... }
+                  - pattern-inside: |
+                      $RT $M(..., @QueryParam($A) $T $P, ...) { ... }
+                  - pattern-inside: |
+                      $RT $M(..., @PathParam($A) $T $P, ...) { ... }
+              - pattern: $P
+          - pattern: $REQ.getParameter(...)
+          - pattern: $REQ.getHeader(...)
+          - pattern: $REQ.getQueryString()
+          - pattern: $REQ.getPathInfo()
+    pattern-sanitizers:
+      - pattern-either:
+          - pattern: FilenameUtils.getName(...)
+          - pattern: $X.getFileName()
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: new File($P, ...)
+              - pattern: new File($BASE, $P)
+              - pattern: Paths.get($P, ...)
+              - pattern: Paths.get($BASE, ..., $P, ...)
+              - pattern: Path.of($P, ...)
+              - pattern: Path.of($BASE, ..., $P, ...)
+              - pattern: $BASEPATH.resolve($P)
+              - pattern: new FileInputStream($P)
+              - pattern: new FileOutputStream($P)
+              - pattern: new FileReader($P)
+              - pattern: new FileSystemResource($P)
+              - pattern: $LOADER.getResource($P)
+          - focus-metavariable: $P
+

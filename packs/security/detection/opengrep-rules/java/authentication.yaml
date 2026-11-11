@@ -1,0 +1,25 @@
+rules:
+  - id: traust-java-authentication-jwt-unsigned-parse
+    languages: [java]
+    severity: ERROR
+    message: >-
+      A JWT parsed without signature verification: jjwt's parse /
+      parseClaimsJwt / parseUnsecuredClaims accept unsigned tokens, and
+      auth0 JWT.decode only decodes. Claims taken from them are whatever
+      the caller wrote. Use parseClaimsJws / parseSignedClaims with a
+      signing key, or JWT.require(algorithm).build().verify(token).
+      CWE-347.
+    metadata:
+      cwe: ["CWE-347"]
+      category: authentication
+      asvs: ["V9"]
+      confidence: MEDIUM
+      references:
+        - "CWE-347 — jjwt unsigned parse and auth0 decode used for claims"
+    pattern-either:
+      - pattern: $P.parseClaimsJwt($T)
+      - pattern: $P.parseUnsecuredClaims($T)
+      - pattern: Jwts.parser().parse($T)
+      - pattern: Jwts.parser().setSigningKey($K).parse($T)
+      - pattern: JWT.decode($T).getClaim(...)
+      - pattern: JWT.decode($T).getSubject()

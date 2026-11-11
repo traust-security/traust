@@ -11,8 +11,8 @@
 # exactly: rootless, cap-dropped, no-new-privileges, credential-free,
 # --network=none, digest-pinned image, and a disposable copy rather than the
 # caller's worktree (so no .git of the real checkout is reachable at all).
-# The mode is a deployment setting (`sandbox:` in
-# $TRAUST_CONFIG_HOME/execution-boundaries.yaml), defaulting to `none`. A
+# The mode is a deployment setting (`execution.sandbox` in
+# $TRAUST_CONFIG_HOME/traust.yaml), defaulting to `none`. A
 # configured `podman` mode is never silently downgraded: with no working
 # runtime the script emits `not_attempted` instead. Either way the campaign
 # runs on a disposable copy with a scrubbed environment — run_checks.sh
@@ -67,7 +67,7 @@ PY
 
 # --- execution boundary (config, not environment) ----------------------------
 # How target build/test code runs is a deployment decision, read once from
-# $TRAUST_CONFIG_HOME/execution-boundaries.yaml:
+# `execution.sandbox` in $TRAUST_CONFIG_HOME/traust.yaml:
 #
 #   none    (default) run directly — scrubbed env, disposable copy
 #   podman  nested rootless container, --network=none, digest-pinned image
@@ -81,7 +81,7 @@ PY
 #
 # The resolved mode is recorded in the emitted evidence.
 resolve_boundary() {
-  local cfg="${TRAUST_CONFIG_HOME:-$HOME/.traust/config}/execution-boundaries.yaml"
+  local cfg="${TRAUST_CONFIG_HOME:-$HOME/.traust/config}/traust.yaml"
   local mode
   mode="$(python3 - "$cfg" <<'CFG'
 import sys
@@ -90,7 +90,7 @@ try:
     import yaml
     with open(sys.argv[1], encoding="utf-8") as fh:
         doc = yaml.safe_load(fh) or {}
-    mode = str(doc.get("sandbox") or "none").strip().lower()
+    mode = str((doc.get("execution") or {}).get("sandbox") or "none").strip().lower()
 except Exception:
     pass  # absent or unreadable config -> the documented default
 print(mode if mode in ("none", "podman") else "none")
@@ -123,7 +123,7 @@ MEWT="$(command -v mewt 2>/dev/null)"
 [[ -z "$MEWT" ]] && emit_not_attempted "mewt is not installed on this host"
 BOUNDARY="$(resolve_boundary)"
 if [[ "$BOUNDARY" == podman ]] && ! podman info >/dev/null 2>&1; then
-  emit_not_attempted "execution-boundaries.yaml asks for sandbox: podman but no working podman runtime is available"
+  emit_not_attempted "traust.yaml asks for execution.sandbox: podman but no working podman runtime is available"
 fi
 [[ -f "$WORK/go.mod" ]] || emit_not_attempted "not a Go module; mewt has no Python support and other languages are out of scope here"
 
@@ -152,7 +152,7 @@ RC=$?
 STATUS_JSON="$OUT/mutation-status.json"
 mewt_in_boundary mewt status --format json >"$STATUS_JSON" 2>/dev/null || true
 
-python3 "$(dirname "$0")/scripts/mutation_evidence.py" \
+python3 -m traust.cli remediation mutation-evidence \
   --log "$LOG" --rc "$RC" --target "$TARGET" \
   --tool-version "$MEWT_VERSION" --status-json "$STATUS_JSON" \
   --boundary "$BOUNDARY"

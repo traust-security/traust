@@ -1,0 +1,69 @@
+# SOC 2 — AICPA Trust Services Criteria: criterion-ID catalog.
+#
+# IDs and series/category labels only (facts, citable). TSC criteria
+# text is AICPA copyright — it never appears here or anywhere in the
+# workspace (harness content-guard rule 5). Category labels and
+# classification hints below are HARNESS-AUTHORED words informed by the
+# criterion subject areas, not reproductions.
+#
+# classification_hint seeds the mapping registry; the registry is the
+# decision of record. Trust-service category selection is a declared
+# engagement input; Security (CC series) is always in scope.
+
+reviewed: "2026-07-19"  # last review against the living framework (drift-watch 180d window)
+framework: soc2-tsc
+version_note: "TSC 2017, 2022 points-of-focus revision — ids stable"
+series:
+  - id: CC1
+    area: control environment
+    criteria: [CC1.1, CC1.2, CC1.3, CC1.4, CC1.5]
+    classification_hint: organizational
+  - id: CC2
+    area: information and communication
+    criteria: [CC2.1, CC2.2, CC2.3]
+    classification_hint: organizational
+  - id: CC3
+    area: risk assessment
+    criteria: [CC3.1, CC3.2, CC3.3, CC3.4]
+    classification_hint: organizational
+  - id: CC4
+    area: monitoring of controls
+    criteria: [CC4.1, CC4.2]
+    classification_hint: evidence_review
+  - id: CC5
+    area: control activities
+    criteria: [CC5.1, CC5.2, CC5.3]
+    classification_hint: organizational
+  - id: CC6
+    area: logical and physical access
+    criteria: [CC6.1, CC6.2, CC6.3, CC6.4, CC6.5, CC6.6, CC6.7, CC6.8]
+    classification_hint: deterministic-or-evidence_review
+  - id: CC7
+    area: system operations
+    criteria: [CC7.1, CC7.2, CC7.3, CC7.4, CC7.5]
+    classification_hint: deterministic-or-evidence_review
+  - id: CC8
+    area: change management
+    criteria: [CC8.1]
+    classification_hint: evidence_review
+  - id: CC9
+    area: risk mitigation
+    criteria: [CC9.1, CC9.2]
+    classification_hint: evidence_review
+  - id: A1
+    area: availability (optional category)
+    criteria: [A1.1, A1.2, A1.3]
+    classification_hint: deterministic-or-evidence_review
+  - id: C1
+    area: confidentiality (optional category)
+    criteria: [C1.1, C1.2]
+    classification_hint: deterministic-or-evidence_review
+  - id: PI1
+    area: processing integrity (optional category)
+    criteria: [PI1.1, PI1.2, PI1.3, PI1.4, PI1.5]
+    classification_hint: evidence_review
+  - id: P
+    area: privacy (optional category)
+    criteria: [P1.1, P2.1, P3.1, P3.2, P4.1, P4.2, P4.3, P5.1, P5.2,
+               P6.1, P6.2, P6.3, P6.4, P6.5, P6.6, P6.7, P7.1, P8.1]
+    classification_hint: organizational

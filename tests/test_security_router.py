@@ -1,0 +1,426 @@
+"""The security pack's router against the legacy router's characterization corpus
+(`fixtures/routing/`, see its README): every decision-table, risk-tier and status case gives
+the same rule and lane through traust-core's `RepoState` and `PortfolioPolicy`."""
+
+from __future__ import annotations
+
+import hashlib
+import json
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
+from uuid import uuid4
+
+import pytest
+from traust_core.v1.models.inventory import (
+    ExposureClass,
+    RecordedRelease,
+    Release,
+    ReleaseBump,
+    ReleaseChange,
+    RepoState,
+    RiskTier,
+)
+from traust_core.v1.models.operations import RescanEventSource
+from traust_core.v1.models.values import HttpsRepoUrl
+from traust_core.v1.models.vocabulary import ComparisonStatus
+from traust_core.v1.services.observation import PREROUTE_MIN_FILES
+from traust_core.v1.services.portfolio import PortfolioPolicy
+
+from traust.ops.router import (
+    EVENT_ONLY_LANES,
+    LANES,
+    THREAT_MODEL_PR,
+    UNQUEUED,
+    SecurityRouter,
+    decide,
+    event_route,
+    priority,
+)
+
+FIXTURES = Path(__file__).parent / "fixtures" / "routing"
+BASELINE = json.loads((FIXTURES / "baseline.json").read_text(encoding="utf-8"))
+DECISIONS = json.loads((FIXTURES / "python_decisions.json").read_text(encoding="utf-8"))
+PRIMARY = json.loads((FIXTURES / "python_primary.json").read_text(encoding="utf-8"))
+POLICY = PortfolioPolicy()
+OBSERVED = datetime(2026, 9, 28, tzinfo=UTC)
+REPO = HttpsRepoUrl.parse("https://github.com/example/app", ["github.com"])
+
+
+@pytest.mark.parametrize("name", sorted(BASELINE["fixtures"]))
+def test_the_corpus_is_the_recorded_history(name: str) -> None:
+    """The expected answers change only with the manifest, so a routing change can't quietly
+    rewrite them alongside the router."""
+    raw = (FIXTURES / name).read_bytes()
+    recorded = BASELINE["fixtures"][name]
+    assert hashlib.sha256(raw).hexdigest() == recorded["sha256"], "review the fixture diff"
+    assert {k: len(json.loads(raw)[k]) for k in recorded["counts"]} == recorded["counts"]
+
+
+def _state(**fields: Any) -> RepoState:
+    base: dict[str, Any] = {
+        "repository_id": uuid4(),
+        "repo": None,
+        "status": ComparisonStatus.OK,
+        "risk_tier": RiskTier.P2,
+        "exposure": ExposureClass.PRIVATE_INTERNAL,
+        "open_critical_high": 0,
+        "audit_age_days": None,
+        "changed_lines": None,
+        "churn_ratio": None,
+        "sensitive_changed": None,
+        "sensitive_lines": None,
+        "deps_only": None,
+        "ahead_by": None,
+        "compare_truncated": None,
+        "push_changed": None,
+        "observed_at": OBSERVED,
+    }
+    return RepoState(**(base | fields))
+
+
+def _exposure(value: str) -> ExposureClass:
+    # The legacy corpus leaves exposure blank when it doesn't matter: never the external band.
+    return ExposureClass(value) if value else ExposureClass.PRIVATE_INTERNAL
+
+
+def _table_state(ctx: dict[str, Any]) -> RepoState:
+    return _state(
+        risk_tier=RiskTier(ctx["tier"]),
+        exposure=_exposure(ctx["exposure"]),
+        changed_lines=ctx["C"],
+        churn_ratio=ctx["R"],
+        sensitive_changed=ctx["S"],
+        sensitive_lines=ctx["S_lines"],
+        deps_only=ctx["deps_only"],
+        audit_age_days=ctx["audit_age_days"],
+        push_changed=ctx["changed"],
+        ahead_by=ctx["ahead_by"],
+    )
+
+
+def _primary_state(supplied: dict[str, Any]) -> RepoState:
+    audit = supplied.get("Audit")
+    if audit is None:
+        designation = (supplied["Inventory"] or {}).get("Designation")
+        return _state(
+            status=ComparisonStatus.NEVER_AUDITED,
+            # the legacy fixture's `external` designation is "ships in a product" (core#191)
+            exposure=POLICY.exposure_class(designation == "external", False, False),
+        )
+    risk, change = audit.get("Risk", {}), audit.get("Change") or {}
+    live = risk.get("LiveCriticalHigh", 0)
+    lines = change.get("ChangedLines", 0) if "Change" in audit else None
+    ratio = change.get("CoverageChangeRatio") or None
+    return _state(
+        status=ComparisonStatus(audit["Status"]),
+        risk_tier=POLICY.risk_tier(live, risk.get("Archived", False), risk.get("Dormant", False)),
+        open_critical_high=live,
+        exposure=_exposure(audit.get("Exposure", "")),
+        audit_age_days=audit.get("AuditAgeDays"),
+        push_changed=audit.get("PushChanged", False),
+        changed_lines=lines,
+        churn_ratio=ratio,
+        sensitive_changed=change.get("SensitiveChange"),
+        sensitive_lines=change.get("SensitiveChangedLines"),
+        deps_only=change.get("DependenciesOnly"),
+        ahead_by=change.get("CommitsAhead"),
+    )
+
+
+# One decision, from the table or a status rule. Event rows (rule 1) wait on the feed.
+STATUS_CASES = [
+    c
+    for c in PRIMARY["primary"]
+    if len(c["want"]["Decisions"]) == 1 and c["want"]["Decisions"][0]["EventIndex"] is None
+]
+
+
+@pytest.mark.parametrize("case", DECISIONS["table"], ids=lambda c: c["name"])
+def test_decision_table_matches_the_legacy_router(case: dict[str, Any]) -> None:
+    rule, lane = decide(_table_state(case["input"]))
+    assert (rule.id, lane) == (case["want"]["Rule"], case["want"]["Lane"])
+
+
+@pytest.mark.parametrize("case", DECISIONS["risk"], ids=lambda c: c["name"])
+def test_core_risk_tier_matches_the_legacy_router(case: dict[str, Any]) -> None:
+    risk = case["input"]
+    tier = POLICY.risk_tier(risk["LiveCriticalHigh"], risk["Archived"], risk["Dormant"])
+    assert tier == case["want"]
+
+
+@pytest.mark.parametrize("case", STATUS_CASES, ids=lambda c: c["name"])
+def test_status_rules_match_the_legacy_router(case: dict[str, Any]) -> None:
+    (want,) = case["want"]["Decisions"]
+    state = _primary_state(case["input"])
+    rule, lane = decide(state)
+    assert (rule.id, lane, state.risk_tier) == (want["Rule"], want["Lane"], want["RiskTier"])
+    if want["Exposure"]:
+        assert state.exposure == want["Exposure"]
+
+
+def test_the_router_never_routes_an_event_only_lane() -> None:
+    states = [_table_state(c["input"]) for c in DECISIONS["table"]]
+    states += [_primary_state(c["input"]) for c in STATUS_CASES]
+    routed = {r.lane for s in states for r in SecurityRouter().route(s, (), ())}
+    assert routed and not routed & EVENT_ONLY_LANES
+
+
+def test_the_corpus_covers_every_status() -> None:
+    covered = {_primary_state(c["input"]).status for c in STATUS_CASES}
+    assert covered == set(ComparisonStatus)
+
+
+@pytest.mark.parametrize(
+    ("fields", "lane"),
+    [
+        ({"changed_lines": 8000}, "full-audit"),
+        ({"changed_lines": 1}, "diff-scan-quarterly"),
+        ({"sensitive_changed": True, "sensitive_lines": 200}, "diff-scan"),
+        ({"status": ComparisonStatus.NEVER_AUDITED}, "full-audit"),
+    ],
+)
+def test_route_names_the_lane_and_the_rule(fields: dict[str, Any], lane: str) -> None:
+    state = _state(**fields)
+    (route,) = SecurityRouter().route(state, (), ())
+    rule, _ = decide(state)
+    assert (route.lane, route.reason, route.priority) == (lane, rule.id, priority(lane, state))
+
+
+@pytest.mark.parametrize(
+    "fields",
+    [
+        {"deps_only": True, "changed_lines": 10},  # rule 3b: dependency_watch covers it
+        {"status": ComparisonStatus.QUOTA_DEFERRED, "changed_lines": 9000},
+        {"push_changed": True, "ahead_by": 0},
+        {},
+    ],
+)
+def test_classifications_without_a_queue_plan_nothing(fields: dict[str, Any]) -> None:
+    (route,) = SecurityRouter().route(_state(**fields), (), ())
+    assert route.lane is None and route.reason == decide(_state(**fields))[0].id
+
+
+@pytest.mark.parametrize(
+    ("source", "tier", "lane"),
+    [
+        (RescanEventSource.EXTERNAL_REPORT, RiskTier.P3, "full-audit+validate"),
+        (RescanEventSource.METHODOLOGY, RiskTier.P0, "full-audit"),
+        (RescanEventSource.METHODOLOGY, RiskTier.P1, None),
+        (RescanEventSource.CVE, RiskTier.P3, "impact-lane"),
+    ],
+)
+def test_operator_events_run_ahead_of_the_table(
+    source: RescanEventSource, tier: RiskTier, lane: str | None
+) -> None:
+    state = _state(risk_tier=tier, audit_age_days=9999)
+    route = event_route(state, source)
+    if lane is None:
+        assert route is None
+        return
+    assert (route.lane, route.reason) == (lane, f"event:{source}")
+    assert route.priority < SecurityRouter().route(state, (), ())[0].priority
+
+
+def test_priority_orders_by_lane_then_exposure_then_tier() -> None:
+    ranked = sorted(
+        (
+            (priority(lane, _state(exposure=e, risk_tier=t)), lane, e, t)
+            for lane in LANES
+            for e in ExposureClass
+            for t in RiskTier
+        ),
+        key=lambda r: r[0],
+    )
+    keys = [r[0] for r in ranked]
+    assert len(set(keys)) == len(keys)
+    assert [r[1] for r in ranked] == sorted((r[1] for r in ranked), key=LANES.index)
+    first = [r for r in ranked if r[1] == "diff-scan-quarterly"][:2]
+    assert [(r[2], r[3]) for r in first] == [
+        (ExposureClass.PUBLIC_EXTERNAL, RiskTier.P0),
+        (ExposureClass.PUBLIC_EXTERNAL, RiskTier.P1),
+    ]
+
+
+# Router inputs beside the decision table. Each expected route is what the retired legacy worklist
+# (`build_rescan_worklist`, traust `c698fdea`) produced for the same case.
+def _routes(state: RepoState) -> list[tuple[str, str | None]]:
+    return [(r.reason, r.lane) for r in SecurityRouter().route(state, (), ())]
+
+
+QUARTERLY = {"changed_lines": 12}  # rule 5
+SENSITIVE = {"changed_lines": 300, "sensitive_changed": True, "sensitive_lines": 250}  # rule 3
+
+
+@pytest.mark.parametrize(
+    ("fields", "changed", "tree", "truncated", "expected"),
+    [
+        (QUARTERLY, 1, None, True, ("rule-5+preroute", "full-audit")),
+        (QUARTERLY, 5, 10, False, ("rule-5+preroute", "full-audit")),
+        # exactly 30%: the resolver refuses only above it
+        (QUARTERLY, 3, 10, False, ("rule-5", "diff-scan-quarterly")),
+        # under the floor: no tree is counted
+        (QUARTERLY, 2, 4, False, ("rule-5", "diff-scan-quarterly")),
+        (QUARTERLY, 4, 0, False, ("rule-5", "diff-scan-quarterly")),
+        (SENSITIVE, 4, 10, False, ("rule-3+preroute", "full-audit")),
+        (SENSITIVE, 4, 100, False, ("rule-3", "diff-scan")),
+        # rule 2: not a diff lane
+        ({"changed_lines": 9000}, 1, None, True, ("rule-2", "full-audit")),
+    ],
+)
+def test_refusal_preroute_matches_the_legacy_router(
+    fields: dict[str, Any],
+    changed: int,
+    tree: int | None,
+    truncated: bool,
+    expected: tuple[str, str],
+) -> None:
+    state = _state(
+        **fields,
+        compare_truncated=truncated,
+        first_party_files=changed,
+        # traust-core counts the tree only for an untruncated compare over the floor.
+        tree_first_party_files=None if truncated or changed < PREROUTE_MIN_FILES else tree,
+    )
+    assert _routes(state)[0] == expected
+
+
+DEPS_ONLY = {"changed_lines": 10, "deps_only": True}  # rule 3b
+
+
+@pytest.mark.parametrize(
+    ("fields", "hits", "reason", "lane"),
+    [
+        (QUARTERLY, 2, "tripwire", "diff-scan"),
+        (QUARTERLY, 0, "rule-5", "diff-scan-quarterly"),
+        (QUARTERLY, None, "rule-5", "diff-scan-quarterly"),  # not scanned: never escalates
+        (DEPS_ONLY, 1, "tripwire", "diff-scan"),
+        (DEPS_ONLY, None, "rule-3b", "deps-lane"),
+        # rule 3 on P2: already an immediate diff scan
+        (SENSITIVE, 3, "rule-3+threat-model-pr", "diff-scan"),
+        ({"changed_lines": 9000}, 5, "rule-2", "full-audit"),  # rule 2: a full audit
+        ({"changed_lines": 0}, 4, "rule-7", "none"),
+        # escalated, then pre-routed
+        (QUARTERLY | {"compare_truncated": True}, 1, "tripwire+preroute", "full-audit"),
+        # then stamped
+        (
+            QUARTERLY | {"sensitive_changed": True, "sensitive_lines": 5},
+            1,
+            "tripwire+threat-model-pr",
+            "diff-scan",
+        ),
+        (QUARTERLY | {"threat_model_files": 1}, 1, "tripwire+threat-model-pr", "diff-scan"),
+    ],
+)
+def test_tripwire_matches_the_legacy_router(
+    fields: dict[str, Any], hits: int | None, reason: str, lane: str
+) -> None:
+    state = _state(**fields, secret_hits=hits, threat_model_age_days=10)
+    (route,) = SecurityRouter().route(state, (), ())
+    assert (route.reason, route.lane) == (reason, None if lane in UNQUEUED else lane)
+    assert route.priority == priority(lane, state)
+
+
+@pytest.mark.parametrize(
+    ("fields", "tm_files", "model", "expected"),
+    [
+        (SENSITIVE, 0, True, "rule-3" + THREAT_MODEL_PR),
+        (QUARTERLY, 2, True, "rule-5" + THREAT_MODEL_PR),
+        (QUARTERLY, 0, True, "rule-5"),
+        (SENSITIVE, 0, False, "rule-3"),  # no model to assess the diff against
+        (SENSITIVE | {"risk_tier": RiskTier.P0}, 0, True, "rule-3"),  # rule 3 on P0: a full audit
+        (SENSITIVE | {"compare_truncated": True}, 0, True, "rule-3+preroute"),  # pre-routed first
+    ],
+)
+def test_threat_model_pr_stamp_matches_the_legacy_router(
+    fields: dict[str, Any], tm_files: int, model: bool, expected: str
+) -> None:
+    state = _state(
+        **fields, threat_model_files=tm_files, threat_model_age_days=10 if model else None
+    )
+    assert _routes(state)[0][0] == expected
+
+
+IAC_LANE, IAC_BASELINE = ("lever-6", "iac-lane"), ("lever-6", "iac-baseline")
+QUARTERLY_MODEL = ("threat-model-3", "threat-model-quarterly")
+COMPANION = ("cloud-config-audit",)
+
+
+@pytest.mark.parametrize(
+    ("fields", "expected"),
+    [
+        ({"iac_files": 2, "has_cloud_config_baseline": True}, [IAC_LANE]),
+        ({"iac_files": 2, "has_cloud_config_baseline": False}, [IAC_BASELINE]),
+        ({"iac_files": 0, "has_cloud_config_baseline": False}, []),
+        ({"status": ComparisonStatus.QUOTA_DEFERRED, "iac_files": 2}, []),
+        (
+            {"companion_lanes": COMPANION, "has_cloud_config_baseline": False},
+            [("lever-6-companion", "iac-baseline")],
+        ),
+        ({"companion_lanes": COMPANION, "has_cloud_config_baseline": True}, []),
+        ({"companion_lanes": COMPANION, "iac_files": 1}, [IAC_BASELINE]),
+        ({"companion_lanes": COMPANION, "repo": None}, []),
+        ({"threat_model_age_days": 92}, [QUARTERLY_MODEL]),
+        ({"threat_model_age_days": 91}, []),
+        (
+            {"threat_model_age_days": 400, "iac_files": 3, "has_cloud_config_baseline": True},
+            [IAC_LANE, QUARTERLY_MODEL],
+        ),
+    ],
+)
+def test_additive_rows_match_the_legacy_router(
+    fields: dict[str, Any], expected: list[tuple[str, str]]
+) -> None:
+    state = _state(**({"repo": REPO} | fields))
+    assert _routes(state)[1:] == expected
+
+
+def test_additive_rows_ride_beside_a_classification_without_a_queue() -> None:
+    state = _state(deps_only=True, changed_lines=10, iac_files=1, threat_model_age_days=100)
+    assert _routes(state) == [
+        ("rule-3b", None),
+        ("lever-6", "iac-baseline"),
+        ("threat-model-3", "threat-model-quarterly"),
+    ]
+
+
+def test_a_never_audited_repository_gets_no_calendar_backstop() -> None:
+    state = _state(status=ComparisonStatus.NEVER_AUDITED, threat_model_age_days=400)
+    assert _routes(state) == [("rule-1-bootstrap", "full-audit")]
+
+
+def _release(bump: ReleaseBump | None) -> RecordedRelease:
+    """A recorded release; no bump is the product's first recorded release."""
+    release = Release(id=uuid4(), product_id=uuid4(), version="4.20")
+    change = None
+    if bump is not None:
+        change = ReleaseChange(
+            release_id=release.id,  # type: ignore[arg-type]
+            previous_id=uuid4(),
+            version="4.20",
+            previous_version="4.19",
+            bump=bump,
+        )
+    return RecordedRelease(release=release, repository_ids=(uuid4(),), change=change)
+
+
+@pytest.mark.parametrize("bump", [*ReleaseBump, None])
+def test_a_release_re_models_only_on_a_major_or_minor_bump_as_the_legacy_router(
+    bump: ReleaseBump | None,
+) -> None:
+    legacy = bump in (ReleaseBump.MAJOR, ReleaseBump.MINOR)
+    routes = [(r.reason, r.lane) for r in SecurityRouter().route(_state(), (_release(bump),), ())]
+    assert (("threat-model-2", "threat-model-review") in routes) == legacy
+    assert routes[0] == ("rule-7", None)
+
+
+def test_a_release_review_rides_beside_the_table_and_additive_rows_once() -> None:
+    state = _state(changed_lines=12, threat_model_age_days=100)
+    events = tuple(map(_release, (ReleaseBump.MINOR, ReleaseBump.MAJOR, ReleaseBump.PATCH)))
+    routes = SecurityRouter().route(state, events, ())
+    assert [(r.reason, r.lane) for r in routes] == [
+        ("rule-5", "diff-scan-quarterly"),
+        ("threat-model-3", "threat-model-quarterly"),
+        ("threat-model-2", "threat-model-review"),
+    ]
+    assert routes[-1].priority == priority("threat-model-review", state)

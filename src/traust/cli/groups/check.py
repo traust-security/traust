@@ -6,6 +6,11 @@ from traust.cli.groups._registry import passthrough_op
 
 _ENTRIES: tuple[tuple[str, str, str], ...] = (
     (
+        "coverage",
+        "check_coverage",
+        "A checkout's entry points against the pre-scans that enumerate them (observe mode).",
+    ),
+    (
         "citations",
         "check_citations",
         "Citation gate: deterministic pre-verification check for triage reports.",
@@ -28,7 +33,7 @@ _ENTRIES: tuple[tuple[str, str, str], ...] = (
     (
         "drift",
         "check_drift",
-        "Staleness & drift checker across derived artifacts and paired reports.",
+        "Security-pack config pins and review dates against their source (interim).",
     ),
     (
         "fix-propagation",
@@ -54,11 +59,6 @@ _ENTRIES: tuple[tuple[str, str, str], ...] = (
         "skill-security",
         "check_skill_security",
         "Skill security-posture guard — catch a new or edited skill dropping controls.",
-    ),
-    (
-        "report-digests",
-        "verify_report_digests",
-        "Verify every report against the digest its layer signed.",
     ),
 )
 

@@ -1,5 +1,6 @@
-# Template for $TRAUST_CONFIG_HOME/rule-pack-allowlist.yaml — install_traust seeds
-# it; copy there and edit. The harness never reads this example at run time.
+# Template for the allowlist `overrides.rule_pack_allowlist` in traust.yaml names (shipped
+# default: no supplements). Copy it beside traust.yaml, point the override at it, and edit.
+# The harness never reads this example at run time.
 #
 # Supplemental external opengrep packs, enabled PER RULE.
 #

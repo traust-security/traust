@@ -1,12 +1,12 @@
-# PQC Version Matrix — Single Source of Truth
+# PQC Version Matrix — Agent Capability Reference
 #
-# All version thresholds for PQC capability live here.
-# Consumers: pqc_facts.py, pqc-readiness-decision-tree.json (via loader),
-#            build_pqc_rollup.py (toolchain quick-wins), remediation docs (illustrative only).
+# Capability notes for Layer-2 reasoning and illustrative remediation guidance.
+# Core owns executable PQC policy, including native facts' pqc_capable
+# thresholds and toolchain quick-wins. This note is not a runtime override:
+# editing it does not change facts produced by traust pqc prescan.
 #
-# Update ONE file when a runtime ships PQC support.
-# Format: each runtime lists the minimum version where PQC key exchange
-# is available by default (no opt-in flags needed).
+# Review these notes alongside Core policy when a runtime ships PQC support.
+# Each runtime distinguishes PQC key-exchange defaults from API availability.
 
 runtimes:
   go:

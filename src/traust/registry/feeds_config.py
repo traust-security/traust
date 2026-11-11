@@ -1,21 +1,23 @@
-"""Loader for ``config/feeds.yaml`` — the security-data source registry.
+"""Loader for the security-data source registry: the ``feeds.yaml`` traust-core ships.
 
 Every consumer of an external vulnerability source goes through here
 rather than hardcoding an endpoint. The registry covers BOTH tiers:
 
-``cached``  pulled to a local cache on a cadence (``fetch_feeds``)
-``live``    queried per run, never cached (``fetch_advisory``)
+``cached``  snapshotted into traust-core on a cadence (``traust feeds fetch``)
+``live``    queried per run, never cached (``traust impact document``)
 
 Keeping them in one file is the point. When live sources lived as
 hardcoded URLs plus an argparse literal there was no registry to inspect
 and no check to fail, so ``fetch_advisory.py csaf`` could 404 on every
 CVE indefinitely (measured 2026-08-25 — Red Hat keys CSAF advisories by
-RHSA, not CVE). A source in this file gets a drift row for free.
+RHSA, not CVE). A source in this file with a ``probe`` gets a
+``feed-source:*`` freshness row for free (traust-core's ProviderCatalog). The registry is
+the project's, not adopter config; ``feeds.osv_access`` in ``traust.yaml`` is the one knob.
 
 Cache location resolves via :func:`traust.context.feeds_cache_dir` (first hit wins):
 
 1. ``FEEDS_CACHE_DIR``            explicit operator/orchestrator control
-2. ``locations.feeds_cache``      when set in ``locations.yaml``
+2. ``locations.feeds_cache``      when set in ``traust.yaml``
 3. ``<progress_tracker>/feeds``   default
 
 It is deliberately NOT under ``analysis-results/``. That tree holds work
@@ -31,22 +33,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from traust_contracts import config_path
-from traust_engine import HarnessEngine
+from traust_core.v1.context import Context
+from traust_core.v1.context.config import SHIPPED_FEEDS
 
 try:
     import yaml
 except ImportError:  # pragma: no cover - yaml is a hard dependency
     yaml = None
-
-
-def registry_path() -> Path:
-    """The required feeds.yaml, resolved from the one config home.
-
-    Lazy (not a module constant): feeds.yaml is a shipped default seeded into
-    $TRAUST_CONFIG_HOME by install_traust, never read from the code tree.
-    """
-    return config_path("feeds.yaml")
 
 
 #: Cadence -> hours, for entries that name a cadence but no explicit age.
@@ -64,17 +57,17 @@ class FeedsConfigError(RuntimeError):
     """
 
 
-def feeds_cache_dir(*, engine: HarnessEngine) -> Path:
+def feeds_cache_dir(*, core: Context) -> Path:
     """Where cached feed data lives. Resolution lives in ``traust.context``."""
     from traust.context import feeds_cache_dir as resolve_feeds_cache_dir
 
-    return resolve_feeds_cache_dir(engine)
+    return resolve_feeds_cache_dir(core)
 
 
 def _load_raw(path: Path | None = None) -> dict:
-    p = path or registry_path()
+    p = path or SHIPPED_FEEDS
     if yaml is None:
-        raise FeedsConfigError("PyYAML is required to read config/feeds.yaml — `uv sync`")
+        raise FeedsConfigError("PyYAML is required to read feeds.yaml — `uv sync`")
     try:
         doc = yaml.safe_load(p.read_text(encoding="utf-8"))
     except OSError as e:
@@ -86,10 +79,9 @@ def _load_raw(path: Path | None = None) -> dict:
     return doc
 
 
-# How a live source is reached. `api` is the default; `air-gapped` (osv only)
-# swaps the API for an adopter-provided offline tool and database;
-# `disabled` (deps_dev) opts out of the source.
-ACCESS_MODES = ("api", "air-gapped", "disabled")
+# How a live source is reached. `api` is the default; `disabled` (deps_dev) opts out of the
+# source. Air-gapped osv is the adopter's switch: `feeds.osv_access` in traust.yaml.
+ACCESS_MODES = ("api", "disabled")
 
 
 def _validate(sid: str, spec: dict) -> None:
@@ -138,43 +130,9 @@ def live_sources(path: Path | None = None) -> dict[str, dict]:
     return {k: v for k, v in load(path).items() if v["tier"] == "live"}
 
 
-def probeable_sources(path: Path | None = None) -> dict[str, dict]:
-    """Sources carrying a `probe` — the liveness-checkable set.
-
-    A source without a probe is not a failure; it is simply untracked for
-    liveness, and check_drift reports that rather than assuming health.
-    """
-    return {k: v for k, v in load(path).items() if isinstance(v.get("probe"), dict)}
-
-
 def max_age_hours(spec: dict, override: float | None = None) -> float:
     if override is not None:
         return override
     if spec.get("max_age_hours") is not None:
         return float(spec["max_age_hours"])
     return _CADENCE_HOURS.get(spec.get("cadence"), DEFAULT_MAX_AGE_HOURS)
-
-
-def resolve_url(spec: dict, ident: str) -> str:
-    """Fill a live source's url_template for one identifier.
-
-    The placeholder set is deliberately tiny and purely lexical — no
-    caller-supplied format strings, no eval — because a template is
-    config-supplied and write access to config/feeds.yaml must not become
-    request forgery against an arbitrary host.
-    """
-    # Year is a path component for the year-partitioned Red Hat trees
-    # (VEX and CSAF advisories). Match anywhere rather than splitting on
-    # '-': RHSA ids are RHSA-2024:6493, so a '-' split yields '2024:6493'
-    # and silently produces a URL with an empty path segment.
-    import re
-
-    m = re.search(r"(?<!\d)(19|20)\d{2}(?!\d)", str(ident))
-    year = m.group(0) if m else ""
-    return spec["url_template"].format(
-        ident=ident,
-        ident_lower=str(ident).lower(),
-        ident_upper=str(ident).upper(),
-        ident_lower_us=str(ident).lower().replace(":", "_"),
-        year=year,
-    )

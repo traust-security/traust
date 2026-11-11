@@ -8,7 +8,7 @@ This file provides guidance to AI coding agents when working with code in this r
 
 This is **Traust**, an agent harness for automated vulnerability discovery, validation, and remediation across a software portfolio — source repositories, container images, RPM packages, Kubernetes operators, infrastructure-as-code and the services built from them — at the scale of hundreds or thousands of repositories. Which repositories that is comes from the deployment's inventory (`locations.inputs`), never from this tree; the executive-summary dashboard under the configured `progress-tracker` root reports current coverage.
 
-The harness contains 52 active skills, slash commands, JSON schemas, report tooling, and the prompt engineering that drives autonomous multi-framework security assessments. It is designed to be agent-agnostic, with current implementations for Claude Code and Crush.
+The harness contains 49 active skills, slash commands, JSON schemas, report tooling, and the prompt engineering that drives autonomous multi-framework security assessments. It is designed to be agent-agnostic, with current implementations for Claude Code and Crush.
 
 ## Repository Architecture
 
@@ -41,6 +41,8 @@ Multi-skill CLIs live in `src/traust/cli/` and are invoked as `traust <group> <o
 - Multi-skill CLI: `src/traust/cli/` (installed package)
 - Shared library (>=3 importers): `src/traust/lib/`
 - Ops: `src/traust/ops/`
+- Repository-hygiene audits of this checkout: `tools/`, not the installed runtime CLI
+  (for example, `python tools/classify_script_placement.py`).
 - **Migrations: `src/traust/migrations/` is for migrations an ADOPTER runs**
   — a schema upgrade path shipped with a release, declared with an
   `adopter-portable: <why>` line in its docstring. A one-shot that cleans
@@ -51,7 +53,7 @@ Multi-skill CLIs live in `src/traust/cli/` and are invoked as `traust <group> <o
   move, never scrub, because the figures are the record of what the
   script did. `traust check estate-data` enforces both rules pre-commit.
 
-`validate_report`, `render_report`, `checkpoint`, `countersign`, `emit_triage_ledger_events`, `emit_validation_ledger_events`, and related tooling are package modules (many in sibling `traust-engine`). Skills invoke them via python3 -m … from the harness venv. The citation gate and symbol index are triage accelerators — they route, gate, tag, or index, and never author a verdict (see [`docs/deterministic-inferential-mix.md`](docs/deterministic-inferential-mix.md)).
+Report validation/rendering, triage decisions and machine-validation recording use grouped `traust reporting`, `traust triage` and `traust validation` doors on traust-core. The old layer emitters are retired, not executable package modules. The citation gate and symbol index are triage accelerators — they route, gate, tag, or index, and never author a verdict (see [`docs/deterministic-inferential-mix.md`](docs/deterministic-inferential-mix.md)).
 
 Legacy placement (pre-C8):
 - Used by exactly one skill: place under `harnessing/<skill>/`
@@ -62,8 +64,8 @@ Legacy placement (pre-C8):
 
 ### Metrics consistency layer
 
-`$TRAUST_CONFIG_HOME/corpus-config.yaml` (ownership tags per output tree; write only
-via `/corpus-intake`) + `traust_engine.corpus.resolver` (shared discovery/identity/
+traust-core's corpus registry (ownership tags per output tree; `/corpus-intake`
+writes it, `/census` reads it once ported; `corpus-config.yaml` is retired) + `traust_engine.corpus.resolver` (shared discovery/identity/
 dedup resolver) + `/census` (denominator authority: population,
 duplication vectors, distinct-vulnerabilities headline, repo liveness)
 keep every dashboard's numbers reconcilable. Dashboards embed a standard
@@ -74,19 +76,22 @@ and state the population block — never hand-roll a walker.
 
 ### Sibling repositories
 
-The agent runs from a parent workspace with three sibling trees (the inputs inventory, `analysis-results/`, `progress-tracker/` — all resolved through `locations.yaml`). Skills reference siblings by relative path. See [docs/setup.md](docs/setup.md) for the full workspace layout.
+The agent runs from a parent workspace with three sibling trees (the inputs inventory, `analysis-results/`, `progress-tracker/` — all resolved through `locations:` in `traust.yaml`). Skills reference siblings by relative path. See [docs/setup.md](docs/setup.md) for the full workspace layout.
 
 ### Deployment configuration vs shipped configuration
 
-`config/` in this repo ships **only** estate-neutral files (`external-tools.yaml`,
-`feeds.yaml`, `model-registry.yaml`) plus a `*.example.*` template for every
-deployment-specific file. The real corpus registry, product map, budget policy,
-safe-exec profiles, rule-pack allowlist, hardening weights, dist-git watch list,
-internal vocabulary and ledger signing key live in the directory named by
+`config/` in this repo ships **only** estate-neutral files (`model-registry.yaml`)
+plus `traust.example.yaml` and a `*.example.*` template for each adopter-fact file.
+Tool pins, safe-exec profiles and the feeds registry ship with traust-core and are not
+adopter config. A deployment's one config file, `traust.yaml` (database, identity,
+ledger key, budgets, locations, and the few adopter fields), the product map and
+internal vocabulary live in the directory named by
 **`TRAUST_CONFIG_HOME`** (default `~/.traust/config`; a deployment usually points it
 at its own private configuration repository, set by the orchestrator). `scripts/install_traust`
 creates that directory from the templates and is the documented starting point;
-`install_traust --doctor` checks it. Resolve every such file through
+`traust admin doctor` checks it (`install_traust --doctor` runs the same check);
+`traust config migrate`
+folds an old multi-file home into `traust.yaml`. Resolve every other file through
 `config_path("<name>")` from `traust.paths` (or
 `traust_contracts`) — never `HARNESS_ROOT / "config" / …`. It raises
 `DeploymentConfigMissing` rather than falling back to a template. traust-engine
@@ -139,7 +144,7 @@ All security testing code and tools in this repository are used for:
 
 When developing security tools:
 - Assume all testing is against authorized targets with explicit permission
-- Implement safety controls (e.g., scope validation via [`harnessing/5-validate/validate-findings/scope.py`](harnessing/5-validate/validate-findings/scope.py) and [`harnessing/5-validate/validate-browser-finding/scripts/scope.py`](harnessing/5-validate/validate-browser-finding/scripts/scope.py))
+- Implement safety controls (e.g., scope validation via [`harnessing/5-validate/validate-findings/scope.py`](harnessing/5-validate/validate-findings/scope.py))
 - Avoid techniques designed solely for detection evasion in production environments
 
 ### Running validate-browser-finding
@@ -218,10 +223,11 @@ three of them mechanically enforced, keep that from recurring:
 - Consider operational security when handling credentials or sensitive findings
 - **Untrusted text never reaches an emitter raw** — finding titles, repo/
   team names, URLs, and anything quoted from an audited repository must
-  pass through `traust_engine.escaping` before landing in generated HTML
-  (`esc_html`), inline `<script>` JSON (`json_script`), Markdown table
-  cells (`md_cell`), fenced blocks (`fence_untrusted`), CSV cells
-  (`csv_cell`), or path/API segments (`safe_slug`). One sibling having
+  use the workbench's single `_quoted_json` renderer for private review Markdown.
+  Other emitter formats use shared `traust_engine.escaping` helpers: generated
+  HTML (`esc_html`), inline `<script>` JSON (`json_script`), Markdown table
+  cells (`md_cell`), CSV cells (`csv_cell`), or path/API segments (`safe_slug`).
+  One sibling having
   the control while its neighbor lacks it was the measured failure shape
   (assessment 2026-07-31 root cause 4) — import the shared helpers, do
   not re-implement them locally
@@ -235,7 +241,7 @@ three of them mechanically enforced, keep that from recurring:
   systems, test suites, and scanners that load code from an audited
   checkout are hostile-input execution; route them through
   python3 -m traust.cli util safe-exec with a profile from
-  `$TRAUST_CONFIG_HOME/safe-exec-profiles.yaml` (gate rule S10 blocks bare
+  the `safe-exec-profiles.yaml` traust-core ships (gate rule S10 blocks bare
   invocations). Headless agents additionally run under repo-config
   isolation — cwd outside the checkout, repo `.claude/`/`CLAUDE.md`
   never loaded as config (rule S9). Full contract: [docs/safe-exec.md](docs/safe-exec.md)

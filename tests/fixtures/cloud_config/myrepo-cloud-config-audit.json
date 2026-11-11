@@ -1,0 +1,199 @@
+{
+  "title": "Cloud config audit — myrepo (declared configuration only)",
+  "metadata": {
+    "target": "myrepo",
+    "assessment_mode": "declared",
+    "target_head": "0123456789abcdef0123456789abcdef01234567",
+    "repository": "https://github.com/example-org/myrepo",
+    "harness_version": "0.150.0",
+    "checkov_version": "3.3.6",
+    "facts_ref": "myrepo-cloud-facts.json",
+    "facts_snapshot_id": "68045f8c22717898437d7e35ce61990aa0685350b9fd118fab27fecdc85f0dea",
+    "generated_at": "2026-10-20T09:00:00Z",
+    "frameworks": [
+      "dockerfile",
+      "kubernetes",
+      "terraform"
+    ],
+    "deterministic_steps": [
+      {
+        "tool": "checkov",
+        "invocation": "traust cloud-config run --target-dir <checkout>",
+        "version": "3.3.6"
+      }
+    ]
+  },
+  "summary": {
+    "facts_total": 33,
+    "confirmed": 4,
+    "suppressed": 1,
+    "needs_review": 1,
+    "gaps": 2,
+    "by_severity": {
+      "critical": 3,
+      "high": 1,
+      "medium": 1,
+      "low": 1
+    },
+    "by_provider": {
+      "aws": 4,
+      "kubernetes": 2
+    }
+  },
+  "findings": [
+    {
+      "id": "CCA-myrepo-001",
+      "fact_ids": [
+        "cca-a6cfded58b55"
+      ],
+      "framework": "terraform",
+      "provider": "aws",
+      "check_id": "CKV_AWS_20",
+      "title": "S3 bucket ACL allows public READ",
+      "severity": "critical",
+      "scanner_severity": "unrated",
+      "status": "confirmed",
+      "rationale": "R1 exposure: acl = public-read on the data bucket (iac/main.tf:3).",
+      "locations": [
+        {
+          "file_path": "/iac/main.tf",
+          "resource": "aws_s3_bucket.data",
+          "file_line_range": [
+            1,
+            4
+          ]
+        }
+      ],
+      "cwe": "CWE-732"
+    },
+    {
+      "id": "CCA-myrepo-002",
+      "fact_ids": [
+        "cca-f76eac2400c9"
+      ],
+      "framework": "terraform",
+      "provider": "aws",
+      "check_id": "CKV2_AWS_6",
+      "title": "S3 bucket has no public access block",
+      "severity": "critical",
+      "scanner_severity": "unrated",
+      "status": "confirmed",
+      "rationale": "R1 exposure: no aws_s3_bucket_public_access_block for the data bucket.",
+      "locations": [
+        {
+          "file_path": "/iac/main.tf",
+          "resource": "aws_s3_bucket.data",
+          "file_line_range": [
+            1,
+            4
+          ]
+        }
+      ],
+      "cwe": "CWE-732"
+    },
+    {
+      "id": "CCA-myrepo-003",
+      "fact_ids": [
+        "cca-d03f60110fa4"
+      ],
+      "framework": "terraform",
+      "provider": "aws",
+      "check_id": "CKV_AWS_24",
+      "title": "Security group allows SSH from 0.0.0.0/0",
+      "severity": "critical",
+      "scanner_severity": "unrated",
+      "status": "confirmed",
+      "rationale": "R1 exposure: port 22 open to 0.0.0.0/0 (iac/main.tf:12).",
+      "locations": [
+        {
+          "file_path": "/iac/main.tf",
+          "resource": "aws_security_group.admin",
+          "file_line_range": [
+            6,
+            14
+          ]
+        }
+      ],
+      "cwe": "CWE-284"
+    },
+    {
+      "id": "CCA-myrepo-004",
+      "fact_ids": [
+        "cca-3d2390a5e07a"
+      ],
+      "framework": "kubernetes",
+      "provider": "kubernetes",
+      "check_id": "CKV_K8S_16",
+      "title": "Privileged container",
+      "severity": "high",
+      "scanner_severity": "unrated",
+      "status": "needs_review",
+      "rationale": "R2 identity: privileged: true; no owner statement on why the web container needs it.",
+      "locations": [
+        {
+          "file_path": "/k8s/deploy.yaml",
+          "resource": "Deployment.default.web",
+          "file_line_range": [
+            1,
+            12
+          ]
+        }
+      ],
+      "cwe": "CWE-250"
+    },
+    {
+      "id": "CCA-myrepo-005",
+      "fact_ids": [
+        "cca-d4266ab73726"
+      ],
+      "framework": "kubernetes",
+      "provider": "kubernetes",
+      "check_id": "CKV_K8S_21",
+      "title": "Default namespace used",
+      "severity": "low",
+      "scanner_severity": "unrated",
+      "status": "suppressed",
+      "rationale": "R5 hygiene: the namespace is set at deploy time by the overlay; the manifest declares none by design.",
+      "locations": [
+        {
+          "file_path": "/k8s/deploy.yaml",
+          "resource": "Deployment.default.web",
+          "file_line_range": [
+            1,
+            12
+          ]
+        }
+      ],
+      "cwe": null
+    },
+    {
+      "id": "CCA-myrepo-006",
+      "fact_ids": [
+        "cca-4157112595a4"
+      ],
+      "framework": "terraform",
+      "provider": "aws",
+      "check_id": "CKV_AWS_18",
+      "title": "S3 bucket access logging disabled",
+      "severity": "medium",
+      "scanner_severity": "unrated",
+      "status": "confirmed",
+      "rationale": "R4 audit: no logging block on the data bucket.",
+      "locations": [
+        {
+          "file_path": "/iac/main.tf",
+          "resource": "aws_s3_bucket.data",
+          "file_line_range": [
+            1,
+            4
+          ]
+        }
+      ],
+      "cwe": "CWE-778"
+    }
+  ],
+  "gaps": [
+    "myrepo: 1 .tekton/ PipelineRun file(s) present — not assessed by any Checkov framework; NOT ASSESSED, never clean",
+    "myrepo: 1 OpenShift Template file(s) (yaml kind: Template) present — objects inside templates are not assessed by any Checkov framework (template unwrapping deliberately not attempted); NOT ASSESSED, never clean"
+  ]
+}

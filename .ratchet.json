@@ -1,0 +1,23 @@
+{
+  "src/traust/cli/auth.py": {
+    "core-internal": 1
+  },
+  "src/traust/cli/build_symbol_index.py": {
+    "database": 1
+  },
+  "src/traust/cli/check_docs_consistency.py": {
+    "state-file": 2
+  },
+  "src/traust/cli/check_skill_alignment.py": {
+    "state-file": 1
+  },
+  "src/traust/cli/findings.py": {
+    "core-internal": 1
+  },
+  "src/traust/cli/groups/reporting.py": {
+    "state-file": 1
+  },
+  "src/traust/cli/query_index.py": {
+    "database": 1
+  }
+}

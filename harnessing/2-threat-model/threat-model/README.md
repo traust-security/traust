@@ -165,6 +165,15 @@ optional additive sections: recommended mitigations and attack scenarios
 examples live throughout `analysis-results/findings/` as
 `<repo>-threat-model.md`.
 
+Recommended mitigations always include `effort` in the JSON: a canonical
+size from the [registry](https://github.com/traust-security/traust-contracts/blob/development/enums/v1/mitigation-effort.json),
+or `null` when unknown. The independent optional `blocked_external` field
+records a known boolean only; missing means unknown, not `false`.
+Historical uppercase sizes remain readable, with exact registry-approved
+replacements used only for fresh canonical output. Stored historical
+artifacts are not rewritten. Recommendations order known sizes by size,
+never treating unknown effort as cheapest; see schema.md section 8.
+
 Every emission is validated by the deterministic linter before the run is
 considered complete:
 

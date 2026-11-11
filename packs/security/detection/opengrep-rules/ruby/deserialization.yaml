@@ -1,0 +1,51 @@
+rules:
+  - id: traust-ruby-deserialization-yaml-unsafe-load
+    languages: [ruby]
+    severity: ERROR
+    message: >-
+      YAML.unsafe_load (or YAML.load on Psych before 4.0) of non-literal
+      data instantiates arbitrary Ruby objects — untrusted YAML can run
+      code. Use YAML.safe_load with permitted_classes, or YAML.load on
+      Psych 4+, where load is safe by default. CWE-502.
+    metadata:
+      cwe: ["CWE-502"]
+      category: deserialization
+      asvs: ["V1"]
+      confidence: HIGH
+      references:
+        - "CWE-502 deserialization — Psych unsafe_load / pre-4.0 load on untrusted input"
+    patterns:
+      - pattern-either:
+          - pattern: YAML.unsafe_load($X, ...)
+          - pattern: Psych.unsafe_load($X, ...)
+          - pattern: YAML.load($X, ...)
+          - pattern: Psych.load($X, ...)
+      - pattern-not: 'YAML.load($X, ..., permitted_classes: $P, ...)'
+      - metavariable-pattern:
+          metavariable: $X
+          patterns:
+            - pattern-not: '"..."'
+
+  - id: traust-ruby-deserialization-marshal-load
+    languages: [ruby]
+    severity: WARNING
+    message: >-
+      Marshal.load of non-literal data — Marshal restores arbitrary objects,
+      and a crafted payload can run code. Only load Marshal data the process
+      wrote itself to storage no one else can write; use JSON for anything
+      that crosses a trust boundary. CWE-502.
+    metadata:
+      cwe: ["CWE-502"]
+      category: deserialization
+      asvs: ["V1"]
+      confidence: MEDIUM
+      references:
+        - "CWE-502 deserialization — Marshal.load"
+    patterns:
+      - pattern-either:
+          - pattern: Marshal.load($X, ...)
+          - pattern: Marshal.restore($X, ...)
+      - metavariable-pattern:
+          metavariable: $X
+          patterns:
+            - pattern-not: '"..."'

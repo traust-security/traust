@@ -75,7 +75,7 @@ Python code dependencies are pinned by commit `rev` in `pyproject.toml` and reso
 | [docs/getting-started.md](docs/getting-started.md) | Zero to first audit report |
 | [docs/standalone-usage.md](docs/standalone-usage.md) | Run any skill locally outside the campaign |
 | [docs/campaign-workflow.md](docs/campaign-workflow.md) | End-to-end org-wide campaign |
-| [docs/skills.md](docs/skills.md) | All 52 skills: stage, tier, slash command |
+| [docs/skills.md](docs/skills.md) | All 51 skills: stage, tier, slash command |
 | [docs/artifacts.md](docs/artifacts.md) | Every artifact the pipeline produces and who consumes it |
 | [docs/components.md](docs/components.md) | Which repo to change for a given fix |
 | [traust-core platform API](https://github.com/traust-security/traust-core) | Shared models, persistence, services, and implementation status |

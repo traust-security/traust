@@ -1,0 +1,48 @@
+rules:
+  - id: traust-rust-path-traversal-request-taint
+    languages: [rust]
+    severity: ERROR
+    message: >-
+      A request value (a gRPC message field, or an axum / actix-web Path or
+      Query extractor) reaches a filesystem path that is opened, read,
+      written, copied or removed — '../' segments and absolute paths escape
+      the intended directory. Canonicalize the joined path and check it
+      starts_with the canonical base, or keep only file_name(). CWE-22.
+    metadata:
+      cwe: ["CWE-22"]
+      category: path-traversal
+      asvs: ["V5"]
+      confidence: HIGH
+      references:
+        - "CWE-22 path traversal — request fields joined into filesystem paths (gRPC handlers, HTTP extractors)"
+    mode: taint
+    pattern-sources:
+      - pattern-either:
+          - pattern: $R.into_inner()
+          - patterns:
+              - pattern-inside: |
+                  fn $F(..., $REQ: $T, ...) -> $RET { ... }
+              - metavariable-regex:
+                  metavariable: $T
+                  regex: .*Request\b
+              - pattern: $REQ.$FIELD
+          - patterns:
+              - pattern-either:
+                  - pattern-inside: |
+                      async fn $F(..., Path($P): $T, ...) -> $RET { ... }
+                  - pattern-inside: |
+                      async fn $F(..., Query($P): $T, ...) -> $RET { ... }
+              - pattern: $P
+    pattern-sanitizers:
+      - pattern-either:
+          - pattern: $X.file_name()
+          - pattern: sanitize_filename::sanitize(...)
+    pattern-sinks:
+      - pattern-either:
+          - pattern: File::open($P)
+          - pattern: File::create($P)
+          - pattern: std::fs::File::open($P)
+          - pattern: NamedFile::open($P)
+          - pattern: fs::$OP($P, ...)
+          - pattern: std::fs::$OP($P, ...)
+          - pattern: tokio::fs::$OP($P, ...)

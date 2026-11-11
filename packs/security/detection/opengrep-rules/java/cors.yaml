@@ -1,0 +1,54 @@
+rules:
+  - id: traust-java-cors-any-origin-with-credentials
+    languages: [java]
+    severity: ERROR
+    message: >-
+      CORS accepts any origin (an origin pattern of "*", or the request's
+      own Origin header echoed back) and allows credentials, so any site
+      can make credentialed requests and read the responses. List the
+      allowed origins explicitly. CWE-942.
+    metadata:
+      cwe: ["CWE-942", "CWE-346"]
+      category: cors
+      asvs: ["V3"]
+      confidence: HIGH
+      references:
+        - "CWE-942 permissive cross-origin policy — wildcard origin patterns with credentials"
+    pattern-either:
+      - patterns:
+          - pattern: |
+              @CrossOrigin(..., originPatterns = $O, ...)
+          - pattern: |
+              @CrossOrigin(..., allowCredentials = "true", ...)
+          - metavariable-regex:
+              metavariable: $O
+              regex: ^\{?\s*"\*"
+      # CorsConfiguration and CorsRegistry: a "*" pattern beside allowCredentials(true)
+      - patterns:
+          - pattern-inside: |
+              $RT $M(...) {
+                ...
+                $CRED;
+                ...
+              }
+          - metavariable-pattern:
+              metavariable: $CRED
+              pattern-either:
+                - pattern: $C.setAllowCredentials(true)
+                - pattern: $C.allowCredentials(true)
+          - pattern-either:
+              - pattern: $C.addAllowedOriginPattern("*")
+              - pattern: $C.setAllowedOriginPatterns($L.of("*"))
+              - pattern: $C.setAllowedOriginPatterns(Arrays.asList("*"))
+              - pattern: $C.setAllowedOriginPatterns(Collections.singletonList("*"))
+              - pattern: $R.allowedOriginPatterns("*")
+      - patterns:
+          - pattern-either:
+              - pattern: $RESP.setHeader("Access-Control-Allow-Origin", $REQ.getHeader("Origin"))
+              - pattern: $RESP.addHeader("Access-Control-Allow-Origin", $REQ.getHeader("Origin"))
+          - pattern-inside: |
+              $RT $M(...) {
+                ...
+                $RESP2.$SET("Access-Control-Allow-Credentials", "true");
+                ...
+              }

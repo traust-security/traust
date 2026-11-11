@@ -1,0 +1,22 @@
+rules:
+  - id: traust-ts-authentication-jwt-verification-weakened
+    languages: [typescript, javascript]
+    severity: ERROR
+    message: >-
+      JWT verification weakened in jsonwebtoken: the `none` algorithm
+      accepted (unsigned tokens pass), or expiry ignored. Pin the expected
+      algorithms (`algorithms: ['RS256']`) and keep exp checking on.
+      CWE-347 / CWE-613.
+    metadata:
+      cwe: ["CWE-347", "CWE-613"]
+      category: authentication
+      asvs: ["V9"]
+      confidence: HIGH
+      references:
+        - "CWE-347 — jsonwebtoken verify accepting the none algorithm"
+        - "CWE-613 — ignoreExpiration"
+    pattern-either:
+      - pattern: '$J.verify($T, $K, { ..., algorithms: [..., "none", ...], ... }, ...)'
+      - pattern: '$J.verify($T, $K, { ..., ignoreExpiration: true, ... }, ...)'
+      - pattern: 'verify($T, $K, { ..., algorithms: [..., "none", ...], ... }, ...)'
+      - pattern: 'verify($T, $K, { ..., ignoreExpiration: true, ... }, ...)'

@@ -1,0 +1,111 @@
+# Builds both split images (Containerfile.tools, Containerfile.runtime) on every PR and after
+# each merge to development/main, and checks the properties the plan's "Done when" names:
+# every installed binary at its pin, no Python stack or database in the tools image, the
+# runtime's label names the toolchain hash, and a scan against an emptied database degrades
+# instead of reporting zero.
+name: container-images
+
+on:
+  pull_request:
+    paths:
+      - "Containerfile.tools"
+      - "Containerfile.runtime"
+      - "scripts/build-toolchain-image.sh"
+      - "scripts/containerfile-build-args.py"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".github/workflows/container-images.yml"
+  merge_group:
+  push:
+    branches: [main, development]
+
+concurrency:
+  group: container-images-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          show-progress: false
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          enable-cache: true
+          python-version: "3.12"
+      - run: uv sync --frozen
+      - name: Install podman
+        run: sudo apt-get update && sudo apt-get install -y podman
+
+      - name: Validate pins against the tools image's inventory
+        run: uv run python3 scripts/containerfile-build-args.py --check
+
+      - name: Build traust-toolchain
+        run: bash scripts/build-toolchain-image.sh --tools-only --tools-tag traust-toolchain:ci
+
+      - name: Every installed binary reports its pin
+        run: |
+          # The build's own smoke test (Containerfile.tools' final RUN) already asserted this
+          # inside the build; re-check from outside as an independent, external verification.
+          uv run python3 scripts/containerfile-build-args.py --env > /tmp/pins.env
+          source /tmp/pins.env
+          podman run --rm traust-toolchain:ci opengrep --version | grep -q "$OPENGREP_VERSION"
+          podman run --rm traust-toolchain:ci gitleaks version | grep -q "$GITLEAKS_VERSION"
+          podman run --rm traust-toolchain:ci syft --version | grep -q "$SYFT_VERSION"
+          podman run --rm traust-toolchain:ci grype --version | grep -q "$GRYPE_VERSION"
+          podman run --rm traust-toolchain:ci cosign version | grep -q "GitVersion:.*$COSIGN_VERSION"
+          podman run --rm traust-toolchain:ci govulncheck -version | grep -q "govulncheck@v$GOVULNCHECK_VERSION"
+          podman run --rm traust-toolchain:ci skopeo --version | grep -q " $SKOPEO_VERSION\$"
+          podman run --rm traust-toolchain:ci yara --version | grep -q "$YARA_VERSION"
+          podman run --rm --entrypoint /opt/pip-audit-venv/bin/pip-audit traust-toolchain:ci --version | grep -q "$PIP_AUDIT_VERSION"
+          podman run --rm traust-toolchain:ci go version | grep -q " go$GO_VERSION "
+
+      - name: No traust Python stack and no vulnerability database in traust-toolchain
+        run: |
+          ! podman run --rm --entrypoint python3.11 traust-toolchain:ci -c "import traust_core" 2>/dev/null
+          test -z "$(podman run --rm --entrypoint find traust-toolchain:ci / -iname 'vulnerability.db' -o -ipath '*vulndb*' 2>/dev/null)"
+
+      - name: No build toolchain in traust-toolchain (it only downloads/compiles in builder stages)
+        run: |
+          # curl is deliberately not checked: ubi-minimal ships curl-minimal by default, part of
+          # the pristine base image, not something this build adds.
+          for t in gcc make automake autoconf libtool pkg-config; do
+            podman run --rm --entrypoint sh traust-toolchain:ci -c "! command -v $t" \
+              || { echo "FATAL: $t leaked into the final tools image" >&2; exit 1; }
+          done
+          # Every native binary resolves against what's already in the base image (no missing
+          # shared library from a trimmed final stage).
+          for b in opengrep gitleaks syft grype cosign govulncheck skopeo yara yarac; do
+            podman run --rm --entrypoint sh traust-toolchain:ci -c "ldd \$(command -v $b) 2>&1" \
+              | grep -qi "not found" && { echo "FATAL: $b is missing a shared library" >&2; exit 1; }
+          done
+          echo "ok"
+
+      - name: Build traust-runtime FROM traust-toolchain by digest
+        run: |
+          DIGEST=$(podman image inspect traust-toolchain:ci --format '{{.Digest}}')
+          podman build -f Containerfile.runtime \
+            --build-arg "TOOLS_IMAGE=traust-toolchain@${DIGEST}" \
+            --build-arg "TOOLCHAIN_HASH=$(uv run python3 scripts/containerfile-build-args.py --pin-hash)" \
+            --build-arg "VCS_REF=${{ github.sha }}" \
+            -t traust-runtime:ci .
+
+      - name: The runtime label names the toolchain hash
+        run: |
+          HASH=$(uv run python3 scripts/containerfile-build-args.py --pin-hash)
+          podman inspect traust-runtime:ci --format '{{index .Config.Labels "traust.toolchain-hash"}}' | grep -qF "$HASH"
+
+      - name: The traust stack is installed and the CLI runs
+        run: podman run --rm traust-runtime:ci --help
+
+      - name: A scan against an emptied database degrades, never reports zero
+        run: |
+          mkdir -p /tmp/empty-feeds-cache/tool-dbs/grype
+          podman run --rm -v /tmp/empty-feeds-cache:/feeds:Z --entrypoint sh traust-runtime:ci -c '
+            GRYPE_DB_CACHE_DIR=/feeds/tool-dbs/grype GRYPE_DB_AUTO_UPDATE=false grype /opt/traust -o json >/dev/null 2>/tmp/err
+            rc=$?
+            cat /tmp/err >&2
+            test "$rc" -ne 0
+          '

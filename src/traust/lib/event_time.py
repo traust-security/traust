@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import argparse
 
-from traust_contracts.v1.timestamps import TimestampError, to_rfc3339
+from traust_core.v1.models.values import TimestampError, to_rfc3339
 
 
 def _stated(value: object) -> bool:

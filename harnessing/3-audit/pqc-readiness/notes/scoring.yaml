@@ -1,5 +1,6 @@
-# Bucket and effort thresholds.
-# Do not invent scores from quantum_ready alone.
+# Bucket thresholds and provenance/agility policy, independent of effort size.
+# Do not invent scores from quantum_ready alone. Keep this guidance aligned with
+# reference/pqc-readiness-decision-tree.json (the authoritative ordered rules).
 
 score_ready_min: 80
 score_partial_min: 50
@@ -10,12 +11,39 @@ status_to_bucket:
   blocked: blocked-external
   not_applicable: not-applicable
 
-effort_labels:
-  - id: blocked-external
-    when: vendored/externalized OR delegated without PQC roadmap
-  - id: significant
-    when: native-first-party AND AGIL blockers
-  - id: moderate
-    when: delegated OR multi-pin constrained OR agile native
-  - id: trivial
-    when: inherited-platform OR single pin
+remediation_effort:
+  # Canonical size definitions: traust-contracts enums/v1/effort.json.
+  # No duration thresholds or legacy-label mapping exist. These conditions do
+  # not establish size. No match also leaves size null; assess blocking separately.
+  # Rules are ordered, first match wins. Omitted blocked_external stays unknown.
+  classes: [xs, s, m, l, xl]
+  rules:
+    - effort: null
+      blocked_external: true
+      when: provenance in [vendored, externalized] OR (delegated-dependency AND library has no PQC roadmap)
+    - effort: null
+      when: native-first-party AND (AGIL-1 or AGIL-2 or AGIL-6 = no)
+    - effort: null
+      when: delegated-dependency OR (inherited-constrained AND pin facts > 1) OR (native-first-party AND AGIL-3/6 = yes)
+    - effort: null
+      when: inherited-platform OR (inherited-constrained AND pin facts == 1)
+
+readiness_rules:
+  # First match wins, in this order; apply bucket_override afterwards.
+  # Preserve existing dominant-blocking selection and all-clock-items semantics,
+  # including empty sets. Do not infer readiness from size or blocking alone.
+  - bucket: not-applicable
+    when: zero-hit with coverage assertion, OR sbom-only with all scored checks na
+  - bucket: blocked-external
+    when: dominant blocking condition is provenance in [vendored, externalized] OR (provenance=delegated-dependency AND library has no PQC roadmap)
+  - bucket: ready
+    when: overall >= 80 AND no 2030-clock items AND PQCA-1 = yes
+  - bucket: partial
+    when: overall in [50, 80) OR all clock items satisfy (NOT (provenance in [vendored, externalized] OR (provenance=delegated-dependency AND library has no PQC roadmap)) AND NOT (provenance=native-first-party AND (AGIL-1 or AGIL-2 or AGIL-6 = no)) AND (provenance=delegated-dependency OR (provenance=inherited-constrained AND pin facts > 1) OR (provenance=native-first-party AND AGIL-3/6 = yes) OR provenance=inherited-platform OR (provenance=inherited-constrained AND pin facts == 1)))
+  - bucket: not-ready
+    when: overall < 50 OR any clock item satisfies provenance=native-first-party AND (AGIL-1 or AGIL-2 or AGIL-6 = no)
+
+bucket_override:
+  - override_to: partial
+    when: overall >= 80 AND any clock_item has blast_radius=fleet AND provenance=native-first-party AND (AGIL-1 or AGIL-2 or AGIL-6 = no)
+    rationale_field: blast_radius_caveat

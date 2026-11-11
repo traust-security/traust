@@ -170,18 +170,12 @@ recording tokens alone.
 
 ### Keeping track of your divergence
 
-`install_traust --doctor` reports when your config-home copy differs from the
-shipped one:
-
-```
-model-registry.yaml differs from the shipped copy — intentional override, or stale?
-```
-
-That is the intended state for an adopter who has repointed roles — the
-warning exists because the check cannot tell a deliberate override from a
-copy that has fallen behind an upstream change. `install_traust --force`
-refreshes it from the shipped default, discarding local edits, so re-apply
-your overrides after a force refresh.
+Your config-home `model-registry.yaml` is yours to maintain: `install_traust
+--force` refreshes it from the shipped default (discarding local edits, so
+re-apply your overrides after a force refresh). Divergence is intended for an
+adopter who has repointed roles; the drift to watch is the reverse one —
+`traust admin doctor` names a missing registry (it is required), and a stale
+copy simply resolves roles to the models it names.
 
 ---
 
@@ -202,7 +196,7 @@ own:
 - [campaign-workflow.md](campaign-workflow.md) — 21 skills, the pipeline lanes
 - [standalone-usage.md](standalone-usage.md) — 27 skills, invocable on any checkout
 
-Between them they cover 48 of the 52 skills. The lists below are extracted
+Between them they cover 47 of the 51 skills. The lists below are extracted
 from those two tables rather than maintained separately, so they cannot
 disagree with them; a docs-gate check enforces that. The four skills with no
 documented class are listed at the end with the role that governs them.
@@ -213,11 +207,11 @@ Audits, threat models, triage, validation, remediation, verification — the rol
 
 `compliance-check` · `crypto-analysis` · `insecure-patterns` · `isolation-review` · `patch` · `pqc-readiness` · `recall-benchmark` · `remediate-finding` · `secure-code-audit` · `secure-rpm-audit` · `security-audit-phased` · `threat-model` · `triage` · `validate-browser-finding` · `validate-findings` · `verify-remediation`
 
-### `opus-class` — 26 skill(s)
+### `opus-class` — 25 skill(s)
 
 Orchestration, inventory, graphs, dashboards and rollups: work whose failure mode is a rerun, not a bad security decision.
 
-`add-inputs` · `attack-coverage` · `census` · `cloud-config-audit` · `corpus-intake` · `countersign` · `dependency-watch` · `financial-tracking` · `findings-db` · `fleet-fix` · `generate-team-report` · `impact-analysis` · `inventory-repositories` · `mine-ledger` · `operator-priv-profile` · `portfolio-graph` · `property-test` · `rbac-tenancy-rollup` · `repo-graph` · `secure-container-audit` · `sla-view` · `threat-register` · `track-findings` · `traust-metrics` · `validation-fuzz-dashboard` · `vuln-scan`
+`add-inputs` · `attack-coverage` · `census` · `cloud-config-audit` · `corpus-intake` · `dependency-watch` · `financial-tracking` · `findings-db` · `fleet-fix` · `generate-team-report` · `impact-analysis` · `inventory-repositories` · `mine-ledger` · `operator-priv-profile` · `portfolio-graph` · `property-test` · `secure-container-audit` · `sla-view` · `threat-register` · `track-findings` · `traust-metrics` · `validation-fuzz-dashboard` · `vuln-scan`
 
 ### `sonnet-class` — 6 skill(s)
 
@@ -235,12 +229,12 @@ answer for them anyway, since that is what actually decides the floor:
 | `create-fuzzing` | `fuzz-author` | `opus-class` |
 | `executive-summary-findings` | `render-narrate` over deterministic aggregates | `opus-class` in practice; the narration step may drop to `haiku-class` |
 | `findings-trends` | deterministic replay + narration | `opus-class` |
-| `loc-dashboard` | deterministic, cache-only | `opus-class` |
+| `loc-dashboard` | deterministic, reads stored code facts | `opus-class` |
 
 ### Making this mechanical
 
 The honest fix is for each skill to declare the role(s) it resolves in its own
 frontmatter, so this index can be generated the way
 [skills.md](skills.md) is and drift becomes impossible rather than merely
-correctable. That is a change to 52 skills and a new alignment rule, so it is
+correctable. That is a change to 51 skills and a new alignment rule, so it is
 recorded here as the known gap rather than done quietly.

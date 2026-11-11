@@ -1,0 +1,22 @@
+# Example org parameters: keep yours in your own repository and record them with
+# `traust compliance policy org-parameters <file>` (each recording is the next version).
+# The harness never reads this example at run time.
+#
+# Organization-defined parameters (ODPs), schema-gated by the contracts
+# org-parameters.schema.json (checked through traust-core): declared values for 800-53 "[Assignment:
+# organization-defined ...]" slots and similar knobs. A check whose
+# parameter is undeclared gets not_assessed (parameter undeclared); the
+# assessor never assumes a value. Treat every change as a reviewed config
+# change, and record where each value came from in its note.
+
+version: 1
+declared_by: "Example Security Team (replace before the first assessment)"
+declared_on: "2026-01-01"
+parameters:
+  allowed_data_regions:
+    value: ["us-east-1", "eu-west-1"]
+    controls: ["gdpr-technical:gdpr-residency"]
+    note: "placeholder: your approved data regions, and the policy they come from"
+  account_review_frequency_days:
+    value: 90
+    controls: ["nist-800-53-rev5:ac-2"]

@@ -1,0 +1,23 @@
+{
+ "retrieved": "2026-07-19",
+ "license": "CC0-1.0 / US-Gov public domain (LICENSE.md verified 2026-07-19)",
+ "upstream": "https://github.com/usnistgov/oscal-content",
+ "upstream_head": "78650f02ad93",
+ "files": {
+  "spine-800-53-rev5.json": {
+   "derived_from": "https://raw.githubusercontent.com/usnistgov/oscal-content/main/nist.gov/SP800-53/rev5/json/NIST_SP-800-53_rev5_catalog.json",
+   "upstream_sha256": "01f37cf90ea99d92242c936cbfbdebcc338eef1f71454e2acac36cc56e9bc062",
+   "derivation": "id/title/family/withdrawn per control+enhancement"
+  },
+  "profile-800-53b-moderate.json": {
+   "derived_from": "https://raw.githubusercontent.com/usnistgov/oscal-content/main/nist.gov/SP800-53/rev5/json/NIST_SP-800-53_rev5_MODERATE-baseline_profile.json",
+   "upstream_sha256": "9030dbf1f13169947eb97eb101b4bd2f00d3c151b100455a923ac75803f00ea1",
+   "derivation": "flattened include-controls ids"
+  },
+  "profile-800-53b-high.json": {
+   "derived_from": "https://raw.githubusercontent.com/usnistgov/oscal-content/main/nist.gov/SP800-53/rev5/json/NIST_SP-800-53_rev5_HIGH-baseline_profile.json",
+   "upstream_sha256": "60576970caef91b2cba56d46e5948b72e3b879434fc2a4840bc4179e5e75cfd7",
+   "derivation": "flattened include-controls ids"
+  }
+ }
+}

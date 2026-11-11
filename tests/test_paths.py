@@ -11,6 +11,9 @@ so the move is a no-op for every gate, provable before it happens.
 
 from __future__ import annotations
 
+import os
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -147,3 +150,18 @@ class TestGatesAreLayoutAgnostic(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_harness_root_is_the_checkout_unless_harness_root_names_the_payload(
+    tmp_path: Path,
+) -> None:
+    def root(env: dict[str, str]) -> str:
+        code = "from traust.paths import HARNESS_ROOT; print(HARNESS_ROOT)"
+        done = subprocess.run(
+            [sys.executable, "-c", code], env=env, capture_output=True, text=True, check=True
+        )
+        return done.stdout.strip()
+
+    env = {k: v for k, v in os.environ.items() if k != "HARNESS_ROOT"}
+    assert root(env) == str(HARNESS_ROOT)
+    assert root({**env, "HARNESS_ROOT": str(tmp_path)}) == str(tmp_path)

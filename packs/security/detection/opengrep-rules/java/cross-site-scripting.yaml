@@ -1,0 +1,58 @@
+rules:
+  - id: traust-java-xss-servlet-writer-taint
+    languages: [java]
+    severity: ERROR
+    message: >-
+      A request value is written into a servlet response body unescaped
+      (getWriter().write/print/println, getOutputStream().print) — HTML in
+      it runs as script. Render through an escaping template engine, or
+      encode for HTML (OWASP Java Encoder Encode.forHtml) and set a
+      non-HTML Content-Type for raw data. CWE-79.
+    metadata:
+      cwe: ["CWE-79"]
+      category: cross-site-scripting
+      asvs: ["V1"]
+      confidence: MEDIUM
+      references:
+        - "CWE-79 reflected XSS — request values written to the servlet response"
+    mode: taint
+    pattern-sources:
+      - pattern-either:
+          - patterns:
+              - pattern-either:
+                  - pattern-inside: |
+                      $RT $M(..., @RequestParam $T $P, ...) { ... }
+                  - pattern-inside: |
+                      $RT $M(..., @RequestParam($A) $T $P, ...) { ... }
+                  - pattern-inside: |
+                      $RT $M(..., @PathVariable $T $P, ...) { ... }
+                  - pattern-inside: |
+                      $RT $M(..., @PathVariable($A) $T $P, ...) { ... }
+                  - pattern-inside: |
+                      $RT $M(..., @RequestHeader($A) $T $P, ...) { ... }
+                  - pattern-inside: |
+                      $RT $M(..., @QueryParam($A) $T $P, ...) { ... }
+                  - pattern-inside: |
+                      $RT $M(..., @PathParam($A) $T $P, ...) { ... }
+              - pattern: $P
+          - pattern: $REQ.getParameter(...)
+          - pattern: $REQ.getHeader(...)
+          - pattern: $REQ.getQueryString()
+          - pattern: $REQ.getPathInfo()
+    pattern-sanitizers:
+      - pattern-either:
+          - pattern: Encode.forHtml(...)
+          - pattern: Encode.forHtmlContent(...)
+          - pattern: HtmlUtils.htmlEscape(...)
+          - pattern: StringEscapeUtils.escapeHtml4(...)
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: $RESP.getWriter().write($V)
+              - pattern: $RESP.getWriter().print($V)
+              - pattern: $RESP.getWriter().println($V)
+              - pattern: $RESP.getWriter().printf($F, ..., $V, ...)
+              - pattern: $RESP.getOutputStream().print($V)
+              - pattern: $RESP.getOutputStream().println($V)
+          - focus-metavariable: $V
+

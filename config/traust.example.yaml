@@ -1,0 +1,82 @@
+# traust.yaml: everything an adopter sets. Copy it to $TRAUST_CONFIG_HOME/traust.yaml (or run
+# scripts/install_traust), uncomment and fill in what you use, and run `traust admin doctor` to
+# see every effective value and where it came from. As copied, it is the zero-config laptop
+# install: SQLite and artifacts under ~/.traust. Unknown keys are refused. Secrets never sit
+# here: the *_env keys name the environment variable that holds them. Schema: traust-contracts
+# config/v1/traust.
+#
+# Tool pins, safe-exec profiles and the feeds registry are the project's: they ship with
+# traust-core and are not configurable here.
+
+# database:                     # absent: SQLite at ~/.traust/traust.db
+#   url: postgresql+psycopg://traust@db.example.internal/traust
+#   password_env: TRAUST_DB_PASSWORD
+
+# artifacts:                     # absent: local files under ~/.traust/artifacts
+#   s3:                         # install traust[s3] (AWS, MinIO or Ceph)
+#     bucket: example-artifacts
+#     prefix: traust             # optional: isolate a deployment inside a shared bucket
+#     region: us-east-1          # optional with a custom endpoint
+#     # endpoint_url: https://minio.example.com    # optional: S3-compatible endpoint
+#     # access_key_env: TRAUST_S3_ACCESS_KEY       # optional pair; default: SDK credentials
+#     # secret_key_env: TRAUST_S3_SECRET_KEY       # optional pair; default: workload identity
+
+# identity:                     # absent: no caller can be verified
+#   trust_local: true           # a solo laptop trusts its own `traust auth local` tokens; a
+#                               # shared deployment lists its OIDC `issuers` instead
+#   admins: [alice@example.com]
+
+# ledger:                       # absent: decisions are recorded, with no proof chain
+#   # Generate your own cosign key pair (there is no placeholder key):
+#   #   cosign generate-key-pair    # cosign.key + cosign.pub; COSIGN_PASSWORD holds the passphrase
+#   # Keep cosign.key in your secret store. Record the public key's SHA-256 SPKI fingerprint
+#   # outside the repo that holds it:
+#   #   openssl pkey -pubin -in cosign.pub -outform DER | openssl dgst -sha256
+#   # ECDSA P-256. On rotation never re-sign history: set previous_public_key_path.
+#   key_path: /run/secrets/traust/cosign.key
+#   public_key_path: /etc/traust/cosign.pub
+#   required: true              # refuse a write that cannot be signed
+
+# budgets:                      # monthly spend per lane; absent lanes are never bound
+#   # enforcement, in the order a deployment turns it on: none (documented only) ->
+#   # observe (the verdict is recorded, nothing is withheld) -> advisory (the lane is withheld
+#   # over budget) -> enforced (valid only on the central platform, where users cannot edit
+#   # it). Anchor the figures to observed spend (`traust metrics collect-spend`), not guesses.
+#   - {lane: diff-scan, monthly_usd: "200", enforcement: observe}
+
+# forge_hosts: {github.com: github, gitlab.example.com: gitlab}
+# forge_tokens: {gitlab.example.com: GITLAB_TOKEN}   # host -> env var with its API token
+
+# locations:                    # relative paths resolve beside this file; URIs stay as written
+#   workspace: /srv/traust/workspace                 # source checkouts are read from here
+#   analysis_results: /srv/traust/analysis-results   # legacy results location; not the artifact store
+#   progress_tracker: /srv/traust/progress-tracker
+#   inputs: /srv/traust/workspace/inputs             # default: <workspace>/inputs
+#   feeds_cache: /srv/traust/feeds-cache             # default: <progress_tracker>/feeds
+#   rule_drafts: /srv/traust/rule-drafts             # default: <progress_tracker>/metrics/rule-mining/rule-drafts
+#   gitleaks_config: /srv/traust/gitleaks.toml       # default: the security pack's
+#   opengrep_rules: /srv/traust/opengrep-rules       # default: the security pack's
+#   product_definitions: https://products.example.com/products.json
+#   sarif_tool_uri: https://harness.example.com
+
+feeds:
+  osv_access: api               # or air-gapped: an adopter-provided osv-scanner and offline DB
+
+execution:
+  sandbox: none                 # how a target's own build and test code runs:
+                                # none: scrubbed env on a disposable copy (the process is the
+                                # only isolation; what a locked-down runner can do).
+                                # podman: rootless, cap-dropped, --network=none, digest-pinned;
+                                # no working runtime is `not_attempted`, never a fallback to none
+
+# remediation:                  # only if you use /remediate-finding
+#   fork_org: example-mirrors   # private mirror org fixes are pushed to; no shipped default
+#   private_forge_hosts: [gitlab.example.com]   # forges whose repos are their own downstream fork
+
+# campaign:                     # only if reports cite a tracking reference
+#   tracking_reference: SEC-2026-Q4
+
+# overrides:                    # optional: supplemental rule packs (shipped: none enabled)
+#   rule_pack_allowlist: rule-pack-allowlist.yaml    # template: config/rule-pack-allowlist.example.yaml
+
+# process: {allowed_binaries: [syft], timeout_seconds: 600}   # core runs only listed binaries (default none); manifest_sbom needs syft. http and logging keep core's defaults unless set

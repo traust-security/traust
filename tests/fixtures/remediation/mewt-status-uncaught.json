@@ -1,0 +1,44 @@
+{
+  "targets": [
+    {
+      "path": "./pkg/calc/calc.go",
+      "total_mutants": 19,
+      "tested": 6,
+      "untested": 0,
+      "caught": 4,
+      "uncaught": 2,
+      "timeout": 0,
+      "skipped": 13,
+      "high_catch_rate": 50.0,
+      "medium_catch_rate": 66.66666666666666,
+      "low_catch_rate": 100.0
+    },
+    {
+      "path": "./pkg/calc/calc_test.go",
+      "total_mutants": 6,
+      "tested": 5,
+      "untested": 0,
+      "caught": 3,
+      "uncaught": 2,
+      "timeout": 0,
+      "skipped": 1,
+      "high_catch_rate": 100.0,
+      "medium_catch_rate": 50.0,
+      "low_catch_rate": null
+    }
+  ],
+  "campaign": {
+    "total_targets": 2,
+    "total_mutants": 25,
+    "tested": 11,
+    "untested": 0,
+    "caught": 7,
+    "uncaught": 4,
+    "timeout": 0,
+    "skipped": 14,
+    "high_catch_rate": 66.66666666666666,
+    "medium_catch_rate": 57.14285714285714,
+    "low_catch_rate": 100.0,
+    "progress_percent": 100.0
+  }
+}

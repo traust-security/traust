@@ -1,0 +1,114 @@
+rules:
+  - id: traust-ts-open-redirect-response-taint
+    languages: [typescript, javascript]
+    paths:
+      exclude:
+        - "*.test.*"
+        - "*.spec.*"
+        - "*/__tests__/*"
+        - "*/__mocks__/*"
+        - "*/mock-backend/*"
+        - "*/mocks/*"
+        - "*/test/*"
+        - "*/tests/*"
+    severity: ERROR
+    message: >-
+      A request value is used as a redirect target — the caller can send users
+      to any site with this host's link (phishing, OAuth code or token
+      theft). Redirect only to relative paths or an allowlisted origin.
+      CWE-601.
+    metadata:
+      cwe: ["CWE-601"]
+      category: open-redirect
+      asvs: ["V5"]
+      confidence: HIGH
+      references:
+        - "CWE-601 open redirect — request value as the redirect target"
+    mode: taint
+    pattern-sources:
+      - pattern-either:
+          - pattern: $REQ.query.$P
+          - pattern: $REQ.params.$P
+          - pattern: $REQ.body.$P
+          - pattern: $REQ.query[$K]
+          - patterns:
+              - pattern-inside: "const {...} = $REQ.$PART;"
+              - pattern: $V
+              - metavariable-regex:
+                  metavariable: $PART
+                  regex: ^(query|params|body)$
+          - patterns:
+              - pattern-either:
+                  - pattern: $R.headers.$H
+                  - pattern: $R.headers[$H]
+                  - pattern: $R.get($H)
+                  - pattern: $R.header($H)
+                  - pattern: $R.url
+                  - pattern: $R.originalUrl
+                  - pattern: $R.path
+              - metavariable-regex:
+                  metavariable: $R
+                  regex: ^(req|request)$
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: $RES.redirect($URL)
+              - pattern: $RES.redirect($CODE, $URL)
+              - patterns:
+                  - pattern: $RES.setHeader($H, $URL)
+                  - metavariable-regex:
+                      metavariable: $H
+                      regex: (?i)^["']location["']$
+          - focus-metavariable: $URL
+
+  - id: traust-ts-open-redirect-client-navigation
+    languages: [typescript, javascript]
+    paths:
+      exclude:
+        - "*.test.*"
+        - "*.spec.*"
+        - "*/__tests__/*"
+        - "*/__mocks__/*"
+        - "*/mock-backend/*"
+        - "*/mocks/*"
+        - "*/test/*"
+        - "*/tests/*"
+    severity: WARNING
+    message: >-
+      The page navigates to a URL taken from the address bar (query string or
+      fragment) — a crafted link sends the user to any site, or runs a
+      javascript: URL in this origin. Navigate only to relative paths or an
+      allowlisted origin and scheme. CWE-601.
+    metadata:
+      cwe: ["CWE-601", "CWE-79"]
+      category: open-redirect
+      asvs: ["V5"]
+      confidence: MEDIUM
+      references:
+        - "CWE-601 client-side open redirect — address-bar value as the navigation target"
+    mode: taint
+    pattern-sources:
+      - pattern-either:
+          - pattern: new URLSearchParams(...).get(...)
+          - pattern: $U.searchParams.get(...)
+          - patterns:
+              - pattern: $PARAMS.get(...)
+              - metavariable-regex:
+                  metavariable: $PARAMS
+                  regex: (?i)^(params|searchParams|urlParams|queryParams|query|search)$
+          - pattern: window.location.search
+          - pattern: window.location.hash
+          - pattern: location.search
+          - pattern: location.hash
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: window.location.href = $URL
+              - pattern: window.location = $URL
+              - pattern: location.href = $URL
+              - pattern: window.location.assign($URL)
+              - pattern: window.location.replace($URL)
+              - pattern: location.assign($URL)
+              - pattern: location.replace($URL)
+              - pattern: window.open($URL, ...)
+          - focus-metavariable: $URL

@@ -1,20 +1,21 @@
 #!/usr/bin/env python3
 """Sanitizer micro-probes (Phase B3 — the narrow, lab-free slice of D4).
 
-Discovers repo-local sanitizer/validator functions and (on explicit
-request) executes them in an isolated subprocess against curated bypass
-corpora, recording per-payload transcripts. The measured motivation:
+Executes repo-local sanitizer/validator functions in an isolated
+subprocess against curated bypass corpora, recording per-payload
+transcripts. The measured motivation:
 sanitizer-bypass findings are execution-shaped — reading `sanitize_jinja`
 tells a reviewer little about whether `{{'{{'}}` survives it, and the
 bt-awx-001 residual #3 is exactly such a miss (deep-fn-technique-plan
 §1.3). Fourteen of the fuzz campaign's bugs were execution-only for the
 same reason.
 
-Two modes, deliberately separated:
+Two steps, deliberately separated:
 
-  --list (DEFAULT)  pure-static discovery: candidate sanitizers by name/
-                    signature shape, with file:line. Executes nothing.
-  --run             EXECUTES REPOSITORY CODE. Imports each candidate's
+  discovery         `traust adapters sanitizers <repo>` (traust-core's
+                    code facts): candidate sanitizers by name/signature
+                    shape, with file:line. Executes nothing.
+  --run (this tool) EXECUTES REPOSITORY CODE. Imports each candidate's
                     module and calls it on bypass payloads. Run this only
                     inside the audit sandbox against a cloned, authorized
                     target — module import runs top-level code from the
@@ -43,18 +44,20 @@ Python-only in v1 (the acceptance target, awx sanitize_jinja, is Python;
 Go/JS probing needs a build step — that is create-fuzzing territory).
 
 Usage:
-    python3 probe_sanitizers.py <repo-path> [--list | --run]
+    python3 probe_sanitizers.py <repo-path> --run --candidates <file>
                                 [--only NAME] [--out <file>]
                                 [--timeout SECONDS]
 
-Output defaults to <repo-basename>-sanitizer-probes.json in the CWD.
-Exit 0 on completed discovery/probing; 1 on bad input.
+--candidates is the `traust adapters sanitizers` output (or a hand-written
+`{"candidates": [{function, path, line, arg, is_method}]}` naming a
+judge-chosen function). Output defaults to
+<repo-basename>-sanitizer-probes.json in the CWD.
+Exit 0 on completed probing; 1 on bad input.
 """
 
 from __future__ import annotations
 
 import argparse
-import ast
 import contextlib
 import datetime
 import json
@@ -66,31 +69,6 @@ import tempfile
 from pathlib import Path
 
 from traust.paths import HARNESS_ROOT
-
-SANITIZER_NAME_RX = re.compile(
-    r"(?i)^_?(sanitize|sanitise|escape|clean|scrub|strip|filter|"
-    r"validate|normalize|normalise|safe|quote|redact|mask)"
-)
-
-SKIP_DIRS = {
-    ".git",
-    "vendor",
-    "node_modules",
-    "third_party",
-    "testdata",
-    ".tox",
-    "__pycache__",
-    "dist",
-    "build",
-    ".venv",
-    "venv",
-    "site-packages",
-}
-TEST_NAME_RX = re.compile(
-    r"(^|[._-])(test|spec|mock|fixture|conftest)"
-    r"s?([._-]|$)"
-)
-MAX_FILE_BYTES = 2 * 1024 * 1024
 
 # Bypass corpora: (class, payload, survival token). A probe "survives"
 # when the survival token appears in the function's output unchanged.
@@ -113,57 +91,6 @@ CORPORA = [
     ("crlf", "value\r\nSet-Cookie: pwn=1", "\r\n"),
     ("bidi", "file‮ gpj.exe", "‮"),
 ]
-
-
-def _walk_py(repo: Path):
-    for p in sorted(repo.rglob("*.py")):
-        if any(part in SKIP_DIRS for part in p.relative_to(repo).parts):
-            continue
-        if TEST_NAME_RX.search(p.name.lower()):
-            continue
-        try:
-            if p.stat().st_size > MAX_FILE_BYTES:
-                continue
-        except OSError:
-            continue
-        yield p
-
-
-def discover(repo: Path, only: str | None = None) -> list[dict]:
-    """Static discovery of single-string-arg sanitizer-shaped functions."""
-    out = []
-    for f in _walk_py(repo):
-        try:
-            tree = ast.parse(f.read_text(encoding="utf-8", errors="replace"))
-        except SyntaxError:
-            continue
-        for node in ast.walk(tree):
-            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                continue
-            if only:
-                if node.name != only:
-                    continue
-            elif not SANITIZER_NAME_RX.match(node.name):
-                continue
-            args = node.args
-            positional = args.args + args.posonlyargs
-            # drop self/cls
-            names = [a.arg for a in positional]
-            if names and names[0] in ("self", "cls"):
-                names = names[1:]
-            required = len(names) - len(args.defaults)
-            if not names or required > 1:
-                continue  # probe convention: one required value argument
-            out.append(
-                {
-                    "function": node.name,
-                    "path": str(f.relative_to(repo)),
-                    "line": node.lineno,
-                    "arg": names[0],
-                    "is_method": bool(positional and positional[0].arg in ("self", "cls")),
-                }
-            )
-    return out
 
 
 PROBE_DRIVER = r"""
@@ -288,22 +215,32 @@ def probe(repo: Path, candidates: list[dict], timeout: int) -> list[dict]:
     return probes
 
 
+def _harness_version() -> str:
+    """Version from the harness pyproject.toml — the single version source."""
+    try:
+        text = (HARNESS_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+        m = re.search(r'(?m)^version\s*=\s*"([^"]+)"', text)
+        return m.group(1) if m else "unknown"
+    except OSError:
+        return "unknown"
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("repo", type=Path)
-    mode = ap.add_mutually_exclusive_group()
-    mode.add_argument(
-        "--list",
-        action="store_true",
-        dest="list_only",
-        help="discovery only (default): execute nothing",
-    )
-    mode.add_argument(
+    ap.add_argument(
         "--run",
         action="store_true",
+        required=True,
         help="EXECUTE repo sanitizers against the bypass corpora (audit-sandbox only)",
     )
-    ap.add_argument("--only", help="probe a single function by name")
+    ap.add_argument(
+        "--candidates",
+        type=Path,
+        required=True,
+        help="`traust adapters sanitizers` output: the functions to probe",
+    )
+    ap.add_argument("--only", help="probe a single candidate by function name")
     ap.add_argument("--out", type=Path, default=None)
     ap.add_argument("--timeout", type=int, default=20, help="per-module probe timeout, seconds")
     args = ap.parse_args(argv)
@@ -312,46 +249,44 @@ def main(argv=None) -> int:
     if not repo.is_dir():
         print(f"not a directory: {repo}", file=sys.stderr)
         return 1
+    try:
+        candidates = json.loads(args.candidates.read_text(encoding="utf-8"))["candidates"]
+    except (OSError, ValueError, KeyError, TypeError) as e:
+        print(f"unreadable candidates {args.candidates}: {e}", file=sys.stderr)
+        return 1
+    if args.only:
+        candidates = [c for c in candidates if c.get("function") == args.only]
 
-    candidates = discover(repo, args.only)
+    print(
+        "probe_sanitizers: EXECUTING repository code in isolated "
+        "subprocesses — audit-sandbox use only",
+        file=sys.stderr,
+    )
+    probes = probe(repo, candidates, args.timeout)
     result = {
         "artifact": "sanitizer-probes",
         "repo": repo.name,
         "generated_at": datetime.datetime.now(datetime.UTC).isoformat(timespec="seconds"),
-        "harness_version": (HARNESS_ROOT / "VERSION").read_text().strip()
-        if (HARNESS_ROOT / "VERSION").is_file()
-        else "unknown",
-        "mode": "run" if args.run else "list",
+        "harness_version": _harness_version(),
+        "mode": "run",
         "candidates": candidates,
-    }
-    if args.run:
-        print(
-            "probe_sanitizers: EXECUTING repository code in isolated "
-            "subprocesses — audit-sandbox use only",
-            file=sys.stderr,
-        )
-        result["probes"] = probe(repo, candidates, args.timeout)
-        result["stats"] = {
+        "probes": probes,
+        "stats": {
             "candidates": len(candidates),
-            "survived": sum(1 for p in result["probes"] if p["outcome"] == "survived"),
-            "neutralized": sum(1 for p in result["probes"] if p["outcome"] == "neutralized"),
+            "survived": sum(1 for p in probes if p["outcome"] == "survived"),
+            "neutralized": sum(1 for p in probes if p["outcome"] == "neutralized"),
             "inconclusive": sum(
-                1 for p in result["probes"] if p["outcome"] in ("inconclusive", "skipped", "error")
+                1 for p in probes if p["outcome"] in ("inconclusive", "skipped", "error")
             ),
-        }
-    else:
-        result["stats"] = {"candidates": len(candidates)}
-
+        },
+    }
     out = args.out or Path(f"{repo.name}-sanitizer-probes.json")
     out.write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     s = result["stats"]
-    extra = (
-        f", {s['survived']} survived / {s['neutralized']} neutralized"
-        f" / {s['inconclusive']} inconclusive"
-        if args.run
-        else ""
+    print(
+        f"{result['repo']}: {s['candidates']} candidate sanitizer(s), {s['survived']} survived"
+        f" / {s['neutralized']} neutralized / {s['inconclusive']} inconclusive -> {out}"
     )
-    print(f"{result['repo']}: {s['candidates']} candidate sanitizer(s){extra} -> {out}")
     return 0
 
 

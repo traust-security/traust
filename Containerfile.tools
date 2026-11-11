@@ -1,0 +1,257 @@
+# Containerfile.tools — pinned external scanner binaries only. No Python application stack
+# (traust-core/engine/traust), no vulnerability databases. Scanners read their databases from a
+# mounted feeds cache at runtime (<feeds_cache>/tool-dbs/<tool>; GRYPE_DB_CACHE_DIR,
+# GRYPE_DB_AUTO_UPDATE=false, govulncheck -db file://...). Tagged by the pin-set hash
+# (scripts/containerfile-build-args.py --pin-hash), which also names the runner label
+# `toolchain:<hash>`. traust-runtime (Containerfile.runtime) extends this image; this one is not
+# runnable standalone.
+#
+# Three stages: two builders (go-builder, tools-builder) that download, compile and verify every
+# pin, and a FRESH final `tools` stage that copies in only the resulting binaries plus the
+# runtime packages they actually need — never the compilers, archives, dev headers or download
+# tools that built them. `ldd` against every native binary drove the runtime package list below;
+# re-check it if a future pin adds a tool with different linkage.
+#
+# Build (always use the wrapper — it reads pins from traust-core's shipped external-tools.yaml and
+# computes the pin-set hash):
+#   ./scripts/build-toolchain-image.sh --tools-only
+#
+# Rebuilt only when a tool pin traust-core ships advances (weekly at most); traust-runtime
+# rebuilds on every merge regardless and layers FROM this image by digest.
+
+# --- Builder 1: Go-sourced tools needing a newer Go than the pinned runtime Go, or build tags
+# plain `go install` can't express. Red Hat's hi/go (Enterprise Contract: only RH-registry
+# bases), digest-pinned so this stage doesn't float independently of the rest of the image.
+#
+# hi/go:1.26.9-builder (Project Hummingbird), resolved 2026-10-27 — newer than the manifest's
+# installed-Go pin (currently 1.24.0) on purpose: govulncheck's go.mod requires go >= 1.25.0 to
+# BUILD, independent of what Go version the image installs for SCANNING target repos below.
+# Two things pin this to the builder variant of the 1.26 stream specifically:
+#   - hi/go's non-builder variant has no grep/coreutils beyond Go itself (`grep: command not
+#     found` when verifying the build); the `-builder` variant carries git/curl/grep.
+#   - hi/go:1.27.3's stdlib net/http2 package is incompatible with skopeo v1.23.0's resolved
+#     grpc v1.80.0 (`undefined: http2.TrailerPrefix`), a real build failure reproduced locally;
+#     1.26.9-builder builds both govulncheck and skopeo cleanly.
+# Bump this digest (staying on a stream both tools build under, and a -builder variant) when a
+# future pin needs it.
+FROM registry.access.redhat.com/hi/go:1.26.9-builder@sha256:c62803d6a744c045f1087cefe8b2b046d09048bdc499dcf090eaa623f3b9452d AS go-builder
+USER 0
+RUN mkdir -p /out
+ARG SKOPEO_VERSION
+ARG GOVULNCHECK_VERSION
+
+# govulncheck v1.6.0 requires go.mod `go 1.25.0`; the runtime Go installed below stays at the
+# manifest's pinned 1.24.0 (what scans target repos with) — two different Go versions for two
+# different jobs. hi/go ships a Go new enough to satisfy govulncheck's own build requirement
+# without relying on GOTOOLCHAIN=auto reaching the network during a hermetic build.
+RUN GOBIN=/out go install "golang.org/x/vuln/cmd/govulncheck@v${GOVULNCHECK_VERSION}" \
+    && /out/govulncheck -version 2>&1 | grep -q "govulncheck@v${GOVULNCHECK_VERSION}" \
+    || { echo "FATAL: govulncheck reports a version other than ${GOVULNCHECK_VERSION}" >&2; exit 1; }
+
+# skopeo has no upstream standalone binary release (docs/setup.md); built from source at the
+# pinned tag so the image carries the exact manifest version rather than whatever a distro
+# package happens to ship. Build tags avoid needing libgpgme/btrfs/devicemapper -devel. Module
+# path is go.podman.io/skopeo as of the containers-org rename (the github.com/containers/skopeo
+# import path 404s on go.mod lookup for this version). CGO_ENABLED=0: a dynamically-linked build
+# here links against the builder's own (newer) glibc, which the final image's UBI9 base can't
+# satisfy (`GLIBC_2.38' not found` reproduced locally) — a static binary has no runtime glibc
+# dependency at all, so it works regardless of which OS built it or which OS runs it.
+RUN CGO_ENABLED=0 GOBIN=/out go install \
+      -tags "containers_image_openpgp exclude_graphdriver_btrfs exclude_graphdriver_devicemapper" \
+      "go.podman.io/skopeo/cmd/skopeo@v${SKOPEO_VERSION}" \
+    && /out/skopeo --version | grep -q " ${SKOPEO_VERSION}$" \
+    || { echo "FATAL: skopeo reports a version other than ${SKOPEO_VERSION}" >&2; exit 1; }
+
+# --- Builder 2: everything else, plus the toolchain needed to download, extract and compile it
+# (gcc/autotools for yara; curl/tar/gzip/unzip for every release asset; python3.11-pip only to
+# populate the pip-audit venv). None of this build toolchain reaches the final image — only the
+# binaries and directories explicitly COPY'd out of this stage do. ---
+FROM registry.access.redhat.com/ubi9/ubi-minimal:9.8-1793050346@sha256:6f3a78179e0b30b930a186e7f68a4af52e51bb82406c9653be10bddd624e40f5 AS tools-builder
+
+ARG TARGETARCH
+ARG OPENGREP_VERSION
+ARG GITLEAKS_VERSION
+ARG SYFT_VERSION
+ARG GRYPE_VERSION
+ARG COSIGN_VERSION
+ARG YARA_VERSION
+ARG PIP_AUDIT_VERSION
+ARG GO_VERSION
+
+# curl is not installed explicitly: ubi-minimal ships curl-minimal, already sufficient for the
+# -fsSL downloads below, and the full curl package conflicts with it (package depsolve error).
+RUN microdnf install -y --setopt=install_weak_deps=0 \
+      tar gzip unzip \
+      python3.11 python3.11-pip \
+      gcc make automake autoconf libtool pkgconfig \
+    && microdnf clean all
+
+RUN mkdir -p /out/bin
+
+# Go runtime at the manifest pin — this is what SCANS target repos (govulncheck source mode).
+# Verified against the pin: a silent Containerfile-local default (the pre-split bug: GO_VERSION
+# defaulted to 1.23.0 regardless of the manifest) can't regress unnoticed. Unpacked to /out/go so
+# the final stage can COPY it straight to /usr/local/go.
+RUN curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-${TARGETARCH}.tar.gz" | tar -C /out -xz \
+    && /out/go/bin/go version | grep -q " go${GO_VERSION} " \
+    || { echo "FATAL: installed Go reports a version other than ${GO_VERSION}" >&2; exit 1; }
+ENV PATH="/out/go/bin:/out/bin:${PATH}"
+
+# --- Direct binary downloads from upstream GitHub releases, each verified against its pin ---
+
+# opengrep: the pinned release asset directly, not the install.sh URL (which tracks `main` and
+# can change shape under an already-published image tag).
+RUN set -eu; \
+    case "$TARGETARCH" in \
+      arm64) asset="opengrep_manylinux_aarch64" ;; \
+      amd64) asset="opengrep_manylinux_x86" ;; \
+      *) echo "FATAL: unsupported arch $TARGETARCH for opengrep" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL "https://github.com/opengrep/opengrep/releases/download/v${OPENGREP_VERSION}/${asset}" \
+      -o /out/bin/opengrep; \
+    chmod +x /out/bin/opengrep; \
+    /out/bin/opengrep --version | grep -q "${OPENGREP_VERSION}" \
+    || { echo "FATAL: opengrep reports a version other than ${OPENGREP_VERSION}" >&2; exit 1; }
+
+# gitleaks
+RUN set -eu; \
+    arch=$([ "$TARGETARCH" = "arm64" ] && echo "arm64" || echo "x64"); \
+    curl -fsSL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_${arch}.tar.gz" \
+      | tar -C /out/bin -xz gitleaks; \
+    gitleaks version | grep -q "${GITLEAKS_VERSION}" \
+    || { echo "FATAL: gitleaks reports a version other than ${GITLEAKS_VERSION}" >&2; exit 1; }
+
+# syft
+RUN curl -fsSL "https://github.com/anchore/syft/releases/download/v${SYFT_VERSION}/syft_${SYFT_VERSION}_linux_${TARGETARCH}.tar.gz" \
+      | tar -C /out/bin -xz syft \
+    && syft --version | grep -q "${SYFT_VERSION}" \
+    || { echo "FATAL: syft reports a version other than ${SYFT_VERSION}" >&2; exit 1; }
+
+# grype
+RUN curl -fsSL "https://github.com/anchore/grype/releases/download/v${GRYPE_VERSION}/grype_${GRYPE_VERSION}_linux_${TARGETARCH}.tar.gz" \
+      | tar -C /out/bin -xz grype \
+    && grype --version | grep -q "${GRYPE_VERSION}" \
+    || { echo "FATAL: grype reports a version other than ${GRYPE_VERSION}" >&2; exit 1; }
+
+# osv-scanner is deliberately absent: OSV is queried through its API by default. An air-gapped
+# deployment extends this image with osv-scanner and its offline database at the pin in
+# traust-core's shipped external-tools.yaml (docs/setup.md "Air-gapped OSV scanning").
+
+# cosign
+RUN set -eu; \
+    arch=$([ "$TARGETARCH" = "arm64" ] && echo "arm64" || echo "amd64"); \
+    curl -fsSL "https://github.com/sigstore/cosign/releases/download/v${COSIGN_VERSION}/cosign-linux-${arch}" \
+      -o /out/bin/cosign; \
+    chmod +x /out/bin/cosign; \
+    cosign version 2>&1 | grep -q "GitVersion:.*${COSIGN_VERSION}" \
+    || { echo "FATAL: cosign reports a version other than ${COSIGN_VERSION}" >&2; exit 1; }
+
+# yara — built from source at the pinned tag (no exact-version standalone binary or RPM;
+# `microdnf install yara` ships whatever the repo snapshot has, never guaranteed to be the pin).
+# yara's GitHub releases carry no binary or source asset of their own (verified: the releases
+# API lists none for v4.5.8), so this is the tag's auto-generated source archive, not a
+# `releases/download/...` asset. --disable-shared statically links libyara into the yara/yarac
+# binaries themselves, so the final image needs no libyara.so and no ldconfig step. A failed
+# build fails the image build: no `|| true` swallowing the install.
+RUN set -eu; \
+    curl -fsSL "https://github.com/VirusTotal/yara/archive/refs/tags/v${YARA_VERSION}.tar.gz" \
+      -o /tmp/yara.tar.gz; \
+    tar -C /tmp -xzf /tmp/yara.tar.gz; \
+    cd "/tmp/yara-${YARA_VERSION}"; \
+    ./bootstrap.sh; \
+    ./configure --disable-shared; \
+    make -j"$(nproc)"; \
+    make install DESTDIR=/tmp/yara-install; \
+    cp /tmp/yara-install/usr/local/bin/yara /tmp/yara-install/usr/local/bin/yarac /out/bin/; \
+    cd /; \
+    rm -rf /tmp/yara*; \
+    /out/bin/yara --version | grep -q "${YARA_VERSION}" \
+    || { echo "FATAL: yara reports a version other than ${YARA_VERSION}" >&2; exit 1; }
+
+# pip-audit — an ISOLATED Python environment, deliberately not the traust application's: this is
+# "no Python stack" in the sense of no traust-core/engine/traust packages, not "no Python at
+# all" (pip-audit itself needs an interpreter). Nothing here is importable by or shared with the
+# traust application environment traust-runtime installs. Built at the same absolute path
+# (/opt/pip-audit-venv) the final stage copies it to, against the same python3.11 package the
+# final stage installs, so the venv's interpreter symlink and pyvenv.cfg resolve identically
+# there — no re-creation needed, just a copy.
+RUN python3.11 -m venv /opt/pip-audit-venv \
+    && /opt/pip-audit-venv/bin/python -m pip install --no-cache-dir "pip-audit==${PIP_AUDIT_VERSION}" \
+    && /opt/pip-audit-venv/bin/pip-audit --version | grep -q "${PIP_AUDIT_VERSION}" \
+    || { echo "FATAL: pip-audit reports a version other than ${PIP_AUDIT_VERSION}" >&2; exit 1; }
+
+# --- Tools image: a FRESH stage, not a trimmed copy of the builder — only the binaries and
+# runtime packages below ever reach it. No gcc/make/autotools/pkgconfig, no curl/tar/gzip/unzip,
+# no python3.11-pip, no build artifacts or source trees. ---
+FROM registry.access.redhat.com/ubi9/ubi-minimal:9.8-1793050346@sha256:6f3a78179e0b30b930a186e7f68a4af52e51bb82406c9653be10bddd624e40f5 AS tools
+
+ARG OPENGREP_VERSION
+ARG GITLEAKS_VERSION
+ARG SYFT_VERSION
+ARG GRYPE_VERSION
+ARG COSIGN_VERSION
+ARG GOVULNCHECK_VERSION
+ARG SKOPEO_VERSION
+ARG YARA_VERSION
+ARG PIP_AUDIT_VERSION
+ARG GO_VERSION
+
+LABEL name="traust-toolchain" \
+      summary="Traust — external scanner binaries at pinned versions" \
+      description="Pinned scanner binaries only (opengrep, gitleaks, syft, grype, cosign, \
+govulncheck, skopeo, yara, pip-audit) at the exact versions traust-core ships in external-tools.yaml, plus \
+an isolated Python environment for pip-audit. No traust Python application stack, no build \
+toolchain, no vulnerability databases — scanners read them from a mounted feeds cache. Not \
+runnable standalone; traust-runtime extends this image." \
+      vendor="Red Hat, Inc."
+
+RUN groupadd -r -g 1001 traust && useradd -r -u 1001 -g traust -d /home/traust -m traust
+
+# Runtime packages only, driven by `ldd` against every native binary below:
+#   - git-core: gitleaks (history mode) and yara (rule-pack clone) both declare it a hard
+#     dependency (traust_engine.adapters.tools: ("gitleaks", "git"), ("yara", "git")) — git-core
+#     (not the full git metapackage) for the plumbing/porcelain commands used, without perl-Git
+#     and docs.
+#   - python3.11 (no -pip): the pip-audit venv's interpreter symlink resolves here at runtime;
+#     pip itself is never invoked after the venv is built.
+# ca-certificates and tzdata are already in ubi-minimal (verified); no scanner here links
+# against anything else ubi-minimal doesn't already carry.
+RUN microdnf install -y --setopt=install_weak_deps=0 git-core python3.11 \
+    && microdnf clean all
+
+COPY --from=tools-builder /out/go /usr/local/go
+ENV PATH="/usr/local/go/bin:/opt/pip-audit-venv/bin:${PATH}"
+
+COPY --from=tools-builder /out/bin/opengrep  /usr/local/bin/opengrep
+COPY --from=tools-builder /out/bin/gitleaks  /usr/local/bin/gitleaks
+COPY --from=tools-builder /out/bin/syft      /usr/local/bin/syft
+COPY --from=tools-builder /out/bin/grype     /usr/local/bin/grype
+COPY --from=tools-builder /out/bin/cosign    /usr/local/bin/cosign
+COPY --from=tools-builder /out/bin/yara      /usr/local/bin/yara
+COPY --from=tools-builder /out/bin/yarac     /usr/local/bin/yarac
+COPY --from=tools-builder /opt/pip-audit-venv /opt/pip-audit-venv
+
+# govulncheck, skopeo — copied from the go-builder stage (built at exact pins there).
+COPY --from=go-builder /out/govulncheck /usr/local/bin/govulncheck
+COPY --from=go-builder /out/skopeo /usr/local/bin/skopeo
+
+# --- Smoke test: every installed binary reports its pin, no missing shared library, as the
+# non-root runtime user ---
+USER 1001
+WORKDIR /home/traust
+
+RUN opengrep --version | grep -q "${OPENGREP_VERSION}" \
+    && gitleaks version | grep -q "${GITLEAKS_VERSION}" \
+    && syft --version | grep -q "${SYFT_VERSION}" \
+    && grype --version | grep -q "${GRYPE_VERSION}" \
+    && cosign version 2>&1 | grep -q "GitVersion:.*${COSIGN_VERSION}" \
+    && govulncheck -version 2>&1 | grep -q "govulncheck@v${GOVULNCHECK_VERSION}" \
+    && skopeo --version | grep -q " ${SKOPEO_VERSION}$" \
+    && yara --version | grep -q "${YARA_VERSION}" \
+    && /opt/pip-audit-venv/bin/pip-audit --version | grep -q "${PIP_AUDIT_VERSION}" \
+    && go version | grep -q " go${GO_VERSION} " \
+    && ! python3.11 -c "import traust_core" 2>/dev/null \
+    && echo "tools image verified: every binary at its pin, no traust application stack"
+
+# No ENTRYPOINT/CMD: this image is not runnable standalone (no traust CLI). traust-runtime
+# extends it with the Python application stack and sets its own entrypoint.

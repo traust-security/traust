@@ -61,7 +61,7 @@ Rules (S-series; A-series lives in check_skill_alignment.py):
   S10 target-build   A skill/script that executes an audited checkout's
       sandbox        own build machinery (make/mvn/gradle/go build/npm/
                      cargo in an execution context) must route it
-                     through traust_engine._util.safe_exec — enforced command
+                     through traust-core's safe-exec (`traust util safe-exec`) — enforced command
                      validation with profile allowlists, git -c/network
                      hardening, and shell-free pipeline execution.
                      (sandbox-adoption WS1,
@@ -97,8 +97,8 @@ EXEMPTIONS: dict[tuple[str, str], str] = {
     (
         "S1",
         "harnessing/validate-browser-finding/SKILL.md",
-    ): "grandfathered — remediation plan P2.14 batch; browser scope.py "
-    "fail-closed guard is the operative control",
+    ): "grandfathered — remediation plan P2.14 batch; the core "
+    "ValidationScope gate (validate-browser-finding run.py) is the operative control",
     # (verify-remediation S1 retired 2026-07-31 P1-W4: allowed-tools
     # added — scoped git + anchored scripts.)
     (
@@ -125,21 +125,7 @@ EXEMPTIONS: dict[tuple[str, str], str] = {
         "S2",
         "harnessing/drift-watch/SKILL.md",
     ): "reviewed — deterministic checker over harness-owned artifacts",
-    (
-        "S2",
-        "harnessing/rbac-tenancy-rollup/SKILL.md",
-    ): "reviewed — deterministic rollup; keyword in scope prose",
     # --- S3 git-transport: the P0 fix list; MUST empty when P0 lands ---
-    (
-        "S3",
-        "harnessing/3-audit/pqc-readiness/scripts/bulk_prescan.py",
-    ): "reviewed — https-scheme gate at call site (startswith check) prevents non-https;"
-    " url originates from the harness corpus registry",
-    # --- S4: guidance strings, not execution ---
-    (
-        "S4",
-        "harnessing/insecure-patterns/scripts/build_insecure_patterns.py",
-    ): "reviewed — remediation-advice string constants mention shell=True/sh -c; no execution",
     # --- S4: pod-side shells — the sh -c runs INSIDE the scoped target
     # pod/container via runtime exec, never on the harness host; the
     # outer argv is kubeargv-classified and scope-checked (P0-2) ---
@@ -155,13 +141,7 @@ EXEMPTIONS: dict[tuple[str, str], str] = {
     "shells out (P0-2 kubeargv classification + scope gate)",
     # --- S4 shell-exec ---
     # (base.py entry REMOVED 2026-07-31: P2.13 closed — PoC-string steps
-    #  now validate and execute via traust_engine._util.safe_exec, no shell.)
-    (
-        "S4",
-        "harnessing/track-findings/scripts/baseline_claims.py",
-    ): "reviewed — AST false positive: shell= is a dict kwarg to "
-    "LedgerService.ensure_layer_file(), not subprocess (assessment "
-    "2026-07-31 rollup-F3)",
+    #  now validate and execute via traust-core's safe-exec, no shell.)
     # --- S5 token-argv ---
     (
         "S5",
@@ -189,6 +169,11 @@ EXEMPTIONS: dict[tuple[str, str], str] = {
     ): "grandfathered — same WS1 batch as the Makefile",
     (
         "S10",
+        "harnessing/create-fuzzing/harnesses/_templates/python_fuzz.py",
+    ): "reviewed — harness stub dropped INTO the target tree by design; "
+    "runs under the target's own build, WS1 wraps the driver",
+    (
+        "S10",
         "harnessing/pqc-readiness/build_pqc_scan.sh",
     ): "reviewed — builds the PINNED harness-owned pqc-scan tool "
     "(cargo build at a pinned commit), not target code",
@@ -206,13 +191,21 @@ EXEMPTIONS: dict[tuple[str, str], str] = {
     "tighter: rootless podman, cap-drop, no-new-privileges, "
     "--network=none for the whole campaign (not just the test phase), and a "
     "disposable copy so mutations cannot reach the worktree under review. The "
-    "mode is a deployment setting (execution-boundaries.yaml `sandbox:`); a "
+    "mode is a deployment setting (traust.yaml `execution.sandbox`); a "
     "configured podman mode is never silently downgraded (ToB plan item 3)",
-    # --- S6 tmp-paths ---
     (
-        "S6",
-        "harnessing/rbac-tenancy-rollup/scripts/rbac_bucket_proposal_check.py",
-    ): "P3 hardening batch — non-secret scratch file, fixed /tmp name",
+        "S10",
+        "harnessing/remediate-finding/SKILL.md",
+    ): "reviewed — the toolchain door is the worker-lane containment for "
+    "the same build/test leg run_checks.sh sandboxes interactively: "
+    "worker lanes deny bash outright, so the podman ladder is unreachable "
+    "there and Phase 4 routes the checks through the root-owned "
+    "harness-run wrapper instead — whole-command matching against a "
+    "closed argv grammar (no shell, no interpreter, no compound lines), "
+    "env -i execution with the pinned PATH and memory caps, and the "
+    "gateway proxy's PR_SET_DUMPABLE closing the same-uid heap vector "
+    "(traust-foundry#13, door 2; the worker PR carries the tests)",
+    # --- S6 tmp-paths ---
     # --- S7 unpinned-install ---
     # --- S8 egress-grants ---
 }
@@ -361,7 +354,7 @@ FIXTURE_PREFIXES = ("tests/",)
 
 
 def _s10_unrouted_shell_build(text: str) -> bool:
-    """Conservative per-command routing policy for shell files and blocks."""
+    """Check each shell command, not a marker elsewhere in the file."""
     for line in re.sub(r"\\\r?\n", " ", text).splitlines():
         if not S10_BUILD_RX.search(line):
             continue
@@ -370,13 +363,17 @@ def _s10_unrouted_shell_build(text: str) -> bool:
         try:
             tokens = list(lexer)
         except ValueError:
-            return True
+            # Unparseable build instructions cannot establish sandbox routing.
+            if S10_BUILD_RX.search(line):
+                return True
+            continue
         command: list[str] = []
         for token in [*tokens, ";"]:
             if not token or any(char not in ";&|" for char in token):
                 command.append(token)
                 continue
             if S10_BUILD_RX.search(" ".join(command)):
+                # Expansions run in the caller before safe-exec sees its argv.
                 if any("$(" in word or "`" in word for word in command):
                     return True
                 argv = command
@@ -397,18 +394,33 @@ def _s10_unrouted_shell_build(text: str) -> bool:
 
 
 def _s10_unrouted_build(text: str) -> bool:
-    """Inspect Python binding flow without evaluating the submitted program."""
-    from traust.cli._s10_commands import unrouted_shell
-    from traust.cli._s10_python import unrouted_python_build
+    """Recognize literal Python safe_exec.run arguments and shell invocations."""
+    import ast
 
-    def command_check(command: str) -> bool:
-        return unrouted_shell(command, build_rx=S10_BUILD_RX, python_check=_s10_unrouted_build)
-
-    return unrouted_python_build(
-        text,
-        build_rx=S10_BUILD_RX,
-        shell_check=command_check,
-        script_shell_check=_s10_unrouted_shell_build,
+    try:
+        tree = ast.parse(text)
+    except SyntaxError:
+        return _s10_unrouted_shell_build(text)
+    routed: set[int] = set()
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id == "safe_exec"
+            and node.func.attr == "run"
+        ):
+            for arg in [*node.args, *(kw.value for kw in node.keywords)]:
+                if isinstance(arg, ast.Constant):
+                    routed.add(id(arg))
+                elif isinstance(arg, ast.JoinedStr):
+                    routed.update(id(part) for part in arg.values if isinstance(part, ast.Constant))
+    return any(
+        isinstance(node, ast.Constant)
+        and isinstance(node.value, str)
+        and id(node) not in routed
+        and _s10_unrouted_shell_build(node.value)
+        for node in ast.walk(tree)
     )
 
 
@@ -633,7 +645,7 @@ def security_failures(repo: Path = REPO) -> tuple[list[str], list[str]]:
                 f"S10 {rel}: target-build invocation in an execution "
                 "block without safe_exec routing — build systems of "
                 "audited checkouts are hostile code; run them "
-                "through traust_engine._util.safe_exec "
+                "through traust-core's safe-exec (`traust util safe-exec`) "
                 "(sandbox-adoption WS1)"
             )
 
@@ -680,7 +692,7 @@ def security_failures(repo: Path = REPO) -> tuple[list[str], list[str]]:
                 f"S10 {rel}: target-build invocation without "
                 "safe_exec routing — build systems of audited "
                 "checkouts are hostile code; run them through "
-                "traust_engine._util.safe_exec (sandbox-adoption WS1)"
+                "traust-core's safe-exec (`traust util safe-exec`) (sandbox-adoption WS1)"
             )
 
         if CURL_AUTH_RX.search(text) and not _exempt("S5", rel, used):

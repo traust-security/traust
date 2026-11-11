@@ -1,0 +1,60 @@
+rules:
+  - id: traust-ruby-mass-assignment-permit-all
+    languages: [ruby]
+    severity: ERROR
+    message: >-
+      Strong parameters are bypassed (permit! or to_unsafe_h), so a caller
+      can set any attribute the model has (owner, role, admin flags,
+      foreign keys), not just the ones the form shows. Permit the
+      attributes this action accepts by name. CWE-915.
+    metadata:
+      cwe: ["CWE-915"]
+      category: mass-assignment
+      asvs: ["V15"]
+      confidence: HIGH
+      references:
+        - "CWE-915 mass assignment — strong parameters bypassed with permit! or to_unsafe_h"
+    patterns:
+      - pattern-either:
+          # handed straight to a model write
+          - patterns:
+              - pattern: $R.$SINK(..., $ARG, ...)
+              - metavariable-regex:
+                  metavariable: $SINK
+                  regex: ^(new|create!?|update!?|assign_attributes|update_attributes!?|insert|upsert|find_or_create_by!?|first_or_create!?|find_or_initialize_by)$
+              - focus-metavariable: $ARG
+              - pattern-either:
+                  - pattern: params.permit!
+                  - pattern: params.$M(...).permit!
+                  - pattern: params[...].permit!
+                  - pattern: params.to_unsafe_h
+                  - pattern: params.to_unsafe_hash
+                  - pattern: params.require(...).to_unsafe_h
+                  - pattern: params[...].to_unsafe_h
+          # or returned by the controller's strong-parameters method
+          - patterns:
+              - pattern: |
+                  def $PARAMS
+                    ...
+                    $RET
+                  end
+              - metavariable-regex:
+                  metavariable: $PARAMS
+                  regex: ^\w*_params$
+              - focus-metavariable: $RET
+              - pattern-not-inside: |
+                  $RET
+                  $AFTER
+              - pattern-either:
+                  - pattern: params.permit!
+                  - pattern: params.$M(...).permit!
+                  - pattern: params[...].permit!
+                  - pattern: params.to_unsafe_h
+                  - pattern: params.to_unsafe_hash
+                  - pattern: params.require(...).to_unsafe_h
+                  - pattern: params[...].to_unsafe_h
+      # slice(...) already limits the keys
+      - pattern-not: params.slice(...).permit!
+      # inside a hash or keyword argument it goes to a service, not a model write
+      - pattern-not-inside: '{..., $K: $V, ...}'
+      - pattern-not-inside: '$F(..., $K: $V, ...)'

@@ -1,0 +1,52 @@
+# Auth-disable toggles shipped insecure in helm values / docker-compose / operator CR samples.
+rules:
+  - id: traust-yaml-insecure-workload-config-auth-disabled
+    languages: [yaml]
+    severity: ERROR
+    message: >-
+      Shipped configuration disables authentication (or enables anonymous
+      access) by default — every deployment that keeps the default
+      exposes the service unauthenticated. Default to auth on; make any
+      insecure toggle an explicit, documented opt-out. CWE-306.
+    metadata:
+      cwe: ["CWE-306"]
+      category: insecure-workload-config
+      asvs: ["V1"]
+      confidence: MEDIUM
+      references:
+        - "CWE-306 — authentication disabled by default in shipped config"
+    patterns:
+      # Non-k8s YAML only: documents carrying apiVersion are out of scope
+      # for this rule (helm values, compose, and plain config remain in scope).
+      - pattern-not-inside: |
+          apiVersion: $APIV
+          ...
+      - pattern-either:
+          - patterns:
+              - pattern: |
+                  $KEY: $VAL
+              - metavariable-regex:
+                  metavariable: $KEY
+                  regex: (?i)^['"]?(auth(entication)?[_-]?(enabled|required)|require[_-]?auth(entication)?|enable[_-]?auth(entication)?)['"]?$
+              - metavariable-regex:
+                  metavariable: $VAL
+                  regex: (?i)^['"]?(false|no|off|0)['"]?$
+          - patterns:
+              - pattern: |
+                  $KEY: $VAL
+              - metavariable-regex:
+                  metavariable: $KEY
+                  regex: (?i)^['"]?(auth(entication)?[_-]?disabled?|disable[_-]?auth(entication)?|no[_-]?auth|anonymous[_-]?(auth|access|enabled)|allow[_-]?anonymous)['"]?$
+              - metavariable-regex:
+                  metavariable: $VAL
+                  regex: (?i)^['"]?(true|yes|on|1)['"]?$
+          # nested toggle blocks (auth:/authentication: enabled: false)
+          - pattern: |
+              auth:
+                enabled: false
+          - pattern: |
+              authentication:
+                enabled: false
+          # compose/env `- KEY=value` list form (polarity-aware)
+          - pattern-regex: (?i)^\s*-\s*['"]?(AUTH(ENTICATION)?_(ENABLED|REQUIRED)|REQUIRE_AUTH|ENABLE_AUTH(ENTICATION)?)\s*=\s*['"]?(false|no|off|0)['"]?\s*$
+          - pattern-regex: (?i)^\s*-\s*['"]?(DISABLE_AUTH(ENTICATION)?|AUTH(ENTICATION)?_DISABLED?|NO_AUTH|ANONYMOUS_(AUTH|ACCESS)|ALLOW_ANONYMOUS)\s*=\s*['"]?(true|yes|on|1)['"]?\s*$

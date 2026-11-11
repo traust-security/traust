@@ -1,0 +1,47 @@
+rules:
+  - id: traust-python-cors-any-origin-with-credentials
+    languages: [python]
+    severity: ERROR
+    message: >-
+      CORS accepts any origin and allows credentials. Starlette and
+      flask-cors answer a credentialed request by echoing the caller's
+      Origin back, so any site can make requests with the user's cookies and
+      read the responses. List the allowed origins explicitly. CWE-942.
+    metadata:
+      cwe: ["CWE-942", "CWE-346"]
+      category: cors
+      asvs: ["V3"]
+      confidence: HIGH
+      references:
+        - "CWE-942 permissive cross-origin policy — any origin with credentials"
+    pattern-either:
+      # Starlette / FastAPI
+      - pattern: '$APP.add_middleware(CORSMiddleware, ..., allow_origins=["*"], ..., allow_credentials=True, ...)'
+      - pattern: '$APP.add_middleware(CORSMiddleware, ..., allow_credentials=True, ..., allow_origins=["*"], ...)'
+      - patterns:
+          - pattern-either:
+              - pattern: '$APP.add_middleware(CORSMiddleware, ..., allow_origin_regex=$RE, ..., allow_credentials=True, ...)'
+              - pattern: '$APP.add_middleware(CORSMiddleware, ..., allow_credentials=True, ..., allow_origin_regex=$RE, ...)'
+          - metavariable-regex:
+              metavariable: $RE
+              regex: ^r?['"]\^?\.[*+]\$?['"]$
+      # flask-cors: origins defaults to "*"
+      - patterns:
+          - pattern-either:
+              - pattern: CORS(..., supports_credentials=True, ...)
+              - pattern: cross_origin(..., supports_credentials=True, ...)
+          - pattern-not: CORS(..., origins=$O, ...)
+          - pattern-not: CORS(..., resources=$R, ...)
+          - pattern-not: cross_origin(..., origins=$O, ...)
+      - pattern: CORS(..., origins="*", ..., supports_credentials=True, ...)
+      - pattern: CORS(..., supports_credentials=True, ..., origins="*", ...)
+      # django-cors-headers settings
+      - patterns:
+          - pattern-either:
+              - pattern: CORS_ALLOW_ALL_ORIGINS = True
+              - pattern: CORS_ORIGIN_ALLOW_ALL = True
+          - pattern-inside:
+              pattern-regex: (?s)\A(?=.*^CORS_ALLOW_CREDENTIALS\s*=\s*True).*
+      # aiohttp-cors
+      - pattern: '{"*": $X.ResourceOptions(..., allow_credentials=True, ...)}'
+      - pattern: '{"*": ResourceOptions(..., allow_credentials=True, ...)}'

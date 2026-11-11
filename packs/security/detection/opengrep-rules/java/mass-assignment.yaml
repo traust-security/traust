@@ -1,0 +1,32 @@
+rules:
+  - id: traust-java-mass-assignment-request-body-entity
+    languages: [java]
+    severity: WARNING
+    message: >-
+      The request body is bound straight to a persisted object and saved or
+      merged, so a caller can set any field the entity has (ids, owner or
+      tenant, roles, flags), not just the ones the endpoint means to change.
+      Bind to a request DTO and copy the allowed fields. CWE-915.
+    metadata:
+      cwe: ["CWE-915"]
+      category: mass-assignment
+      asvs: ["V15"]
+      confidence: MEDIUM
+      references:
+        - "CWE-915 mass assignment — @RequestBody entities saved or merged as received"
+    patterns:
+      - pattern-either:
+          - pattern-inside: |
+              $RT $M(..., @RequestBody $T $P, ...) { ... }
+          - pattern-inside: |
+              $RT $M(..., @Valid @RequestBody $T $P, ...) { ... }
+          - pattern-inside: |
+              $RT $M(..., @RequestBody @Valid $T $P, ...) { ... }
+      # a request DTO can't be saved, so these are the entity itself
+      - metavariable-regex:
+          metavariable: $T
+          regex: ^(?!.*(Dto|DTO|Request|Form|Command|Payload|Input|Params)$)[A-Z]\w*$
+      - pattern-either:
+          - pattern: $EM.merge($P)
+          - pattern: $REPO.save($P)
+          - pattern: $REPO.saveAndFlush($P)

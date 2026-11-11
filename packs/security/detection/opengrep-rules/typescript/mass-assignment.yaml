@@ -1,0 +1,35 @@
+rules:
+  - id: traust-ts-mass-assignment-request-body
+    languages: [typescript, javascript]
+    severity: WARNING
+    message: >-
+      The whole request body is handed to a create or update (or copied onto
+      a record with Object.assign or a spread), so a caller can set any
+      field the record has (owner, role, status, prices, ids), not just the
+      ones the endpoint means to change. Pick the allowed fields by name, or
+      validate with a schema that strips unknown keys. CWE-915.
+    metadata:
+      cwe: ["CWE-915"]
+      category: mass-assignment
+      asvs: ["V15"]
+      confidence: MEDIUM
+      references:
+        - "CWE-915 mass assignment — request bodies passed whole to ORM writes"
+    patterns:
+      - pattern-either:
+          - patterns:
+              - pattern-either:
+                  - pattern: $R.$SINK(..., $BODY, ...)
+                  - pattern: '$R.$SINK(..., {..., data: $BODY, ...}, ...)'
+                  - pattern: '$R.$SINK(..., {...$BODY}, ...)'
+              - metavariable-regex:
+                  metavariable: $SINK
+                  regex: ^(create|createMany|insert|insertOne|insertMany|update|updateOne|updateMany|findByIdAndUpdate|findOneAndUpdate|save|upsert|bulkCreate|merge|build|assign)$
+          - patterns:
+              - pattern: new $MODEL($BODY)
+              - metavariable-regex:
+                  metavariable: $MODEL
+                  regex: ^(?!(URLSearchParams|Error|Map|Set|Date|Buffer|Blob|Response|Request|FormData)$)[A-Z]\w*$
+      - metavariable-regex:
+          metavariable: $BODY
+          regex: ^((req|request)\.body|ctx\.request\.body)$

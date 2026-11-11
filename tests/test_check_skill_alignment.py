@@ -444,7 +444,7 @@ class TestStageDepthExemptionMatching(unittest.TestCase):
 class TestA17LocationsNote(unittest.TestCase):
     NOTE = (
         "> **Paths.** `analysis-results/…` in this skill are the default layout; "
-        "they resolve through `locations.yaml` in `$TRAUST_CONFIG_HOME`.\n"
+        "they resolve through `locations:` in `traust.yaml` in `$TRAUST_CONFIG_HOME`.\n"
     )
 
     def _a17(self, body):

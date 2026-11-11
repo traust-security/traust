@@ -1,6 +1,6 @@
 ---
 name: attack-coverage
-description: Use when the user asks for MITRE ATT&CK coverage of the portfolio — "which ATT&CK techniques/tactics do our threats or validated chains cover", "build the ATT&CK Navigator layer", "ATT&CK heat map", or after updating threat models/validations to refresh the coverage roll-up. Deterministically joins validated attack chains, threat-model attack_refs, and finding-category-derived candidates against the pinned vendored ATT&CK table and emits a Navigator layer JSON plus a tactic/technique coverage one-pager.
+description: Use when the user asks for MITRE ATT&CK coverage of the portfolio — "which ATT&CK techniques/tactics do our threats or validated chains cover", "build the ATT&CK Navigator layer", "ATT&CK heat map", or after updating threat models/validations to refresh the coverage roll-up. Deterministically joins observed and attempted bound validation chains, threat-model attack_refs and finding-category-derived candidates against the pinned ATT&CK table; emits Navigator JSON and a tactic/technique coverage report.
 user-invocable: true
 metadata:
   harness.tier: "secondary"
@@ -9,7 +9,7 @@ metadata:
 # ATT&CK Coverage Roll-up
 
 > **Paths.** `analysis-results/…` and `progress-tracker/…` in this skill are the
-> default workspace layout. They resolve through `locations.yaml` in
+> default workspace layout. They resolve through `locations:` in `traust.yaml` in
 > `$TRAUST_CONFIG_HOME` (`docs/setup.md`, Storage locations); substitute your
 > configured roots.
 
@@ -18,13 +18,20 @@ Fleet-wide MITRE ATT&CK coverage from artifacts the pipeline already
 produces. **Fully deterministic** — every number is a table lookup or a
 count; no agent authors, adds, or reinterprets a technique reference.
 
-## The three evidence classes (never blended)
+## Evidence classes (never blended)
 
 | Class | Source | Meaning |
 |---|---|---|
-| **observed** (score 3) | `validations/**/*validation*.json` → `attack_chains[].mitre_attack_refs` on confirmed chains | adversary behavior demonstrated against a live target |
-| **modeled** (score 2) | threat models' optional `attack_refs` column (section 4) | behavior an owner/bootstrap pass named as a threat |
-| **derived** (score 1) | audit finding categories → [`tables/attack-mapping.json`](tables/attack-mapping.json) `category_map` | candidate techniques implied by a weakness class — potential, not behavior |
+| **observed** (score 3) | `ValidationService.reports`: bound reports' confirmed chains with a sound confirmed step and valid target attestation | adversary behavior demonstrated against a live target |
+| **attempted** (score 0 when no stronger evidence exists) | executed chains not meeting observed requirements | an attempt, never evidence of exploitation |
+| **modeled** (score 2) | each repository's latest recorded threat model: its threats' ATT&CK techniques (`AssessmentService.threats`) | behavior an owner/bootstrap pass named as a threat |
+| **derived** (score 1) | recorded findings' categories (`FindingService.summary`) → [`tables/attack-mapping.json`](tables/attack-mapping.json) `category_map` | candidate techniques implied by a weakness class — potential, not behavior |
+
+Each technique counts once per chain, even when a chain repeats its reference.
+Reports shared across source bindings count once per recording run. `--as-of`
+uses recorded assessment time; chain-only runs remain visible. Target-invalid or
+unattested runs cannot become observed. Every reference is checked against the
+pinned live technique catalog; invalid IDs are counted in the dropped report.
 
 ## Shared assets (used by other skills)
 
@@ -35,26 +42,27 @@ count; no agent authors, adds, or reinterprets a technique reference.
 - [`tables/attack-mapping.json`](tables/attack-mapping.json) — harness vocabulary → candidate technique
   IDs (`capability_map` feeds `validate-findings/chain.py`; `category_map`
   feeds this roll-up). Schema: `contracts/schemas/attack-mapping.schema.json`.
-- `attack_refs.py` — loader + validator. CLI:
-  `--validate <ids…>` (used by threat-model authors) and
-  `--validate-tables` (referential integrity, also enforced in tests).
+- `attack_refs.py` — loader + validator, through traust-core's catalog. CLI:
+  `traust attack validate <ids…>` (used by threat-model authors);
+  referential integrity is checked by traust-core on every catalog load.
 
 ## Run
 
+(traust-core's `AttackCoverageView` joins the classes.)
+
 ```bash
-python3 harnessing/attack-coverage/scripts/build_attack_coverage.py \
-    --results-root ../analysis-results
+traust dashboard view attack-coverage \
+    --out progress-tracker/metrics/dashboards/attack-coverage
 ```
 
 Outputs to `progress-tracker/metrics/dashboards/attack-coverage/`:
 
 | File | Contents |
 |---|---|
-| `attack-navigator-layer.json` | ATT&CK Navigator layer (format 4.5) — load at <https://mitre-attack.github.io/attack-navigator/>; score 1/2/3 = derived/modeled/observed |
-| `attack-coverage.md` | per-tactic and per-technique coverage tables, population block, dropped-reference report |
+| `attack-coverage.json` `navigator_layer` | ATT&CK Navigator layer (format 4.5) — load at <https://mitre-attack.github.io/attack-navigator/>; score 0/1/2/3 = attempted-only/derived/modeled/observed |
+| `attack-coverage.md` (and `.html`) | per-tactic and per-technique coverage tables, population block, dropped-reference report |
 
-Also appends `attack-coverage` metrics to the shared hash-chained ledger
-(best-effort, `append_if_changed`).
+*(Retired: the metrics append to the shared ledger; trends come from `--as-of`.)*
 
 ## Hard rules
 
@@ -66,7 +74,7 @@ Also appends `attack-coverage` metrics to the shared hash-chained ledger
 - Upgrading the ATT&CK release is a deliberate act: bump `ATTACK_VERSION`
   in `build_attack_table.py`, run with `--refresh-pin`, review the diff
   (revocations!), fix any mapping fallout flagged by
-  `attack_refs.py --validate-tables`, commit.
+  traust-core's catalog load (`traust attack validate` refuses), commit.
 - ATT&CK® is © The MITRE Corporation, used with attribution under the
   [ATT&CK Terms of Use](https://attack.mitre.org/resources/legal-and-branding/terms-of-use/);
   the attribution statement travels in the vendored table and every

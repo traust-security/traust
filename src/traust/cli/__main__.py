@@ -7,7 +7,7 @@ import sys
 from types import SimpleNamespace
 
 from traust.cli.groups import GROUPS
-from traust.context import add_config_home_arg, load_engine
+from traust.context import add_config_home_arg
 
 
 def _split(argv: list[str] | None) -> tuple[str | None, str | None, list[str]]:
@@ -19,10 +19,6 @@ def _split(argv: list[str] | None) -> tuple[str | None, str | None, list[str]]:
     if len(rest) < 2:
         return rest[0], None, rest[1:]
     return rest[0], rest[1], rest[2:]
-
-
-def _help_only(rest: list[str]) -> bool:
-    return rest in (["-h"], ["--help"])
 
 
 def _print_top_help() -> None:
@@ -62,7 +58,7 @@ def main(argv: list[str] | None = None) -> int:
 
     spec = group_ops[op]
 
-    if getattr(spec, "passthrough_argv", False) and not _help_only(rest):
+    if getattr(spec, "passthrough_argv", False):
         pre = argparse.ArgumentParser(
             prog=f"traust {group} {op}",
             add_help=False,
@@ -70,9 +66,8 @@ def main(argv: list[str] | None = None) -> int:
         add_config_home_arg(pre)
         pre_args, tool_argv = pre.parse_known_args(rest)
         args = SimpleNamespace(config_home=pre_args.config_home, argv=tool_argv)
-        # Legacy bridge: module owns its own argparse and optional load_engine().
-        # Do not require a resolvable deployment config just to forward argv.
-        return spec.call(None, args)
+        # The module owns its own argparse; forwarding argv needs no deployment config.
+        return spec.call(args)
 
     ap = argparse.ArgumentParser(
         prog=f"traust {group} {op}",
@@ -80,9 +75,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     add_config_home_arg(ap)
     spec.add_args(ap)
-    args = ap.parse_args(rest)
-    engine = load_engine(args.config_home)
-    return spec.call(engine, args)
+    return spec.call(ap.parse_args(rest))
 
 
 if __name__ == "__main__":

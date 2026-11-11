@@ -1,6 +1,0 @@
-# Storage database for this deployment ($TRAUST_CONFIG_HOME/storage.yaml).
-# Optional: absent disables configured storage. No environment variable
-# overrides it. The value may contain credentials; it is never logged.
-# Schema: traust-contracts config/v1/storage.schema.json.
-
-dsn: postgresql://traust@db.example.internal/traust   # or sqlite:////absolute/path/audit.db

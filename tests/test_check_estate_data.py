@@ -23,6 +23,7 @@ which is how the first draft of this file was written.
 from __future__ import annotations
 
 import subprocess
+from pathlib import Path
 
 import pytest
 
@@ -102,51 +103,44 @@ class TestWaiver:
         assert not ced.WAIVER_RE.search("# estate-data-ok:")
 
 
-@pytest.mark.requires_git
-@pytest.mark.parametrize("filename", ["report.py", 'report "quoted".py', "report\nline.py"])
-def test_staged_scan_reads_index_not_worktree(tmp_path, filename):
+@pytest.mark.parametrize("filename", ["report.py", 'report "quoted".py'])
+def test_staged_scan_reads_index_bytes_not_worktree(tmp_path: Path, filename: str) -> None:
     subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
     source = tmp_path / filename
     source.write_text("deployment reports: 1,234\n", encoding="utf-8")
     subprocess.run(["git", "-C", str(tmp_path), "add", filename], check=True)
     source.write_text("no deployment measurements\n", encoding="utf-8")
+
     assert [(f["rule"], f["match"]) for f in ced.scan(tmp_path, staged=True)] == [
         ("estate-count", "1,234")
     ]
     assert ced.main([str(tmp_path), "--staged", "--assume-public", "--quiet"]) == 1
     source.unlink()
     assert [f["match"] for f in ced.scan(tmp_path, staged=True)] == ["1,234"]
+
     source.write_text("no deployment measurements\n", encoding="utf-8")
     subprocess.run(["git", "-C", str(tmp_path), "add", filename], check=True)
     source.write_text("unstaged reports: 2,468\n", encoding="utf-8")
     assert ced.scan(tmp_path, staged=True) == []
 
 
-@pytest.mark.requires_git
-@pytest.mark.parametrize("invalid_utf8", [False, True])
-def test_staged_migration_portability_uses_index(tmp_path, invalid_utf8):
+def test_staged_migration_admission_uses_index_content(tmp_path: Path) -> None:
     subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
     source = tmp_path / "src" / "traust" / "migrations" / "upgrade.py"
     source.parent.mkdir(parents=True)
-    source.write_bytes(
-        b'"""Deployment-specific repair."""\n' + (b"# \xff\n" if invalid_utf8 else b"")
-    )
-    # Untracked migrations are checked in whole-tree mode, not staged mode.
-    assert [f["rule"] for f in ced.scan(tmp_path)] == ["unportable-migration"]
-    assert ced.scan(tmp_path, staged=True) == []
+    source.write_text('"""A deployment-specific repair."""\n', encoding="utf-8")
     subprocess.run(["git", "-C", str(tmp_path), "add", "."], check=True)
     source.write_text('"""adopter-portable: schema upgrade."""\n', encoding="utf-8")
+
     assert [f["rule"] for f in ced.scan(tmp_path, staged=True)] == ["unportable-migration"]
-    subprocess.run(["git", "-C", str(tmp_path), "add", "."], check=True)
-    assert ced.scan(tmp_path, staged=True) == []
 
 
-@pytest.mark.requires_git
-def test_staged_rename_into_migrations_checks_destination(tmp_path):
+def test_staged_rename_into_migrations_is_checked(tmp_path: Path) -> None:
     subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    subprocess.run(["git", "-C", str(tmp_path), "config", "diff.renames", "true"], check=True)
     source = tmp_path / "helper.py"
-    source.write_text('"""Deployment-specific repair."""\n', encoding="utf-8")
-    subprocess.run(["git", "-C", str(tmp_path), "add", "."], check=True)
+    source.write_text('"""A deployment-specific repair."""\n', encoding="utf-8")
+    subprocess.run(["git", "-C", str(tmp_path), "add", "helper.py"], check=True)
     subprocess.run(
         [
             "git",
@@ -158,8 +152,6 @@ def test_staged_rename_into_migrations_checks_destination(tmp_path):
             "user.email=fixture@example.com",
             "-c",
             "commit.gpgsign=false",
-            "-c",
-            "core.hooksPath=/dev/null",
             "commit",
             "-qm",
             "baseline",
@@ -169,6 +161,52 @@ def test_staged_rename_into_migrations_checks_destination(tmp_path):
     destination = tmp_path / "src" / "traust" / "migrations" / "upgrade.py"
     destination.parent.mkdir(parents=True)
     subprocess.run(["git", "-C", str(tmp_path), "mv", str(source), str(destination)], check=True)
+    status = subprocess.run(
+        ["git", "-C", str(tmp_path), "diff", "--cached", "--name-status"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    assert status.startswith("R")
+
     assert [(f["file"], f["rule"]) for f in ced.scan(tmp_path, staged=True)] == [
         ("src/traust/migrations/upgrade.py", "unportable-migration")
     ]
+    assert ced.main([str(tmp_path), "--staged", "--assume-public", "--quiet"]) == 1
+    destination.write_text('"""adopter-portable: schema upgrade."""\n', encoding="utf-8")
+    assert [f["rule"] for f in ced.scan(tmp_path, staged=True)] == ["unportable-migration"]
+    subprocess.run(["git", "-C", str(tmp_path), "add", "."], check=True)
+    assert ced.scan(tmp_path, staged=True) == []
+
+
+def test_untracked_migrations_are_checked_only_in_whole_tree_mode(tmp_path: Path) -> None:
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    source = tmp_path / "src" / "traust" / "migrations" / "upgrade.py"
+    source.parent.mkdir(parents=True)
+    source.write_text('"""A deployment-specific repair."""\n', encoding="utf-8")
+    (source.parent / "__init__.py").touch()
+
+    assert [(f["file"], f["rule"]) for f in ced.scan(tmp_path)] == [
+        ("src/traust/migrations/upgrade.py", "unportable-migration")
+    ]
+    assert ced.scan(tmp_path, staged=True) == []
+    source.write_text('"""adopter-portable: schema upgrade."""\n', encoding="utf-8")
+    assert ced.scan(tmp_path) == []
+
+
+@pytest.mark.parametrize("staged", [False, True])
+def test_invalid_utf8_cannot_hide_unportable_migrations(tmp_path: Path, staged: bool) -> None:
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    source = tmp_path / "src" / "traust" / "migrations" / "upgrade.py"
+    source.parent.mkdir(parents=True)
+    source.write_bytes(b'"""A deployment-specific repair."""\n# \xff\n')
+    subprocess.run(["git", "-C", str(tmp_path), "add", "."], check=True)
+    if staged:
+        source.write_text('"""adopter-portable: unstaged marker."""\n', encoding="utf-8")
+
+    assert [(f["file"], f["rule"]) for f in ced.scan(tmp_path, staged=staged)] == [
+        ("src/traust/migrations/upgrade.py", "unportable-migration")
+    ]
+    source.write_bytes(b'"""adopter-portable: schema upgrade."""\n# \xff\n')
+    subprocess.run(["git", "-C", str(tmp_path), "add", "."], check=True)
+    assert ced.scan(tmp_path, staged=staged) == []

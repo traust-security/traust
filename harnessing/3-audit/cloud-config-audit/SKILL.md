@@ -10,13 +10,13 @@ allowed-tools:
   - Grep
   - Write
   - Task
-  - Bash(git clone:*)
   - Bash(ls:*)
   - Bash(jq:*)
-  - Bash(python3 *traust/harnessing/3-audit/cloud-config-audit/scripts/run_checkov.py:*)
+  - Bash(python3 *traust* -m traust.cli cloud-config run:*)
+  - Bash(python3 *traust* -m traust.cli cloud-config check:*)
   - Bash(python3 *traust* -m traust.cli reporting validate:*)
   - Bash(python3 *traust* -m traust_engine.reporting.render:*)
-  - Bash(python3 *traust* -m traust.cli corpus finding-identity:*)
+  - Bash(python3 *traust* -m traust.cli cloud-config record:*)
   # Confinement added 2026-07-31 (P1 gate rework — the
   # widened S1 privilege tokens made this skill's missing
   # allowlist visible; assessment root-cause 3). Never
@@ -26,7 +26,7 @@ allowed-tools:
 # Cloud Config Audit — Checkov-Backed IaC Assessment (Declared Layer)
 
 > **Paths.** `analysis-results/…` and `progress-tracker/…` in this skill are the
-> default workspace layout. They resolve through `locations.yaml` in
+> default workspace layout. They resolve through `locations:` in `traust.yaml` in
 > `$TRAUST_CONFIG_HOME` (`docs/setup.md`, Storage locations); substitute your
 > configured roots.
 
@@ -69,15 +69,15 @@ and CWE/control mapping.
 ### Phase 1 — deterministic facts (never author verdicts here)
 
 1. Confirm the pinned engine: `checkov --version` must report the
-   version pinned in `harnessing/3-audit/cloud-config-audit/scripts/run_checkov.py`
-   (`PINNED_CHECKOV_VERSION`). The runner hard-fails on mismatch; the
+   version pinned in traust-core (`CHECKOV_VERSION` in
+   `traust_core.v1.models.cloud_config`). The runner hard-fails on mismatch; the
    pin advances only as a deliberate config change (license row
    re-verified in `docs/external-dependencies.md`, re-baseline of one
    known IaC tree) — never mid-run.
 2. Run the offline runner:
 
    ```bash
-   python3 harnessing/3-audit/cloud-config-audit/scripts/run_checkov.py \
+   python3 -m traust.cli cloud-config run \
      --target-dir <checkout> \
      --out analysis-results/cloud-config/<target>/<target>-cloud-facts.json
    ```
@@ -99,7 +99,7 @@ and CWE/control mapping.
      `vllm-bootc/Containerfile` unassessed). The runner materializes
      Dockerfile-named aliases in its temp scan tree, scans them, and
      maps fact paths back so **facts always cite the real Containerfile
-     path**; the workaround is recorded in the facts metadata
+     path**; the workaround is recorded in the facts `notes`
      (`containerfile_alias_workaround`), like the hidden-path
      workaround.
    - **Coverage-gap register** — after the scan, IaC files whose
@@ -217,8 +217,7 @@ never add, remove, or reword facts.
    errors:
 
    ```bash
-   python3 harnessing/3-audit/cloud-config-audit/scripts/run_checkov.py \
-     --validate-report <target>-cloud-config-audit.json
+   python3 -m traust.cli cloud-config check <target>-cloud-config-audit.json
    ```
 
    The JSON shape is `cloud-config-audit.schema.json` in traust-contracts.
@@ -230,7 +229,10 @@ never add, remove, or reword facts.
 
 ### Findings integration
 
-- Confirmed critical/high findings enter the standard flow: cross-file
+- Confirmed critical/high findings enter the standard flow (`python3 -m
+  traust.cli cloud-config record <target>-cloud-config-audit.json --repo-url
+  <metadata.repository> --sha <target_head> [--branch <scanned branch>]` records the audit, every finding
+  and its disposition as a decision): cross-file
   via `/track-findings` disposition events and `/file-security-defect`
   for embargoed Jira filing — IaC misconfigurations never get a
   parallel tracking system.
@@ -249,13 +251,14 @@ never add, remove, or reword facts.
   on a large share of real-world Bicep (observed: 82/188 Bicep files
   on ARO-HCP, Phase-0 sweep 2026-07). The runner now recovers these
   automatically: parse-failed `.bicep` files are transpiled with the
-  **pinned `bicep` CLI** (`PINNED_BICEP_VERSION` in `run_checkov.py`;
+  **pinned `bicep` CLI** (`BICEP_VERSION` in traust-engine's
+  `adapters/cloud_config.py`;
   MIT, intake row in `docs/external-dependencies.md`) using
   `bicep build --no-restore` — **offline always**: external registry
   modules are never fetched, and a file that needs them stays a gap —
   then re-scanned through the arm framework. Fact paths cite the
   source `.bicep`; **line ranges refer to the generated ARM
-  template** (recorded in `metadata.bicep_transpile_fallback`). Live
+  template** (recorded in `notes.bicep_transpile_fallback`). Live
   validation: 71/75 ARO-HCP parse failures recovered. When the pinned
   CLI is absent the fallback is skipped with a note and the files
   stay loud NOT-ASSESSED gaps (install: docs/requirements.md).

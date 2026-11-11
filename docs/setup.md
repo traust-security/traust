@@ -9,48 +9,80 @@
 ## 1. Start here: `install_traust`
 
 ```bash
-scripts/install_traust            # choose TRAUST_CONFIG_HOME, copy templates,
+scripts/install_traust            # choose TRAUST_CONFIG_HOME, copy traust.yaml,
                                   # persist the variable, optionally install the toolchain
-scripts/install_traust --doctor   # verify variable, files, parsing, resolver, toolchain
+scripts/install_traust --doctor   # run traust admin doctor against this shell's home
+traust admin doctor               # every effective traust.yaml value and its source
 ```
 
-The harness will not run without `TRAUST_CONFIG_HOME` pointing at a directory
-holding the operational config files: corpus registry, product map, budget
-policy, safe-exec profiles, rule-pack allowlist, hardening weights, dist-git
-watch list, internal vocabulary, ledger signing public key. None of them is in
-this repository; `config/` ships templates only. `install_traust` creates the
-directory from those templates (default `~/.traust/config`; a deployment's
-orchestrator points the variable at its private config checkout), you edit each
-file (every one opens with a comment block describing its fields) and generate
-your ledger signing key ([signing.md](signing.md)). A missing file fails closed.
+The harness reads one config file, `traust.yaml`, from the directory
+`TRAUST_CONFIG_HOME` names (default `~/.traust/config`; a deployment's
+orchestrator points the variable at its private config checkout). Beside it sit
+the model registry and any adopter-fact files you record (org parameters, ADR
+registers, the benchmark answer key, the product map). `install_traust` copies
+`config/traust.example.yaml` there as `traust.yaml`; you uncomment and fill in
+what you use (database, identity, the ledger key — [signing.md](signing.md) —
+budgets, locations). No `traust.yaml` at all is the zero-config local install:
+SQLite and artifacts under `~/.traust`. Tool pins, safe-exec profiles and the
+feeds registry ship with traust-core and are not configurable.
 
-`--doctor` is the troubleshooting entry point: it reports every missing or
-unparseable file, any file still carrying its template banner, whether the
-resolver actually reads from your directory, and which scanner binaries are
-absent. Flags for CI: `--yes --config-home DIR --toolchain PROFILE`
-(`--no-toolchain`, `--no-profile-write`, `--force` also available). The full
-contract: [config/README.md](../config/README.md).
+An old multi-file config home (`core.yaml`, `locations.yaml`, …) folds into one
+file with `traust config migrate <old home>`: it writes `traust.yaml`, reports a
+verdict for every file and prints the command to record each adopter fact.
+
+`--doctor` is the troubleshooting entry point, and it is one code path: it runs
+`traust admin doctor`, which reports core's preflight — the same check the
+engine's start gate refuses on — so a gap (an unset location, a missing model
+registry, an unmet pack requirement) is a FAIL that names its fix, never a
+warning the run carries on past. Flags for CI: `--yes --config-home DIR
+--toolchain PROFILE` (`--no-toolchain`, `--no-profile-write`, `--force` also
+available). The full contract: [config/README.md](../config/README.md).
+
+### Official product documentation
+
+Register a product in the record store first (`traust products add`; `traust products list`
+reports its `product_id`), then collect its official guides with an explicit target:
+
+```bash
+traust compliance docs <registered-product-slug> \
+  --product-slug <official-slug> --version <version> --guide <guide>
+```
+
+The slug, version and guide names come from the product's actual
+`https://docs.redhat.com/en/documentation/<product_slug>/<version>` URLs; they are
+adopter facts, not inferred from the registered product name. Repeat `--guide`, or use
+`--all-guides` to discover every guide linked by the landing page. Targets are always
+explicit: traust-core reads no `compliance.docs_targets` from `traust.yaml` until the
+contracts config schema carries that section, so a run without `--product-slug` and
+`--version` is refused. A malformed target or an unknown product is refused too. The
+shipped provider requires `curl` on `PATH` and HTTPS access to `docs.redhat.com`; it
+fetches genuine single-page HTML and returns plain-text guides with section links, and the
+JSON output contains each guide's source URL and extracted text. Missing pages and HTTP
+failures are explicit errors, never cached substitutes or invented content.
 
 ## 2. Prerequisites
 
 - Python 3.11+ and [`uv`](https://github.com/astral-sh/uv) (or pip with the
-  hash-pinned lockfile, below)
+  hash-pinned lockfile, below). The code-facts scans read target Python with
+  the running interpreter, so an older one can't parse newer syntax and
+  reports those files as a coverage gap; the runtime image runs on Python 3.14
 - Git access to this repository and, for the multi-repository pipeline, the
   sibling data repositories (§3)
 - Network access to the forge holding the repositories you audit
-- A ledger identity for anyone who countersigns: `ledger auth login`
-  against your OIDC provider, or `ledger auth local` where there is none
-  (local tokens countersign only with `HARNESS_COUNTERSIGN_ALLOW_LOCAL=1`
-  — see the countersign skill). Optionally an employee-directory command
-  (`ledger.yaml` → `identity.directory_command`) the ledger runs to confirm a
-  signer is a current member of your organisation. Signing and the optional
-  Ledger database are also `ledger.yaml` (copy `config/ledger.example.yaml`);
-  no `LAAS_*` variable configures a harness run.
+- A core-verified human identity for anyone who countersigns: `traust auth login`
+  against the trusted issuers in `traust.yaml`'s `identity:` section, or
+  `traust auth local --identity you@example.com` on a solo installation with
+  `identity: {trust_local: true}` explicitly configured. Core verifies the
+  signature, caller and any deployment directory policy on writes. Review
+  commands may instead read an explicitly selected token from stdin, never argv
+  or agent-visible logs. Retired `ledger auth` commands,
+  `HARNESS_COUNTERSIGN_ALLOW_LOCAL` and `LAAS_*` do not configure this workflow.
+  See [the command contract](cli-reference.md#direct-human-severity-recording).
 
 Scanner tools are per capability, not global: nothing beyond the baseline is
 needed until a skill calls for it. What each capability needs is the table in
 [requirements.md](requirements.md); the pinned versions are the manifest
-`config/external-tools.yaml`; licenses and citations are in
+traust-core's shipped `external-tools.yaml`; licenses and citations are in
 [external-dependencies.md](external-dependencies.md). Installing them is §4.
 
 ## 3. Clone the workspace and install
@@ -75,29 +107,29 @@ cd traust && uv sync
 
 No `uv`? `pip install --require-hashes -r requirements.lock`.
 
-`uv sync` installs the code dependencies selected by commit `rev` in
-`pyproject.toml` and resolved in `uv.lock`: `traust-engine` (scanner adapters,
-corpus, metrics, reporting, and the ledger gateway), `traust-ledger` (finding
-identity, Merkle integrity, and signing), and `traust-contracts` (schemas, enums,
-shared bindings, and database DDL). Clone those repositories only to change them.
+`uv sync` installs `traust-core` at the commit selected in `pyproject.toml` and
+resolved in `uv.lock`. Contracts and ledger come through core's pins, rather than
+direct imports into the harness. The continuous-ops service, `traust-engine`, is
+installed separately (the runtime image includes it); locally,
+`uv tool install "traust-engine @ git+https://github.com/traust-security/traust-engine@<sha>"`.
 
-[traust-core](https://github.com/traust-security/traust-core) is the shared
-platform API being adopted by the ecosystem. It is not yet a declared dependency
-of the harness, engine, or ledger, so this quick start neither installs core nor
-requires a sibling core checkout. Core's `traust.yaml` configuration and planned
-REST API do not replace this harness's `TRAUST_CONFIG_HOME` setup. Core adoption
-requires a separate, tested implementation and dependency migration.
+Local domain operations call core's services through the app composition root.
+`traust.yaml` in `TRAUST_CONFIG_HOME` selects core's database, identity and optional
+ledger policy; a REST deployment is not required for the local CLI.
+For PostgreSQL, use `uv sync --extra postgres`; SQLite needs no driver extra.
+Core's platform configuration is documented in its
+[development README](https://github.com/traust-security/traust-core/blob/development/README.md).
 
 What each component owns, which repo to change, and how source conflicts and
-commit updates work: [components.md](components.md). `/check-drift` reports an
-installed package that does not match its selected dependency; `uv sync`
-restores the manifest/lockfile selection.
+commit updates work: [components.md](components.md). `uv sync --locked`
+refuses an installed package that does not match its selected dependency;
+`uv sync` restores the manifest/lockfile selection.
 
 ## 4. Scanner toolchain
 
 The harness ships an opinionated, version-pinned toolchain. You name a
 **profile** and it handles install, database population and provenance
-stamping. Profiles are the `consumers` values in `config/external-tools.yaml`
+stamping. Profiles are the `consumers` values in traust-core's shipped `external-tools.yaml`
 (one per skill that needs external tools, plus `ledger-signing`); the CLI lists
 them when given an unknown name.
 
@@ -116,7 +148,12 @@ manager or index sits in between. Binaries land in `~/.local/bin` (override
 with `HARNESS_BIN_DIR`); `--dry-run` previews. macOS and Linux. `doctor` exits
 0 when every tool for the profile is installed at the pinned version with its
 databases populated, 1 with a per-tool diagnostic otherwise; `/drift-watch`
-runs the same comparison continuously.
+(`traust dashboard view freshness`) shows the same readiness on demand.
+
+traust-core runs only the binaries `traust.yaml` grants under
+`process.allowed_binaries`. Impact analysis needs `syft` (commit SBOMs), plus
+`git` and `govulncheck` for `--scan`; a tool not granted is reported not ready
+(`govulncheck skipped: …` in the evidence), never run.
 
 Step by step, if you need to install by hand:
 
@@ -126,7 +163,7 @@ Step by step, if you need to install by hand:
 | `gitleaks` | github.com/gitleaks/gitleaks | yes |
 | `syft` | github.com/anchore/syft | yes |
 | `grype` | github.com/anchore/grype | yes |
-| `osv-scanner` | github.com/google/osv-scanner — **air-gapped OSV scanning only, and not installed by the script or the image**: you install it at the pin in `config/external-tools.yaml` (see below). The default dependency pre-scan uses the OSV API | no (upstream publishes none) |
+| `osv-scanner` | github.com/google/osv-scanner — **air-gapped OSV scanning only, and not installed by the script or the image**: you install it at the pin in traust-core's shipped `external-tools.yaml` (see below). The default dependency pre-scan uses the OSV API | no (upstream publishes none) |
 | `cosign` | github.com/sigstore/cosign | yes |
 | `govulncheck` | `go install golang.org/x/vuln/cmd/govulncheck@<pin>` (needs a Go toolchain) | Go module checksum DB |
 
@@ -139,7 +176,7 @@ Tools with no standalone upstream binary come from a package manager:
 | `skopeo` | `brew install skopeo` (macOS), `dnf install skopeo` (Fedora/RHEL) |
 | `yara` | `brew install yara`, or build from the [yara release](https://github.com/VirusTotal/yara/releases) |
 | `pip-audit` | `pipx install pip-audit` |
-| `checkov` | `pipx install checkov==<pin>` — the pin is `PINNED_CHECKOV_VERSION` in `harnessing/3-audit/cloud-config-audit/scripts/run_checkov.py`, which hard-fails on a mismatch |
+| `checkov` | `pipx install checkov==<pin>` — the pin is `CHECKOV_VERSION` in traust-core's `models/cloud_config.py`; `traust cloud-config run` hard-fails on a mismatch |
 
 Vulnerability databases (grype, govulncheck) are populated by `setup`; to
 refresh them, or to bundle them for an air-gapped host:
@@ -153,14 +190,12 @@ python3 -m traust.cli admin toolchain fetch-dbs --profile secure-container-audit
 
 The dependency pre-scan (`traust adapters osv`) reads the checkout's
 lockfiles and manifests and queries the **OSV API**. That is the default
-and needs nothing installed or kept current. The setting is `access` on the
-`osv` source in `$TRAUST_CONFIG_HOME/feeds.yaml`:
+and needs nothing installed or kept current. The setting is `feeds.osv_access`
+in `$TRAUST_CONFIG_HOME/traust.yaml`:
 
 ```yaml
-sources:
-  osv:
-    url_template: https://api.osv.dev/v1/query
-    access: api          # default; or air-gapped
+feeds:
+  osv_access: api        # default; or air-gapped
 ```
 
 If the API cannot be used at all, the scan fails fast: `status: failed`,
@@ -191,29 +226,21 @@ data licensed CC BY 4.0, and every scan carries the attribution in
 `metadata.resolution.attribution`. Details are in
 [external-dependencies.md](external-dependencies.md).
 
-**Opt out** in `$TRAUST_CONFIG_HOME/feeds.yaml`:
-
-```yaml
-sources:
-  deps_dev:
-    access: disabled   # default: api
-```
-
-Manifests without a lockfile then stay coverage gaps. Resolution isn't
-used air-gapped. A config home whose `feeds.yaml` has no `deps_dev` source
-doesn't resolve either; copy the entry from the shipped `config/feeds.yaml`.
+The `deps_dev` source is in the feeds registry traust-core ships, which is not
+adopter config, so resolution is always on; it isn't used air-gapped, where
+manifests without a lockfile stay coverage gaps.
 
 #### Air-gapped OSV scanning
 
-For deployments with no route to the OSV API, set `access: air-gapped`.
+For deployments with no route to the OSV API, set `feeds.osv_access: air-gapped`.
 The pre-scan then runs **osv-scanner offline** (`--offline`) against a local
 OSV database. **You provide both the binary and the database**: the harness
 does not install them, and continuous operations do not keep them current.
 
 1. Install osv-scanner on the scanning host (or into your extension of the
-   toolchain image) at the version pinned in `config/external-tools.yaml`:
-   the tested version, kept current by the `external-tools:osv-scanner`
-   drift row. `install-toolchain.sh` and the image do not install it.
+   toolchain image) at the version pinned in traust-core's shipped `external-tools.yaml`:
+   the tested version, the floor the freshness view's `tool:osv-scanner`
+   row checks. `install-toolchain.sh` and the image do not install it.
 2. On a connected host, download the database:
    `osv-scanner scan source --offline-vulnerabilities --download-offline-databases <any dir>`.
 3. Copy the cache directory to the scanning host and point
@@ -228,46 +255,71 @@ Go checkout, 2026-10-20: 73 of the API's 122 candidates, the gap all `stdlib` bu
 run govulncheck, which carries its own database, for Go. The other OSV
 consumers query the API and do not run air-gapped: the fleet sweep
 (`dependency-watch`) writes a `failed` worklist and exits 2, and advisory
-fetches (`fetch_advisory.py`, `resolve-advisory-symbols`, the CVE-replay
-monitor) report their lookups as failed. Impact analysis
-(`traust impact analyze`) takes its vulnerable range only from the
-advisory's OSV record, so air-gapped it needs `--advisory-file`: export the
-record on a connected host (`GET https://api.osv.dev/v1/vulns/<id>`) and copy
-it across. The file's path is recorded as the artifact's advisory source.
-Without it the advisory is not assessed (exit 2).
+fetches (`traust impact find` / `symbols` / `document`, the CVE-replay
+monitor) report their lookups as failed.
 
-### Container image (CI, platform worker, air gap)
+### Container images (CI, platform worker, air gap)
 
 For CI pipelines, platform worker pods, or air-gapped environments, use the
-toolchain image instead of the install script. It ships every pinned scanner
-on `PATH` with databases pre-populated. osv-scanner is the exception: an
-air-gapped deployment extends the image with osv-scanner and its offline
-database ([Air-gapped OSV scanning](#air-gapped-osv-scanning)):
+container images instead of the install script. External tooling and the
+traust Python stack are **two separate images**, so a pin advance (weekly at
+most) never forces a rebuild of the Python layer, and vice versa:
+
+| Image | Contains | Tag |
+|---|---|---|
+| `traust-toolchain` | Pinned scanner binaries only (traust-core's shipped `external-tools.yaml`): opengrep, gitleaks, syft, grype, cosign, govulncheck, skopeo, yara, pip-audit (in its own isolated Python environment). No traust Python stack, no vulnerability databases. | `toolchain-<pin-set hash>` (`scripts/containerfile-build-args.py --pin-hash`) |
+| `traust-runtime` | `FROM traust-toolchain` by digest, plus traust-core/traust at the Git SHAs pinned in `pyproject.toml`/`uv.lock` and traust-engine as a separate tool install (`TRAUST_ENGINE_SHA` in `Containerfile.runtime`), and the harness skill data (`harnessing/`, `config/`, `docs/`). | the commit, plus the toolchain hash it was built on (labels `traust.commit`, `traust.toolchain-hash`) |
+
+**No vulnerability database ships in either image.** For offline scans, mount
+databases kept current by the deployment, for example under
+`/feeds/tool-dbs/<tool>/`. Set `GRYPE_DB_CACHE_DIR=/feeds/tool-dbs/grype` and
+`GRYPE_DB_AUTO_UPDATE=false` for grype; direct govulncheck invocations take
+`-db file:///feeds/tool-dbs/govulncheck`. The core-based scanner registration
+does not automatically wire `locations.feeds_cache` or `FEEDS_CACHE_DIR` into
+these tools. The caller must configure the database and verify it is usable
+before scanning: grype fails on an empty database, but govulncheck can silently
+report zero findings against an empty local database. osv-scanner
+is installed in neither image: an air-gapped deployment
+extends `traust-toolchain` with osv-scanner and its offline database
+([Air-gapped OSV scanning](#air-gapped-osv-scanning)).
+
+The runtime build fetches Python packages at the commit SHAs in
+`pyproject.toml`/`uv.lock`; sibling repositories are not required. Scanner
+versions and the pin-set hash come from traust-core's shipped `external-tools.yaml`.
 
 ```bash
-./scripts/build-toolchain-image.sh                       # pins come from the manifest
-./scripts/build-toolchain-image.sh --tag <registry>/harness-toolchain:<tag>
+./scripts/build-toolchain-image.sh                      # both images, tagged by pin hash / commit
+./scripts/build-toolchain-image.sh --tools-only          # traust-toolchain only, e.g. to publish a pin advance
+./scripts/build-toolchain-image.sh --tag <registry>/traust-runtime:<tag>
+./scripts/build-toolchain-image.sh --tools-tag <registry>/traust-toolchain:<tag>
 
-podman run --rm -v "$PWD":/workspace:Z harness-toolchain:latest \
-  python3 -m traust.cli admin toolchain doctor --profile secure-code-audit
+podman run --rm -v "$PWD":/workspace:Z traust-runtime:latest \
+  admin toolchain doctor --profile secure-code-audit
 ```
 
-This is the **runtime base** a platform worker extends or mounts from; it is
-separate from the data-only `Containerfile`, which ships skills and templates
-as a mountable OCI artifact. Deployment configuration is mounted at
-`TRAUST_CONFIG_HOME` (the image sets `/harness/deploy-config`), never baked in.
+`traust-runtime` is the **runtime base** a platform worker extends or mounts
+from; it is separate from the data-only `Containerfile`, which ships skills
+and templates as a mountable OCI artifact. Deployment configuration is
+mounted at `TRAUST_CONFIG_HOME` (the image sets `/harness/deploy-config`),
+never baked in.
+
+An all-in-one image (both layers combined) is fine for local, non-air-gapped
+use only — `traust-runtime`'s label says exactly that
+(`summary: "Traust runtime on toolchain <hash>"`). The air-gap answer is
+mirroring both images separately and copying the feeds cache across on a
+cadence, so a pin advance and a code change can each ship on their own
+schedule.
 
 ## 5. Storage locations
 
 Where each kind of data lives is in [storage.md](storage.md). Runtime paths
-resolve from `$TRAUST_CONFIG_HOME/locations.yaml` — copy
-`config/locations.example.yaml` into your config home and fill in the fields
-you use. There are no environment overrides for workspace, analysis-results,
+resolve from `locations:` in `$TRAUST_CONFIG_HOME/traust.yaml` — the section in
+`config/traust.example.yaml`; fill in the fields you use. There are no environment overrides for workspace, analysis-results,
 progress-tracker, or feeds-cache.
 
 How the lanes that execute a target repository's build/test code run is a
-deployment setting, not an environment variable: `sandbox:` in
-`$TRAUST_CONFIG_HOME/execution-boundaries.yaml`, defaulting to `none`
+deployment setting, not an environment variable: `execution.sandbox` in
+`$TRAUST_CONFIG_HOME/traust.yaml`, defaulting to `none`
 (direct execution, scrubbed environment, disposable copy). Set it to
 `podman` for a nested rootless container instead — see
 [external-dependencies.md](external-dependencies.md) for the full contract.
@@ -275,12 +327,13 @@ deployment setting, not an environment variable: `sandbox:` in
 Example for a mono-checkout:
 
 ```yaml
-# $TRAUST_CONFIG_HOME/locations.yaml
-workspace: /path/to/workspace
-inputs: /path/to/workspace/inputs            # repository inventories (CSV)
-analysis_results: /path/to/workspace/analysis-results
-progress_tracker: /path/to/workspace/progress-tracker
-feeds_cache: /path/to/workspace/progress-tracker/feeds
+# $TRAUST_CONFIG_HOME/traust.yaml
+locations:
+  workspace: /path/to/workspace
+  inputs: /path/to/workspace/inputs            # repository inventories (CSV)
+  analysis_results: /path/to/workspace/analysis-results
+  progress_tracker: /path/to/workspace/progress-tracker
+  feeds_cache: /path/to/workspace/progress-tracker/feeds
 ```
 
 ### Bring your own inventory
@@ -331,31 +384,34 @@ operator catalog to inventory (`/inventory-repositories` writes those).
 
 Three ways to populate it:
 
-- **`/add-inputs`** appends a repository or a whole GitHub/GitLab org to a
-  segment and derives `owners.csv` rows from `OWNERS` / `approvers` files in
-  the repos. Point it at your inventory with `--inventory` or let it use
-  `locations.inputs`.
+- **`/add-inputs`** registers a repository or a whole GitHub/GitLab org in
+  traust-core under a product (`traust portfolio onboard`) and imports owning
+  teams from `org_teams:` (`traust portfolio import-owners`). It no longer
+  writes this CSV tree; readers of the tree move to traust-core with their ports.
 - **Export from your own source of truth** into the CSV shape above; a
   spreadsheet export is enough.
 - **Keep the inventory in its own repository**, as this project does, so that
-  ownership changes are reviewed and the graphs can detect when it moves
-  (`/drift-watch` compares the inventory's HEAD with each graph's build stamp).
+  ownership changes are reviewed and portfolio sync can tell when it moves.
 
-Then register the *output* tree the audits write to with `/corpus-intake`,
-and build the graph with `/repo-graph`. Unset, `locations.inputs` defaults to
+Then register the *output* tree the audits write to with `/corpus-intake`.
+Unset, `locations.inputs` defaults to
 `<workspace>/inputs`.
 
 ### Remote results and graph
 
-Findings and the portfolio graph do not have to be local. Set
-`locations.yaml` → `analysis_results` (and optionally `portfolio_graph`) to a
+*Retired:* the engine's remote materialiser (`traust-engine[s3]`,
+`HARNESS_REMOTE_CACHE`, `HARNESS_S3_*`, `HARNESS_STORAGE_OPTIONS`) went with the
+portfolio graph it served. traust reads through traust-core, and object storage
+is traust-core's `ObjectStore` (`traust.yaml` → `artifacts`). Was:
+
+Findings do not have to be local. Set
+`traust.yaml` → `locations.analysis_results` to a
 bare path, a `file://` URI, or an object-store URI, which is how a scheduled
 orchestrator run reaches them.
 
 | Variable / field | Purpose |
 |---|---|
-| `locations.yaml` → `analysis_results` | findings-side artifacts (SBOMs, extracted images, graphs) |
-| `locations.yaml` → `portfolio_graph` | the graph; defaults to `<analysis_results>/graph/portfolio-graph.db` when unset |
+| `traust.yaml` → `locations.analysis_results` | findings-side artifacts (SBOMs, extracted images, graphs) |
 | `HARNESS_REMOTE_CACHE` | where remote artifacts materialise (default `~/.cache/traust-engine/remote`) |
 
 A bare path or `file://` imports no backend and copies no file, so a
@@ -364,8 +420,8 @@ extra:
 
 ```bash
 pip install 'traust-engine[s3]'     # gs:// or az://: [remote] plus gcsfs or adlfs
-# in locations.yaml:
-# analysis_results: s3://<bucket>/results
+# in traust.yaml, under locations:
+#   analysis_results: s3://<bucket>/results
 ```
 
 Remote artifacts are **fetched once per job, not streamed**: the graph is a
@@ -408,17 +464,21 @@ A local path needs the same protection from the disk it sits on.
 Cached vulnerability data (EPSS, CISA KEV, vendor CVE and VEX feeds) is a
 mirror of third-party licensed data: a different provenance class from the
 findings you author, with opposite retention and redistribution properties, so
-it lives outside the findings tree and is never committed. Set
-`locations.yaml` → `feeds_cache` — there is **no default**; unset, feed fetch
-fails closed. The metrics tree is the conventional place:
-
-```yaml
-# locations.yaml
-feeds_cache: /path/to/progress-tracker/feeds
-```
+it lives outside the findings tree and is never committed. `traust feeds fetch`
+snapshots it into traust-core's store (`traust.yaml`):
 
 ```bash
 python3 -m traust.cli feeds fetch --feed all
+```
+
+`traust.yaml` → `locations.feeds_cache` (**no default**) now holds only the
+product-definitions registry (`traust feeds fetch-products`), when the
+deployment configures one:
+
+```yaml
+# traust.yaml
+locations:
+  feeds_cache: /path/to/progress-tracker/feeds
 ```
 
 ## 6. Environment variables

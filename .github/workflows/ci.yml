@@ -1,0 +1,88 @@
+# Lint and unit tests on every PR, in the merge queue, and after each merge to development
+# or main. Mirrors the Makefile (`make lint`, `make test`).
+name: CI
+
+on:
+  pull_request:
+  merge_group:
+  push:
+    branches: [main, development]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          python-version: "3.12"
+      - run: uv sync --frozen
+      - run: make lint
+
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          python-version: ${{ matrix.python-version }}
+      - run: uv sync --frozen
+      - name: Install Cosign for historical signature tests
+        run: |
+          bash scripts/install-toolchain.sh ledger-signing
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - run: uv run pytest tests/ -n auto
+
+  session-postgres:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: traust
+          POSTGRES_PASSWORD: traust-test-only
+          POSTGRES_DB: traust_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U traust" --health-interval 2s
+          --health-timeout 5s --health-retries 20
+    env:
+      TRAUST_TEST_DATABASE_URL: postgresql+psycopg://traust:traust-test-only@127.0.0.1:5432/traust_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+      - run: uv sync --frozen
+      - run: uv run pytest tests/test_artifact_sessions.py -q
+
+  # Consumer fence: new direct state access fails; .ratchet.json only shrinks (checked against
+  # the base branch's). The ratchet is pinned here, independent of the runtime traust-core pin.
+  ratchet:
+    runs-on: ubuntu-latest
+    env:
+      RATCHET: traust-core @ git+https://github.com/traust-security/traust-core@e0b2ddd98ca878cd4da478d98601415d9a8018c0
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+      - run: |
+          BASE="${{ github.base_ref || 'development' }}"
+          git fetch --depth=1 origin "$BASE"
+          REF=""
+          if git show "origin/$BASE:.ratchet.json" > /tmp/ratchet-reference.json 2>/dev/null; then
+            REF="--reference /tmp/ratchet-reference.json"
+          fi
+          uvx --from "$RATCHET" python -m traust_core.v1.checks.ratchet src harnessing \
+            --rules consumer --baseline .ratchet.json $REF

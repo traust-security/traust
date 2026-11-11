@@ -7,10 +7,10 @@ import subprocess
 from pathlib import Path
 
 import pytest
+import yaml
 
 REPO = Path(__file__).resolve().parents[1]
 SCRIPT = REPO / "scripts" / "install_traust"
-TEMPLATES = sorted(p for p in (REPO / "config").glob("*.example.*"))
 
 
 def _run(args, env_extra=None, cwd=REPO):
@@ -25,55 +25,30 @@ def test_help_exits_zero():
     assert r.returncode == 0 and "TRAUST_CONFIG_HOME" in r.stdout
 
 
-def test_noninteractive_install_copies_every_copyable_template(tmp_path):
+def test_noninteractive_install_copies_traust_yaml_and_the_model_registry(tmp_path):
     home = tmp_path / "cfg"
     r = _run(["--yes", "--config-home", str(home), "--no-toolchain", "--no-profile-write"])
     assert r.returncode == 0, r.stdout + r.stderr
-    written = sorted(p.name for p in home.iterdir())
-    # every non-key template, plus the three shipped-as-is filled defaults
-    # (model-registry + the MANIFEST-required feeds/external-tools).
-    # storage.yaml / ledger.yaml are opt-in: a copied example DSN would switch the
-    # deployment to a database that does not exist, so they are never auto-copied.
-    # The declared-policy files are opt-in too: a copied placeholder SLA policy,
-    # region allowlist, ADR pin, watch register or answer key would make the
-    # harness report on values nobody declared.
-    opt_in = {
-        "storage.yaml",
-        "ledger.yaml",
-        "sla-policy.yaml",
-        "org-parameters.yaml",
-        "adr-registry.yaml",
-        "reachability-watch.yaml",
-        "benchmark-targets.yaml",
-    }
-    expected = sorted(
-        [
-            t.name.replace(".example", "")
-            for t in TEMPLATES
-            if not t.name.endswith(".pub") and t.name.replace(".example", "") not in opt_in
-        ]
-        + ["model-registry.yaml", "feeds.yaml", "external-tools.yaml"]
-    )
-    for shipped in ("model-registry.yaml", "feeds.yaml", "external-tools.yaml"):
-        assert (home / shipped).read_text() == (REPO / "config" / shipped).read_text()
-    assert written == expected
-    assert not any((home / name).exists() for name in opt_in)
-    # the key template is instructions, never copied as a key
-    assert not (home / "ledger-signing-key.pub").exists()
-    assert "ledger-signing-key.pub" in r.stdout
+    assert sorted(p.name for p in home.iterdir()) == ["model-registry.yaml", "traust.yaml"]
+    assert (home / "traust.yaml").read_text() == (
+        REPO / "config" / "traust.example.yaml"
+    ).read_text()
+    assert (home / "model-registry.yaml").read_text() == (
+        REPO / "config" / "model-registry.yaml"
+    ).read_text()
 
 
 def test_install_never_overwrites_without_force(tmp_path):
     home = tmp_path / "cfg"
     home.mkdir()
-    (home / "corpus-config.yaml").write_text("version: 1\ntrees: {}\n")
+    (home / "traust.yaml").write_text("execution: {sandbox: podman}\n")
     r = _run(["--yes", "--config-home", str(home), "--no-toolchain", "--no-profile-write"])
     assert r.returncode == 0
-    assert (home / "corpus-config.yaml").read_text() == "version: 1\ntrees: {}\n"
-    assert "kept existing corpus-config.yaml" in r.stdout
+    assert (home / "traust.yaml").read_text() == "execution: {sandbox: podman}\n"
+    assert "kept existing traust.yaml" in r.stdout
 
 
-def test_doctor_fails_closed_when_unset_and_default_absent(tmp_path):
+def test_doctor_fails_closed_when_unset_and_default_absent(tmp_path: Path) -> None:
     env = {"HOME": str(tmp_path)}
     r = subprocess.run(
         ["bash", str(SCRIPT), "--doctor"],
@@ -82,19 +57,116 @@ def test_doctor_fails_closed_when_unset_and_default_absent(tmp_path):
         env={k: v for k, v in {**os.environ, **env}.items() if k != "TRAUST_CONFIG_HOME"},
         cwd=REPO,
     )
-    assert r.returncode == 1 and "run scripts/install_traust" in r.stdout
+    assert r.returncode == 1, r.stdout + r.stderr
+    assert "harness doctor —" in r.stdout
+    assert "no config home: set $TRAUST_CONFIG_HOME" in r.stdout
+    assert "required check(s) failing" in r.stdout
 
 
-def test_doctor_smoke_reports_empty_estate(tmp_path):
-    """Fresh install: completeness fails on empty corpus; load_context still parses."""
+def test_doctor_checks_the_config_home_the_wrapper_was_given(tmp_path):
+    """--config-home names the home --doctor audits: the wrapper's flag wins over
+    TRAUST_CONFIG_HOME, so it never reports on a different installation."""
+    complete = tmp_path / "complete"
+    complete.mkdir()
+    (complete / "traust.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "home": str(tmp_path / "store"),
+                "locations": {
+                    "workspace": str(tmp_path / "ws"),
+                    "analysis_results": str(tmp_path / "ar"),
+                    "progress_tracker": str(tmp_path / "pt"),
+                },
+                "ledger": {"public_key_path": str(tmp_path / "cosign.pub")},
+            }
+        )
+    )
+    (complete / "model-registry.yaml").write_text(
+        (REPO / "config" / "model-registry.yaml").read_text()
+    )
+    bare = tmp_path / "bare"
+    bare.mkdir()
+    (bare / "traust.yaml").write_text((REPO / "config" / "traust.example.yaml").read_text())
+    (bare / "model-registry.yaml").write_text((REPO / "config" / "model-registry.yaml").read_text())
+    r = _run(
+        ["--doctor", "--config-home", str(bare)],
+        env_extra={"TRAUST_CONFIG_HOME": str(complete), "HOME": str(tmp_path)},
+    )
+    assert r.returncode == 1, r.stdout + r.stderr
+    assert "traust.yaml: locations.workspace unset" in r.stdout
+
+
+def test_doctor_with_toolchain_runs_the_profiles_scanner_check(tmp_path):
+    """--toolchain PROFILE keeps its meaning beside --doctor: the profile's scanner
+    check (traust admin toolchain doctor) runs too, so a degraded profile surfaces."""
     home = tmp_path / "cfg"
     _run(["--yes", "--config-home", str(home), "--no-toolchain", "--no-profile-write"])
     r = _run(
-        ["--doctor", "--toolchain", "ledger-signing"], env_extra={"TRAUST_CONFIG_HOME": str(home)}
+        ["--doctor", "--toolchain", "secure-code-audit"],
+        env_extra={"TRAUST_CONFIG_HOME": str(home), "HOME": str(tmp_path)},
     )
-    assert r.returncode == 1
-    assert "trees is empty" in r.stdout
-    assert "ledger-signing-key.pub missing" not in r.stdout
+    assert "Toolchain doctor for profile: secure-code-audit" in r.stdout
+
+
+def test_doctor_with_toolchain_checks_the_config_home_the_wrapper_was_given(tmp_path):
+    """--toolchain PROFILE doctors the chosen home too: the scanner check loads
+    the same --config-home the preflight above it got, not the shell's
+    TRAUST_CONFIG_HOME (which, when it doesn't resolve, exits 2 beside a home
+    that is fine)."""
+    home = tmp_path / "cfg"
+    _run(["--yes", "--config-home", str(home), "--no-toolchain", "--no-profile-write"])
+    broken = tmp_path / "broken"
+    broken.mkdir()
+    (broken / "traust.yaml").write_text("not: [valid\n")  # unresolvable config
+    r = _run(
+        ["--doctor", "--toolchain", "secure-code-audit", "--config-home", str(home)],
+        env_extra={"TRAUST_CONFIG_HOME": str(broken), "HOME": str(tmp_path)},
+    )
+    assert "Toolchain doctor for profile: secure-code-audit" in r.stdout
+    assert "not resolvable" not in r.stdout + r.stderr
+
+
+def test_doctor_resolves_a_relative_config_home_against_the_callers_cwd(tmp_path):
+    """A relative --config-home names the caller's folder, not the repo root the
+    doctor's subshell cds into (do_install absolutizes the same way): run from
+    outside the repo, the check must audit the caller's home, not a
+    $REPO_ROOT-shaped path that doesn't exist."""
+    home = tmp_path / "caller" / "cfg"
+    _run(["--yes", "--config-home", str(home), "--no-toolchain", "--no-profile-write"])
+    caller = tmp_path / "caller"
+    r = _run(
+        ["--doctor", "--config-home", "cfg"],
+        cwd=caller,
+        env_extra={"HOME": str(tmp_path)},
+    )
+    assert r.returncode == 1, r.stdout + r.stderr
+    # the doctor read the caller's cfg (a fresh install: the example's unset
+    # keys), proving the home resolved against the caller's directory
+    assert "traust.yaml: locations.workspace unset" in r.stdout
+
+
+def test_doctor_resolves_relative_env_home_against_the_callers_cwd(tmp_path: Path) -> None:
+    home = tmp_path / "caller" / "cfg"
+    _run(["--yes", "--config-home", str(home), "--no-toolchain", "--no-profile-write"])
+    r = _run(
+        ["--doctor"],
+        cwd=home.parent,
+        env_extra={"HOME": str(tmp_path), "TRAUST_CONFIG_HOME": "cfg"},
+    )
+    assert r.returncode == 1, r.stdout + r.stderr
+    assert "traust.yaml: locations.workspace unset" in r.stdout
+
+
+def test_doctor_delegates_to_traust_admin_doctor(tmp_path):
+    """One code path: --doctor runs `traust admin doctor` (core's preflight), so a fresh
+    install fails naming exactly the keys still to fill in."""
+    home = tmp_path / "cfg"
+    _run(["--yes", "--config-home", str(home), "--no-toolchain", "--no-profile-write"])
+    r = _run(["--doctor"], env_extra={"TRAUST_CONFIG_HOME": str(home), "HOME": str(tmp_path)})
+    assert r.returncode == 1, r.stdout + r.stderr
+    assert "harness doctor" in r.stdout
+    assert "traust.yaml: locations.workspace unset" in r.stdout
+    assert "preflight: every enabled asset's requirements are met" not in r.stdout
 
 
 @pytest.mark.skipif(
@@ -102,8 +174,8 @@ def test_doctor_smoke_reports_empty_estate(tmp_path):
     reason="no operational config in this environment (the suite fixture is a bare template)",
 )
 def test_doctor_passes_on_the_operational_config():
-    """With a real TRAUST_CONFIG_HOME (developer workstation / SCI) the doctor's
-    file + resolver sections pass; toolchain is checked for the smallest profile."""
-    r = _run(["--doctor", "--toolchain", "ledger-signing"])
-    assert "every operational file resolves under" in r.stdout, r.stdout
-    assert "missing" not in r.stdout.split("3. Resolver")[0].replace("openssl not found", "")
+    """With a real TRAUST_CONFIG_HOME (developer workstation / SCI) the doctor's preflight
+    finds no gap in the operator's own home."""
+    r = _run(["--doctor"])
+    assert "traust-core store reachable" in r.stdout, r.stdout
+    assert "locations.workspace unset" not in r.stdout

@@ -2,8 +2,9 @@
 
 This procedure extracts every container image shipped in an OpenShift/OKD-style
 release payload image, maps each image back to its source repository,
-categorises by functional area, and produces a Markdown report, a CSV inventory
-and `owners.csv` in a segment of kind `release-payload`.
+categorises by functional area, produces a Markdown report and a CSV inventory
+in a segment of kind `release-payload`, and registers the repositories, their
+owner teams and the release (its version and commits) in traust-core.
 
 `<segment>` below is the descriptor segment resolved by the parent skill;
 `<inputs>` is `locations.inputs`.
@@ -163,30 +164,31 @@ Structure:
 4. Sections sorted alphabetically by category name, repos sorted within each
    section.
 
-## Step 7 — Generate or update owners.csv
+## Step 7 — Register the repositories and their owners
 
-Follow the ownership resolution procedure in the
-[parent skill](../SKILL.md#ownership-resolution).
+`traust portfolio onboard --product <segment> --label <label> --repo <URL>…`
+(every repository in the CSV), then follow the ownership resolution procedure
+in the [parent skill](../SKILL.md#ownership-resolution).
 
-Write to `<inputs>/<segment>/owners.csv` covering all repos across all
-versions present in the directory.
+Then record the release, the payload's commits as they are (before removing
+`$AUTHDIR`):
 
-**Column schema:**
+```bash
+traust portfolio import-release --product <segment> --version <version> \
+  --branch <source branch> --commits "$AUTHDIR/payload-image-repo-map.txt"
 ```
-Repository,URL,Owner Team,Manager,Individual Owners,Ownership Source,Jira Project,Jira Component,Payload Versions,Escalation Contact
-```
 
-The `Payload Versions` column lists all versions where the repo appears
-(e.g. `4.18; 4.19; 4.20`).
+Re-running it for the same payload changes nothing; a different commit set
+for a version already recorded is refused (a release doesn't change), and so
+is a commit whose repository isn't registered (nothing is written).
+
+*Retired*: `<inputs>/<segment>/owners.csv` (see the parent skill's owners.csv
+schema).
 
 ## Step 8 — Tracker columns
 
-Leave `Jira Project` / `Jira Component` empty unless a deployment extension
-provides a tracker-resolution procedure
-([parent skill](../SKILL.md#deployment-extensions)). A useful default an
-extension can apply: set the component from the `ClusterOperator(s)` column
-(first value when several), and the payload image name for repos that serve
-no ClusterOperator.
+*Retired with `owners.csv`*: traust-core has no `Jira Project` /
+`Jira Component` column.
 
 ---
 

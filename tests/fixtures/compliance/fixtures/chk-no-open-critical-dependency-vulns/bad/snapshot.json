@@ -1,9 +1,0 @@
-{
- "open_critical_dependency_findings": [
-  {
-   "id": "F-1",
-   "severity": "critical",
-   "primary_cwe": "CWE-1035"
-  }
- ]
-}

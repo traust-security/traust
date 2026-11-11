@@ -2,13 +2,13 @@
 """
 Unattended single-process driver for the validate-findings harness.
 
-Runs ingest → scope → plan → execute → report in one Python process so
-the in-memory objects flow straight through to the validation report.
-Equivalent to the SKILL.md Phase 1–5 procedure with ``--auto`` (no human
-review gate).  Intended for use by ``validate-operator-live/run_one.sh``.
+Runs ingest → scope → plan → execute → typed report → core record.
+The existing unattended executor is restricted to explicitly authorized isolated
+lab scope. Preparation/planning/authorization/execution are not yet service ports.
 
 Usage:
   run.py <source>[,<source>...] --targets <yaml> --context <ctx>
+         --target-attestation <json> --record-bindings <json>
          [--replay-only] [--destructive] --out <dir> [--name <slug>]
 """
 
@@ -19,6 +19,18 @@ import datetime as dt
 import json
 import sys
 from pathlib import Path
+from uuid import uuid4
+
+from traust_core.v1.models.common import Provenance
+from traust_core.v1.models.validation import (
+    TargetAttestation,
+    ValidationRecordingPolicy,
+    ValidationRecordInput,
+)
+from traust_core.v1.models.vocabulary import SourceType
+
+from traust.cli.validation import record_report
+from traust.context import add_config_home_arg
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
@@ -33,6 +45,7 @@ import scope as sc  # noqa: E402
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("source", help="findings dir(s), comma-separated")
+    add_config_home_arg(ap)
     ap.add_argument("--targets", required=True)
     ap.add_argument("--context", action="append", default=[])
     ap.add_argument("--ns", action="append", default=[])
@@ -47,17 +60,37 @@ def main(argv: list[str]) -> int:
         "findings whose PoCs reference a blocks_validation "
         "entry are skipped with reason needs-credential:<ref>",
     )
+    ap.add_argument("--target-attestation", type=Path, required=True)
+    ap.add_argument(
+        "--record-bindings", type=Path, required=True, help="Core source/finding bindings."
+    )
+    ap.add_argument("--install-failure", type=Path, help="Explicit deployment failure evidence.")
+    ap.add_argument(
+        "--finding-assessments", type=Path, help="Explicit grades/review proposals by planner ID."
+    )
     args = ap.parse_args(argv)
+    attestation = TargetAttestation.model_validate_json(args.target_attestation.read_bytes())
+    bindings = ValidationRecordInput.model_validate_json(args.record_bindings.read_bytes())
+    if bindings.policy != ValidationRecordingPolicy.CURRENT:
+        ap.error("new runs require current recording policy")
+    provenance = Provenance(
+        run_id=uuid4(), source=SourceType.VALIDATION_REPORT, occurred_at=dt.datetime.now(dt.UTC)
+    )
+    finding_assessments = (
+        json.loads(args.finding_assessments.read_bytes()) if args.finding_assessments else None
+    )
 
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
 
     # ---- Phase 1: ingest ------------------------------------------------
     sources = [s for s in args.source.split(",") if s]
+    if not sources:
+        ap.error("at least one source is required")
     if len(sources) > 1:
-        n = ing.ingest_many(sources, target_name=args.name)
+        n = ing.ingest_many(sources, target_name=args.name, config_home=args.config_home)
     else:
-        n = ing.ingest(sources[0])
+        n = ing.ingest(sources[0], config_home=args.config_home)
     if args.name:
         n.target_name = args.name
     print(
@@ -75,6 +108,10 @@ def main(argv: list[str]) -> int:
         wasm=[],
         inferred=None,
     )
+    if scope.environment != "lab":
+        ap.error("unattended execution requires targets.yaml environment: lab")
+    if scope.expires is not None and dt.date.today() > scope.expires:
+        ap.error("the authorized engagement has expired")
 
     # ---- Credentials-needed (from operand setup) -----------------------
     creds = []
@@ -127,8 +164,8 @@ def main(argv: list[str]) -> int:
     if args.replay_only:
         flags.append("--replay-only")
     approval = {
-        "approved_by": "automated (validate-operator-live/run_one.sh)",
-        "approved_at": dt.datetime.now(dt.UTC).isoformat(),
+        "by": "automated (validate-operator-live/run_one.sh)",
+        "at": dt.datetime.now(dt.UTC).isoformat(),
         "mode": "auto",
         "environment": "lab",
     }
@@ -149,9 +186,19 @@ def main(argv: list[str]) -> int:
         flags=flags,
         approval=approval,
         novel_findings=novel_findings,
+        target_attestation=attestation.model_dump(mode="json"),
+        finding_assessments=finding_assessments,
     )
     jpath, _mpath = rp.write(doc, out, n.target_name)
     print(f"[run] report: {jpath}", file=sys.stderr)
+    receipt = record_report(
+        jpath,
+        bindings,
+        provenance,
+        config_home=args.config_home,
+        target_attestation=args.target_attestation,
+        install_failure=args.install_failure,
+    )
 
     # ---- Summary to stdout (machine-readable) --------------------------
     summary = {
@@ -162,6 +209,7 @@ def main(argv: list[str]) -> int:
         "confirmed": by_verdict.get("confirmed", 0),
         "refuted": by_verdict.get("refuted", 0),
         "report": str(jpath),
+        "recording": receipt,
     }
     print(json.dumps(summary, indent=2))
     return 0

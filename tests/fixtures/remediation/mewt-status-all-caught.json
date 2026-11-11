@@ -1,0 +1,31 @@
+{
+  "targets": [
+    {
+      "path": "./pkg/calc/calc.go",
+      "total_mutants": 19,
+      "tested": 19,
+      "untested": 0,
+      "caught": 19,
+      "uncaught": 0,
+      "timeout": 0,
+      "skipped": 0,
+      "high_catch_rate": 100.0,
+      "medium_catch_rate": 100.0,
+      "low_catch_rate": 100.0
+    }
+  ],
+  "campaign": {
+    "total_targets": 1,
+    "total_mutants": 19,
+    "tested": 19,
+    "untested": 0,
+    "caught": 19,
+    "uncaught": 0,
+    "timeout": 0,
+    "skipped": 0,
+    "high_catch_rate": 100.0,
+    "medium_catch_rate": 100.0,
+    "low_catch_rate": 100.0,
+    "progress_percent": 100.0
+  }
+}

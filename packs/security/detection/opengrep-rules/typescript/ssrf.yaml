@@ -1,0 +1,64 @@
+rules:
+  - id: traust-ts-ssrf-request-taint
+    languages: [typescript, javascript]
+    severity: ERROR
+    message: >-
+      Request-derived value reaches an outbound HTTP call as the URL — the
+      caller can steer server-side requests at internal endpoints (console
+      backends proxying to cluster services are the recurring shape).
+      Validate against an allowlist before fetching. CWE-918.
+    metadata:
+      cwe: ["CWE-918"]
+      category: ssrf
+      asvs: ["V4"]
+      confidence: HIGH
+      references:
+        - "CWE-918 SSRF — request-derived outbound HTTP"
+    mode: taint
+    pattern-sources:
+      - pattern-either:
+          - pattern: $REQ.query.$P
+          - pattern: $REQ.params.$P
+          - pattern: $REQ.body.$P
+          - patterns:
+              - pattern-inside: "const {...} = $REQ.$PART;"
+              - pattern: $V
+              - metavariable-regex:
+                  metavariable: $PART
+                  regex: ^(query|params|body)$
+          - patterns:
+              - pattern-either:
+                  - pattern: $R.headers.$H
+                  - pattern: $R.headers[$H]
+                  - pattern: $R.get($H)
+                  - pattern: $R.header($H)
+                  - pattern: $R.url
+                  - pattern: $R.originalUrl
+                  - pattern: $R.path
+              - metavariable-regex:
+                  metavariable: $R
+                  regex: ^(req|request)$
+    pattern-sinks:
+      - pattern-either:
+          - pattern: fetch(...)
+          - pattern: axios.get(...)
+          - pattern: axios.post(...)
+          - pattern: axios(...)
+          - pattern: http.get(...)
+          - pattern: https.get(...)
+          - pattern: http.request(...)
+          - pattern: https.request(...)
+          - pattern: axios.put(...)
+          - pattern: axios.patch(...)
+          - pattern: axios.delete(...)
+          - pattern: axios.head(...)
+          - pattern: axios.request(...)
+          - pattern: got(...)
+          - pattern: got.get(...)
+          - pattern: got.post(...)
+          - pattern: superagent.get(...)
+          - pattern: superagent.post(...)
+          - pattern: needle(...)
+          - pattern: needle.get(...)
+          - pattern: undici.request(...)
+          - pattern: undici.fetch(...)

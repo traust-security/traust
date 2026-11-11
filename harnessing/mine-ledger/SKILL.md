@@ -8,8 +8,6 @@ allowed-tools:
   - Glob
   - Grep
   - Write
-  - Bash(python3 *traust* -m traust_engine.sweep.mining:*)
-  - Bash(python3 *traust/harnessing/mine-ledger/scripts/emit_rule_drafts.py:*)
   - Bash(python3 *traust* -m traust.cli sweep:*)
   - Bash(python3 *traust* -m traust.cli sweep rule-lane:*)
   # Confinement added 2026-07-31 (P1 gate rework — the
@@ -21,41 +19,43 @@ allowed-tools:
 # Mine Ledger
 
 > **Paths.** `analysis-results/…` and `progress-tracker/…` in this skill are the
-> default workspace layout. They resolve through `locations.yaml` in
+> default workspace layout. They resolve through `locations:` in `traust.yaml` in
 > `$TRAUST_CONFIG_HOME` (`docs/setup.md`, Storage locations); substitute your
 > configured roots.
 
 
 Turn the campaign's disposition ledger into rule-authoring fuel: extract
-every ledger-**confirmed** true positive from the cumulative
-`*-findings-current.json` reports, cluster by (primary CWE, language),
-match against the Traust opengrep pack (bundled in traust-engine, the only
-copy), and aggregate the
+every ledger-**confirmed** true positive from traust-core's recorded
+findings (their folded disposition), cluster by (primary CWE, language),
+match against the Traust opengrep pack (shipped in the security pack, the
+only copy), and aggregate the
 per-fact judge decisions audits record in `scanner_correlation` into
 campaign-wide per-rule precision.
 
 This skill is the out-of-band half of a loop the audits feed by default:
 `/secure-code-audit`'s pre-scan records every promote/dismiss decision as a
 structured `scanner_correlation` entry (tool `opengrep`, `rule_id`,
-`result: promoted|dismissed`), and this skill harvests them.
+`result: promoted|dismissed`), and this skill harvests them. (traust-core
+reads them as the rule on each finding's occurrence, judged by the
+finding's disposition.)
 
 ## Input
 
 `$ARGUMENTS` (all optional):
 
-- A findings tree to mine — default `analysis-results/findings` resolved
-  from the campaign workspace (or `AUDIT_RESULTS_ROOT`).
-- `--pack <dir>` — rule pack to check coverage against (default: the
-  pack bundled in traust-engine, `traust_engine/data/secure-code-audit/opengrep-rules/`).
-- `--out <dir>` — output directory. Default for campaign runs:
-  `progress-tracker/metrics/rule-mining/` so the report versions alongside
-  the other dashboards.
+- A findings tree to mine — *retired*: `sweep mine` reads traust-core's
+  recorded findings.
+- `--pack <name>` — rule pack to check coverage against (default `traust`: the
+  pack the security pack ships, `packs/security/detection/opengrep-rules/`,
+  or `locations.opengrep_rules`; an enabled allowlist supplement by its name).
+- `--out <file>` — also write the whole mining (with the TP corpus) as
+  JSON; the command prints it without the corpus.
 
 ## Bundled precedent cards
 
 [precedent-cards/pilot.yaml](precedent-cards/pilot.yaml) supplies the pilot
-cards used by `tests/test_compile_precedent_cards.py` to check card
-validation and compiler behavior. Consult it when maintaining precedent-card
+cards traust-core's tests use to check card validation and sweep behavior
+(`python3 -m traust.cli sweep cards <cards.yaml> [--checkout <dir>]`). Consult it when maintaining precedent-card
 compilation; these fixtures are not findings or production sweep inputs.
 
 ## Procedure
@@ -63,26 +63,26 @@ compilation; these fixtures are not findings or production sweep inputs.
 **Step 1 — run the deterministic miner** (all analysis is script-side):
 
 ```bash
-python3 -m traust.cli sweep mine \
-  --root analysis-results/findings \
-  --out progress-tracker/metrics/rule-mining
+python3 -m traust.cli sweep mine [--pack <name>] [--out <file>]
 ```
 
-Outputs: `tp-corpus.jsonl` (one confirmed TP per line — the rule
-specification material), `rule-mining.json`, `rule-mining.md`.
+Output: `corpus` (one confirmed TP per finding — the rule
+specification material, in `--out`), `covered` / `uncovered` clusters,
+`languages`, `precision`, `worklist`. (`tp-corpus.jsonl` and
+`rule-mining.{json,md}` are still written by the lane, `sweep rule-lane`.)
 
 > **Optional accelerator — findings-db pre-queries.** Cluster-shape
 > questions ("which CWE×language pairs dominate confirmed TPs?", "how
 > many resolved-at-fix-commit findings exist for CWE-78?") can be
 > answered instantly from the C9 projection (`/findings-db`) before
-> committing to a full mine. The miner itself stays file-based — its
+> committing to a full mine. The miner reads the recorded dispositions — its
 > output is rule-authoring material and must reflect the live ledgers,
 > not a projection that may be one census behind. DB for scoping,
 > miner for the corpus of record.
 
 **Step 2 — interpret the backlog.** For the top uncovered clusters, read
-3–5 of the example findings (ids are in the report; fetch their entries
-from the source reports) and answer, per cluster: *is this mechanically
+3–5 of the example findings (ids are in each cluster's `examples`; fetch
+them with `python3 -m traust.cli findings find <id>`) and answer, per cluster: *is this mechanically
 detectable?* Clusters like missing-authentication (CWE-306) or confused
 deputy (CWE-441) usually are not — say so and move on. For detectable
 clusters, propose concrete rule candidates: language, sources/sinks or
@@ -94,7 +94,9 @@ test-and-calibrate gate.
 **Step 3 — review precision.** Precision only counts reports where the
 pre-scan actually ran: check `metadata.additional.deterministic_steps`
 (`"opengrep": "ran"` vs `"skipped: …"`) before treating an absence of
-judge decisions as signal — a skipped scanner is not a quiet rule. Any
+judge decisions as signal — a skipped scanner is not a quiet rule.
+(`mine_rules` counts only occurrences a rule matched; an unjudged hit
+counts as `other`, never as clean.) Any
 rule whose campaign precision (from
 audits' judge decisions) sits below the plan's ~50% gate is flagged: read
 a sample of its dismissal rationales from the source reports and propose a
@@ -118,18 +120,19 @@ pre-fix file (rule must fire) and post-fix file (rule must not). Stage
 drafts, author, verify, promote:
 
 ```bash
-# 1. stage drafts (deterministic; identical pairs skipped)
-python3 harnessing/mine-ledger/scripts/emit_rule_drafts.py --results-root ../analysis-results \
-    [--cwe CWE-494] [--limit 6]
+# 1. stage drafts (deterministic; identical pairs skipped) into
+#    locations.rule_drafts (traust-core regression_pairs; skipped fixes listed with why)
+python3 -m traust.cli sweep regression-drafts [--cwe CWE-494] [--limit 6]
 # 2. author patterns: in the draft's rule.skeleton.yaml so that
-python3 harnessing/mine-ledger/scripts/emit_rule_drafts.py \
-    --verify harnessing/mine-ledger/rule-drafts/<draft> \
-    --rule   harnessing/mine-ledger/rule-drafts/<draft>/rule.skeleton.yaml
+python3 -m traust.cli sweep verify-draft <rule-drafts>/<draft> \
+    [--rule <rule-drafts>/<draft>/rule.skeleton.yaml]
 # passes (before/ fires, after/ silent)
-# 3. promote: move the rule into the pack's matching CATEGORY file
-#    in traust-engine (src/traust_engine/data/secure-code-audit/
-#    opengrep-rules/, the only copy; a traust-engine PR, then the traust
-#    engine-pin bump) — never a regression.yaml dump — with ruleid:/ok: fixture lines,
+# 3. promote: move the rule into the matching CATEGORY file of YOUR
+#    deployment's own rule pack, in the location your config home sets
+#    (Red Hat: traust-internal/config) — never into traust's baseline pack
+#    (packs/security/detection/opengrep-rules/, the default stack every
+#    adopter starts from; adopter packs: PENDING, plan "Rule mining as an
+#    app feature"), never a regression.yaml dump — with ruleid:/ok: fixture lines,
 #    keep the regression_of metadata (fingerprint + fix commit — that is
 #    what links a future firing back to the original resolved finding),
 #    then delete the draft dir.
@@ -151,9 +154,8 @@ a full loop: **backlog item → draft → calibrate → SWEEP → triage**.
 Four resumable stages:
 
 ```bash
-# 1. gather + classify confirmed findings (ledger validity=confirmed
-#    plus the Phase-0 confirmation artifacts: fast-track criticals,
-#    matrix stage-2 votes, 0d fresh-only triage); rule-expressible vs
+# 1. gather + classify confirmed findings (validity=confirmed, as
+#    recorded in traust-core); rule-expressible vs
 #    not is decided deterministically and every "not" carries a reason
 python3 -m traust.cli sweep collect
 # 2. stage candidate rules for expressible classes with no pack
@@ -182,11 +184,37 @@ lines, the plan's test-and-calibrate gate — never promoted by the
 engine); (3) verdicts on sweep hits, which belong to /triage and its
 disposition ledger like any other candidate batch.
 
+**Proposing a rule for an uncovered shape.** When an audit or a
+coverage gap shows a code shape no pack rule covers, you may propose a
+rule for it. Write one rule and an example file in the target language
+with `ruleid:` lines it must match and `ok:` lines it must not. Submit
+both through the deterministic gate, never into `rule-drafts/` by hand:
+
+```bash
+python3 -m traust.cli sweep propose-rule --rule <rule.yaml> --example <example.py> \
+  --shape "<the uncovered shape, one line>" --checkout <the repository it came from>
+```
+
+The gate admits it only if all of these pass:
+- it is one well-formed rule (id, message, languages, severity, `metadata.cwe`);
+- no pattern is a catch-all;
+- no path glob leaves the tree or selects every file;
+- no regex has a backreference, lookbehind or nested quantifier;
+- the examples fire exactly;
+- its hits on the checkout stay under the cap.
+
+A rule that fails a static check never runs. Exit 0 means it was staged
+as an authored draft. Exit 1 lists each failing check: fix it or drop
+the proposal, and never loosen the example to pass. An admitted draft
+then follows steps 3–4 like any other: calibrate, `sweep sweep`,
+`sweep emit`. Its hits are triage candidates, never findings, and
+promotion into the shipped pack stays a human point.
+
 Sweep output lands at
 `analysis-results/scan-testing/sweeps/<rule-id>/sweep-candidates.json`
 (schema: repo, file:line, matched excerpt, rule id, source-finding
 provenance) plus a `sweep-summary.md`, and is consumed as /triage input
-material. Stage state lives under the sweeps root's `_state/` dir;
+material. Stage state lives in traust-core (its object store);
 every stage skips work already done (re-run to resume).
 
 ## Scheduled lane (python3 -m traust.cli sweep rule-lane)
@@ -195,9 +223,10 @@ The deterministic half of this skill runs as a standing lane
 (docs/continuous-operations.md, "Lane cadences") — orchestrator-neutral in
 the dependency-watch pattern: identical behavior from an operator
 session, cron, or any enterprise scheduler. One entry point chains the
-miner, `sweep_engine.py collect` + `draft`, bounded regression-draft
-staging (`emit_rule_drafts.py --skip-existing --limit N` — existing
-draft dirs are never clobbered), and a **delta report** against the
+miner, `sweep collect` + `draft`, bounded regression-draft
+staging (`sweep regression-drafts --skip-existing --limit N` — existing
+draft dirs are never clobbered; the lane skips this stage when no forge
+reads are configured), and a **delta report** against the
 previous `rule-mining.json` (new/resolved/changed uncovered clusters,
 precision movements crossing the ~50% gate, TP-corpus growth) written to
 `progress-tracker/metrics/rule-mining/lane-delta.{json,md}`. Exit 0 =
@@ -214,11 +243,11 @@ before it starts and would return a table of structural zeros. Measured
 cpp **0** — all blocked on ground truth, not tooling. The lane raises
 attention only when a gate **opens**; a steady blocked state is silent,
 because a weekly complaint about a known-blocked language is noise.
-Watched set: `WATCHED_LANGS` / `WATCHED_PACKS` in the runner.
+Watched set: `WATCHED_LANGS` / `WATCHED_PACKS` in traust-core's `models.rule_mining`.
 
 **Enabled external-pack rules are re-checked against the precision
 gate.** An external pack is enabled per-rule via
-`$TRAUST_CONFIG_HOME/rule-pack-allowlist.yaml` (`run_opengrep.py --rule-allow @<file>`),
+`overrides.rule_pack_allowlist` in `traust.yaml` (`run_opengrep.py --rule-allow @<file>`),
 never wholesale — argus ships 640 rules of which 19 are 86% of volume.
 Stage A can only measure *rediscovery* before a rule has ever run;
 precision arrives afterwards from `scanner_correlation`, so each pass
@@ -236,9 +265,9 @@ any audit are listed separately — silence is not a pass.
 **Standing delegation (user, 2026-07-29):** scheduled agent runs of this
 skill proceed from the lane's delta report through rule authoring **and
 the full test-and-calibrate gate** — fixture `ruleid:`/`ok:` lines
-firing/silent, the whole-pack regression suite (in traust-engine:
-`uv run pytest tests/test_bundled_rule_packs.py`, which runs `opengrep test`
-for every language and a default-scan canary), TP-rediscovery
+firing/silent, the whole-pack regression suite (`opengrep test
+packs/security/detection/opengrep-rules/<lang>` for every language, and
+`uv run pytest tests/test_default_rule_packs.py`, a default-scan canary), TP-rediscovery
 calibration against the corpus repos — WITHOUT asking for per-run
 approval. The mechanical gate is the promotion criterion: a rule that
 passes all three legs is promoted into the pack; one that does not is
@@ -263,10 +292,11 @@ never writes to ledgers, and never touches Jira.
 ## Integrations
 
 - **Inputs:** cumulative `*-findings-current.json` ledgers and the
-  `scanner_correlation` judge decisions audits record by default.
-- **Inputs (sweeps):** any prior confirmation artifacts under
+  `scanner_correlation` judge decisions audits record by default
+  (`sweep mine` and the lane read them from traust-core).
+- **Inputs (sweeps):** *retired:* the prior confirmation artifacts under
   `analysis-results/scan-testing/` (fast-track critical confirmations,
-  matrix votes, fresh-only triage) alongside the ledgers.
+  matrix votes, fresh-only triage); confirmations are traust-core's recorded findings.
 - **Outputs:** `rule-mining.{json,md}` inform the opengrep-pack backlog
   (plan doc) and are freshness-gated by `/drift-watch`'s `rule-mining`
   row; `tp-corpus.jsonl` is the rule-authoring specification

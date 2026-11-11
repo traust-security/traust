@@ -52,8 +52,8 @@ is silent and terminal.** Every control below follows from it.
   identical-looking negative transcripts. So a machine `refuted` verdict
   never sets state: it is recorded as evidence and the finding pends as
   `refuted_awaiting_signoff` until an identity-verified human countersigns
-  (`/countersign`), with the **raw probe output rendered verbatim on the
-  decision card** so the signer sees what "refuted" actually looked like.
+  (`traust findings review-cases` / `confirm` or `apply`), with **raw probe output
+  on the full evidence card** so the signer sees what "refuted" actually meant.
 - **The bounded exception (auto-accept tier):** triage may set
   `false_positive` without countersign only for claims of severity
   **low/informational** that clear the corroboration, citation-lint and
@@ -155,12 +155,19 @@ consumable without archaeology:
 
 | Signal | Capture channel | Feeds |
 |---|---|---|
-| Confirmed TPs in the ledger | python3 -m traust.cli sweep mine → `rule-mining.{json,md}` + `tp-corpus.jsonl` | The opengrep rule-authoring backlog (uncovered CWE×language clusters) and per-rule precision |
+| Confirmed TPs in the ledger | python3 -m traust.cli sweep mine (over traust-core's recorded findings); `rule-mining.{json,md}` + `tp-corpus.jsonl` from `sweep rule-lane` | The opengrep rule-authoring backlog (uncovered CWE×language clusters) and per-rule precision |
 | Syntactic-shaped confirmations | `python3 -m traust.cli sweep rule-lane` (rule-expressibility routing) | Draft rules swept corpus-wide; hits enter `/triage` as candidates |
-| Semantic-shaped confirmations (authn/authz/ordering — never rule-expressible) | Precedent cards (python3 -m traust.ops.compile_precedent_cards): predicate over a shipped enumerator's output schema, or REJECTED | The semantic sweep tier — `sweep-candidates-semantic.json` into `/triage` |
-| What the enumerators could NOT cover | Structured `metadata.additional.coverage_gaps` in every report (recording convention in the enumerator pre-scan sections) + skipped `deterministic_steps` | `harnessing/3-audit/secure-code-audit/scripts/build_coverage_gap_rollup.py` → the coverage-gaps rollup under the metrics tree — the repos-affected-ranked enumerator-expansion backlog |
+| Semantic-shaped confirmations (authn/authz/ordering — never rule-expressible) | Precedent cards (python3 -m traust.cli sweep cards; traust-core's `DetectionQualityService.sweep_cards`): predicate over a shipped enumerator's output schema, or REJECTED | The semantic sweep tier — its `candidates[]` into `/triage` |
+| What the enumerators could NOT cover | Structured `metadata.additional.coverage_gaps` in every report (recording convention in the enumerator pre-scan sections) + skipped `deterministic_steps` | `traust assessments coverage` (traust-core's `AssessmentService.coverage`) — the repos-affected-ranked enumerator-expansion backlog |
 | Rule-expressible shapes surfaced in benchmark runs | the benchmark rule-candidate extractor (post-scoring) | `benchmark-rule-candidates.{json,md}` under the rule-mining metrics — identity-only pattern exemplars for rule authors |
-| Missed benchmark/CVE anchors | `fn_cve_replay_missed.jsonl` + the benchmark near-miss tier | Ground-truth queue for match-ladder and technique work |
+| Missed benchmark/CVE anchors | Benchmark near-miss tiers and Core's human-gated CVE replay | Review candidates for match-ladder and technique work; historical presence requires verified-human evidence and does not automatically admit ground truth |
+
+Semantic cards support both symbol definitions and textual references. Reference rows mark
+definition sites with `is_def`; a call-looking mention is still a candidate, not a resolved
+call graph or a finding. Cards sweep a checkout (`sweep cards <deck> --checkout <dir>`);
+traust-core's `sweep_cards` runs the enumerators there, and there is no replay of
+pre-generated facts. Sanitizer target execution remains tools-package-owned under the dated
+2026-10-25 handoff; execution-shaped cards stay not run.
 
 Two boundary rules keep the loop honest:
 

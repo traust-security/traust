@@ -146,7 +146,6 @@ def diff(before: dict, after: dict, expected: set[str]) -> list[dict]:
                 "origin": "validation-discovery",
                 "description": detail[:800],
                 "locations": [{"path": key}],
-                "validation_status": "not_verified",
             }
         )
 

@@ -1,0 +1,7 @@
+version: 1
+sources:
+  osv:
+    tier: live
+    url_template: https://api.osv.dev/v1/query
+    access: air-gapped
+    license: {id: CC-BY-4.0}

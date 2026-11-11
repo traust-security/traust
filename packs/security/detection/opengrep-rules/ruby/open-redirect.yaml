@@ -1,0 +1,23 @@
+rules:
+  - id: traust-ruby-open-redirect-params
+    languages: [ruby]
+    severity: ERROR
+    message: >-
+      A request parameter is the redirect target, or a redirect explicitly
+      allows other hosts (allow_other_host: true) — the server sends users
+      wherever the link says. Redirect to paths or allow-listed hosts only;
+      leave Rails 7's host check on. CWE-601.
+    metadata:
+      cwe: ["CWE-601"]
+      category: open-redirect
+      asvs: ["V3"]
+      confidence: HIGH
+      references:
+        - "CWE-601 open redirect — redirect_to with params or allow_other_host"
+    pattern-either:
+      - pattern: redirect_to params[...]
+      - pattern: redirect_to(params[...], ...)
+      - pattern: redirect_to params.fetch(...)
+      - pattern: 'redirect_to($U, ..., allow_other_host: true, ...)'
+      - pattern: 'redirect_back(fallback_location: params[...], ...)'
+      - pattern: redirect params[...]

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Tests for harnessing/3-audit/secure-code-audit/scripts/probe_sanitizers.py — the Phase-B3 (D4 narrow slice)
-sanitizer micro-probe lane tool. The bypassable-sanitizer fixture mirrors
+sanitizer micro-probe lane tool (probing; discovery is traust-core's, behind
+`traust adapters sanitizers`). The bypassable-sanitizer fixture mirrors
 bt-awx-001 residual #3 (a sanitize_jinja that strips ASCII jinja markers
 but not variants); the soundness fixtures pin the Phase-1 rule that an
 error transcript is never evidence of safety."""
@@ -41,33 +42,15 @@ def repo(tmp_path):
     return tmp_path
 
 
-# --------------------------------------------------------------------------
-# discovery (--list, the default: executes nothing)
-# --------------------------------------------------------------------------
+def _cand(function: str, line: int, path: str = "util.py") -> dict:
+    return {"function": function, "path": path, "line": line, "arg": "value", "is_method": False}
 
 
-def test_discovery_finds_sanitizer_shapes(repo):
-    names = {c["function"] for c in ps.discover(repo)}
-    assert names == {"sanitize_jinja", "sanitize_label", "validate_name"}
+CANDIDATES = [_cand("sanitize_jinja", 1), _cand("sanitize_label", 5), _cand("validate_name", 11)]
 
 
-def test_discovery_skips_multi_arg_and_tests(repo, tmp_path):
-    (tmp_path / "util_test.py").write_text("def sanitize_ignored(v):\n    return v\n")
-    names = {c["function"] for c in ps.discover(repo)}
-    assert "unrelated_helper" not in names
-    assert "sanitize_ignored" not in names
-
-
-def test_discovery_records_location(repo):
-    [cand] = [c for c in ps.discover(repo) if c["function"] == "sanitize_jinja"]
-    assert cand["path"] == "util.py"
-    assert cand["line"] == 1
-
-
-def test_only_filter_matches_any_single_arg_function(repo):
-    # --only bypasses the name heuristic (probe a judge-named target)
-    [cand] = ps.discover(repo, only="sanitize_jinja")
-    assert cand["function"] == "sanitize_jinja"
+def _only(name: str) -> list[dict]:
+    return [c for c in CANDIDATES if c["function"] == name]
 
 
 # --------------------------------------------------------------------------
@@ -76,7 +59,7 @@ def test_only_filter_matches_any_single_arg_function(repo):
 
 
 def test_bypassable_sanitizer_survives_unicode_variant(repo):
-    cands = [c for c in ps.discover(repo) if c["function"] == "sanitize_jinja"]
+    cands = _only("sanitize_jinja")
     [result] = ps.probe(repo, cands, timeout=30)
     assert result["outcome"] == "survived"
     by_payload = {t["payload"]: t["outcome"] for t in result["transcript"]}
@@ -89,14 +72,14 @@ def test_bypassable_sanitizer_survives_unicode_variant(repo):
 
 
 def test_effective_sanitizer_neutralizes(repo):
-    cands = [c for c in ps.discover(repo) if c["function"] == "sanitize_label"]
+    cands = _only("sanitize_label")
     [result] = ps.probe(repo, cands, timeout=30)
     assert result["outcome"] == "neutralized"
     assert result["survived"] == 0
 
 
 def test_erroring_function_is_inconclusive_never_safe(repo):
-    cands = [c for c in ps.discover(repo) if c["function"] == "validate_name"]
+    cands = _only("validate_name")
     [result] = ps.probe(repo, cands, timeout=30)
     assert result["outcome"] == "inconclusive"
     assert all(t["outcome"] == "error" for t in result["transcript"])
@@ -107,14 +90,14 @@ def test_unimportable_module_is_skipped_with_reason(tmp_path):
     (tmp_path / "needs_dep.py").write_text(
         "import definitely_not_installed_dep\ndef sanitize_x(v):\n    return v\n"
     )
-    cands = ps.discover(tmp_path)
+    cands = [_cand("sanitize_x", 2, "needs_dep.py")]
     [result] = ps.probe(tmp_path, cands, timeout=30)
     assert result["outcome"] == "skipped"
     assert "definitely_not_installed_dep" in result["reason"]
 
 
 def test_transcript_records_payload_and_output(repo):
-    cands = [c for c in ps.discover(repo) if c["function"] == "sanitize_jinja"]
+    cands = _only("sanitize_jinja")
     [result] = ps.probe(repo, cands, timeout=30)
     entry = result["transcript"][0]
     assert {"class", "payload", "outcome"} <= set(entry)
@@ -126,23 +109,43 @@ def test_transcript_records_payload_and_output(repo):
 # --------------------------------------------------------------------------
 
 
-def test_cli_default_is_list_only(repo, tmp_path):
-    out = tmp_path / "probes.json"
+def _write_candidates(tmp_path, candidates=CANDIDATES):
+    path = tmp_path / "candidates.json"
+    path.write_text(json.dumps({"candidates": candidates}))
+    return path
+
+
+def test_bound_methods_are_skipped_not_run(repo):
+    method = {**_cand("sanitize_jinja", 1), "is_method": True}
+    [result] = ps.probe(repo, [method], timeout=30)
+    assert result["outcome"] == "skipped"
+    assert "bound method" in result["reason"]
+
+
+def test_cli_refuses_without_run_acknowledgement(repo, tmp_path):
     proc = subprocess.run(
-        [sys.executable, str(SCRIPT), str(repo), "--out", str(out)], capture_output=True, text=True
+        [sys.executable, str(SCRIPT), str(repo), "--candidates", str(_write_candidates(tmp_path))],
+        capture_output=True,
+        text=True,
     )
-    assert proc.returncode == 0, proc.stderr
-    data = json.loads(out.read_text())
-    assert data["mode"] == "list"
-    assert "probes" not in data
-    assert data["stats"]["candidates"] == 3
+    assert proc.returncode == 2
+    assert "--run" in proc.stderr
     assert "EXECUTING" not in proc.stderr
 
 
 def test_cli_run_mode_warns_and_probes(repo, tmp_path):
     out = tmp_path / "probes.json"
     proc = subprocess.run(
-        [sys.executable, str(SCRIPT), str(repo), "--run", "--out", str(out)],
+        [
+            sys.executable,
+            str(SCRIPT),
+            str(repo),
+            "--run",
+            "--candidates",
+            str(_write_candidates(tmp_path)),
+            "--out",
+            str(out),
+        ],
         capture_output=True,
         text=True,
     )
@@ -150,5 +153,22 @@ def test_cli_run_mode_warns_and_probes(repo, tmp_path):
     assert "EXECUTING repository code" in proc.stderr
     data = json.loads(out.read_text())
     assert data["mode"] == "run"
+    assert data["stats"]["candidates"] == 3
     assert data["stats"]["survived"] == 1
     assert data["stats"]["inconclusive"] >= 1
+
+
+def test_cli_only_probes_the_named_candidate(repo, tmp_path):
+    out = tmp_path / "probes.json"
+    cands = _write_candidates(tmp_path)
+    argv = [str(repo), "--run", "--candidates", str(cands), "--only", "sanitize_label"]
+    assert ps.main([*argv, "--out", str(out)]) == 0
+    data = json.loads(out.read_text())
+    assert [p["function"] for p in data["probes"]] == ["sanitize_label"]
+
+
+def test_cli_rejects_unreadable_candidates(repo, tmp_path):
+    bad = tmp_path / "bad.json"
+    bad.write_text("[]")
+    assert ps.main([str(repo), "--run", "--candidates", str(bad)]) == 1
+    assert ps.main([str(tmp_path / "absent"), "--run", "--candidates", str(bad)]) == 1

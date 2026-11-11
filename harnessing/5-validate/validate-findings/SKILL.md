@@ -1,6 +1,6 @@
 ---
 name: validate-findings
-description: Use when the user asks to validate, reproduce, exploit, red-team, or live-test security findings against a Kubernetes/OpenShift cluster, operator, WASM module, container, pod, or cluster component. Ingests *-security-audit, *-threat-model, and *-triage reports, builds an attack plan (replay + chained + novel), executes it against an authorized live target under a hard scope guard, and emits a schema-validated *-validation.{json,md} report.
+description: Use when the user asks to validate, reproduce, exploit, red-team, or live-test security findings against a Kubernetes/OpenShift cluster, operator, WASM module, container, pod, or cluster component. Ingests *-security-audit, *-threat-model, and *-triage reports, builds an attack plan (replay + chained + novel), executes it against an authorized live target under a hard scope guard, and emits a schema-validated *-validation.{json,md} report. Records explicitly bound existing findings through core-owned soundness and evidence gates; novel-finding intake remains a separate port.
 metadata:
   harness.tier: "primary"
 allowed-tools:
@@ -23,19 +23,20 @@ allowed-tools:
   - Bash(python3 *ingest.py:*)
   - Bash(python3 *plan.py:*)
   - Bash(python3 *execute.py:*)
-  - Bash(python3 *report.py:*)
-  - Bash(python3 *harnessing/5-validate/validate-browser-finding/scripts/scope.py:*)
+  - Bash(python3 *harnessing/5-validate/validate-findings/run.py:*)
   - Bash(python3 *harnessing/5-validate/validate-core-ocp/scripts/gen_targets.py:*)
   - Bash(python3 *credential_liveness.py:*)
-  - Bash(python3 *soundness.py:*)
-  - Bash(python3 *-m traust.cli.emit_validation_ledger_events:*)
   - Bash(python3 *-m traust.cli reporting validate:*)
+  - Bash(traust findings refuted:*)
+  - Bash(traust validation record:*)
+  - Bash(python3 *-m traust.cli validation record:*)
+  - Bash(python3 *-m traust.cli admin attest-target:*)
 ---
 
 # Validate Findings — Live Validation & Attack-Chain Harness
 
 > **Paths.** `analysis-results/…` and `progress-tracker/…` in this skill are the
-> default workspace layout. They resolve through `locations.yaml` in
+> default workspace layout. They resolve through `locations:` in `traust.yaml` in
 > `$TRAUST_CONFIG_HOME` (`docs/setup.md`, Storage locations); substitute your
 > configured roots.
 
@@ -61,14 +62,16 @@ Take the static outputs of `secure-code-audit`, `threat-model`, and `triage` and
 | `<slug1>,<slug2>,…` | **Multiple packages** merged into one model — used when a logical product spans several `processed-results` entries (see the Deduplication Map in `progress-tracker/VALIDATION-PRIORITY-LIST.md`, e.g. ODF → 12 packages). Findings are tagged `<package>:<repo>` and de-duplicated by `(repo, id)` so a repo appearing in two packages contributes once. |
 | `all-confirmed` | Every triage-confirmed finding across `../analysis-results/findings/**` (use with `--dry-run` first) |
 
-**Refuted findings stay in scope.** When a `<repo>-refuted-register.json`
-sits next to the audit report (emitted by
-python3 -m traust.cli ledger emit-triage), its entries are candidate targets,
-not exclusions: a finding dismissed as a false positive — even
-human-countersigned — is a falsifiable claim, and a reproducing exploit
-from this skill overrides the assertion via evidence-class precedence
-(`fp_overridden`, loudly surfaced with the countersigner attributed).
-Include register entries in attack planning when scope and budget allow.
+**Refuted findings stay in scope.** Read core's current refuted findings with
+`traust findings refuted --repo-url <repository-URL>`. A retained
+`<repo>-refuted-register.json` is historical evidence, not an exclusion or a
+current projection; its emitter is retired. A finding dismissed as a false
+positive — even human-countersigned — remains a falsifiable claim.
+Explicit E0–E3 evidence grades, not the report kind or a machine identity,
+govern precedence. `traust validation record` admits bound existing findings;
+sound refutations remain open pending verified human signoff. Include refuted
+findings in planning when scope and budget allow; a human signature is not
+execution proof and a null grade never overrides E0.
 
 **Impact-analysis artifacts as target selection.** When
 `analysis-results/impact/<cve>-impact-analysis.json` (from
@@ -135,7 +138,7 @@ Every executed step is logged with the scope-check outcome. A `blocked_by_scope`
 (from python3 -m traust.cli sweep benchmark plan) is a first-class input:
 validate its claims against the deployed fixtures exactly like campaign
 findings, then score the report with
-`run_validation_benchmark.py score --variant vuln|safe`. Benchmark runs
+`python3 -m traust.cli sweep benchmark score --variant vuln|safe`. Benchmark runs
 live in the harness-QA tree and never touch campaign metrics.
 
 ## Phase 0b — Target attestation (fail-closed, P2)
@@ -150,13 +153,12 @@ python3 -m traust.cli admin attest-target --out <out-dir>/target-attestation.jso
     [--kubeconfig <path>] [--context <ctx>]
 ```
 
-Record the summary in `metadata.target_attestation`. If
-`attested: false`: probes MAY still run for diagnosis, but every verdict
-in the report is structurally void — `emit_validation_ledger_events`
-routes the entire run to `needs_review` as `environment_invalid` (or
-`attestation_missing` for post-0.176.0 reports without the artifact).
-The rhoso.v2 failure class — 34 false "refuted" from a never-installed
-operator — becomes 0 verdicts at the front door.
+Retain the full object in `metadata.target_attestation` or supply the full
+artifact to `traust validation record --target-attestation`. Core owns the
+run-level gate: explicit `attested: false` voids EVERY verdict at any age.
+Current recording requires attestation regardless of the reset harness version;
+missing evidence becomes review with `attestation_missing`. Flags and raw
+observations remain retained even when no validity decision can be written.
 
 ## Phase 0c — Positive-control pairing (assay validity, P1)
 
@@ -205,9 +207,10 @@ components the exploit ACTUALLY demonstrated (attack vector used,
 privileges the probe identity held at success, user interaction, scope
 crossing observed from the E0 artifact, impact axes evidenced) and the
 signed delta vs the claimed score. When |delta| >= 1.0 **and** the
-evidence grade is E0/E1/E2 (never E3), emit a `proposal` — the emitter
-routes it to the countersign severity decision as a needs_review item;
-machines never write `disposition.severity`. A demonstrated DOWNGRADE
+evidence grade is E0/E1/E2 (never E3), emit a `proposal` in the validation
+artifact. `traust validation record` retains it and requests human review;
+machines never write severity overrides. OWASP risk rating remains the
+methodology; CVSS observation fields do not replace it. A demonstrated DOWNGRADE
 ("exploitation required cluster-admin") is exactly as valuable as an
 upgrade. Findings that are constituents of a demonstrated attack chain
 also record `chain_context` (chain id, chain severity, role) — chain
@@ -322,9 +325,9 @@ Build the attack graph and emit one `chain_ref` step-group per discovered path:
    `pqc_classification` and a cluster context is bound, run runtime data
    collection:
    ```bash
-   python3 -m traust.cli adapters crypto-audit cluster --context <ctx> --namespaces <ns> [--discover] [--groups "..."]
+   python3 -m traust.cli adapters crypto-cluster --context <ctx> --namespaces <ns> [--discover] [--groups "..."]
    ```
-   This emits `crypto-audit/v1` (`tier: runtime`) with raw TLS negotiation
+   This emits the runtime crypto census with raw TLS negotiation
    data, crypto-policy state, and OpenSSL/Go versions. For source and image
    tier crypto analysis, delegate to the `crypto-analysis` skill.
 
@@ -373,7 +376,7 @@ For each step in plan order:
    - Capture stdout/stderr/exit, plus adapter-specific evidence (resource YAML before/after, HTTP response body, WASM trap).
    - Write artifacts to `<out>/artifacts/step-<id>.*` and compute sha256.
    - Compare observed outcome to `step.expected` → `verdict ∈ {confirmed, refuted, inconclusive}`.
-   - **Refutation-soundness gate** (`soundness.py`, applied deterministically by `execute.py` — never bypass it when composing verdicts by hand): `refuted` is **un-emittable** when (a) the probe transcript matches an error signature (`Forbidden`/validator-RBAC denial, `command not found`, jsonpath errors, `NotFound`, `does not exist`, `Could not connect`, an unsubstituted `{ns}`/`{sa}` template), (b) an RBAC-style probe enumerated zero concrete subjects (empty `vf-rbac-tried:` list) or carries a literal `system:serviceaccount:{ns}:{sa}` placeholder, or (c) the run directory contains `install-failure.yaml` (whole run — the operand never deployed). Gated verdicts downgrade to `inconclusive` and carry a machine-readable `soundness_flag` (`error-signature:<name>` | `rbac-zero-subjects` | `rbac-template-placeholder` | `target-not-deployed`). Downstream, flagged findings route to `needs_review` — never to the false-positive/countersign path (`emit_validation_ledger_events.py`).
+   - **Refutation-soundness gate** (`soundness.py`, applied deterministically by `execute.py` — never bypass it when composing verdicts by hand): `refuted` is **un-emittable** when (a) the probe transcript matches an error signature (`Forbidden`/validator-RBAC denial, `command not found`, jsonpath errors, `NotFound`, `does not exist`, `Could not connect`, an unsubstituted `{ns}`/`{sa}` template), (b) an RBAC-style probe enumerated zero concrete subjects (empty `vf-rbac-tried:` list) or carries a literal `system:serviceaccount:{ns}:{sa}` placeholder, or (c) the run directory contains `install-failure.yaml` (whole run — the operand never deployed). Gated verdicts downgrade to `inconclusive` and carry a machine-readable `soundness_flag` (`error-signature:<name>` | `rbac-zero-subjects` | `rbac-template-placeholder` | `target-not-deployed`). `traust validation record` passes these observations to core's soundness policy, retaining detailed causes in immutable evidence and routing canonical review items — never a false-positive dismissal. `/track-findings` exposes the full observations through `traust findings review-cases`.
 4. Append one JSONL line to `<out>/validation-audit.jsonl`:
    ```json
    {"ts":"<iso8601>","step_id":"...","adapter":"...","verb":"...","target":"...","scope_check":"pass","classification":"...","verdict":"...","evidence":["artifacts/step-007.log"],"rollback":"..."}
@@ -385,43 +388,63 @@ Rate-limit: ≤ 1 mutating step per 2 s per cluster context; back off ×2 on 429
 
 ---
 
-## Phase 5 — Report
+## Phase 5 — Report and record
+
+`report.py` is the in-process producer (`build_validation_json`, then `write`),
+not a standalone CLI. Its final serialized bytes are checked as core's typed
+`ValidationArtifact` before either report companion is written. Preserve actual
+controls/differential observations in `StepResult`; explicit grades and severity
+review proposals can be supplied as `finding_assessments` keyed by planner ID.
+Absent grades stay null; no adapter or report class infers proof strength.
+
+The existing unattended lab runner now performs report generation AND recording:
 
 ```bash
-python harnessing/5-validate/validate-findings/report.py <out> > <out>/<repo>-validation.json
-python3 -m traust.cli reporting validate --schema contracts/schemas/validation.schema.json <out>/<repo>-validation.json
-python harnessing/5-validate/validate-findings/report.py <out> --markdown > <out>/<repo>-validation.md
+python3 harnessing/5-validate/validate-findings/run.py <source>[,<source>...] \
+  --targets <authorized-targets.yaml> --out <out-dir> \
+  --target-attestation <out-dir>/target-attestation.json \
+  --record-bindings <source-bindings.json> [--finding-assessments <grades.json>] \
+  [--install-failure <explicit-install-failure.yaml>] [--config-home <private-config>]
 ```
 
-`<repo>-validation.json` conforms to `contracts/schemas/validation.schema.json`:
+This runner requires `environment: lab`, an unexpired authorized scope, explicit
+target attestation and current-policy bindings. It establishes a real run UUID
+and start time before execution, passes that typed provenance directly, and calls
+the same record door as the standalone invocation below. This is not the full
+plan24 service port: prepare/plan/authorize/execute still use existing local
+owners and their scope guard. Never use this runner to bypass interactive
+approval outside an explicitly authorized isolated lab.
 
-- `metadata`: `date`, `harness_version` (`VERSION` + short SHA), `scope_binding_mode` (`explicit|inline|inferred|mixed`), `target_fingerprint[]`, `approval`, `flags`.
-- `source_reports[]`: paths + sha256 of the ingested audit/threat-model/triage files.
-- `summary`: counts by verdict, by technique, novel-finding count, highest-impact confirmed chain.
-- `validated_findings[]`: one per source finding — `source_id`, `verdict`, `technique`, `evidence[]`, `observed_impact`, `deviation_from_claim`, `rollback_performed`, plus `soundness_flag` when the refutation-soundness gate downgraded a `refuted` to `inconclusive` (see Phase 4; `report.py` re-applies the gate as a backstop at rollup).
-- `attack_chains[]`: `chain_id`, `name`, `entry_point`, `terminal_asset`, `mitre_attack_refs[]`, `steps[]`, `verdict`.
-- `novel_findings[]`: full `report.schema.json#/$defs/finding` objects + `discovery_method` + `chain_context` — ready to feed into `file-security-defect`.
+For an already-produced report (no live probing):
 
-**Routing novel findings (user directive 2026-07-27 — direct ledger
-entry, no `/triage` precondition).** A novel finding discovered by live
-validation is a first-class campaign finding at birth, same convention
-as `/vuln-scan` supplements and `/verify-remediation` regression routing
-(python3 -m traust.cli route regressions is the reference mechanics): mint its
-campaign ID at the **validated sha** (`{REPO_SLUG}-{VALIDATED_SHA7}-{NNN}`,
-numbering continuing where the baseline's findings at that sha leave
-off), carry it on its ledger event (`event.finding`) rather than writing the
-baseline — gate A15 reserves that for the three audit skills — with
-`origin: "validate-findings"`, a `finding_identity` fingerprint, and this
-validation report's path in `source_findings` — the validation report is
-**class-1 (execution-verified) evidence** for it. The finding enters at
-`validation_status: not_verified` like every routed append; its
-execution-confirmed validity then flows through the standard ledger path
-(python3 -m traust.cli ledger emit-validation / `/track-findings`), where
-the E0/E1 evidence-grade rules decide whether it sets `confirmed`.
-Distinct from the P5 discovery-sweep *candidates* above
-(`origin: validation-discovery`): those are unexecuted hypotheses and
-still go to `/triage` generic ingest first — only executed,
-verdict-carrying novel findings route directly.
+```bash
+traust validation record --report <out-dir>/<repo>-validation.json \
+  --bindings <source-bindings.json> --provenance <run-provenance.json> \
+  --target-attestation <out-dir>/target-attestation.json \
+  [--install-failure <explicit-install-failure.yaml>] [--config-home <private-config>]
+```
+
+Use the exact typed [binding/provenance protocol](../../../docs/cli-reference.md#machine-validation-recording).
+Bindings explicitly map every report source reference and original finding label
+to stored core assessment/artifact/finding UUIDs, including multi-source reports.
+Core validates membership, repository, baseline and any source digest; neither
+source references nor finding labels are guessed from paths or interpreted as UUIDs.
+Raw report bytes, target environment, full attestation and supplied install-failure
+text remain evidence. Replays are idempotent; different targets/runs stay distinct.
+The receipt identifies recorded artifacts, decisions and review items, not a
+local layer, refuted-register or cumulative-file mutation.
+
+The schema's `not_attempted_reason` carries skip causes. Surface/credential/count
+detail stays under `metadata.additional.validation_producer`; compact chain
+entries include the required step context without copying all transcripts.
+Authoritative structure is core's installed `ValidationArtifact` contract,
+also selected by `traust reporting validate <report>-validation.json`.
+
+**Novel findings:** preserve executed novel findings and their provenance in the
+report. This recording slice judges only explicitly bound existing core findings;
+it does not implement novel-finding intake or carried-event routing. Do not claim
+novel findings were admitted, hand-write ledger events or append audit baselines.
+Unexecuted discovery candidates still go through `/triage` intake.
 - `execution_log_ref`: relative path to `validation-audit.jsonl`.
 - `negative_results[]`: probes that ran clean (reuse `report.schema.json#/$defs/negative_result`).
 
@@ -460,7 +483,8 @@ python harnessing/5-validate/validate-findings/credential_liveness.py \
   `validation-audit.jsonl`.
 - **Into the report**: fold each probed candidate into
   `validated_findings[]` — `CONFIRMED_LIVE` ⇒ `verdict: confirmed` with
-  the introspection response (status + identity) as class-1 evidence;
+  the introspection response (status + identity) retained as evidence; supply
+  an explicit justified grade, never infer strength from this classification;
   `REVOKED` ⇒ `verdict: refuted` **scoped to exposure-now only** (the
   historical exposure finding stands — a secret that lived in git history
   was still exposed for its lifetime; say so in
@@ -475,7 +499,7 @@ python harnessing/5-validate/validate-findings/credential_liveness.py \
 The [benchmark expectations](benchmark/expected.json) pair the safe and
 vulnerable manifests in [benchmark/fixtures/](benchmark/fixtures/).
 `tests/test_target_attestation.py` loads these expectations through
-`traust_engine.sweep.benchmark.load_expected` to verify scorer semantics.
+traust-core's `models.validation_benchmark` scorer to verify scorer semantics.
 Consult the benchmark assets when maintaining the scorer; live execution
 still requires the scope and review gates below.
 
@@ -515,21 +539,25 @@ Consumed artifacts (producer named per artifact):
 - `targets.yaml` rules-of-engagement — human-authored scope binding.
 - `*-gitleaks.json` — produced by python3 -m traust.cli adapters gitleaks; input to
   the credential-liveness verifier.
-- `*-refuted-register.json` — produced by `/track-findings`; scopes
-  re-validation of refuted findings.
+- Core refuted findings (`traust findings refuted`, from triage and
+  track-findings decisions) — targets for re-validation. Retained
+  `*-refuted-register.json` files are historical inputs, not refreshed outputs.
 
 Emitted artifacts:
 
-- `*-validation.json` — consumed by `/track-findings` via
-  python3 -m traust.cli ledger emit-validation (execution-verified
-  ledger events) and by `/validation-fuzz-dashboard`; class-1 evidence
-  for routed novel findings (Phase 5 routing statement above).
-- `*-validation.md`, `validation-audit.jsonl`, `artifacts/` (incl.
-  replay scripts), `target-attestation.json` — human/countersign
-  companions; the attestation gates the ledger emitter.
-- Baseline appends for executed novel findings (campaign IDs at the
-  validated sha, `origin: "validate-findings"`) — consumed by
-  `/track-findings` / `build_cumulative.py` and the dashboards.
+- `*-validation.json` — consumed by `traust validation record` through core's
+  `ValidationService.record`, and by `/validation-fuzz-dashboard`. Bound verdicts
+  produce canonical decisions or review items only after core-owned soundness
+  and attestation gates; grade is explicit or null.
+- `target-attestation.json` — consumed by the report runner and
+  `traust validation record --target-attestation`; full checks/fingerprint retained.
+- `install-failure.yaml` — explicitly supplied to `traust validation record
+  --install-failure`; core retains its text and gates unsound refutations.
+- `*-validation.md`, `validation-audit.jsonl`, `artifacts/` (including replay
+  scripts) — review/replay companions. Actual run provenance is passed directly
+  to core and retained there, not written as a parallel authoritative sidecar.
+- Executed novel findings remain in the report for the separate finding-intake
+  port; never append them to immutable baselines by hand.
 - Discovery-sweep candidates (`origin: validation-discovery`) —
   consumed by `/triage` generic ingest.
 

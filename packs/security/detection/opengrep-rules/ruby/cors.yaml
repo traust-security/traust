@@ -1,0 +1,37 @@
+rules:
+  - id: traust-ruby-cors-any-origin-with-credentials
+    languages: [ruby]
+    severity: ERROR
+    message: >-
+      rack-cors accepts any origin (a match-everything regex or a block that
+      always returns true) on a resource that allows credentials, so any
+      site can make credentialed requests and read the responses. List the
+      allowed origins explicitly. CWE-942.
+    metadata:
+      cwe: ["CWE-942", "CWE-346"]
+      category: cors
+      asvs: ["V3"]
+      confidence: HIGH
+      references:
+        - "CWE-942 permissive cross-origin policy — rack-cors any-origin with credentials"
+    patterns:
+      - pattern-inside: |
+          allow do
+            ...
+            $RES
+            ...
+          end
+      - metavariable-pattern:
+          metavariable: $RES
+          pattern: 'resource $PATH, ..., credentials: true, ...'
+      - pattern-either:
+          - patterns:
+              - pattern: origins $O
+              - metavariable-regex:
+                  metavariable: $O
+                  regex: ^/\^?\.[*+]\$?/[a-z]*$
+          - pattern: 'origins { |...| true }'
+          - pattern: |
+              origins do |...|
+                true
+              end

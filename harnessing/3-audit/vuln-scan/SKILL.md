@@ -2,20 +2,21 @@
 name: vuln-scan
 description: >-
   Static source-code vulnerability scan. Reads a target directory (and its
-  threat model — <repo>-threat-model.md, or legacy THREAT_MODEL.md — if
-  present), spawns parallel review subagents per focus area, and writes
+  threat model recorded in traust-core, if present), spawns parallel
+  review subagents per focus area, and writes
   <repo>-vuln-findings.{json,md} with campaign finding IDs
   ({REPO_SLUG}-{SHORTSHA}-{NNN}) and the shared severity enum, for /triage
-  to consume. When a <repo>-security-audit.json baseline exists, the scan
-  supplements it: known findings are deduped against the baseline and new
-  verified findings enter the disposition ledger directly (as findings-carrying events; the baseline is never written — gate A15) at
-  not_verified (no triage precondition; triage adjudicates downstream) —
+  to consume. When traust-core holds a baseline for the repository, the scan
+  supplements it: known admitted findings are deduped against the baseline.
+  Successful canonical recording stores the scan assessment/artifact and
+  atomically admits its findings under the returned assessment ID.
+  No validity answer is authored; triage adjudicates downstream —
   /secure-code-audit remains the preferred baseline and
   /verify-remediation the way to update it after fixes. Read-only — no
   building, running, or network. Use when asked to "scan for vulns",
   "review this code for security issues", "find bugs in <dir>", "re-sweep
   an audited repo", or as the step between /threat-model and /triage.
-argument-hint: "<target-dir> [--diff [--since <commit>]] [--baseline <audit.json>] [--focus <area>] [--single] [--extra <file>] [--no-score]"
+argument-hint: "<target-dir> [--diff [--since <commit>] [--baseline-assessment <id>]] [--focus <area>] [--single] [--extra <file>] [--no-score]"
 user-invocable: true
 metadata:
   harness.tier: "primary"
@@ -31,7 +32,6 @@ allowed-tools:
   - Bash(wc:*)
   - Bash(head:*)
   - Bash(file:*)
-  - Bash(git clone:*)
   - Bash(git fetch:*)
   - Bash(git checkout:*)
   - Bash(git rev-parse:*)
@@ -49,27 +49,23 @@ allowed-tools:
   # execution. Scope every script individually — the A11 alignment gate
   # (python3 -m traust.cli check skill-alignment) blocks broad entries.
   - Bash(python3 *-m traust.cli reporting validate:*)
-  - Bash(python3 *-m traust_engine.adapters.checkov:*)
+  - Bash(python3 *-m traust.cli adapters checkov:*)
   - Bash(python3 *-m traust.cli adapters opengrep:*)
   - Bash(python3 *-m traust.cli adapters llm-app:*)
-  # Diff-mode scoping ONLY (see "## Diff mode (--diff)"): reads the
-  # existing clone + findings.db read-only, list-argv git, no network,
-  # no writes outside --out. Do not widen to other interpreters/scripts.
-  - Bash(python3 *harnessing/3-audit/vuln-scan/scripts/resolve_baseline.py:*)
-  # Diff-mode context packet (Step 0b): deterministic evidence bundle
-  # from the scope package — read-only over the clone, list-argv git,
-  # writes only its --out. Never authors a finding.
-  - Bash(python3 *harnessing/3-audit/vuln-scan/scripts/build_diff_packet.py:*)
-  # Precision Gate FP-precedent check (Step 3c): `match` mode only —
-  # reads the prebuilt cache JSON + a candidates file, no network, no
-  # cache writes. Never run `build` from this skill.
-  - Bash(python3 *-m traust.cli corpus precedent:*)
+  - Bash(python3 *-m traust.cli adapters grpc-guards:*)
+  # Scope and context packet ONLY (Step 1.2/1.3, "## Diff mode (--diff)"):
+  # traust-core reads the existing clone read-only (list-argv git, no
+  # network) and traust's store; writes only its -o. Never authors a
+  # finding. Do not widen to other interpreters/scripts.
+  - Bash(python3 *-m traust.cli assessments prepare:*)
+  # Records the validated report in traust-core (Step 5); reads only the report file.
+  - Bash(python3 *-m traust.cli reporting record:*)
 ---
 
 # /vuln-scan
 
 > **Paths.** `analysis-results/…` and `progress-tracker/…` in this skill are the
-> default workspace layout. They resolve through `locations.yaml` in
+> default workspace layout. They resolve through `locations:` in `traust.yaml` in
 > `$TRAUST_CONFIG_HOME` (`docs/setup.md`, Storage locations); substitute your
 > configured roots.
 
@@ -83,8 +79,8 @@ ingests directly.
 - **`/secure-code-audit` is the preferred baseline.** It is the
   comprehensive assessment: multi-framework mappings (ASVS, K8s Top 10,
   CIS, STIG, SLSA, Scorecard), severity criteria, LoC accounting, and the
-  full `contracts/schemas/report.schema.json` contract. When no
-  `<repo>-security-audit.json` exists for the target and campaign-grade
+  full `contracts/schemas/report.schema.json` contract. When traust-core
+  holds no audit of the target and campaign-grade
   coverage is wanted, recommend running it instead of (or after) this
   skill.
 - **`/verify-remediation` re-audits after fixes.** Checking
@@ -95,15 +91,14 @@ ingests directly.
   writes one.** It is deliberately lighter and less comprehensive than
   `/secure-code-audit`: a fast sweep for **new** candidate findings (new
   code, new release, a focus area the audit under-covered). When a
-  baseline exists this skill **reads** it to dedupe, and its verified new
-  findings enter the **disposition ledger** as findings-carrying events
-  **directly at `not_verified` — no `/triage` precondition** (user
-  directive 2026-07-27, the same convention as `/verify-remediation`
-  regression routing). The baseline itself is off limits: only the three
-  `secure*audit` skills may write one (alignment gate **A15**), and
-  `build_cumulative` unions event-carried findings back at replay so
-  nothing is less visible for it. `/triage` remains the downstream
-  adjudicator via the ledger, never a gate on entry (see Step 5).
+  baseline exists this skill **reads** its admitted findings to dedupe.
+  Successful canonical `reporting record --kind vuln_scan` stores the scan
+  assessment/artifact and atomically admits its new findings, with no
+  authored validity answer or triage precondition. Use that returned
+  assessment ID directly for native triage; no separate intake is needed.
+  The baseline itself is off limits: only the three `secure*audit` skills
+  may write one (alignment gate **A15**). `/triage` remains the downstream
+  adjudicator; precedent handling occurs only for actual native items.
 
 **This skill does not execute code.** It reads source and reasons about it.
 For execution-verified findings (ASAN crashes, reproducing PoCs), point the
@@ -124,8 +119,8 @@ do not provision them — `allowed-tools` is a permission filter, not a loader,
 so listing them here does not make them appear. When Glob/Grep are
 unavailable, fall back to the read-only Bash commands whitelisted above:
 `rg --files <scope>` / `ls -R` for enumeration, `rg -n` / `grep -rn` for
-search, `wc` / `head` / `file` for sniffing, `jq` for reading the baseline
-JSON. These are the ONLY permitted Bash commands; do not write helper
+search, `wc` / `head` / `file` for sniffing, `jq` for reading the scope
+packet. These are the ONLY permitted Bash commands; do not write helper
 scripts or pipe target content into a shell interpreter.
 
 ## Arguments
@@ -133,14 +128,15 @@ scripts or pipe target content into a shell interpreter.
 - `<target-dir>` (required) — directory to scan. Relative or absolute.
 - `--diff` — diff mode: scope the scan to what changed since the target's
   baseline audit instead of the whole tree (see "## Diff mode (--diff)").
-  The baseline and anchor are AUTO-RESOLVED; `--since`/`--baseline` are
-  overrides only.
+  The baseline and anchor are AUTO-RESOLVED; `--since`/`--baseline-assessment`
+  are overrides only.
 - `--since <commit>` (diff mode only) — explicit anchor commit,
-  overriding the baseline report's `metadata.commit` (for cross-ref
+  overriding the baseline audit's commit (for cross-ref
   diffs, ad-hoc comparisons, or pre-branch-awareness reports).
-- `--baseline <audit.json>` — explicit path to the target's existing
-  `<repo>-security-audit.json` (overrides auto-discovery, Step 1.3; in
-  diff mode, overrides the findings.db baseline resolution).
+- `--baseline-assessment <id>` (diff mode only) — the recorded audit to
+  diff against, overriding the auto-resolved baseline.
+- `--baseline <audit.json>` — *retired*: the baseline is the repository's
+  findings recorded in traust-core (Step 1.3), not a file.
 - `--focus <area>` — scan only this focus area (repeatable). Skips recon.
 - `--single` — no subagent fan-out; one sequential pass. Use on tiny targets
   or when debugging the prompt.
@@ -158,7 +154,7 @@ The economical middle lane between full audits
 spec and thresholds). Invocation:
 
 ```
-/vuln-scan <target-dir> --diff [--since <commit>] [--baseline <audit.json>]
+/vuln-scan <target-dir> --diff [--since <commit>] [--baseline-assessment <id>]
 ```
 
 Everything below **replaces the corresponding step of the standard
@@ -168,31 +164,35 @@ inherited unchanged.
 
 **Fleet dispatch is an operator decision, informed by the deployment's
 measured cost per run.** There is no fixed cost gate. Diffs the resolver
-would refuse are pre-routed away at the router (`build_rescan_worklist.py`
+would refuse are pre-routed away at the router (`traust.ops.router`
 refusal pre-route). Individual runs need no approval; batch/drain dispatch
 is scheduled by the operator (docs/continuous-operations.md, trickle-drain).
 
-### Step 0 (replaces recon) — resolve the baseline and scope package
+### Step 0 (replaces recon) — resolve the baseline and build the context packet
 
-Run the deterministic resolver (it routes attention only — it never
-authors a finding):
+Ask traust-core for the scope and its evidence in one call (it routes
+attention only — it never authors a finding):
 
 ```bash
-python3 <skill-base>/scripts/resolve_baseline.py <target-dir> \
-    [--db <workspace>/analysis-results/graph/findings.db] \
-    [--since <commit>] [--baseline <audit.json>] \
-    --out /tmp/<repo>-diff-scope.json
+python3 -m traust.cli assessments prepare --kind vuln_scan \
+    --repo-url <https URL of the origin remote> \
+    --sha <git -C <target-dir> rev-parse HEAD> \
+    --diff <target-dir> [--since <commit>] [--baseline-assessment <id>] \
+    -o /tmp/<repo>-diff-packet.json
 ```
 
-It identifies the repo from the clone's origin remote, resolves the
-newest valid HEAD code-audit report for it from `findings.db` (producer:
-python3 -m traust.cli corpus findings-db; `--since`/`--baseline` override, recorded
-as `resolution_source: override` vs `auto`), extracts the anchor SHA
-from the baseline's `metadata.commit`, verifies the anchor is reachable
-in the clone, and computes the per-file diff with the SAME first-party
-filter and narrow sensitive matcher as the rescan router
-(python3 -m traust.cli build rescan-worklist — imported, so router and scanner
-cannot diverge).
+`--repo-url` is the origin remote as https (`git@host:ns/repo.git` →
+`https://host/ns/repo`, no credentials); the repository must be
+registered in traust (exit 2 says so otherwise). traust-core runs git
+only when `traust.yaml` lists it under `process.allowed_binaries`.
+
+It resolves the newest completed `secure-code` audit of the repository's
+default branch (`--since`/`--baseline-assessment` override, recorded as
+`diff.resolution: override` vs `auto`), anchors the diff at that
+audit's commit, verifies the anchor is reachable in the clone, and
+computes the per-file diff with the SAME first-party filter and narrow
+sensitive matcher as the rescan router (one owner in traust-core, so
+router and scanner cannot diverge).
 
 **If it refuses (exit 3), STOP.** It refuses when >30% of first-party
 files changed, when C ≥ 8,000 first-party changed lines, when no
@@ -203,31 +203,20 @@ never silently widen to a whole-repo scan (that forfeits the cost
 contract) and never silently narrow past the refusal (that forfeits the
 assurance contract). The recommendation is `/secure-code-audit`.
 
-On success the scope package contains: `baseline_report`, `anchor`,
-`resolution_source`, `changed_files` (per-file added/deleted/sensitive),
-`clusters` (changed paths grouped by top-level dir/component, 1–5
-groups), `C`, `sensitive_lines`, `deps_manifests_changed`, and
-`baseline_findings_for_changed_files` (fingerprints + titles + paths of
-baseline findings touching changed files).
+On success the packet's `diff` carries: `baseline_assessment_id`,
+`anchor`, `resolution`, `changed_lines` (C), `sensitive_lines`,
+`deps_manifests_changed`, and `clusters` (changed paths grouped by
+top-level dir/component, 1–5 groups), each with its `files` (per-file
+added/deleted/sensitive) and its `baseline` (the repository's findings
+as of the baseline audit that touch those files).
 
-### Step 0b — build the context packet
-
-Turn the scope package into the deterministic evidence bundle the
-review agents judge (this replaces the manual symbol-index build/query
-choreography — the builder runs it for you):
-
-```bash
-python3 <skill-base>/scripts/build_diff_packet.py \
-    --scope /tmp/<repo>-diff-scope.json \
-    --out /tmp/<repo>-diff-packet.json
-```
-
-Per cluster it embeds: the changed hunks themselves
-(`git diff -U10 <anchor>..HEAD` per file, byte-capped with an explicit
-`omitted` ledger — nothing is silently dropped), the **direct callers**
-of symbols defined in the changed files (symbol index, each site with
-±3 lines of context), and the pre-sliced
-`baseline_findings_for_changed_files` rows. `callers_note` records an
+This is the deterministic evidence bundle the review agents judge (no
+manual symbol-index build/query choreography). Per cluster it embeds:
+the changed hunks themselves (`git diff -U10 <anchor>..HEAD` per file,
+byte-capped with an explicit `omitted` ledger — nothing is silently
+dropped), the **direct callers** of symbols defined in the changed files
+(symbol index, each site with ±3 lines of context), and the pre-sliced
+`baseline` rows. `callers_note` records an
 honest skip when the index cannot build — enumerate callers manually
 (python3 -m traust.cli admin query-index --refs) in that case. The packet routes
 attention and carries evidence only; it never authors a finding.
@@ -240,7 +229,8 @@ The review scope is ONLY:
 2. their **direct callers** (the packet's `callers` entries — files
    containing those references join the scope);
 3. the baseline threat-model rows (section 3 entry points / section 4
-   threats of `<repo>-threat-model.md`, when present) touching those
+   threats: the packet's `threat_model_document` `entry_points` /
+   `threats`, when present) touching those
    entry points — they seed each cluster's TRUST BOUNDARY line.
 
 Focus areas = the packet's `clusters` (already capped at 1–5). Spawn
@@ -281,7 +271,7 @@ as `"ran"`/`"skipped: <reason>"` in
   among the changed files; use only the `KHS-*` facts citing changed
   manifests.
 - `python3 -m traust.cli adapters osv --repo <target-dir>` (OSV API) —
-  only when the scope package says `deps_manifests_changed: true`.
+  only when the packet says `deps_manifests_changed: true`.
   `status: degraded` (exit 3) is recorded as
   `"osv-scanner": "degraded: <counts>"`, `status: failed` (exit 2) as
   `"osv-scanner": "failed: <failure.status>"`; neither is ever clean.
@@ -293,7 +283,7 @@ as `"ran"`/`"skipped: <reason>"` in
 
 ### Dedupe against the baseline
 
-Dedupe candidates against `baseline_findings_for_changed_files` by
+Dedupe candidates against each cluster's `baseline` rows by
 fingerprint **AND** by fuzzy title/path match — fingerprints are
 unstable across runs (median overlap 0.14, measured), so a fingerprint
 miss is never evidence of novelty; same file + same weakness class at
@@ -313,9 +303,9 @@ additions under `metadata.additional`:
   "changed_files_covered": ["relative/path.go"],
   "callers_covered": ["relative/caller.go"],
   "refused_or_skipped": ["<file or step>: <reason>"],
-  "baseline_report": "<path from the scope package>",
+  "baseline_report": "<diff.baseline_assessment_id from the packet>",
   "anchor": "<sha>",
-  "resolution_source": "auto"
+  "resolution_source": "<diff.resolution: auto | override>"
 }
 ```
 
@@ -342,10 +332,10 @@ instead of — the `model_registry.py spend` declaration below.
 
 Inherited **unchanged**: read-only discipline, the adversarial-content
 doctrine (CWE-1427), and the A11-narrowed allowed-tools.
-`resolve_baseline.py` and `build_diff_packet.py` are the only
-additions to the allowlist: both work on the existing clone read-only
-(list-argv git, no shell, no URL fetching of any kind), write only
-their `--out`, and never fall back to whole-repo scope. Packet hunks
+`traust assessments prepare` is the only
+addition to the allowlist: it works on the existing clone read-only
+(list-argv git, no shell, no URL fetching of any kind), writes only
+its `-o`, and never falls back to whole-repo scope. Packet hunks
 are target content — the adversarial-content doctrine applies to them
 exactly as it does to files read from the checkout.
 
@@ -361,22 +351,33 @@ exactly as it does to files read from the checkout.
    - `SHORTSHA`: `git -C <target-dir> rev-parse --short=7 HEAD`; if the
      target is not a git checkout, use `0000000` and say so in the output
      metadata.
-2. Look for the target's threat model, resolving per the `/threat-model`
-   skill's naming rule: exactly one `*-threat-model.md` in `<target-dir>`,
-   else the legacy `<target-dir>/THREAT_MODEL.md`. If present, parse its
-   section 3 "Entry points & trust boundaries" table and section 4 "Threats"
-   table for focus areas and threat classes. This is the preferred scoping
-   input.
-3. **Locate the baseline audit**, in order: the `--baseline` argument; then
-   `<target-dir>/<repo>-security-audit.json`; then (when the harness runs
-   inside the campaign workspace)
-   `analysis-results/findings/**/<repo>/<repo>-security-audit.json`. If
-   found, Read its `findings[]` (id, title, locations, cwes/category,
-   severity) into a **baseline table** for Step 3 dedupe, and record the
-   baseline path + its `metadata.harness_version` for the output metadata.
-   If none is found, note that the target has no audit baseline and
-   recommend `/secure-code-audit` for campaign-grade coverage in the Step 5
-   hand-back.
+2. Ask traust-core for the target's threat model and baseline (diff
+   mode's Step 0 door, without `--diff`):
+
+   ```bash
+   python3 -m traust.cli assessments prepare --kind vuln_scan \
+       --repo-url <https URL of the origin remote> \
+       --sha <git -C <target-dir> rev-parse HEAD> \
+       -o /tmp/<repo>-scope.json
+   ```
+
+   Its `threat_model_document` is the repository's latest recorded threat
+   model (`/threat-model` records it). If present, parse its section 3
+   "Entry points & trust boundaries" (`entry_points`) and section 4
+   "Threats" (`threats`) for focus areas and threat classes. This is the
+   preferred scoping input. `null`: no threat model recorded — quick recon
+   (item 4). Exit 2 (repository not registered): no threat model and no
+   baseline; say so plainly, and the Step 5 hand-back asks to register it.
+3. **The baseline** is the repository's findings recorded in traust-core:
+   the packet's `findings.baseline` (every assessment's, earlier scans'
+   included) and `baseline_assessment_id` (the default branch's newest
+   completed code audit, or null). If there are any, Read them (id
+   `finding.id`, title, locations, cwes, severity) into a **baseline
+   table** for Step 3 dedupe, and record `baseline_assessment_id` + the
+   finding count for the output metadata. If there are none, distinguish
+   absent admitted findings from an absent code-audit assessment; an empty
+   baseline is not clean audit evidence. Recommend `/secure-code-audit` only when campaign-grade
+   audit coverage is actually missing.
 4. If no threat model and no `--focus`: do a **quick recon** — list the
    source tree, read entry points and dispatch code, and propose 3-10 focus
    areas using the pattern `<subsystem> (<function/file>) — <key operations>`.
@@ -411,7 +412,7 @@ exactly as it does to files read from the checkout.
    record `"opengrep": "skipped: not on PATH"` (vs `"ran"`) in the
    output `metadata.additional.deterministic_steps`.
 8. **LLM application pre-scan.** Run
-   python3 -m traust.cli adapters llm-app --repo <target-dir> --out /tmp/<repo>-llm-app.json.
+   python3 -m traust.cli adapters llm-app <target-dir> --out /tmp/<repo>-llm-app.json.
    When it reports `llm_application: true`, add an **LLM, agent and MCP
    application** focus area. Its brief carries the tagged `files`, the
    `kinds`, and the sections of
@@ -419,10 +420,11 @@ exactly as it does to files read from the checkout.
    kinds select. Findings follow that checklist's rules: the check's CWE,
    the OWASP category and check number in the description, and evidence
    for every finding. Record `"llm-app": "ran: <kinds>"`, or `"ran: none"`
-   when nothing is detected (no LLM focus area then).
+   when nothing is detected (no LLM focus area then, and `llm-integration`
+   is `not_applicable` in `review_surface_coverage`, citing the pre-scan).
 
 Tell the user the focus areas you'll scan, the source-file count, and
-whether a baseline audit was found (path + finding count) before fanning
+whether a baseline audit was found (assessment id + finding count) before fanning
 out.
 
 ## Step 2 — Fan out
@@ -437,7 +439,14 @@ sink (launch/bulk/schedule/copy; REST/websocket/callback), and
 (c) enumerate all emitters to an unchecked sink before rating it, and
 (d) apply the check for each review surface
 ([review-surfaces.md](../secure-code-audit/review-surfaces.md)) that the
-focus area touches, reporting what it examined. On
+focus area touches, reporting what it examined, and (e) when the target
+selects a section of
+[framework-checks.md](../secure-code-audit/framework-checks.md)
+(Kubernetes operators, gRPC, FastAPI and aiohttp, Express), answer each of
+that section's checks in the
+focus areas they belong to, citing the check ID in findings and negatives.
+Record `"framework-checks": "ran: <sections>"` in
+`metadata.additional.deterministic_steps`. On
 targets ≥ ~50 kLoC add one **shadow lane**: a subsystem-scoped
 depth-first subagent with no vulnerability-class checklist, merged
 through the same triage bar.
@@ -509,7 +518,7 @@ WHAT TO LOOK FOR:
   - hardcoded secrets, weak crypto, broken cert validation
   - sensitive data (secrets, PII) in logs or error responses
 
-  REVIEW SURFACES — HIGH VALUE (the six surfaces audits most often miss;
+  REVIEW SURFACES — HIGH VALUE (the seven surfaces audits most often miss;
   check each one your focus area touches):
   - credential-acceptance: a verifier that accepts a credential issued for
     another purpose (another audience, a short-lived or refresh token), or
@@ -529,6 +538,10 @@ WHAT TO LOOK FOR:
     deduplicated store
   - scope-enforcement: a route or credential type that skips the scope or
     role check its siblings apply
+  - llm-integration: in the LLM pre-scan's tagged files, untrusted text in a
+    prompt that can call tools, model output reaching a sink, a tool broader
+    than its task, or an agent loop with no cap (the LLM focus area's
+    checklist)
 
   LOW VALUE — note briefly, keep looking:
   - null-pointer deref at small fixed offsets with no attacker control
@@ -571,14 +584,14 @@ OUTPUT — one block per finding, nothing else:
 <description>{root cause, attacker control, trigger condition, data flow from entry to sink. Cite line numbers.}</description>
 <exploit_scenario>{concrete attack: what input, from where, causing what outcome}</exploit_scenario>
 <recommendation>{specific fix: parameterize the query, bounds-check before memcpy, etc.}</recommendation>
-<review_surface>{the review surface the defect sits on, from the six ids below, or none}</review_surface>
+<review_surface>{the review surface the defect sits on, from the seven ids below, or none}</review_surface>
 </finding>
 
 Then one block per review surface you examined, whether or not it gave a
-finding, so the report can record what was checked. Use only these six ids;
+finding, so the report can record what was checked. Use only these seven ids;
 anything else is a finding or nothing:
 
-<surface id="{credential-acceptance | ownership-resolution | security-flags | outbound-fetch | stored-content-integrity | scope-enforcement}">{what you examined: files, call sites or the exact search pattern, and the result}</surface>
+<surface id="{credential-acceptance | ownership-resolution | security-flags | outbound-fetch | stored-content-integrity | scope-enforcement | llm-integration}">{what you examined: files, call sites or the exact search pattern, and the result}</surface>
 
 SEVERITY — use the harness's shared five-level scale (same enum as
 secure-code-audit and triage):
@@ -719,25 +732,28 @@ Apply to every candidate still rated critical or high after Step 3:
    URLs, logs, or redirect targets) stay `high` at minimum regardless
    of chain completeness — the floor lifts only on affirmative gate
    evidence, documented in the finding.
-5. **FP-precedent check (vendored/shared components, optional-degrade)**
-   — for a crit/high candidate whose file sits under a vendor root
-   (`vendor/`, `third_party/`, `node_modules/`, …), consult the
-   portfolio precedent cache when the workspace carries one:
 
-   ```bash
-   python3 -m traust.cli corpus precedent match \
-       --cache <workspace>/analysis-results/graph/fp-precedent-cache.json \
-       --findings <candidates.json>
-   ```
+**Shared-component precedent handoff (post-record, not a scan-time gate).**
+For candidates in vendored/shared code (`vendor/`, `third_party/`,
+`node_modules/`, …), independently check **this repo's own wiring,
+configuration and trust boundaries** and record only the local evidence
+available before recording. Do not require a pre-filing precedent match
+or downgrade on one. Successful canonical `reporting record --kind
+vuln_scan` atomically admits the report's findings; its returned assessment
+ID can be passed directly to `traust triage prepare` to obtain native
+items and IDs; no second intake is needed. Precedent matching is post-record
+only, for actual native items. A canonical report with zero findings produces a valid empty
+batch under triage's existing contract, not proof the repository is secure.
+Do not rewrite the scan artifact or invent another intake command.
 
-   A match at `max_strength: human_countersigned` is citeable prior
-   adjudication: downgrade with the precedent (source repo + date)
-   cited — this repo's own wiring is still checked (a precedent from
-   another repo does not prove this repo's context matches).
-   `machine_refuted_sound` matches are context only — never gate
-   evidence at scan time; they surface again at `/triage` Phase 2g. A
-   missing/empty cache skips this check silently (clean no-op). Match
-   mode only — never `build`.
+`/triage` Phase 2g owns the supplied `precedents`, their provenance,
+verification routing and subsequent adjudication. Human-countersigned
+matches reduce votes but never skip verification; machine matches are
+context only with full votes. A match never supplies an automatic
+false-positive verdict. Any supported downgrade-not-drop decision is
+recorded in the new triage determination after independent verification,
+not by retroactively changing this scan's findings or gate metadata.
+Do not add an `"fp-precedent"` entry to `precision_gates.fired`.
 
 **Record the pass** in `metadata.additional.precision_gates` — the same
 contract as `/secure-code-audit`'s:
@@ -795,8 +811,9 @@ convention as `<repo>-security-audit.{json,md}` and
     "repo_slug": "<REPO_SLUG>",
     "scanned_ref": "<SHORTSHA or '0000000 (not a git checkout)'>",
     "harness_version": "<VERSION file semver>-<harness git short SHA>",
-    "baseline": "<path to the matched *-security-audit.json, or null>",
-    "baseline_findings": 0
+    "baseline": null,
+    "baseline_findings": 0,
+    "additional": {"baseline_assessment_id": "<the packet's baseline_assessment_id, or null>"}
   },
   "findings": [
     {
@@ -829,11 +846,25 @@ convention as `<repo>-security-audit.{json,md}` and
 Findings are sorted by `confidence` desc (then severity, file, line), so
 the top of the file is the highest-signal material.
 
+The `vuln-findings` schema has **no `validation_status` property** and
+rejects undeclared finding fields. Never add a legacy marker, `null`, or
+a default confirmation. Static review and confidence are candidate
+context, not a validity answer. Core owns subsequent judgments through
+its existing decision doors; see the shared
+[Validity authoring](../../../docs/report-structure.md#validity-authoring)
+contract for report-shaped findings. Keep evidence and any correction
+context in this artifact's existing description/confidence fields.
+
+`metadata.baseline` stays null (no audit file is matched);
+`metadata.additional.baseline_assessment_id` names the traust-core audit
+the scan deduped against, and `baseline_findings` counts the packet's
+`findings.baseline`.
+
 **Review-surface coverage (required from traust 0.21.0).** Add a top-level
-`review_surface_coverage` recording how this scan answered each of the six
+`review_surface_coverage` recording how this scan answered each of the seven
 review surfaces in [review-surfaces.md](../secure-code-audit/review-surfaces.md).
-Every surface needs an entry, and every status except `finding` needs a
-`note`. This report has no `negative_results`, so a `negative` note says
+Every surface needs an entry (`llm-integration` for scans dated from
+2026-11-02), and every status except `finding` needs a `note`. This report has no `negative_results`, so a `negative` note says
 what was examined. Build the record from the review subagents' output:
 - `finding`: `finding_ids` lists every reported finding whose
   `<review_surface>` is this surface. A finding sits on the surface where the
@@ -869,7 +900,8 @@ what was examined. Build the record from the review subagents' output:
   "security-flags": {"status": "negative", "note": "settings.py: new DEBUG_SIGNUP flag read in 2 places, neither disables a control"},
   "outbound-fetch": {"status": "finding", "finding_ids": ["EXAMPLE_REPO-abc1234-001"]},
   "stored-content-integrity": {"status": "not_applicable", "note": "no content-addressed store"},
-  "scope-enforcement": {"status": "out_of_scope", "note": "no route or guard changes"}
+  "scope-enforcement": {"status": "out_of_scope", "note": "no route or guard changes"},
+  "llm-integration": {"status": "not_applicable", "note": "llm-app: ran: none"}
 }
 ```
 
@@ -907,49 +939,45 @@ Tell the user:
    K known findings deduped against the baseline, across F focus areas
    and M source files.
 2. Top 3 by confidence, one line each.
-3. Next steps — the update path for the **ledger**:
-   - Verify: `> /triage <target-dir>/<repo>-vuln-findings.json --repo <target-dir>`
-   - Record new findings as **ledger events — direct entry, no triage
-     precondition** (user directive 2026-07-27; parity with the other
-     scanning skills, whose findings enter the ledger at birth).
-     **NEVER write the baseline.** Only `/secure-code-audit`,
+3. Next steps — record canonical candidates, then adjudicate:
+   - **NEVER write the baseline.** Only `/secure-code-audit`,
      `/secure-rpm-audit` and `/secure-container-audit` may write
      `*-{security,rpm,container}-audit.json` — enforced by alignment gate
-     **A15**. Appending to a baseline changes the claim set with no event
-     recording it, which breaks the ledger's core tenet (events, not
-     state) and bypasses the rescan router's authority over when a new
-     baseline is cut.
+     **A15**. Do not append candidates to an old baseline or convert this
+     report into scanner input; canonical recording already admits it.
 
-     The scan's verified new findings (they passed the per-finding
-     confidence pass and the Precision Gate) each become **one event on
-     the repo's `<repo>-findings-layer.json`, carrying the finding's claim
-     in the event's `finding` block** (contracts `$defs/event_finding`).
-     `build_cumulative` unions event-carried findings with the baseline's
-     at replay, so the finding is exactly as visible in
-     `*-findings-current.*` and every dashboard.
+     Record the scan in traust-core once the validator passes:
 
-     Event shape: `source.type: vuln_scan_report`, machine actor
-     `vuln-scan`, `disposition: {resolution: "open"}` (an arrival is not a
-     determination — validity stays unstated; nothing at scan time sets
-     `confirmed`, that takes execution evidence or a human reviewer).
-     The carried `finding` uses the
-     `contracts/schemas/report.schema.json` finding shape — keep this
-     scan's campaign `id`; `cwe` → `cwes[]` (`CWE-\d{1,5}`, at least one
-     entry); `file`/`line` → `locations: [{path, lines}]`;
-     `recommendation` → `remediation`;
-     `validation_status: not_verified`; `origin: "vuln-scan"`; set
-     `source_findings` to the scan report path. Pin its claim hash into
-     `metadata.claim_hashes` (add-only), then stamp and sign the layer.
+     ```bash
+     python3 -m traust.cli reporting record <target-dir>/<repo>-vuln-findings.json \
+         --kind vuln_scan --repo-url <https URL of the origin remote> \
+         --sha <the scanned commit>
+     ```
 
-     Mechanics and worked examples: [docs/findings-routing.md](../../../docs/findings-routing.md).
-
-     `/triage` remains the **downstream adjudicator**: its verdicts, and
-     any refutations, flow through the disposition ledger
-     (python3 -m traust.cli ledger emit-triage → `/track-findings`) —
-     **never hand-edit `validation_status` on existing baseline
-     findings.**
-   - No baseline? Recommend `/secure-code-audit <target>` to establish
-     one; this scan's report then serves as a leads file for it.
+     Successful canonical recording stores the vuln-scan assessment and
+     artifact and atomically admits its `findings[]` as native findings
+     under Core's recorded schema. Re-recording the same `scanned_at` is
+     the same run. Preserve the original report and returned receipt.
+     Hand the returned assessment ID directly to `/triage`'s existing
+     input (A) workflow, which runs `traust triage prepare` under triage's
+     own permissions, and consumes the returned native items and IDs.
+     Do not use `traust findings find` on `*-vuln-findings.json`: its
+     `file`/`cwe` shape is not that command's report `locations`/`cwes`
+     input. Do not convert or rewrite the report to make it fit.
+     No separate intake, waiting period or admission-gap warning is needed
+     for this successful canonical record. An empty canonical
+     report is a valid zero-native-findings batch, not proof of security.
+     No validity answer is authored: do not add `validation_status` or
+     infer confirmation from confidence scores. Phase 2g handles any
+     supplied precedents for actual items; decisions flow through
+     `traust triage record` → `/track-findings`. Never rewrite the baseline
+     or scan artifact. Direct review of the raw file remains generic input
+     (C), without native decision recording.
+   - No audit assessment? Recommend `/secure-code-audit <target>` for
+     campaign-grade report coverage; this scan remains a leads artifact.
+   - Repository not registered (Step 1.2 exit 2)? Say so, and ask to
+     register it (`/add-inputs <repo-url> --product <slug>`): until then
+     traust-core holds no threat model or baseline for it.
    - Remind: to check whether **existing** baseline findings are fixed,
      use `/verify-remediation` — that is the tool for updating the
      baseline after remediation, not a re-scan.
@@ -966,15 +994,14 @@ Tell the user:
   decline and point at the harness's `validate-findings` skill (live
   authorized targets) or the external `vuln-pipeline` CLI (offline ASAN
   reproduction).
-- **Never modify the baseline audit.** This skill reads
-  `<repo>-security-audit.json` for dedupe only. Appending verified
-  findings to it happens *after* `/triage`, and disposition changes go
-  through the append-only ledger — a scan must not rewrite the
-  portfolio's memory.
+- **Never modify the baseline audit.** This skill reads admitted native
+  findings for dedupe only. Neither scan recording nor later triage
+  appends to or rewrites the baseline artifact. Canonical scan recording
+  admits its findings; subsequent decisions use the append-only ledger.
 - **Don't fabricate line numbers.** Every `file:line` you emit must be
   something you Read or Grep'd. If unsure of the exact line, cite the
   function and say so in the description.
-- **Stay in `<target-dir>`** (plus the read-only baseline path). Don't
+- **Stay in `<target-dir>`**. Don't
   follow symlinks or `..` out of it.
 - Findings are candidates for `/triage`, not final verdicts. **This skill
   never drops a finding** — Step 3b only ranks and Step 3 dedupe only
@@ -985,17 +1012,17 @@ Tell the user:
 
 Consumed artifacts (producer named per artifact):
 
-- `<repo>-threat-model.md` — produced by `/threat-model`; preferred
+- the threat model `/threat-model` records in traust-core; preferred
   scoping input (Step 1.2; diff mode uses its rows touching changed
   entry points).
-- `<repo>-security-audit.json` baseline — produced by
-  `/secure-code-audit`; read-only dedupe table (Step 1.3 / diff-mode
-  dedupe), never modified here.
-- `findings.db` — produced by python3 -m traust.cli corpus findings-db (the
-  `/findings-db` skill); diff mode's `resolve_baseline.py` resolves the
-  baseline report from it read-only.
+- the `/secure-code-audit` baseline recorded in traust-core; read-only
+  dedupe table (Step 1.3 / diff-mode dedupe), never modified here.
+- traust-core's assessments and findings — the repository's findings and
+  its newest code audit (Step 1.3), diff mode's baseline audit, its
+  commit and the repository's findings as of it, read through
+  `traust assessments prepare` (Step 1.2, Step 0).
 - `<repo>-diff-packet.json` — produced and consumed inside this skill's
-  diff mode (Step 0b, `build_diff_packet.py` → cluster briefs); a
+  diff mode (Step 0, `traust assessments prepare` → cluster briefs); a
   scratch evidence bundle, not a campaign artifact.
 - Deterministic pre-scan facts from python3 -m traust.cli adapters checkov,
   python3 -m traust.cli adapters opengrep, python3 -m traust.cli adapters gitleaks, and
@@ -1003,19 +1030,21 @@ Consumed artifacts (producer named per artifact):
 - `<repo>-llm-app.json` from python3 -m traust.cli adapters llm-app — a
   fact that gates the LLM application focus area and its checklist
   (`/secure-code-audit`'s `llm-application-review.md`); never a finding.
-- `fp-precedent-cache.json` — produced by
-  python3 -m traust.cli corpus precedent build (Phase-4 fleet
-  mechanism); Step 3c consults it read-only (`match` mode) as citeable
-  gate evidence at human-countersigned strength, downgrade-not-drop.
+- Precedents — no cache file; Core matches admitted native findings and
+  `/triage` owns Phase 2g provenance and verification routing. Successful
+  canonical scan recording supplies native findings for preparation;
+  actual precedent matches are optional, never verdicts.
 
 Emitted artifacts:
 
-- `<repo>-vuln-findings.json` — consumed by `/triage` (downstream
-  adjudication and ledger flow) and `/patch`; the scan's verified new
-  findings enter the ledger as event-carried findings — the baseline is never
-  written (gate A15) — at
-  `validation_status: not_verified` with `origin: "vuln-scan"` — no
-  triage precondition (Step 5; user directive 2026-07-27).
+- `<repo>-vuln-findings.json` — stored as the canonical scan assessment's
+  artifact, with its findings atomically admitted on successful canonical
+  `reporting record --kind vuln_scan`. `/triage` consumes the native
+  prepared assessment for recorded adjudication, or the raw file as
+  generic input (C); `/patch` also consumes the artifact. No separate
+  intake is required after successful canonical recording (Step 5).
+  The baseline is never written (gate A15), and this artifact has no
+  `validation_status` field.
 - `<repo>-vuln-findings.md` — human companion of the JSON.
 - `metadata.additional.coverage_diff` (diff mode) — consumed by the
   continuous-operations rescan telemetry: the refused/covered split feeds

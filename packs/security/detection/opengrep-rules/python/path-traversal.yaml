@@ -1,0 +1,120 @@
+rules:
+  - id: traust-python-path-traversal-tar-extractall-nofilter
+    languages: [python]
+    severity: ERROR
+    message: >-
+      tarfile extractall/extract without a member filter — archive members
+      named '../x' or '/abs/path' escape the destination directory
+      (tar-slip). Pass filter='data' (Python 3.12+) or containment-check
+      each member with realpath+commonpath before writing. Manual member
+      loops that os.path.join() member names have the same flaw. This is a
+      tarfile-only bug: zipfile sanitizes member paths on extract, so
+      ZipFile receivers are excluded (do not re-file zip-slip on zipfile
+      sites). CWE-22.
+    metadata:
+      cwe: ["CWE-22"]
+      category: path-traversal
+      asvs: ["V12"]
+      confidence: HIGH
+      references:
+        - "CWE-22 path traversal — tar extract without member filter"
+        - "CWE-22 path traversal — zipfile receivers excluded (zip-slip is tarfile-only)"
+    patterns:
+      - pattern-either:
+          - pattern: $T.extractall(...)
+          - pattern: $T.extract(...)
+      - pattern-not: $T.extractall(..., filter=..., ...)
+      - pattern-not: $T.extract(..., filter=..., ...)
+      - pattern-not-inside: |
+          $T = zipfile.ZipFile(...)
+          ...
+      - pattern-not-inside: |
+          with zipfile.ZipFile(...) as $T:
+              ...
+
+  - id: traust-python-path-traversal-containment-startswith
+    languages: [python]
+    severity: WARNING
+    message: >-
+      Path containment via startswith() on a base path without a trailing
+      separator — '/base-evil' passes a '/base' prefix check, and
+      user-controlled names like '../base-x/y' can resolve to passing
+      siblings. Compare with os.path.commonpath([base, path]) == base, or
+      startswith(base + os.sep). CWE-22 / CWE-706.
+    metadata:
+      cwe: ["CWE-22", "CWE-706"]
+      category: path-traversal
+      asvs: ["V12"]
+      confidence: MEDIUM
+      references:
+        - "CWE-22/CWE-706 — path containment via startswith without separator"
+    patterns:
+      - pattern-either:
+          - pattern: os.path.realpath($P).startswith($BASE)
+          - pattern: os.path.abspath($P).startswith($BASE)
+      - metavariable-pattern:
+          metavariable: $BASE
+          patterns:
+            - pattern-not: $B + os.sep
+            - pattern-not: os.path.join($B, "")
+
+  - id: traust-python-path-traversal-file-response-taint
+    languages: [python]
+    severity: ERROR
+    message: >-
+      A request path value (a catch-all `{name:path}` route parameter, or
+      Starlette `request.path_params` / `query_params`) reaches a served or
+      opened file path — '../' segments read any file the process can.
+      Resolve the path and check it stays under the base directory
+      (Path.resolve() plus is_relative_to), or serve fixed names only.
+      CWE-22.
+    metadata:
+      cwe: ["CWE-22"]
+      category: path-traversal
+      asvs: ["V5"]
+      confidence: HIGH
+      references:
+        - "CWE-22 path traversal — catch-all route parameter served as a file (FastAPI / Starlette FileResponse)"
+    mode: taint
+    pattern-sources:
+      - pattern-either:
+          - patterns:
+              - pattern-either:
+                  - pattern-inside: |
+                      @$R.$VERB($ROUTE, ...)
+                      async def $F(..., $P: $T, ...): ...
+                  - pattern-inside: |
+                      @$R.$VERB($ROUTE, ...)
+                      def $F(..., $P: $T, ...): ...
+                  - pattern-inside: |
+                      @$R.$VERB($ROUTE, ...)
+                      async def $F(..., $P, ...): ...
+                  - pattern-inside: |
+                      @$R.$VERB($ROUTE, ...)
+                      def $F(..., $P, ...): ...
+              - metavariable-regex:
+                  metavariable: $ROUTE
+                  regex: .*\{\w+:path\}
+              - focus-metavariable: $P
+          - pattern: $REQ.path_params[...]
+          - pattern: $REQ.path_params.get(...)
+          - pattern: $REQ.query_params[...]
+          - pattern: $REQ.query_params.get(...)
+    pattern-sanitizers:
+      - pattern-either:
+          - pattern: os.path.basename(...)
+          - pattern: secure_filename(...)
+          - pattern: $P.name
+    pattern-sinks:
+      - pattern-either:
+          - pattern: FileResponse($P, ...)
+          - pattern: web.FileResponse($P, ...)
+          - pattern: open($P, ...)
+          - pattern: $P.read_bytes()
+          - pattern: $P.read_text(...)
+          - patterns:
+              - pattern-inside: |
+                  @$R.$VERB(..., response_class=FileResponse, ...)
+                  async def $F(...): ...
+              - pattern: return $P
+              - focus-metavariable: $P

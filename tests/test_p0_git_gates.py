@@ -5,10 +5,8 @@ Each test encodes an attack shape the 2026-07-24 self-audit confirmed
 (or class-confirmed): if any of these start failing, the RCE class is
 back."""
 
-import importlib.util
 import os
 import subprocess
-import sys
 from pathlib import Path
 
 import pytest
@@ -16,111 +14,8 @@ import pytest
 _ROOT = Path(__file__).resolve().parents[1]
 
 
-def _load(name, rel):
-    spec = importlib.util.spec_from_file_location(name, _ROOT / rel)
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[name] = mod
-    spec.loader.exec_module(mod)
-    return mod
-
-
-aff = _load("apply_fleet_fix_p0", "harnessing/7-remediate/fleet-fix/scripts/apply_fleet_fix.py")
-bvs = _load(
-    "build_verify_sweep_p0", "harnessing/8-verify/verify-remediation/scripts/build_verify_sweep.py"
-)
-brm = _load(
-    "build_remediation_manifest_p0",
-    "harnessing/7-remediate/remediate-finding/scripts/build_remediation_manifest.py",
-)
-
-
-class _Boom:
-    """subprocess.run stand-in that fails the test if reached."""
-
-    def __call__(self, *a, **k):
-        raise AssertionError(f"subprocess invoked for gated input: {a}")
-
-
-MALICIOUS_URLS = [
-    "ext::sh -c 'touch /tmp/pwned'",
-    "--upload-pack=touch /tmp/pwned",
-    "ssh://git@evil.example/x.git",
-    "git@github.com:org/repo.git",
-    "-oProxyCommand=evil",
-    "",
-    None,
-]
-
-
-@pytest.mark.parametrize("url", MALICIOUS_URLS)
-def test_fleet_fix_ls_remote_rejects_before_subprocess(monkeypatch, url):
-    monkeypatch.setattr(aff.subprocess, "run", _Boom())
-    assert aff.ls_remote_sha(url, "main") is None
-
-
-def test_fleet_fix_ls_remote_rejects_bad_ref(monkeypatch):
-    monkeypatch.setattr(aff.subprocess, "run", _Boom())
-    assert aff.ls_remote_sha("https://github.com/o/r", "-evil") is None
-    assert aff.ls_remote_sha("https://github.com/o/r", "") is None
-
-
-def test_fleet_fix_ls_remote_env_caps_protocol(monkeypatch):
-    seen = {}
-
-    def fake(argv, **kw):
-        seen["env"] = kw.get("env") or {}
-        seen["argv"] = argv
-
-        class R:
-            stdout = "a" * 40 + "\trefs/heads/main\n"
-
-        return R()
-
-    monkeypatch.setattr(aff.subprocess, "run", fake)
-    assert aff.ls_remote_sha("https://github.com/o/r", "main") == "a" * 40
-    assert seen["env"].get("GIT_ALLOW_PROTOCOL") == "https"
-    assert "--" in seen["argv"]
-
-
-@pytest.mark.parametrize("url", MALICIOUS_URLS)
-def test_verify_sweep_ls_remote_rejects_before_subprocess(monkeypatch, url):
-    monkeypatch.setattr(bvs.subprocess, "run", _Boom())
-    assert bvs.ls_remote_head(url) is None
-
-
-def test_verify_sweep_no_raw_repository_fallback():
-    """The A2 fix: non-normalizable metadata.repository must resolve to
-    None (skip), never pass through raw."""
-    src = (
-        _ROOT / "harnessing/8-verify/verify-remediation/scripts/build_verify_sweep.py"
-    ).read_text()
-    assert '(meta.get("repository") or "").strip()' not in src
-    assert bvs.normalize_repo_url("ext::sh -c evil") is None
-
-
-def test_manifest_fid_gate():
-    assert brm.FID_RE.fullmatch("svc-a1b2c3d-001")
-    assert brm.FID_RE.fullmatch("f003")
-    for bad in ("../../../etc/passwd", "a/b", "-evil", "", ".hidden", "a b"):
-        assert not brm.FID_RE.fullmatch(bad), bad
-
-
-def test_emit_report_path_containment(tmp_path, monkeypatch):
-    err = _load(
-        "emit_remediation_report_p0",
-        "harnessing/7-remediate/remediate-finding/scripts/emit_remediation_report.py",
-    )
-    ws = tmp_path / "ws"
-    ar = ws / "analysis-results"
-    (ar / "remediations" / "_manifest").mkdir(parents=True)
-    monkeypatch.setattr(err, "load_engine", lambda config_home=None: object())
-    monkeypatch.setattr(err, "workspace_dir", lambda engine: ws)
-    monkeypatch.setattr(err, "resolve_results_root", lambda args: ar)
-    monkeypatch.setattr(
-        err, "load_row", lambda rid, manifest: {"report_path": "../../.zshenv", "rem_id": rid}
-    )
-    with pytest.raises(SystemExit, match="refusing to write"):
-        err.main(["--rem-id", "x.f001", "--worktree", str(tmp_path), "--rationale", "t"])
+# The fleet-fix ls-remote gates moved with the applier: traust-engine
+# tests/test_fleet_fix_applier.py (hostile URLs and refs refused before any git).
 
 
 def test_credential_liveness_commit_hex_gate():

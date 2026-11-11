@@ -1,0 +1,146 @@
+rules:
+  - id: traust-go-injection-exec-taint
+    languages: [go]
+    severity: ERROR
+    message: >-
+      Request-derived value reaches exec.Command without validation — an
+      attacker who controls the parameter controls process arguments (and,
+      via a shell binary, the command line). CWE-78.
+    metadata:
+      cwe: ["CWE-78"]
+      category: injection
+      asvs: ["V1"]
+      confidence: HIGH
+      references:
+        - "CWE-78 OS command injection — request-derived exec.Command"
+    mode: taint
+    pattern-sources:
+      - pattern-either:
+          - pattern: $R.URL.Query().Get(...)
+          - pattern: $R.URL.Query()[...]
+          - pattern: $R.FormValue(...)
+          - pattern: $R.PostFormValue(...)
+          - pattern: mux.Vars($R)
+          - pattern: $C.Param(...)
+          - pattern: $C.Query(...)
+    pattern-sinks:
+      - pattern-either:
+          - pattern: exec.Command(...)
+          - pattern: exec.CommandContext(...)
+
+  - id: traust-go-injection-shell-c
+    languages: [go]
+    severity: WARNING
+    message: >-
+      Shell invocation with a non-literal command string ("sh -c" /
+      "bash -c") — command content is composed at run time, so any
+      interpolated value becomes shell syntax. Prefer exec.Command with an
+      argument vector. CWE-78.
+    metadata:
+      cwe: ["CWE-78"]
+      category: injection
+      asvs: ["V1"]
+      confidence: MEDIUM
+      references:
+        - "CWE-78 OS command injection — request-derived exec.Command"
+    patterns:
+      - pattern-either:
+          - pattern: exec.Command("sh", "-c", $CMD, ...)
+          - pattern: exec.Command("bash", "-c", $CMD, ...)
+          - pattern: exec.Command("/bin/sh", "-c", $CMD, ...)
+          - pattern: exec.Command("/bin/bash", "-c", $CMD, ...)
+          - pattern: exec.CommandContext($CTX, "sh", "-c", $CMD, ...)
+          - pattern: exec.CommandContext($CTX, "bash", "-c", $CMD, ...)
+      - metavariable-pattern:
+          metavariable: $CMD
+          patterns:
+            - pattern-not: '"..."'
+
+  # v1.8 ownership-resolution tranche — Go twin of
+  # traust-python-injection-like-wildcard-unescaped (CWE-155 primary: the
+  # wildcard characters in the value are the defect; CWE-943 the class).
+  - id: traust-go-injection-like-wildcard-unescaped
+    languages: [go]
+    severity: WARNING
+    message: >-
+      A LIKE/ILIKE pattern is built from a run-time value without escaping
+      `%` and `_` — wildcard characters in the value widen the match, so a
+      lookup scoped to one owner or prefix can return rows that belong to
+      others (names commonly allow `_`). Escape the value (`\`, `%`, `_`)
+      and add an ESCAPE clause, or match on an exact key instead of a name
+      pattern. CWE-155.
+    metadata:
+      cwe: ["CWE-155", "CWE-943"]
+      category: injection
+      asvs: ["V1"]
+      confidence: MEDIUM
+      references:
+        - "seeded defect shape: ownership resolved by an unescaped name pattern"
+    pattern-either:
+      # query text carrying LIKE, assembled at run time
+      - patterns:
+          - pattern-either:
+              - pattern: $DB.$M($Q, ...)
+              - pattern: $DB.$M($CTX, $Q, ...)
+          - metavariable-regex:
+              metavariable: $M
+              regex: ^(Query|QueryRow|Exec|QueryContext|QueryRowContext|ExecContext|Queryx|QueryRowx|Get|Select|Raw|Where)$
+          - metavariable-pattern:
+              metavariable: $Q
+              pattern-either:
+                - pattern: $A + $B
+                - pattern: fmt.Sprintf(...)
+          - metavariable-regex:
+              metavariable: $Q
+              regex: '(?is).*(?<!\()\bi?like\s+(?:\x27|\x22|%s|%\(|\$\d|\?|:[a-z_]|\{(?![^}]*\}\s+(?:including|excluding))|concat\b|\|\|)'
+          - pattern-not-regex: (?i)\bescape\b
+      # bound argument that is itself a wildcard concatenation
+      - patterns:
+          - pattern-either:
+              - pattern: $DB.$M("$SQL", ..., $ARG, ...)
+              - pattern: $DB.$M($CTX, "$SQL", ..., $ARG, ...)
+          - metavariable-regex:
+              metavariable: $M
+              regex: ^(Query|QueryRow|Exec|QueryContext|QueryRowContext|ExecContext|Queryx|QueryRowx|Get|Select|Raw|Where)$
+          - metavariable-regex:
+              metavariable: $SQL
+              regex: '(?is).*(?<!\()\bi?like\s+(?:\x27|\x22|%s|%\(|\$\d|\?|:[a-z_]|\{(?![^}]*\}\s+(?:including|excluding))|concat\b|\|\|)'
+          - metavariable-pattern:
+              metavariable: $ARG
+              pattern-either:
+                - pattern: $X + "%"
+                - pattern: '"%" + $X'
+                - pattern: '"%" + $X + "%"'
+                - pattern: fmt.Sprintf("%s%%", $X)
+                - pattern: fmt.Sprintf("%%%s%%", $X)
+          - pattern-not-regex: (?i)\bescape\b
+
+  - id: traust-go-injection-template-parse-taint
+    languages: [go]
+    severity: ERROR
+    message: >-
+      A request value is parsed as a Go template (template.New(...).Parse,
+      template.Must(...Parse(...))) — whoever writes the text controls the
+      template: data access through the context, calls to registered
+      functions, and with text/template no escaping at all. Parse only
+      templates shipped with the code; pass request values as data.
+      CWE-1336.
+    metadata:
+      cwe: ["CWE-1336", "CWE-94"]
+      category: injection
+      asvs: ["V1"]
+      confidence: HIGH
+      references:
+        - "CWE-1336 server-side template injection — request text parsed as a Go template"
+    mode: taint
+    pattern-sources:
+      - pattern-either:
+          - pattern: $R.URL.Query().Get(...)
+          - pattern: $R.FormValue(...)
+          - pattern: $R.PostFormValue(...)
+          - pattern: $C.Query(...)
+          - pattern: $C.PostForm(...)
+    pattern-sinks:
+      - patterns:
+          - pattern: $T.Parse($X)
+          - focus-metavariable: $X

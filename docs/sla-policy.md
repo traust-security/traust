@@ -4,8 +4,12 @@
 remediation deadline. A deployment states its own numbers in an
 `sla-policy` artifact, and every view, dashboard and query inherits them.
 
-Policy home: your deployment's artifact tree. Schema:
-`schemas/v1/sla-policy.schema.json` in traust-contracts.
+Policy home: recorded in traust-core. Until you record one, the SLA view uses the security
+pack's default, [`packs/security/sla-policy.yaml`](../packs/security/sla-policy.yaml) (the
+FedRAMP Rev. 5 RA-5 timelines, with CISA BOD 19-02 as a second profile, sources cited in the
+file). Record yours with `traust dashboard sla-policy <file>`: the newest recorded policy is
+the view's from then on, and `traust dashboard view sla --sla-policy <file>` uses another for
+one run. Schema: `artifacts_schema/v1/sla-policy.schema.json` in traust-contracts.
 
 ## Why an artifact and not a config file
 

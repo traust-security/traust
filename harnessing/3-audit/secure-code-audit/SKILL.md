@@ -1,6 +1,6 @@
 ---
 name: secure-code-audit
-description: Use when the user asks to perform a security audit, security review, vulnerability assessment, or code analysis of a GitHub repository, operator, or batch of repositories using OWASP ASVS, OWASP Kubernetes Top 10, CIS Kubernetes Benchmark, DISA STIG, SLSA, OpenSSF Scorecard, SEI CERT coding standards (Java, C/C++), or PEACH tenant-isolation frameworks.
+description: Use when the user asks to perform a security audit, security review, vulnerability assessment, or code analysis of a GitHub repository, operator, or batch of repositories using OWASP ASVS, OWASP Kubernetes Top 10, CIS Kubernetes Benchmark, DISA STIG, SLSA, OpenSSF Scorecard, SEI CERT coding standards (Java, C/C++), or PEACH tenant-isolation frameworks. Authors canonical remediation sizes or explicit unknowns, independently evidenced blocking, and explicit roadmap priorities for Core-recorded reports. Keeps authored finding kind separate from validity and execution proof.
 metadata:
   harness.tier: "primary"
 allowed-tools:
@@ -16,7 +16,8 @@ allowed-tools:
   - Bash(head:*)
   - Bash(file:*)
   - Bash(jq:*)
-  - Bash(git clone:*)
+  - Bash(traust repo checkout:*)
+  - Bash(traust findings find:*)
   - Bash(git fetch:*)
   - Bash(git checkout:*)
   - Bash(git rev-parse:*)
@@ -40,33 +41,31 @@ allowed-tools:
   # execution (audit D3, remediation plan P1.6). Scope every script
   # individually — the A11 alignment gate blocks broad entries.
   - Bash(python3 *-m traust.cli reporting validate:*)
-  - Bash(python3 *-m traust_engine.reporting.render:*)
+  - Bash(python3 *-m traust.cli reporting render:*)
   - Bash(python3 *-m traust.cli adapters opengrep:*)
-  - Bash(python3 *-m traust_engine.adapters.checkov:*)
-  - Bash(python3 *-m traust_engine.adapters.gitleaks:*)
+  - Bash(python3 *-m traust.cli adapters checkov:*)
+  - Bash(python3 *-m traust.cli adapters gitleaks:*)
   - Bash(python3 *-m traust.cli adapters osv:*)
+  - Bash(python3 *-m traust.cli reporting record:*)
+  - Bash(python3 *-m traust.cli adapters fork-lag:*)
+  - Bash(python3 *-m traust.cli adapters config-matrix:*)
+  - Bash(python3 *-m traust.cli adapters route-guards:*)
+  - Bash(python3 *-m traust.cli adapters grpc-guards:*)
+  - Bash(python3 *-m traust.cli check coverage:*)
   - Bash(python3 *-m traust.cli adapters llm-app:*)
-  - Bash(python3 *harnessing/3-audit/secure-code-audit/scripts/run_fork_advisory_lag.py:*)
-  - Bash(python3 *harnessing/3-audit/secure-code-audit/scripts/expand_config_matrix.py:*)
-  - Bash(python *harnessing/3-audit/secure-code-audit/scripts/expand_config_matrix.py:*)
-  - Bash(python3 *harnessing/3-audit/secure-code-audit/scripts/enumerate_route_guards.py:*)
-  - Bash(python *harnessing/3-audit/secure-code-audit/scripts/enumerate_route_guards.py:*)
+  - Bash(python3 *-m traust.cli adapters sanitizers:*)
+  - Bash(python3 *-m traust.cli adapters priv-profile:*)
   - Bash(python3 *harnessing/3-audit/secure-code-audit/scripts/probe_sanitizers.py:*)
   - Bash(python *harnessing/3-audit/secure-code-audit/scripts/probe_sanitizers.py:*)
-  - Bash(python3 *harnessing/3-audit/secure-code-audit/scripts/stamp_finding_identity.py:*)
-  - Bash(python *harnessing/3-audit/secure-code-audit/scripts/stamp_finding_identity.py:*)
   - Bash(python3 *-m traust.cli.check_citations:*)
-  - Bash(python3 *-m traust.cli corpus finding-identity:*)
-  - Bash(python3 *harnessing/3-audit/secure-code-audit/scripts/enrich_findings_cves.py:*)
-  - Bash(python3 *-m traust.cli.emit_triage_ledger_events:*)
-  - Bash(python3 *-m traust_engine.sweep.mining:*)
-  - Bash(python3 *-m traust.cli corpus:*)
+  - Bash(python3 *-m traust.cli impact enrich:*)
+  - Bash(python3 *-m traust.cli sweep mine:*)
 ---
 
 # Secure Code Audit
 
 > **Paths.** `analysis-results/…` and `progress-tracker/…` in this skill are the
-> default workspace layout. They resolve through `locations.yaml` in
+> default workspace layout. They resolve through `locations:` in `traust.yaml` in
 > `$TRAUST_CONFIG_HOME` (`docs/setup.md`, Storage locations); substitute your
 > configured roots.
 
@@ -113,16 +112,16 @@ Perform a comprehensive security assessment of one or more codebases using indus
 When a full local checkout is required for deep analysis (e.g. running static analysis tools, tracing cross-file data flows, or inspecting build configurations):
 
 ```bash
-GIT_ALLOW_PROTOCOL=https git clone --depth 1 --branch <branch-or-ref> -- <github-url> <local-path>
+traust repo checkout <github-url> --ref <commit-sha> --history 1
 ```
 
-If the ref is a commit SHA rather than a branch name, clone with `--depth 1` and then `git fetch origin <sha> && git checkout <sha>`.
+The command prints the checkout's path (`<local-path>` below). If the input names a branch rather than a commit SHA, resolve it to its head SHA first (the GitHub MCP tools, or `gh api repos/{org}/{repo}/commits/{branch} --jq '.sha'`).
 
 **Always analyze the branch or commit ref specified in the input data**, not the repository default branch. The ref represents the exact code shipped in the operator version being assessed.
 
 ### Companion-lane stamp (initial tree survey)
 
-While surveying the checkout's tree (before pass 1), check for IaC content this audit does **not** assess: Terraform (`*.tf`, `*.tfvars`, `*.tf.json`), CloudFormation (`cloudformation/` or `cfn/` directories), and ARM/Bicep (`*.bicep`, `azuredeploy*.json`). When any is present, stamp `metadata.additional.companion_lanes: ["cloud-config-audit"]` on the report — a declaration only, never a behavior change: do not launch the companion skill or deep-read the IaC here. The consumer is the continuous-operations router's iac route (python3 -m traust.cli build rescan-worklist, lever-6 companion backfill; docs/continuous-operations.md): a stamp on a repo with no `/cloud-config-audit` baseline becomes an additive `iac-baseline` row on the next daily run, so the stamp doubles as backfill discovery for repos the Phase-0 IaC census missed. Do **not** stamp for Kubernetes manifests, Helm charts, Kustomize overlays, or Dockerfiles — this audit's KHS arm already covers those.
+While surveying the checkout's tree (before pass 1), check for IaC content this audit does **not** assess: Terraform (`*.tf`, `*.tfvars`, `*.tf.json`), CloudFormation (`cloudformation/` or `cfn/` directories), and ARM/Bicep (`*.bicep`, `azuredeploy*.json`). When any is present, stamp `metadata.additional.companion_lanes: ["cloud-config-audit"]` on the report — a declaration only, never a behavior change: do not launch the companion skill or deep-read the IaC here. The consumer is the continuous-operations router's iac route (`traust.ops.router`, lever-6 companion backfill; docs/continuous-operations.md): a stamp on a repo with no `/cloud-config-audit` baseline becomes an additive `iac-baseline` row on the next daily run, so the stamp doubles as backfill discovery for repos the Phase-0 IaC census missed. Do **not** stamp for Kubernetes manifests, Helm charts, Kustomize overlays, or Dockerfiles — this audit's KHS arm already covers those.
 
 ---
 
@@ -233,7 +232,7 @@ are executed, not what is reported.
    <subsystem>") over the highest-value subsystem (enforcement layer,
    execution boundary, or credential custody). Merge its output
    through the same triage bar as every other lane.
-5. **Review surfaces.** Check the six surfaces in this skill's companion
+5. **Review surfaces.** Check the seven surfaces in this skill's companion
    [`review-surfaces.md`](review-surfaces.md) on every audit, using the
    check that file defines for each:
    `credential-acceptance` (what else passes each verifier),
@@ -242,8 +241,10 @@ are executed, not what is reported.
    severity; controls that fail open when unconfigured),
    `outbound-fetch` (every outbound call site, including identity-provider
    discovery and key fetches), `stored-content-integrity` (the verified
-   bytes are the stored bytes) and `scope-enforcement` (scope and step-up
-   rules hold for every credential type and route). The file maps each
+   bytes are the stored bytes), `scope-enforcement` (scope and step-up
+   rules hold for every credential type and route) and `llm-integration`
+   (the LLM pre-scan's tagged files against `llm-application-review.md`;
+   `not_applicable` citing the pre-scan when it finds no LLM use). The file maps each
    surface to its `category` and CWEs; it is the single definition, so do
    not restate it in prompts. The surface IDs come from the
    `review_surface` enum in traust-contracts, and every report records its
@@ -356,31 +357,33 @@ disposition. An empty `fired` list is a legitimate value; a report that
 files crit/high findings with no `precision_gates` block is an
 incomplete audit — the same contract as `deterministic_steps`.
 
-**FP-precedent gate (shared components, optional-degrade).**
-Shared-component hits (vendored kube-rbac-proxy and the like) are the
-measured re-refutation treadmill: the same FP re-litigated per repo
-that ships the component. Before filing a critical/high candidate whose
-locations sit under a vendor root (`vendor/`, `third_party/`,
-`node_modules/`, ...), consult the portfolio precedent cache:
+**Shared-component precedent handoff (post-record, not an audit-time gate).**
+For candidates in vendored/shared code (`vendor/`, `third_party/`,
+`node_modules/`, ...), independently check **this repo's own wiring,
+configuration and trust boundaries**. File and apply the audit-time gates
+using only evidence available before recording; another repo's context
+does not establish this one's applicability.
 
-```bash
-python3 -m traust.cli corpus precedent match \
-    --cache <harness>/../analysis-results/graph/fp-precedent-cache.json \
-    --findings <candidates.json>
-```
-
-A match at `max_strength: human_countersigned` is citeable prior
-adjudication: record it in `precision_gates.fired` (gate
-`"fp-precedent"`, plus the precedent's source repo + date in the
-entry) and apply the standard downgrade-not-drop posture — the
-observation moves to `dependency_audit`/lower severity with the
-precedent cited, never silently disappears, and this repo's own wiring
-is still checked (a precedent from another repo does not prove this
-repo's context matches). `machine_refuted_sound` matches are context
-only — never gate evidence at audit time; they surface again at
-/triage Phase 2g. A missing/empty cache skips this gate silently
-(clean no-op by contract); audit judgment stays independent — the
-precedent is evidence to cite, never a verdict to copy.
+Precedent handling requires admitted native findings. For this skill's
+`--kind secure_code`, a successful `traust reporting record` admits the
+report's findings as native findings under the returned assessment ID,
+as canonical container/RPM/vuln-scan recording does; `traust triage
+prepare <assessment-id>` reads them (Step 4b). If recording fails or
+reported claims remain unadmitted, adjudication of those claims is
+unavailable, not a clean audit or proof of no findings. Do not convert or
+rewrite the report to work around a refusal. A genuinely empty batch after
+successful recording is valid, with zero native counts under triage's
+existing contract; it still does not prove the repository secure. For
+admitted candidates, `/triage` Phase 2g owns the
+supplied `precedents`, their provenance, verification routing and
+subsequent adjudication. Do not require a pre-filing match, downgrade on
+an unavailable match, or add an `"fp-precedent"` entry to
+`precision_gates.fired`. Human-countersigned matches reduce triage votes,
+never skip verification; machine matches are context only with full votes.
+Any supported downgrade-not-drop decision belongs in the new triage
+determination after independent verification, not in a retroactive edit
+to this audit's severity, evidence or gate metadata. A match never supplies
+an automatic false-positive verdict.
 
 ### Dependency and advisory gate
 
@@ -471,7 +474,7 @@ Every critical/high candidate must pass all of:
    checked/reviewed" rationales and hypothetical-caller misuse are audit
    leads. A finding requires a traced untrusted flow to the sink in THIS
    repo. High-value sink with plausible-but-untraced input → medium,
-   `not_verified`, with the untraced hop named.
+   omit `validation_status`, with the untraced hop named.
 
 ### Shipped-artifact and mechanism checks
 
@@ -574,12 +577,12 @@ When a local checkout exists **and** `opengrep` is on `PATH`, seed the applicati
 python3 -m traust.cli adapters opengrep <local-path> --out /tmp/<repo>-opengrep.json
 ```
 
-The wrapper runs the opengrep engine against an **explicitly pinned ruleset** — by default the **Traust-authored pack bundled in traust-engine** ([`traust_engine/data/secure-code-audit/opengrep-rules/`](https://github.com/traust-security/traust-engine/tree/main/src/traust_engine/data/secure-code-audit/opengrep-rules); the only copy, loaded automatically with no rule-pack argument or `locations` override; our IP, no external restrictions, mined from the campaign's triage-ledger true positives and calibrated against audited repos — see `plans/opengrep-ruleset-plan.md` under the configured `progress-tracker` root). Rule packs remain a **swappable input**: pass `--rules <path|git-url@sha|p/pack>` to add or replace packs — e.g. the opengrep-rules fork as an internal-run supplement — and copy each pack's `license_note` from the output into `metadata.tools` so the report records what ran under which terms. `--config auto` is refused (registry auto-fetch has no per-pack license accounting — see [`docs/external-dependencies.md`](../../../docs/external-dependencies.md)). **Supplemental external packs apply automatically on a default run**: `$TRAUST_CONFIG_HOME/rule-pack-allowlist.yaml` lists enabled packs and, per pack, the exact rule ids permitted to emit — currently 15 of the 16 calibrated argus TLS/certificate-validation rules (~0.6 novel findings/repo, median 0 — 84% of repos see none; `go-crypto-tls-version` is held back as 29% of the tranche's load at an 82% novel rate, and the pack's other 624 rules never reach the report). Passing an explicit `--rules` disables that folding, so calibration runs stay clean. An unreachable supplemental pack is skipped and recorded in `supplemental_packs.skipped`, never a scan failure. The lane re-scores every enabled rule against the ~50% precision gate — see [`mine-ledger`](../../mine-ledger/SKILL.md).
+The wrapper runs the opengrep engine against an **explicitly pinned ruleset** — by default the **Traust-authored pack the security pack ships** ([`packs/security/detection/opengrep-rules/`](../../../packs/security/detection/opengrep-rules); the only copy, loaded automatically with no rule-pack argument or `locations` override; our IP, no external restrictions, mined from the campaign's triage-ledger true positives and calibrated against audited repos — see `plans/opengrep-ruleset-plan.md` under the configured `progress-tracker` root). Rule packs remain a **swappable input**: pass `--rules <path|git-url@sha|p/pack>` to add or replace packs — e.g. the opengrep-rules fork as an internal-run supplement — and copy each pack's `license_note` from the output into `metadata.tools` so the report records what ran under which terms. `--config auto` is refused (registry auto-fetch has no per-pack license accounting — see [`docs/external-dependencies.md`](../../../docs/external-dependencies.md)). **Supplemental external packs apply automatically on a default run**: the allowlist named by `overrides.rule_pack_allowlist` in `traust.yaml` lists enabled packs and, per pack, the exact rule ids permitted to emit — currently 15 of the 16 calibrated argus TLS/certificate-validation rules (~0.6 novel findings/repo, median 0 — 84% of repos see none; `go-crypto-tls-version` is held back as 29% of the tranche's load at an 82% novel rate, and the pack's other 624 rules never reach the report). Passing an explicit `--rules` disables that folding, so calibration runs stay clean. An unreachable supplemental pack is skipped and recorded in `supplemental_packs.skipped`, never a scan failure. The lane re-scores every enabled rule against the ~50% precision gate — see [`mine-ledger`](../../mine-ledger/SKILL.md).
 
 **The model is the judge.** Each fact is a true statement about the code's *shape* (rule id, `file:line`, CWE, taint trace) — not a vulnerability. For every fact in an application-security class:
 
 1. **Judge it in repository context**: is the source actually attacker-controlled here? Is there sanitization or parameterization the rule cannot see? Is the sink reachable from any tenant/user-facing entry point? Facts with `taint: true` include a dataflow trace worth following in the code; facts with `test_path: true` are usually noise.
-2. **Promote or dismiss — and record every decision as calibration data.** Promoted facts become findings citing the fact's `file:line` in `locations` and its CWE in `cwes`, with `validation_status: not_verified` (a pattern match is not execution evidence). **Every judged fact** — promoted *and* dismissed — gets a structured `scanner_correlation` entry:
+2. **Promote or dismiss — and record every decision as calibration data.** Promoted facts become findings citing the fact's `file:line` in `locations` and its CWE in `cwes`, omitting `validation_status` when no validity answer exists (a pattern match is not execution evidence). **Every judged fact** — promoted *and* dismissed — gets a structured `scanner_correlation` entry:
 
    ```json
    {"tool": "opengrep", "rule_id": "<traust-* rule id>", "location": "<file>:<line>",
@@ -606,7 +609,7 @@ review for that language — switch the manual lanes covering it into the
 1. **Report the plausible, not just the proven.** For thin-coverage
    languages, findings that a well-seeded review might hold back for
    lack of corroborating facts are reported rather than dropped —
-   honestly framed: `validation_status: not_verified` as always,
+   honestly framed: omit unauthored `validation_status`,
    severity per CVSS with no inflation, and the description names what
    evidence would confirm or refute. The asymmetry that justifies
    this: an audit-stage omission is unrecoverable, while an extra
@@ -661,6 +664,19 @@ For each K01–K10 finding, reference the specific OWASP Kubernetes Top 10 ID al
 
 The mechanical rows of this table — K01 workload configs, K02 RBAC grants, K03 secrets-in-env, K05 service exposure, K09 automount/default-SA — are covered by the deterministic pre-scan below (see *Deterministic pre-scan* under the CIS section); cite its `file:line` facts as the evidence for those findings rather than re-reading manifests by hand.
 
+#### Per-technology review checks (framework-checks.md)
+
+The table above reviews what an operator ships; [`framework-checks.md`](framework-checks.md)
+reviews what its code, its gRPC servers and its web routes do. Select its
+sections by the technology the checkout uses (its *Selecting sections*
+table: Kubernetes operators, gRPC, FastAPI and aiohttp, Express), and answer
+every check in each selected section. Each
+check names its CWE, its ASVS 5.0 section and, for operator checks, the
+K-ID above, plus the evidence that settles it. Record
+`"framework-checks": "ran: <sections>"` (or `"ran: none"`) in
+`metadata.additional.deterministic_steps`; a check you couldn't answer is a
+`coverage_gaps` entry, never a silent negative.
+
 ### CIS Kubernetes Benchmark & DISA STIG (Configuration Hardening)
 
 Using the [CIS Kubernetes Benchmark v2.0](https://www.cisecurity.org/benchmark/kubernetes) and the [DISA STIG for Kubernetes V2R6](https://public.cyber.mil/stigs/downloads/) as configuration hardening references, assess any manifests, Helm charts, Kustomize overlays, or deployment configurations shipped in the repository against:
@@ -698,11 +714,11 @@ Rules of engagement:
 When the pre-scan above found Kubernetes manifests or a ClusterServiceVersion (i.e. the repo ships an operator/controller), also build the least-privilege inventory:
 
 ```bash
-python harnessing/3-audit/operator-priv-profile/scripts/build_priv_profile.py \
-    --repo <local-path> --name <repo> --out-dir <report-output-dir>/
+python3 -m traust.cli adapters priv-profile <local-path> --name <repo> \
+    --out <report-output-dir>/<repo>-priv-profile.json
 ```
 
-This persists `<repo>-priv-profile.{json,md}` beside the report — SCC requests (RBAC `use` on `securitycontextconstraints`, with restricted-v2-default semantics), per-container securityContext, namespaces/install modes, the complete RBAC enumeration, and the `+kubebuilder:rbac` required-vs-granted diff. Rules of engagement:
+This persists `<repo>-priv-profile.json` beside the report — SCC requests (RBAC `use` on `securitycontextconstraints`, with restricted-v2-default semantics), per-container securityContext, namespaces/install modes, the complete RBAC enumeration, and the `+kubebuilder:rbac` required-vs-granted diff. Rules of engagement:
 
 1. **The profile is an inventory, not findings.** Judge its flags in repository context under the standard promote/dismiss protocol: `scc_use` with empty `resourceNames` (eligibility for ANY SCC), wildcard grants, `rbac_write`/`escalate_bind_impersonate`, privileged workloads with no SCC request, and tier-2 surplus (`shipped_not_declared`) are candidate authorization findings — verify surplus against non-kubebuilder call sites before promoting.
 2. Record `"priv-profile": "ran"` (or `"skipped: <reason>"` — e.g. no manifests, helm-templated tree) in `metadata.additional.deterministic_steps`.
@@ -864,7 +880,7 @@ grype db status
 Use the output as follows:
 
 - **`dependency_audit`** — one entry per grype match: `package`, `version`, `status` (`vulnerable` / `fix-available` / `wont-fix` per upstream data), and `notes` naming the CVE/GHSA ID and the fixed-in version. Matches with no fix or negligible severity may be summarized in `prose` rather than enumerated.
-- **Findings** — promote a grype match to a finding **only** when the vulnerable code is plausibly reachable from this repository's usage (check the import/call actually exists — a match in an unused transitive module is `dependency_audit`-only), and only after the promotion passes the **Precision Gate → Dependency and advisory gate** (artifact reachability, vendor applicability, manifest-only lint). Categorize as `supply-chain`, cite OWASP K07 for operator repos, and keep `validation_status: not_verified` — a version match is not execution evidence. When a portfolio impact artifact covers the CVE (`analysis-results/impact/<cve>-impact-analysis.json`, from `/impact-analysis`), cite this repo's classification and evidence block: `affected` (symbol-reachable) strengthens promotion, `not_observed` at symbol level is documented dismissal evidence, and manifest-level classifications are context only — record the artifact path in the finding's `evidence`.
+- **Findings** — promote a grype match to a finding **only** when the vulnerable code is plausibly reachable from this repository's usage (check the import/call actually exists — a match in an unused transitive module is `dependency_audit`-only), and only after the promotion passes the **Precision Gate → Dependency and advisory gate** (artifact reachability, vendor applicability, manifest-only lint). Categorize as `supply-chain`, cite OWASP K07 for operator repos, and omit unauthored `validation_status` — a version match is not execution evidence. When a portfolio impact artifact covers the CVE (`analysis-results/impact/<cve>-impact-analysis.json`, from `/impact-analysis`), cite this repo's classification and evidence block: `affected` (symbol-reachable) strengthens promotion, `not_observed` at symbol level is documented dismissal evidence, and manifest-level classifications are context only — record the artifact path in the finding's `evidence`.
 - **`metadata.tools`** — append `syft <version>` and `grype <version> (db <built-date>)` so the scan is reproducible against a stated DB state. The SBOM and grype JSON are intermediates; do not place them in `findings/`.
 
 #### Deterministic dependency pre-scan (OSV API)
@@ -872,8 +888,8 @@ Use the output as follows:
 When a local checkout exists, generate multi-ecosystem dependency-CVE
 candidates before the supply-chain review. The adapter reads the checkout's
 lockfiles and manifests and looks every package up through the OSV API
-(the default). A deployment configured `access: air-gapped` on the `osv`
-source in `feeds.yaml` runs osv-scanner offline instead; the command and
+(the default). A deployment configured `feeds.osv_access: air-gapped`
+in `traust.yaml` runs osv-scanner offline instead; the command and
 the contract are the same:
 
 ```bash
@@ -895,8 +911,8 @@ Contract (identical in spirit to the govulncheck stage):
    `scanner_correlation` entries like the other pre-scans. The step's key
    is `osv-scanner` whichever path ran (the OSV API or, air-gapped, the
    binary): it is the key the report schema and earlier reports use. For
-   prioritization context, `harnessing/3-audit/secure-code-audit/scripts/enrich_findings_cves.py --in
-   <artifact>` joins EPSS scores and CISA-KEV membership onto every
+   prioritization context, `python3 -m traust.cli impact enrich --in
+   <artifact> --repo-url <url>` joins EPSS scores and CISA-KEV membership onto every
    CVE-bearing candidate (an enrichment tagger — routes attention, never
    changes a severity).
 3. **Read `metadata.status`.** Exit 3 and `status: degraded` mean some
@@ -949,7 +965,7 @@ database:
   (facts), but never judge whether they are vulnerable from memory: no CVE
   ids, affected ranges or fixed versions that a tool or feed didn't supply.
 
-#### Deterministic fork advisory-lag pre-scan (run_fork_advisory_lag.py)
+#### Deterministic fork advisory-lag pre-scan (traust adapters fork-lag)
 
 When a local checkout exists, run the fork detector before the
 supply-chain review — pinned forks that never diff their fork point
@@ -958,7 +974,7 @@ pattern** in the CVE-replay backfill (≥21 of 51 missed CVEs: CoreDNS
 forks 15, oauth2-proxy fork 4, prometheus 2, envoy):
 
 ```bash
-python harnessing/3-audit/secure-code-audit/scripts/run_fork_advisory_lag.py --repo <local-path> --out /tmp/<repo>-fork-advisory-lag.json
+python3 -m traust.cli adapters fork-lag <local-path> --out /tmp/<repo>-fork-advisory-lag.json
 ```
 
 Stage 1 is pure-local and deterministic (go.mod module-path vs checkout
@@ -989,8 +1005,8 @@ Contract — this pre-scan is deliberately NOT like the dependency ones:
    (grep the fixing commit's function or CVE id, check the changed lines
    at the pinned ref). A confirmed backport is a `negative_results`
    entry naming the advisory and the backport evidence; an absent or
-   unverifiable backport files the finding with `validation_status:
-   not_verified` and the backport check recorded in the finding.
+   unverifiable backport files the finding with `validation_status`
+   omitted and the backport check recorded in the finding.
 4. **Record the run**: set `"fork-advisory-lag": "ran"` (or
    `"skipped: <reason>"`) in
    `metadata.additional.deterministic_steps`, and log promote/dismiss
@@ -1000,7 +1016,7 @@ Contract — this pre-scan is deliberately NOT like the dependency ones:
    `skipped`/`error: …` — file what stage 1 proved (the fork point) and
    continue; the pre-scan is an accelerator, never a precondition.
 
-#### Deterministic config-matrix pre-scan (expand_config_matrix.py)
+#### Deterministic config-matrix pre-scan (traust adapters config-matrix)
 
 When a local checkout exists, expand the tree's **effective deployed
 defaults** before the configuration/deployment review — composed
@@ -1010,7 +1026,7 @@ syntactic rules alone did not close (config/DSN recall 0.25–0.50 after
 the yaml rule pack; fn-analysis §4, deep-fn plan Phase B1):
 
 ```bash
-python harnessing/3-audit/secure-code-audit/scripts/expand_config_matrix.py <local-path> --out /tmp/<repo>-config-matrix.json
+python3 -m traust.cli adapters config-matrix <local-path> --out /tmp/<repo>-config-matrix.json
 ```
 
 The expansion is pure-static and offline (no helm/kustomize execution —
@@ -1060,8 +1076,8 @@ Judging protocol — bounded, and every verdict is judged, never bulk-set:
    artifact's `coverage_gaps` entries into
    `metadata.additional.coverage_gaps` as
    `{tool: "config-matrix", system, reason, count}` — the structured
-   record `build_coverage_gap_rollup.py` aggregates fleet-wide. The pre-scan is an
-   accelerator, never a precondition — if PyYAML or the checkout is
+   record `traust assessments coverage` aggregates fleet-wide. The pre-scan is an
+   accelerator, never a precondition — if the checkout is
    missing, perform the manual configuration review and move on.
 4. **No cross-product enumeration**: the artifact deliberately carries
    shipped defaults plus single documented overrides. Do not expand
@@ -1069,7 +1085,37 @@ Judging protocol — bounded, and every verdict is judged, never bulk-set:
    load-bearing, file the base-default finding and name the combination
    in its description.
 
-#### Deterministic route×guard pre-scan (enumerate_route_guards.py)
+#### Coverage check before the review (traust check coverage)
+
+When a local checkout exists, and before the review spends model time,
+compare the repository's entry points with what the pre-scans enumerate:
+
+```bash
+python3 -m traust.cli check coverage <local-path> --repo-url <url> --sha <sha> --out /tmp/<repo>-coverage.json
+```
+
+traust-core runs the route×guard, gRPC, LLM-app and config pre-scans and
+reports every entry point as `covered`, `uncovered` or `unexplained`:
+- each section 3 entry point of the latest threat model, matched by its
+  `kind` to the pre-scan for that kind (`unexplained` when it has no kind);
+- each family the pre-scans enumerated, and each framework they detected
+  but couldn't enumerate.
+
+The check runs in **observe mode**: it never stops or reroutes the audit.
+- **Record** `"coverage": "ran: <covered> covered, <uncovered> uncovered,
+  <unexplained> unexplained"` in `metadata.additional.deterministic_steps`.
+- **Copy each `uncovered` entry** into `metadata.additional.coverage_gaps`
+  as `{"tool": "coverage", "system": "<entry_point>", "reason": "<reason>"}`.
+  The review covers those entry points by hand.
+- **When `would_route` is set,** record it as
+  `metadata.additional.coverage_check` (`lane` and `reasons`). Under the
+  pack's policy the repository would go to coverage repair (a missing
+  enumerator or rule) instead of this audit; in observe mode the audit
+  continues.
+- **Unexplained entry points** mean the threat model predates entry-point
+  kinds. Report the count; they aren't gaps.
+
+#### Deterministic route×guard pre-scan (traust adapters route-guards)
 
 When a local checkout exists, enumerate the route×guard matrix before
 the authentication/authorization review — enforcement asymmetries (one
@@ -1078,7 +1124,7 @@ false-negative for narrative review lanes (the AWX probe's dominant
 miss shape; deep-fn plan Phase B2):
 
 ```bash
-python harnessing/3-audit/secure-code-audit/scripts/enumerate_route_guards.py <local-path> --out /tmp/<repo>-route-guards.json [--index <symbols.db>]
+python3 -m traust.cli adapters route-guards <local-path> --out /tmp/<repo>-route-guards.json [--resolve-handlers]
 ```
 
 It enumerates go-http (net/http, gorilla, chi/echo/gin verb styles,
@@ -1088,15 +1134,38 @@ permission_classes/decorators, `DEFAULT_PERMISSION_CLASSES` baseline,
 decorators, `add_url_rule` incl. MethodView classes, Flask-RESTful /
 flask-restx resources; class `decorators`/`method_decorators`; a
 `before_request` hook that can reject a request is a receiver- or
-app-scoped baseline in `scope_guards`). Flask rows add a per-guard-family
-asymmetry shape: a check (scope, admin, role, permission, token, …) that
-most rows of one view class or blueprint carry but a guarded sibling
-lacks marks that sibling `guard_family_gaps` — judge it like any
+app-scoped baseline in `scope_guards`), fastapi (verb/`api_route`/`websocket`
+decorators and `add_api_route`; guards from `dependencies=`, `Depends`/`Security`
+parameters followed into their own dependencies, router and app dependencies,
+`include_router`/`mount` prefixes, and middleware that can refuse), aiohttp
+(`router.add_*`, `add_routes`, `RouteTableDef`, `web.View`; handler decorators,
+bare `await check_*(request)` calls and app middlewares) and express (verb
+calls, `route()` chains and `use()` mounts across modules; `use()` middleware
+guards only later registrations). In a Backstage plugin, a router mounted
+through its `httpRouter` service carries `backstage:httpRouter` (the
+framework authenticates by default), and a path its `addAuthPolicy` opens
+carries `backstage:allow-<policy>` and is judged. It also enumerates
+spring and jax-rs (annotations, Spring Security request-matcher rules and
+Quarkus HTTP permissions), axum and actix-web (layer order, `wrap` scopes,
+auth-shaped extractors) and rails and sinatra (`<app>/config/routes.rb` resolved
+to each action's `before_action` chain; `before` filters); the
+`framework-checks.md` section for each says what its rows carry. These
+parse with tree-sitter grammars that traust-core installs (`traust admin
+doctor` checks they load); without a grammar, that framework is a coverage gap
+that says so. Rows of the python families and express add
+a per-guard-family asymmetry shape: a check (scope, admin, role, permission,
+token, …) that most rows of one view class or router carry but a guarded
+sibling lacks marks that sibling `guard_family_gaps` — judge it like any
 asymmetry. Rows with `pattern_dynamic: true` carry a computed path as
 source text; `test_path: true` rows sit under a test/example directory.
 Other detected frameworks appear as `coverage_gaps`. Guard recognition
 is name-based and over-inclusive by design — the judge decides
-enforcement.
+enforcement. Authenticated id routes of Spring, JAX-RS, FastAPI, Express and
+Rails also carry `ownership` and `ownership_evidence`: whether the handler
+ties the object it acts on to the caller (CWE-639). `framework-checks.md`
+"Route ownership" says what each value means. Its judged rows set
+`judgement_required`, and a framework or handler the reader doesn't classify
+is a `<family> ownership` coverage gap.
 
 Judging protocol — the lane may NOT close with unjudged rows:
 
@@ -1110,21 +1179,59 @@ Judging protocol — the lane may NOT close with unjudged rows:
    established that). A recognized guard name is a claim, not proof —
    spot-check that at least one guard per family actually enforces
    (returns/aborts on failure) rather than logging and continuing.
-2. **Asymmetry groups get judged as groups**: when siblings differ, the
+2. **Ownership rows** (`caller-blind`, `unchecked`) are judged under the
+   framework's ownership check (FA.4, EX.4, JV.5, RL.3; RW.4 starts from the
+   `<family> ownership` gap): read the lookup and say whether the record is
+   tied to the caller. An `unknown` row or an ownership gap's routes get the
+   same question by hand, and so do routes that take the object id from the
+   query string or body. The reader classifies path ids only, so find those
+   routes from the handlers. Any left unreviewed go in `coverage_gaps`.
+3. **Asymmetry groups get judged as groups**: when siblings differ, the
    question is "why is THIS one different" — the answer goes in the
    finding rationale or the benign note either way.
-3. **Unjudged remainder is a coverage gap, never silence**: if budget
+4. **Unjudged remainder is a coverage gap, never silence**: if budget
    truncates judging, the un-judged rows and every `coverage_gaps`
    entry (unenumerated frameworks) must surface in `negative_results`
    naming what was not judged — a lane that enumerated 40 rows and
    judged 25 says so.
-4. **Record the run**: set `"route-guards": "ran"` (or
+5. **Record the run**: set `"route-guards": "ran"` (or
    `"skipped: <reason>"`) in `metadata.additional.deterministic_steps`,
    log promote/dismiss decisions as `scanner_correlation` entries
    (tool `route-guards`), and copy the artifact's `coverage_gaps`
-   (unenumerated frameworks) into `metadata.additional.coverage_gaps`
+   (unenumerated frameworks and `<family> ownership` gaps) into `metadata.additional.coverage_gaps`
    as `{tool: "route-guards", system, reason}` for the fleet-wide
    rollup. Accelerator, never a precondition.
+
+#### Deterministic LLM application pre-scan (traust adapters llm-app)
+
+When a local checkout exists, run the LLM, agent and MCP application
+detector (traust-core's `code_facts.llm_app`):
+
+```bash
+python3 -m traust.cli adapters llm-app <local-path> --out /tmp/<repo>-llm-app.json
+```
+
+It reads source imports, direct manifest declarations (never lockfiles)
+and prompt-template files, and reports `llm_application`, the `kinds`
+found (`model-sdk`, `agent-framework`, `mcp-server`, `vector-store`,
+`prompt-template`), the `signals` with their evidence, and the tagged
+`files`. A file that reaches the model through an in-repo wrapper is
+tagged too, with the wrapper in its `via_wrapper`. **It is a fact, never a
+finding.**
+
+- **When `llm_application: true`:** review the tagged files, and the call
+  paths into and out of them, against
+  [`llm-application-review.md`](llm-application-review.md): the sections
+  its `kinds` select, plus those that apply to every LLM application.
+  That file sets the evidence rules, the CWE per check, and how to record
+  the OWASP category, negatives and coverage gaps.
+- **When `llm_application: false`:** the LLM checklist doesn't apply.
+  Record `llm-integration` as `not_applicable` in `review_surface_coverage`,
+  citing the pre-scan.
+- **Record** `"llm-app": "ran: <kinds>"`, or `"ran: none"`, in
+  `metadata.additional.deterministic_steps`. With no local checkout, record
+  `"skipped: no local checkout"`; `llm-integration` is then `not_assessed`,
+  with its `coverage_gaps` entry.
 
 #### Sanitizer micro-probes (probe_sanitizers.py — execution-gated)
 
@@ -1135,8 +1242,8 @@ sanitizer-shaped functions statically, and — only on explicit request —
 executes them against a curated bypass corpus:
 
 ```bash
-python harnessing/3-audit/secure-code-audit/scripts/probe_sanitizers.py <local-path> --out /tmp/<repo>-sanitizer-probes.json          # discovery only (default)
-python harnessing/3-audit/secure-code-audit/scripts/probe_sanitizers.py <local-path> --run --out /tmp/<repo>-sanitizer-probes.json    # EXECUTES repo code
+python3 -m traust.cli adapters sanitizers <local-path> --out /tmp/<repo>-sanitizer-candidates.json          # discovery only (default)
+python harnessing/3-audit/secure-code-audit/scripts/probe_sanitizers.py <local-path> --run --candidates /tmp/<repo>-sanitizer-candidates.json --out /tmp/<repo>-sanitizer-probes.json    # EXECUTES repo code
 ```
 
 `--run` **executes repository code** (module import runs top-level
@@ -1144,7 +1251,7 @@ statements) in isolated subprocesses (`python3 -I`, cleared env,
 CPU/memory rlimits, timeout, scratch cwd). Use it only on the cloned,
 authorized audit target — same doctrine as /create-fuzzing. In
 environments where target-code execution is not sanctioned, stay in
-`--list` mode and judge the discovered candidates by reading them; record
+discovery (`traust adapters sanitizers`) and judge the discovered candidates by reading them; record
 that choice.
 
 Judging protocol:
@@ -1187,35 +1294,6 @@ never a second finding). Record the emission count in
 records"` (or omit when none — this step has no skip semantics; it is
 opportunistic by design).
 
-#### Deterministic LLM application pre-scan (`traust adapters llm-app`)
-
-When a local checkout exists, run the LLM, agent and MCP application
-detector:
-
-```bash
-python3 -m traust.cli adapters llm-app --repo <local-path> --out /tmp/<repo>-llm-app.json
-```
-
-It reads source imports, direct manifest declarations and prompt-template
-files, and reports `llm_application`, the `kinds` found (`model-sdk`,
-`agent-framework`, `mcp-server`, `vector-store`, `prompt-template`),
-the `signals` with `file:line` evidence, and the tagged `files`. Files that
-reach the model through an in-repo wrapper are tagged too and listed in
-`files_via_wrapper`. **It is a fact, never a finding.**
-
-- **When `llm_application: true`:** review the tagged files, and the call
-  paths into and out of them, against
-  [`llm-application-review.md`](llm-application-review.md): the sections
-  its `kinds` select, plus those that apply to every LLM application.
-  That file sets the evidence rules, the CWE per check, and how to record
-  the OWASP category, negatives and coverage gaps.
-- **When `llm_application: false`:** the LLM checklist doesn't apply.
-  Say so in `negative_results`, citing the pre-scan.
-- **Record** `"llm-app": "ran: <kinds>"`, or `"ran: none"`, in
-  `metadata.additional.deterministic_steps`. With no local checkout, record
-  `"skipped: no local checkout"`, and a repository that looks like an LLM
-  application is a `coverage_gaps` entry.
-
 #### Deterministic secret pre-scan (gitleaks)
 
 When a local checkout exists **and** `gitleaks` is on `PATH`, seed the
@@ -1227,7 +1305,7 @@ python3 -m traust.cli adapters gitleaks --repo <local-path> --out /tmp/<repo>-gi
 ```
 
 The wrapper runs gitleaks with the **Traust-owned extension config**
-(the [`gitleaks-default.toml`](https://github.com/traust-security/traust-engine/tree/main/src/traust_engine/data/secure-code-audit/gitleaks-rules/gitleaks-default.toml) bundled in traust-engine, the only copy —
+(the [`gitleaks-default.toml`](../../../packs/security/detection/gitleaks-rules/gitleaks-default.toml) the security pack ships, the only copy —
 upstream default rules plus `traust-*` portfolio detectors, including
 connection-string URLs with embedded credentials
 (`traust-dsn-url-credentials`: postgres/mysql/mongodb/amqp/redis DSNs in
@@ -1240,7 +1318,7 @@ evidence, quote **only a masked prefix** (first 4 chars + `…`) read from
 the checkout, never the full credential.
 
 When calibrating the bundled `traust-*` detectors, use the
-[negative fixture](https://github.com/traust-security/traust-engine/tree/main/src/traust_engine/data/secure-code-audit/gitleaks-rules/fixtures/secrets-fixture-negative.txt)
+[negative fixture](../../../packs/security/detection/gitleaks-rules/fixtures/secrets-fixture-negative.txt)
 to check that templated passwords, masked examples, and credential-free
 URLs produce no detections. These are calibration inputs, not live secrets.
 
@@ -1252,8 +1330,8 @@ Contract (identical in spirit to the opengrep stage):
    entropy? referenced by live config?) and record every promote/dismiss
    decision as a `scanner_correlation` entry (tool `gitleaks`, `rule_id`,
    `result: promoted|dismissed`) exactly like the opengrep pre-scan.
-2. Findings promoted from candidates keep `validation_status:
-   not_verified`; a candidate with a non-null `liveness_class` should name
+2. Findings promoted from candidates omit unauthored `validation_status`;
+   a candidate with a non-null `liveness_class` should name
    the validate-findings **credential-liveness** verifier as its
    validation path (a read-only, scope-guarded probe can upgrade it to
    CONFIRMED_LIVE — see `harnessing/5-validate/validate-findings/`). Detection is
@@ -1303,8 +1381,8 @@ PQC-blind.
 
 When a finding's category is `cryptography` (or its evidence names a
 key-establishment, signature, certificate, TLS-configuration, or
-crypto-policy mechanism), set two optional finding fields by **table
-lookup** against the shared reference data — never free-authored:
+crypto-policy mechanism), populate the optional finding fields from the
+shared reference data and explicit source evidence — never invent labels:
 
 1. `pqc_classification` — from
    [`../pqc-readiness/notes/reference/ir8547-mapping.json`](../pqc-readiness/notes/reference/ir8547-mapping.json)
@@ -1314,9 +1392,17 @@ lookup** against the shared reference data — never free-authored:
    (RSA-2048 / P-224 / DH-2048 / 3DES), `classically-broken`,
    `hndl-exposure`, `pqc-blocker-config` (TLS group/KEX pins,
    `GODEBUG=tlsmlkem=0`-style kill-switches), or `pqc-adoption`.
-2. `remediation_effort` — from the decision tree's `remediation_effort`
-   rules (provenance × agility): `trivial` / `moderate` / `significant` /
-   `blocked-external`.
+2. `remediation_effort` — use the canonical sizes `xs`, `s`, `m`, `l`,
+   `xl` from traust-contracts `enums/v1/effort.json`, or `null` for unknown
+   size. The decision tree's provenance/agility rules establish no size,
+   so each returns `null`. A non-null size requires independent, explicit
+   size evidence; do not infer one from older effort labels, provenance,
+   agility, pin count, or blocking. No duration thresholds are defined.
+3. `blocked_external` — record the independent boolean wherever known.
+   The decision tree establishes `true` for vendored/externalized
+   provenance, or a delegated library with no PQC roadmap. Other matches
+   do not establish `false`; without separate evidence, omit this field.
+   Its absence means unknown, and neither value establishes effort size.
 
 Rules of the pass:
 
@@ -1324,8 +1410,9 @@ Rules of the pass:
   signatures, DES/RC4) are ordinary findings today — severity per CVSS as
   usual, plus the `classically-broken` tag. Everything else PQC-tagged is
   **not a vulnerability**: a 2035-clock RSA key exchange is `severity:
-  informational`, `validation_status: hardening` unless some *other*
-  defect applies. Never inflate severity because of the quantum timeline.
+  informational`, `kind: weakness` unless some *other* defect applies.
+  Kind does not establish validity or execution evidence; omit unauthored
+  `validation_status`. Never inflate severity because of the quantum timeline.
 - A TLS config pinning groups without an ML-KEM option is
   `pqc-blocker-config` + `insecure-workload-config` or `cryptography`
   category — file it; these are the cheapest fleet-wide fixes.
@@ -1431,7 +1518,7 @@ Every finding `id` must be **globally unique across the entire campaign**, not j
 
 Examples: `STACKROX-4f9e812-003` · `KUBE_RBAC_PROXY-9cb7556-012` · `CLUSTER_MONITORING_OPERA-a1b2c3d-001`.
 
-**Always populate `metadata.commit`** with the full 40-char SHA (or at minimum the same 7-char short SHA) so the ID is reproducible and the finding can be traced to an exact code state. This field is also the **change-detection anchor for the continuous-operations router** (python3 -m traust.cli build rescan-worklist, docs/continuous-operations.md): re-audit frequency is computed by diffing this SHA against the repo's live HEAD, and a report without a parseable SHA makes the repo invisible to change detection until a fresh audit re-establishes the anchor (211 converter-era reports had exactly this defect at the 2026-07-27 first live run). The regex the schema and validator enforce for reports produced by harness ≥ 0.12.0 is:
+**Always populate `metadata.commit`** with the full 40-char SHA (or at minimum the same 7-char short SHA) so the ID is reproducible and the finding can be traced to an exact code state. This field is also the **change-detection anchor for the continuous-operations router** (`traust.ops.router`, docs/continuous-operations.md): re-audit frequency is computed by diffing this SHA against the repo's live HEAD, and a report without a parseable SHA makes the repo invisible to change detection until a fresh audit re-establishes the anchor (211 converter-era reports had exactly this defect at the 2026-07-27 first live run). The regex the schema and validator enforce for reports produced by harness ≥ 0.12.0 is:
 
 ```
 ^[A-Z][A-Z0-9_]{0,23}-[a-f0-9]{7}-\d{3}$
@@ -1447,11 +1534,18 @@ Reports are **JSON files** validated against `contracts/schemas/report.schema.js
 
 **The structure tables live in one place: [`docs/report-structure.md`](../../../docs/report-structure.md).**
 Read it before writing the report — it defines the required/optional
-top-level keys, the finding object fields (including the script-computed
-`fingerprint` cross-scan identity), and this skill's profile deltas
-(`metadata.audit_profile: "code"`). The schema
+top-level keys, the authored finding fields, and this skill's profile
+deltas (`metadata.audit_profile: "code"`). Core's native finding identity
+is separate from the report artifact (Step 2b). The schema
 (`contracts/schemas/report.schema.json`) remains the authoritative source for types
 and constraints. Do not restate the tables here — duplicated copies drift.
+
+For every finding and roadmap item, follow the shared
+[Remediation authoring](../../../docs/report-structure.md#remediation-authoring)
+rules, not just the PQC tagging pass. Unknown size stays unknown; roadmap
+priority requires an explicit authoring decision, and unknown external
+blocking stays absent. Reference tables and earlier reports do not supply
+missing size or priority semantics.
 
 Key profile obligations for this skill:
 - Set `metadata.audit_profile: "code"`.
@@ -1459,23 +1553,40 @@ Key profile obligations for this skill:
 - Always emit `review_surface_coverage`: one entry per review surface ([`review-surfaces.md` → Recording coverage](review-surfaces.md#recording-coverage)). Required from traust 0.20.0; the validator checks every `finding_ids`, `negative` and `not_assessed` entry against the rest of the report.
 - Include `metadata.loc_breakdown` on all new reports.
 - Stamp `metadata.additional.repo_status` from `progress-tracker/metrics/repo-liveness.json` when present (`active | archived | moved | missing`, with `status_since`); absent from the artifact → `"unknown: not in liveness artifact"`. **Record only** — status never changes findings, severity, or scan depth: archived code that ships is exactly as exploitable as live code. Consumers read the artifact; do not re-query GitHub.
-- After validation, run python3 -m traust.cli corpus finding-identity fingerprint <report.json> --write.
+- Core computes cross-scan `fingerprint` on native finding admission (which `reporting record --kind secure_code` performs); never stamp it into the report.
 
 ### Field Conventions
 
 A drift audit across the portfolio's reports (2026-07-08) showed that every field this section did not pin oscillated from batch to batch. These conventions are normative; the validator enforces or warns on each (harness ≥ 0.15.0).
 
-**`validation_status`** — set on **every** finding, with these semantics:
+**`validation_status`** — follow the shared
+[Validity authoring](../../../docs/report-structure.md#validity-authoring)
+contract and Core's installed contracts registry, not a skill-local enum.
+New unjudged findings **omit the field**; neither `null` nor `confirmed`
+is an unknown/default. Carry an explicit canonical assertion only when
+the execution evidence or attributed reviewer determination actually
+exists and is referenced in existing evidence/provenance fields.
+`corrected` is not a validity answer: keep revision rationale and
+correction context in existing fields, and use the authenticated
+restatement workflow for already stored claims. An explicitly known
+hardening classification is `kind: weakness`, independent of validity.
 
-| Value | Meaning | When to use |
-|---|---|---|
-| `not_verified` | Static review only; no execution evidence | **Default for every finding this skill produces.** An audit report fresh out of this skill should be predominantly `not_verified`. |
-| `confirmed` | Verified by **execution evidence** — a fuzz crash, proof-of-concept, failing test, or a validations-pipeline report (`validation.schema.json` under `analysis-results/validations/`) — or by a **human reviewer** performing triage of the finding | Only when that evidence or human determination exists and is referenced in the finding (e.g. via `source_findings`, an evidence block, or a reviewer attribution). |
-| `corrected` | Finding was revised after initial write-up (wrong location, severity, or scope fixed) | During report revision. |
-| `false_positive` | Refuted by the same execution-evidence classes or a human reviewer; retained for the audit trail | After execution-based or human verification refutes it. |
-| `hardening` | Accurate defense-in-depth/benchmark gap with no concrete exploit path (triage exclusion rule 13) | **Never set at audit time.** This value is written into cumulative reports by the disposition ledger when triage renders a hardening verdict (see `docs/disposition-ledger.md`). |
+Automated static-review votes — including `/triage` LLM adversarial
+verification — do **not** change the audit report's validity fields.
+`traust triage record` records verdicts through Core finding decisions;
+`/track-findings` reads the derived state under evidence-class precedence
+and countersign rules. Human judgments use the existing authenticated
+`traust findings` doors with the reviewer's own determination and
+rationale. Never hand-edit existing baselines or rewrite historical
+reports for this cutover. The old layer emitter and cumulative-file
+rebuild are retired; never hand-write their outputs. Do not mark findings
+`confirmed` because the analysis felt certain; all-`confirmed` audit
+reports still warrant the validator's over-claiming warning.
 
-Automated static-review votes — including `/triage` LLM adversarial verification — do **not** change `validation_status` in the audit report itself: those verdicts flow through the disposition ledger (python3 -m traust.cli ledger emit-triage → track-findings), which derives the cumulative report's status under the evidence-class precedence and countersign rules. A **human reviewer** performing triage of a finding may set `confirmed` or `false_positive` directly. Do not mark findings `confirmed` because the analysis felt certain; the validator flags all-`confirmed` audit reports as over-claiming.
+New triage represents a verified gap as `verdict: true_positive, kind: weakness`
+(rule 13, null severity); Core records `validity: confirmed, kind: weakness`.
+Never emit historical `hardening` as a new triage verdict. This does not rewrite
+the audit report's `validation_status`; cumulative-file rebuilds are retired.
 
 **CVSS** — required on every `critical`/`high`/`medium`/`low` finding. **Omit** for `informational` findings (posture and hygiene observations are not scored — the validator errors on an informational finding carrying CVSS ≥ 7.0 and warns below that). **Severity may sit below the CVSS band only with a stated reason**: when the score is an upstream advisory's base score and the audit judges contextual severity lower (unreachable in deployment, restricted SCC, requires prior compromise), the `description` MUST name the downgrade and its rationale — e.g. *"CVSS base 7.0, but rated low in this deployment context: exploitation requires write access to a directory on $PATH inside a restricted-SCC container."* The validator warns on a ≥2-band gap with no such rationale. Never encode the downgrade only in the severity field.
 
@@ -1509,7 +1620,7 @@ Include the Kubernetes frameworks only when the repo ships manifests, charts, or
 - **Default checkout** (bare repo URL, no branch/tag requested): `ref` = the default branch's name as checked out (`git rev-parse --abbrev-ref HEAD`, e.g. `main`), `ref_kind` = `"default"`.
 - **Bare commit SHA input** (`commit:<sha>`, detached — no branch/tag name known): omit both fields; `metadata.commit` already pins the state. Do not guess a branch name.
 
-These fields are how `traust_engine.corpus.resolver` distinguishes branch re-audits from HEAD audits for new reports; the legacy `__release-X.Y` report-slug suffix remains a fallback for old reports only — keep naming reports per the Deduplication section, but never rely on the slug alone to carry the ref.
+These fields (passed to `reporting record` as `--branch <metadata.ref>`) are how traust-core distinguishes branch re-audits from HEAD audits for new reports; the legacy `__release-X.Y` report-slug suffix remains a fallback for old reports only — keep naming reports per the Deduplication section, but never rely on the slug alone to carry the ref.
 
 **`asvs_references`** — populate on findings in application-security categories (`injection`, `authentication`, `authorization`, `input-validation`, `cross-site-scripting`, `ssrf`, `cryptography`); ASVS is the primary framework and unreferenced findings weaken traceability.
 
@@ -1518,7 +1629,7 @@ These fields are how `traust_engine.corpus.resolver` distinguishes branch re-aud
 After writing the JSON report, **you must validate it** before considering the report complete. **Do not move on to the next repository until the current report passes validation with 0 errors.**
 
 **Step 0 — Check review-surface coverage before validating.** For each of
-the six review surfaces, confirm `review_surface_coverage` has its entry
+the seven review surfaces, confirm `review_surface_coverage` has its entry
 and that the entry's evidence is in the report (the findings it names, the
 `negative_results` entry whose `area` starts with the surface ID, or the
 `coverage_gaps` entry). Write any surface you judged but did not record:
@@ -1539,40 +1650,27 @@ If errors appear, read each error message, fix the JSON, and re-run the validato
 - **Schema violations** — missing required fields, wrong types, values too short, pattern mismatches (e.g. CWE format)
 - **Cross-validation errors** — `findings_summary` counts don't match actual findings, `finding_ids` reference nonexistent IDs, `remediation_roadmap` addresses unknown findings, duplicate finding IDs, missing mandatory severity criteria levels
 
-**Step 2b — Stamp the cross-scan finding identity (required):**
+**Step 2b — Informational: Core finding identity, not an audit completion gate:**
+
+Core computes cross-scan identity on **finding admission** —
+never model-authored or stamped into this report. It uses the canonical
+repo URL, lineless location paths and primary CWE. Changing locations or
+CWEs can change that identity. This skill's `traust reporting record
+--kind secure_code` admits the report's findings, so its receipt's
+assessment ID is the native assessment for triage (Step 4b).
+
+After recording, the following is an **optional diagnostic lookup**, not
+a required post-record check:
 
 ```bash
-# headless/worker lanes — python3 is denied there; harness-run executes
-# /harness scripts with the packaged runtime:
-harness-run harnessing/3-audit/secure-code-audit/scripts/stamp_finding_identity.py <path-to-report.json>
-
-# interactive lanes — the same script directly:
-python3 harnessing/3-audit/secure-code-audit/scripts/stamp_finding_identity.py <path-to-report.json>
-
-# the equivalent CLI door (interactive lanes only — unreachable in worker lanes):
-python3 -m traust.cli corpus finding-identity fingerprint <path-to-report.json> --write
+traust findings find <path-to-report.json> --label <report-local-finding-id> \
+    --repo-url <audited-source-https-url>
 ```
 
-Deterministic and script-computed — **never model-authored**. It writes
-`finding.fingerprint` = `sha256(canonical repo URL | sorted lineless location
-paths | primary CWE)` and `finding.fingerprint_algo` for every finding; the
-script wraps the same library the CLI door calls, so there is one
-implementation.
-
-This is not cosmetic. Cross-scan continuation, disposition carry-forward
-between scans, and the downstream platform's finding identity all key on this
-field. **The platform's worker lanes stamp
-`metadata.additional.harness_version` on the report after the session, and the
-contracts schema then REQUIRES `fingerprint` on every finding** — an unstamped
-report validates clean in-session and still dies at the platform's gate with
-`findings/N: 'fingerprint' is a required property` (the scan-blocking failure
-of the 2026-11-06 dev-cluster E2E bring-up). On reports that declare no
-`harness_version` the field is schema-optional, so nothing else catches its
-absence — stamp it regardless; the consuming lane decides, not the writer.
-Re-run this step after any edit that changes a finding's `locations` or
-`cwes`, since both feed the hash, passing `--allow-identity-move` for the
-in-session re-stamp (an in-flight report has nothing referencing its stamps
-yet; recorded findings are never re-stamped through this door).
+Use the audited source repository URL, not the harness URL. Exit 0 with
+`finding_id: null` means **no match**, not successful identity completion,
+admission or a clean audit. Do not invent an audit-intake CLI, convert
+the report into scanner input, rewrite it, or stamp a fabricated identity.
 
 **Step 3 — Run strict mode (recommended):**
 
@@ -1614,6 +1712,33 @@ findings/<product-name>/<repo-name>/<repo-name>-security-audit.md
 
 This Markdown file is for human consumption only — the JSON file remains the authoritative report artifact.
 
+**Step 4b — Record the audit in traust-core:**
+
+```bash
+python3 -m traust.cli reporting record <path-to-report.json> --kind secure_code \
+    --repo-url <https URL of the repository> --sha <metadata.commit, full SHA> \
+    [--branch <metadata.ref, when ref_kind is branch or default>]
+```
+
+It records a secure-code assessment of that commit with the report as its
+artifact (schema-checked; the same report again is the same run, by
+`metadata.date`); `traust assessments coverage` reads the gaps it states.
+New-report remediation fields must also pass Core's scoped assessment
+admission checks at this door; compatibility validation and rendering are
+not a substitute. Preserve historical reports and stored-run replay
+rather than rewriting them to satisfy new-authorship rules.
+
+**Finding admission:** `SECURE_CODE_CANONICAL` recording admits this
+report's findings as native findings under the returned assessment ID, as
+canonical container/RPM/vuln-scan recording does. A finding that a
+re-audit names differently from an already recorded one is held for a
+person's rebaseline review rather than opened as a duplicate. Retain the
+assessment receipt and the original artifact; `/triage` takes the returned
+assessment ID as its input (A). If recording is refused, report native
+adjudication/identity/precedent handoff as unavailable. Do not invent
+another audit-intake command or silently convert the artifact.
+Plan 15's decision 5 may change whether secure-code recording admits findings.
+
 **Step 5 — Declare per-repo spend (calibration tuple):**
 
 After the report is written, record this audit's spend against the repo
@@ -1643,16 +1768,16 @@ unattributed audit is a calibration gap.
 
 **Which repos to (re-)audit, and when, is not this skill's judgment
 call.** Re-audit frequency is decided deterministically by the
-continuous-operations router (python3 -m traust.cli build rescan-worklist →
-`findings/_manifest/rescan-worklist.json`; policy and lane definitions
+continuous-operations router (`traust.ops.router`, run by traust-engine
+per repository; policy and lane definitions
 in docs/continuous-operations.md): heavy churn (≥8K first-party lines /
 ≥10% of code), sensitive-path changes (≥200 lines in auth/crypto/
 session/RBAC-matching files), age ceilings (P0 180d / P1 270d / P2
 365d), and injected events (external report, methodology release) route
 to a full audit; smaller changes route to `/vuln-scan --diff`. Batch
-sessions should consume the worklist's `full-audit` rows rather than
-hand-picking repos — the router's reasons ride along for the report's
-audit-trail.
+sessions should claim engine-owned `full_audit` orders through
+`traust-engine claim $E`, rather than hand-picking repos. The engine expands
+each order's `{rule}` token with the router reason for the report's audit trail.
 
 When this skill is driven at scale — workflow scripts, loop templates (`_manifest/*_AGENT_TEMPLATE.md`), or hand-written subagent prompts — the batch prompt must **not** restate the report schema. Every documented consistency regression in the portfolio (legacy `FIND-NNN` IDs, `loc_reviewed` typed as "STRING", all-`confirmed` validation status, vanished `attack_pattern`, free-form categories) entered through a batch prompt that paraphrased this skill from memory and then drifted from it.
 
@@ -1673,8 +1798,7 @@ Rules for batch prompts:
 
 **Consumes:** inventory/payload CSVs from `/inventory-repositories` and
 `/add-inputs` (§Input); `<repo>-threat-model.md` from `/threat-model`
-(coverage diff, findings-tree copy); the FP-precedent cache from
-python3 -m traust.cli corpus precedent; deterministic pre-scan outputs
+(coverage diff, findings-tree copy); deterministic pre-scan outputs
 (opengrep, gitleaks, osv, llm-app, syft/grype, k8s-hardening) recorded
 under `deterministic_steps`; `llm-application-review.md` (this skill's
 LLM, agent and MCP checklist, shared with `/vuln-scan`).
@@ -1683,6 +1807,8 @@ LLM, agent and MCP checklist, shared with `/vuln-scan`).
 report artifact — consumed by `/triage`, `/track-findings`,
 `/verify-remediation`, `/patch`, `/vuln-scan` (baseline dedup),
 `/threat-model` bootstrap, `/create-fuzzing` target selection,
-`/file-security-defect`, and every dashboard via python3 -m traust.cli corpus.
+`/file-security-defect`, and every dashboard via python3 -m traust.cli dashboard view.
+These report-artifact consumers do not establish native finding
+admission; Step 4b's recording does.
 The Markdown companion is rendered by python3 -m traust.cli reporting render,
 never hand-written.

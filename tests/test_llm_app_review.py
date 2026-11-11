@@ -1,41 +1,13 @@
-"""LLM application review: the `adapters llm-app` command and the checklist's shape."""
+"""The LLM application checklist's shape and its wiring into both audit skills."""
 
 import json
 import re
-from types import SimpleNamespace
 
-from traust.cli.groups import adapters
-from traust.paths import HARNESS_ROOT
+from traust.paths import HARNESS_ROOT, schema_dir
 
 CHECKLIST = (
     HARNESS_ROOT / "harnessing" / "3-audit" / "secure-code-audit" / "llm-application-review.md"
 )
-
-
-def test_the_command_writes_the_detection(tmp_path, capsys):
-    repo = tmp_path / "svc"
-    (repo / "server").mkdir(parents=True)
-    (repo / "server" / "tools.py").write_text("from mcp.server.fastmcp import FastMCP\n")
-    out = tmp_path / "o.json"
-    assert adapters.call_llm_app(None, SimpleNamespace(repo=repo, out=out)) == 0
-    doc = json.loads(out.read_text())
-    assert doc["metadata"]["artifact"] == "llm-app-detection"
-    assert doc["llm_application"] is True
-    assert doc["kinds"] == ["mcp-server"]
-    assert doc["files"] == {"server/tools.py": ["mcp-server"]}
-    assert "LLM application (mcp-server)" in capsys.readouterr().out
-
-
-def test_a_plain_repo_is_reported_as_none(tmp_path, capsys):
-    (tmp_path / "a.py").write_text("import os\n")
-    out = tmp_path / "o.json"
-    assert adapters.call_llm_app(None, SimpleNamespace(repo=tmp_path, out=out)) == 0
-    assert json.loads(out.read_text())["llm_application"] is False
-    assert "no LLM" in capsys.readouterr().out
-
-
-def test_not_a_directory(tmp_path):
-    assert adapters.call_llm_app(None, SimpleNamespace(repo=tmp_path / "x", out=None)) == 2
 
 
 def test_the_checklist_covers_every_owasp_category():
@@ -67,10 +39,15 @@ def test_both_skills_wire_the_pre_scan_and_the_checklist():
         assert "llm-application-review.md" in text, skill
 
 
-def test_the_checklist_records_the_category_in_its_schema_field():
-    from traust_contracts.paths import schema_dir
+def test_the_checklist_only_names_finding_fields_the_report_schema_has():
+    report = json.loads((schema_dir() / "report.schema.json").read_text(encoding="utf-8"))
+    fields = set(report["$defs"]["finding"]["properties"])
+    named = set(re.findall(r"`(\w+_references|cwes)`", CHECKLIST.read_text(encoding="utf-8")))
+    assert "owasp_llm_references" in named
+    assert named <= fields, named - fields
 
-    assert "`owasp_llm_references`" in CHECKLIST.read_text(encoding="utf-8")
+
+def test_the_schema_field_takes_every_category_the_checklist_covers():
     report = json.loads((schema_dir() / "report.schema.json").read_text(encoding="utf-8"))
     field = report["$defs"]["finding"]["properties"]["owasp_llm_references"]
-    assert field["items"]["pattern"] == "^LLM(0[1-9]|10)$"
+    assert field["items"]["enum"] == [f"LLM{n:02d}" for n in range(1, 11)]

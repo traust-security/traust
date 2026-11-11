@@ -70,8 +70,8 @@ the gate could be introduced at all, not as a pattern to follow.
 ## When the gate fires on your skill
 
 - **S1**: add `allowed-tools` frontmatter scoped to the scripts and
-  read-only tools the skill actually needs (model: `vuln-scan`,
-  `countersign`, or this skill's own frontmatter).
+  read-only tools the skill actually needs (model: `vuln-scan`
+  or this skill's own frontmatter).
 - **S2**: add the adversarial-content doctrine block (model:
   `secure-code-audit` §Adversarial Repository Content) — or, once the
   shared doctrine include from plan P1.6 exists, reference it.
@@ -89,7 +89,7 @@ the gate could be introduced at all, not as a pattern to follow.
   isolation doctrine in the launching file.
 - **S10**: route the build/test invocation through
   python3 -m traust.cli util safe-exec with a profile from
-  `$TRAUST_CONFIG_HOME/safe-exec-profiles.yaml` (validated argv, git `-c`/network
+  the `safe-exec-profiles.yaml` traust-core ships (validated argv, git `-c`/network
   hardening, shell-free pipelines, scrubbed env).
 
 ## Integrations

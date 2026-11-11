@@ -1,0 +1,45 @@
+spring:
+  application:
+    name: ledger
+management:
+  endpoints:
+    web:
+      exposure:
+        # ruleid: traust-yaml-data-exposure-actuator-web-exposure-all
+        include: "*"
+server:
+  port: 8080
+  error:
+    # ruleid: traust-yaml-data-exposure-error-stacktrace-always
+    include-stacktrace: always
+---
+management:
+  endpoints:
+    web:
+      exposure:
+        include:
+          # ruleid: traust-yaml-data-exposure-actuator-web-exposure-all
+          - health
+          - heapdump
+          - env
+---
+management:
+  endpoints:
+    web:
+      exposure:
+        # ruleid: traust-yaml-data-exposure-actuator-web-exposure-all
+        include: health,env
+---
+management:
+  endpoints:
+    web:
+      exposure:
+        # ok: traust-yaml-data-exposure-actuator-web-exposure-all
+        include: health,info
+server:
+  error:
+    # ok: traust-yaml-data-exposure-error-stacktrace-always
+    include-stacktrace: never
+---
+# ruleid: traust-yaml-data-exposure-actuator-web-exposure-all
+management.endpoints.web.exposure.include: "*"

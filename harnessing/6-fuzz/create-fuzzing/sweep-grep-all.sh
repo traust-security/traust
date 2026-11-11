@@ -1,17 +1,18 @@
 #!/usr/bin/env bash
-# Exhaustion sweep (bash-3.2 compatible): shallow-clone every remaining
-# audit-named-fuzz-target repo, grep source for the 3 confirmed patterns,
-# emit pattern-hits.json. Clones with no pattern match are deleted.
+# Exhaustion sweep (bash-3.2 compatible): check out every remaining
+# audit-named-fuzz-target repo through the checkout service, grep source
+# for the 3 confirmed patterns, emit pattern-hits.json. Checkouts with no
+# pattern match are deleted; hits stay, symlinked under clones/.
 set -u   # NOTE: no pipefail — grep|head SIGPIPE (141) would kill the loop
 export GIT_ALLOW_PROTOCOL=https   # belt for the https-only case gate below
 RESUME_FROM="${RESUME_FROM:-1}"
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HARNESS="${HERE}"
-while [ ! -f "${HARNESS}/VERSION" ] && [ "${HARNESS}" != / ]; do
+while [ ! -f "${HARNESS}/pyproject.toml" ] && [ "${HARNESS}" != / ]; do
   HARNESS="$(dirname "${HARNESS}")"
 done
-[ -f "${HARNESS}/VERSION" ] || { echo "harness root not found above ${HERE}" >&2; exit 1; }
+[ -f "${HARNESS}/pyproject.toml" ] || { echo "harness root not found above ${HERE}" >&2; exit 1; }
 _FINDINGS_OVERRIDE="${FINDINGS:-}"
 # shellcheck source=../../../_lib/traust_paths.sh
 source "${HARNESS}/harnessing/_lib/traust_paths.sh"
@@ -48,21 +49,25 @@ while IFS= read -r id; do
   [[ -z "$url" || "$url" == "null" ]] && continue
   case "$url" in https://github.com/*|https://gitlab.*) ;; *) continue;; esac
 
-  git clone -q --depth 1 "$url" "$CLONES/$id" 2>>"$LOG" || { log "clone-fail $id"; continue; }
+  work="$($(_traust_py) -m traust.cli repo checkout "$url" \
+    --ref "$(git ls-remote "$url" HEAD | cut -f1)" --history 1 --writable 2>>"$LOG")" \
+    || { log "clone-fail $id"; continue; }
   cloned=$((cloned+1))
 
-  if [[ ! -f "$CLONES/$id/go.mod" ]] && ! ls "$CLONES/$id"/*/go.mod >/dev/null 2>&1; then
-    rm -rf "$CLONES/$id"; continue
+  if [[ ! -f "$work/go.mod" ]] && ! ls "$work"/*/go.mod >/dev/null 2>&1; then
+    rm -rf "$work"; continue
   fi
 
   # Pattern A: url.Parse redirect validator
-  pa=$(grep -rln --include='*.go' -E 'u\.Scheme\s*==\s*""|len\(u\.Scheme\)\s*==\s*0' "$CLONES/$id" 2>/dev/null | xargs grep -l -E 'HasPrefix\(.*Path,\s*"/"' 2>/dev/null | grep -v vendor | head -1 | sed "s|$CLONES/$id/||")
+  pa=$(grep -rln --include='*.go' -E 'u\.Scheme\s*==\s*""|len\(u\.Scheme\)\s*==\s*0' "$work" 2>/dev/null | xargs grep -l -E 'HasPrefix\(.*Path,\s*"/"' 2>/dev/null | grep -v vendor | head -1 | sed "s|$work/||")
   # Pattern B: sprig funcmap
-  pb=$(grep -rn --include='*.go' -E 'sprig\.(Txt|Hermetic|Generic|Html)?FuncMap\(\)' "$CLONES/$id" 2>/dev/null | grep -v -E '/vendor/|_test\.go' | head -1 | sed "s|$CLONES/$id/||")
+  pb=$(grep -rn --include='*.go' -E 'sprig\.(Txt|Hermetic|Generic|Html)?FuncMap\(\)' "$work" 2>/dev/null | grep -v -E '/vendor/|_test\.go' | head -1 | sed "s|$work/||")
 
   if [[ -z "$pa" && -z "$pb" ]]; then
-    rm -rf "$CLONES/$id"; continue
+    rm -rf "$work"; continue
   fi
+  mkdir -p "$CLONES"
+  ln -sfn "$work" "$CLONES/$id"
   hits=$((hits+1))
   log "HIT $id  A=${pa:+redirect} B=${pb:+sprig}"
   [[ $first -eq 0 ]] && echo "," >>"$OUT"; first=0

@@ -10,12 +10,12 @@ One command to get a working toolchain for any profile:
 Subcommands:
 
   setup     Install the profile's tools (direct upstream downloads at the
-            pins in config/external-tools.yaml), then populate DBs.
+            pins traust-core ships in external-tools.yaml), then populate DBs.
   doctor    Check every tool: installed? right version? DB present?
             Fail-closed: exits 1 if anything is wrong.
   fetch-dbs Populate vulnerability databases for the given profile.
 
-Profiles match the ``consumers`` field in ``config/external-tools.yaml``.
+Profiles match the ``consumers`` field of the tool pins traust-core ships.
 """
 
 from __future__ import annotations
@@ -25,13 +25,13 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
 
-from traust.context import add_config_home_arg, load_engine
+from traust_core.v1.context import Context
+from traust_core.v1.context.tool_reports import populatable_tools, tool_stamp, toolchain_failures
+from traust_core.v1.errors import ConfigError
+
+from traust.context import add_config_home_arg, load
 from traust.paths import HARNESS_ROOT
-
-if TYPE_CHECKING:
-    from traust_engine import HarnessEngine
 
 INSTALL_SCRIPT = HARNESS_ROOT / "scripts" / "install-toolchain.sh"
 
@@ -52,18 +52,12 @@ _HYBRID_INSTALL: dict[str, str] = {
 _DIRECT_DOWNLOAD = {"opengrep", "gitleaks", "syft", "grype", "cosign", "govulncheck"}
 
 
-def _tool_entry(tool: Any) -> dict[str, Any]:
-    if isinstance(tool, dict):
-        return tool
-    return tool.model_dump()
+def _all_tools(core: Context) -> list[dict]:
+    return [pin.model_dump() for pin in core.toolchain.pins.values()]
 
 
-def _all_tools(engine: HarnessEngine) -> list[dict]:
-    return [_tool_entry(t) for t in engine.toolchain.external_tools().tools]
-
-
-def _profile_tools(profile: str, engine: HarnessEngine) -> list[dict]:
-    return [t for t in _all_tools(engine) if profile in (t.get("consumers") or [])]
+def _profile_tools(profile: str, core: Context) -> list[dict]:
+    return [t for t in _all_tools(core) if profile in (t.get("consumers") or [])]
 
 
 def _print_header(text: str) -> None:
@@ -72,11 +66,11 @@ def _print_header(text: str) -> None:
     print(f"{'=' * 60}\n")
 
 
-def cmd_setup(args: argparse.Namespace, engine: HarnessEngine) -> int:
-    profile_tools = _profile_tools(args.profile, engine)
+def cmd_setup(args: argparse.Namespace, core: Context) -> int:
+    profile_tools = _profile_tools(args.profile, core)
     if not profile_tools:
         print(f"ERROR: no tools found for profile '{args.profile}'", file=sys.stderr)
-        print(f"  Available profiles: {_available_profiles(engine)}", file=sys.stderr)
+        print(f"  Available profiles: {_available_profiles(core)}", file=sys.stderr)
         return 1
 
     if INSTALL_SCRIPT.is_file():
@@ -96,7 +90,7 @@ def cmd_setup(args: argparse.Namespace, engine: HarnessEngine) -> int:
     if direct_tools:
         print(f"Step 1: Direct upstream downloads ({', '.join(direct_tools)})")
         print(f"  {INSTALL_SCRIPT} is missing — re-check the harness checkout;")
-        print("  pins live in config/external-tools.yaml.")
+        print("  pins ship with traust-core (external-tools.yaml).")
         for name in direct_tools:
             installed = "installed" if shutil.which(name) else "MISSING"
             print(f"  [{installed}] {name}")
@@ -110,8 +104,8 @@ def cmd_setup(args: argparse.Namespace, engine: HarnessEngine) -> int:
             print(f"  [{installed}] {name}: {instruction}")
         print()
 
-    tc = engine.toolchain
-    db_tools = [n for n in tool_names if n in tc.populatable_tools]
+    tc = core.toolchain
+    db_tools = [n for n in tool_names if n in populatable_tools()]
     if db_tools:
         print(f"Step 3: Populate vulnerability databases ({', '.join(db_tools)})")
         if not args.dry_run:
@@ -126,15 +120,15 @@ def cmd_setup(args: argparse.Namespace, engine: HarnessEngine) -> int:
         print()
 
     print("Step 4: Verifying...")
-    return cmd_doctor(args, engine)
+    return cmd_doctor(args, core)
 
 
-def cmd_doctor(args: argparse.Namespace, engine: HarnessEngine) -> int:
-    tc = engine.toolchain
-    profile_tools = _profile_tools(args.profile, engine)
+def cmd_doctor(args: argparse.Namespace, core: Context) -> int:
+    tc = core.toolchain
+    profile_tools = _profile_tools(args.profile, core)
     if not profile_tools:
         print(f"ERROR: no tools found for profile '{args.profile}'", file=sys.stderr)
-        print(f"  Available profiles: {_available_profiles(engine)}", file=sys.stderr)
+        print(f"  Available profiles: {_available_profiles(core)}", file=sys.stderr)
         return 1
 
     _print_header(f"Toolchain doctor for profile: {args.profile}")
@@ -142,7 +136,7 @@ def cmd_doctor(args: argparse.Namespace, engine: HarnessEngine) -> int:
     all_ok = True
     results = []
     for spec in profile_tools:
-        check = tc.check_tool(spec["name"])
+        check = tc.check(spec["name"])
         results.append(check)
 
         if not check.installed:
@@ -153,7 +147,7 @@ def cmd_doctor(args: argparse.Namespace, engine: HarnessEngine) -> int:
             status = "VERSION"
             detail = f"installed {check.version}, need >= {spec.get('expected')}"
             all_ok = False
-        elif check.db is not None and not check.db.exists:
+        elif check.database is not None and not check.database.exists:
             status = "NO DB"
             detail = (
                 f"v{check.version} ok, but vuln DB not found"
@@ -163,12 +157,7 @@ def cmd_doctor(args: argparse.Namespace, engine: HarnessEngine) -> int:
             all_ok = False
         else:
             status = "OK"
-            detail = tc.stamp_string(
-                check.name,
-                check.version,
-                db_built=check.db.built if check.db else None,
-                db_schema=check.db.schema_version if check.db else None,
-            )
+            detail = tool_stamp(check)
 
         icon = "+" if status == "OK" else "!"
         print(f"  [{icon}] {spec['name']:20s} {status:8s} {detail}")
@@ -178,26 +167,30 @@ def cmd_doctor(args: argparse.Namespace, engine: HarnessEngine) -> int:
         print(f"All {len(results)} tools ready for profile '{args.profile}'.")
         return 0
 
-    fails = tc.preflight_failures(results)
+    fails = toolchain_failures(results)
     print(f"{len(fails)} issue(s) found. To fix:\n")
     if any(not check.installed for check in results):
         print(f"  python3 -m traust.cli.toolchain setup --profile {args.profile}")
-    if any(check.db is not None and not check.db.exists for check in results if check.installed):
+    if any(
+        check.database is not None and not check.database.exists
+        for check in results
+        if check.installed
+    ):
         print(f"  python3 -m traust.cli.toolchain fetch-dbs --profile {args.profile}")
     print()
     return 1
 
 
-def cmd_fetch_dbs(args: argparse.Namespace, engine: HarnessEngine) -> int:
-    tc = engine.toolchain
-    profile_tools = _profile_tools(args.profile, engine)
+def cmd_fetch_dbs(args: argparse.Namespace, core: Context) -> int:
+    tc = core.toolchain
+    profile_tools = _profile_tools(args.profile, core)
     if not profile_tools:
         print(f"ERROR: no tools found for profile '{args.profile}'", file=sys.stderr)
-        print(f"  Available profiles: {_available_profiles(engine)}", file=sys.stderr)
+        print(f"  Available profiles: {_available_profiles(core)}", file=sys.stderr)
         return 1
 
     tool_names = [t["name"] for t in profile_tools]
-    db_tools = [t for t in tool_names if t in tc.populatable_tools]
+    db_tools = [t for t in tool_names if t in populatable_tools()]
     if not db_tools:
         print(f"No tools with DBs to populate in: {', '.join(tool_names)}")
         return 0
@@ -229,13 +222,13 @@ def cmd_fetch_dbs(args: argparse.Namespace, engine: HarnessEngine) -> int:
 
 def _install_hint(name: str) -> str:
     if name in _DIRECT_DOWNLOAD:
-        return "scripts/install-toolchain.sh <profile>  (pin: config/external-tools.yaml)"
+        return "scripts/install-toolchain.sh <profile>  (pin: traust-core external-tools.yaml)"
     return _HYBRID_INSTALL.get(name, "see docs/setup.md")
 
 
-def _available_profiles(engine: HarnessEngine) -> str:
+def _available_profiles(core: Context) -> str:
     profiles: set[str] = set()
-    for t in _all_tools(engine):
+    for t in _all_tools(core):
         for c in t.get("consumers") or []:
             profiles.add(c)
     return ", ".join(sorted(profiles))
@@ -279,13 +272,17 @@ def main(argv=None) -> int:
     )
 
     args = ap.parse_args(argv)
-    engine = load_engine(args.config_home)
+    core = load(args.config_home)
     dispatch = {
         "setup": cmd_setup,
         "doctor": cmd_doctor,
         "fetch-dbs": cmd_fetch_dbs,
     }
-    return dispatch[args.command](args, engine)
+    try:
+        return dispatch[args.command](args, core)
+    except ConfigError as e:
+        print(f"config not resolvable: {e}", file=sys.stderr)
+        return 2
 
 
 if __name__ == "__main__":

@@ -1,0 +1,90 @@
+rules:
+  - id: traust-ts-cryptography-reject-unauthorized-false
+    languages: [typescript, javascript]
+    severity: ERROR
+    message: >-
+      TLS certificate verification disabled (rejectUnauthorized false or
+      NODE_TLS_REJECT_UNAUTHORIZED cleared) — every connection through this
+      client accepts any certificate. Pin the expected CA instead. CWE-295.
+    metadata:
+      cwe: ["CWE-295"]
+      category: cryptography
+      asvs: ["V12"]
+      confidence: HIGH
+      references:
+        - "CWE-295 certificate validation — TLS verify disabled"
+    patterns:
+      - pattern-either:
+          - pattern: "rejectUnauthorized: false"
+          - pattern: process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0"
+
+  - id: traust-ts-cryptography-weak-hash
+    languages: [typescript, javascript]
+    severity: INFO
+    message: >-
+      MD5/SHA-1 in use — fine for non-security checksums, broken for
+      anything an attacker benefits from colliding (signatures, password
+      hashes, integrity of untrusted input). Judge the context; hash
+      passwords with a password KDF (argon2, bcrypt, scrypt). CWE-328.
+    metadata:
+      cwe: ["CWE-328", "CWE-327"]
+      category: cryptography
+      asvs: ["V11"]
+      confidence: LOW
+      references:
+        - "CWE-328/CWE-327 — weak hash algorithms in security context"
+    pattern-either:
+      - pattern: $C.createHash("md5")
+      - pattern: $C.createHash("sha1")
+      - pattern: createHash("md5")
+      - pattern: createHash("sha1")
+
+  - id: traust-ts-cryptography-weak-random-secret
+    languages: [typescript, javascript]
+    severity: WARNING
+    message: >-
+      Math.random() output assigned to a secret-looking variable — it is not
+      a cryptographic generator, so tokens, codes and passwords built from
+      it are predictable. Use crypto.randomBytes / crypto.randomUUID /
+      crypto.getRandomValues. CWE-338.
+    metadata:
+      cwe: ["CWE-338"]
+      category: cryptography
+      asvs: ["V11"]
+      confidence: MEDIUM
+      references:
+        - "CWE-338 — Math.random used for secret-shaped values"
+    patterns:
+      - pattern-either:
+          - pattern: const $X = <... Math.random() ...>;
+          - pattern: let $X = <... Math.random() ...>;
+          - pattern: $X = <... Math.random() ...>;
+      - metavariable-regex:
+          metavariable: $X
+          regex: (?i).*(token|secret|password|passwd|nonce|otp|apikey|api_key|sessionid|session_id|resetcode|reset_code).*
+
+  - id: traust-ts-cryptography-weak-cipher
+    languages: [typescript, javascript]
+    severity: WARNING
+    message: >-
+      A broken cipher mode or algorithm (ECB, DES/3DES, RC4) or the
+      deprecated crypto.createCipher, which derives the key and IV from a
+      password with MD5 and no salt. Use AES-GCM via createCipheriv with a
+      random IV. CWE-327.
+    metadata:
+      cwe: ["CWE-327"]
+      category: cryptography
+      asvs: ["V11"]
+      confidence: HIGH
+      references:
+        - "CWE-327 — ECB, DES, RC4 and createCipher in node crypto"
+    pattern-either:
+      - pattern: $C.createCipher(...)
+      - pattern: $C.createDecipher(...)
+      - patterns:
+          - pattern-either:
+              - pattern: $C.createCipheriv($ALG, ...)
+              - pattern: $C.createDecipheriv($ALG, ...)
+          - metavariable-regex:
+              metavariable: $ALG
+              regex: (?i)^["'](.*-ecb|des|des-.*|des3|des-ede.*|rc4.*|bf.*|aes-128-ecb)["']$

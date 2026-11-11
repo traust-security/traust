@@ -239,6 +239,7 @@ def scan(root: Path, *, staged: bool = False) -> list[dict]:
                         "text": line.strip()[:120],
                     }
                 )
+
     # Portability is a placement rule, including untracked on-disk migrations.
     # Invalid UTF-8 must not hide its ASCII marker check.
     migration_paths = (
@@ -254,9 +255,10 @@ def scan(root: Path, *, staged: bool = False) -> list[dict]:
         except OSError:
             continue
         if "adopter-portable" not in text:
+            rel = path.relative_to(root).as_posix()
             findings.append(
                 {
-                    "file": path.relative_to(root).as_posix(),
+                    "file": rel,
                     "line": 1,
                     "rule": "unportable-migration",
                     "match": path.name,

@@ -1,0 +1,88 @@
+rules:
+  - id: traust-ts-path-traversal-fs-taint
+    languages: [typescript, javascript]
+    paths:
+      exclude:
+        - "*.test.*"
+        - "*.spec.*"
+        - "*/__tests__/*"
+        - "*/__mocks__/*"
+        - "*/mock-backend/*"
+        - "*/mocks/*"
+        - "*/test/*"
+        - "*/tests/*"
+    severity: ERROR
+    message: >-
+      A request value becomes part of a filesystem path that is read, written,
+      removed or served — `../` segments in it reach files outside the
+      intended directory. Reduce it to a basename, or resolve the joined path
+      and check it is still inside the base directory before using it. CWE-22.
+    metadata:
+      cwe: ["CWE-22", "CWE-73"]
+      category: path-traversal
+      asvs: ["V12"]
+      confidence: HIGH
+      references:
+        - "CWE-22 path traversal — request value joined into a filesystem path"
+    mode: taint
+    pattern-sources:
+      - pattern-either:
+          - pattern: $REQ.query.$P
+          - pattern: $REQ.params.$P
+          - pattern: $REQ.body.$P
+          - pattern: $REQ.query[$K]
+          - pattern: $REQ.params[$K]
+          - patterns:
+              - pattern-either:
+                  - pattern: $R.url
+                  - pattern: $R.originalUrl
+                  - pattern: $R.path
+              - metavariable-regex:
+                  metavariable: $R
+                  regex: ^(req|request)$
+          - patterns:
+              - pattern-inside: "const {...} = $REQ.$PART;"
+              - pattern: $V
+              - metavariable-regex:
+                  metavariable: $PART
+                  regex: ^(query|params|body)$
+    pattern-sanitizers:
+      - pattern-either:
+          - pattern: path.basename(...)
+          - pattern: basename(...)
+          - pattern: sanitizeFilename(...)
+          - pattern: sanitize(...)
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: $FS.readFile($P, ...)
+              - pattern: $FS.readFileSync($P, ...)
+              - pattern: $FS.writeFile($P, ...)
+              - pattern: $FS.writeFileSync($P, ...)
+              - pattern: $FS.appendFile($P, ...)
+              - pattern: $FS.createReadStream($P, ...)
+              - pattern: $FS.createWriteStream($P, ...)
+              - pattern: $FS.unlink($P, ...)
+              - pattern: $FS.unlinkSync($P, ...)
+              - pattern: $FS.rm($P, ...)
+              - pattern: $FS.rmSync($P, ...)
+              - pattern: $FS.promises.readFile($P, ...)
+              - pattern: $FS.promises.writeFile($P, ...)
+              - pattern: readFile($P, ...)
+              - pattern: readFileSync($P, ...)
+              - pattern: writeFile($P, ...)
+              - pattern: writeFileSync($P, ...)
+              - pattern: createReadStream($P, ...)
+              - pattern: createWriteStream($P, ...)
+              - pattern: unlink($P, ...)
+              - pattern: unlinkSync($P, ...)
+              - pattern: rmSync($P, ...)
+          - focus-metavariable: $P
+      - patterns:
+          - pattern-either:
+              - pattern: $RES.sendFile($P, ...)
+              - pattern: $RES.download($P, ...)
+          - metavariable-regex:
+              metavariable: $RES
+              regex: ^(res|response|ctx)$
+          - focus-metavariable: $P

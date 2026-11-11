@@ -1,0 +1,50 @@
+rules:
+  - id: traust-go-mass-assignment-bind-and-save
+    languages: [go]
+    severity: WARNING
+    message: >-
+      The request body is decoded straight into a database model and saved
+      (Create, Save or Updates), so a caller can set any field the model has
+      (ids, owner, role, flags), not just the ones the endpoint means to
+      change. Bind to a request struct and copy the allowed fields.
+      CWE-915.
+    metadata:
+      cwe: ["CWE-915"]
+      category: mass-assignment
+      asvs: ["V15"]
+      confidence: MEDIUM
+      references:
+        - "CWE-915 mass assignment — request bodies bound into GORM models and saved"
+    patterns:
+      - pattern-either:
+          - pattern-inside: |
+              $C.ShouldBindJSON(&$X)
+              ...
+          - pattern-inside: |
+              if $E := $C.ShouldBindJSON(&$X); $COND { ... }
+              ...
+          - pattern-inside: |
+              if $E := $C.ShouldBind(&$X); $COND { ... }
+              ...
+          - pattern-inside: |
+              if $E := $C.BindJSON(&$X); $COND { ... }
+              ...
+          - pattern-inside: |
+              if $E := $C.Bind(&$X); $COND { ... }
+              ...
+          - pattern-inside: |
+              $E := $C.Bind(&$X)
+              ...
+          - pattern-inside: |
+              if $E := json.NewDecoder($R.Body).Decode(&$X); $COND { ... }
+              ...
+          - pattern-inside: |
+              $E := json.NewDecoder($R.Body).Decode(&$X)
+              ...
+      - pattern-either:
+          - pattern: $DB.Create(&$X)
+          - pattern: $DB.Save(&$X)
+          - pattern: $DB.Updates(&$X)
+          - pattern: $DB.Updates($X)
+          - pattern: $DB.$MODEL(...).Updates(&$X)
+          - pattern: $DB.$MODEL(...).Updates($X)

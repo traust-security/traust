@@ -3,22 +3,27 @@
 from __future__ import annotations
 
 import argparse
-import datetime
 import json
 import shutil
-import subprocess
 import sys
+from importlib.metadata import version
 from pathlib import Path
 
-from traust_engine.adapters.govulncheck import (
-    REACH_ORDER,
-    _run_govulncheck,
-    harness_version,
-    repo_head,
+from traust_core.v1.context import Context
+from traust_core.v1.context.tool_reports import (
+    gitleaks_report,
+    govulncheck_report,
+    joern_report,
+    k8s_hardening_report,
+    opengrep_report,
+    osv_report,
+    osv_sbom_report,
+    yara_report,
 )
-from traust_engine.adapters.opengrep import _execute_opengrep_scan, resolve_rule_pack_dir
+from traust_core.v1.errors import ConfigError, IntegrityError, ValidationError
 
-from traust.cli.groups._registry import OpSpec
+from traust.cli.groups._registry import OpSpec, passthrough_op
+from traust.context import load
 
 
 def add_opengrep_args(ap) -> None:
@@ -50,7 +55,7 @@ def add_opengrep_args(ap) -> None:
     ap.add_argument("--opengrep", default="opengrep", help="opengrep binary (default: from PATH).")
 
 
-def call_opengrep(engine, args) -> int:
+def call_opengrep(args) -> int:
     target = Path(args.target).resolve()
     if not target.is_dir():
         print(f"not a directory: {target}", file=sys.stderr)
@@ -62,29 +67,26 @@ def call_opengrep(engine, args) -> int:
             file=sys.stderr,
         )
         return 1
-
     try:
-        rule_pack = resolve_rule_pack_dir(args.rule_pack, engine.ctx.locations)
-    except ValueError as e:
-        print(f"ERROR: {e}", file=sys.stderr)
-        return 1
-
-    allowlist = engine.adapters.allowlist_for_opengrep()
-    try:
-        report = _execute_opengrep_scan(
+        report = opengrep_report(
+            load(args.config_home),
             target,
             args.rules,
-            timeout=args.timeout,
-            opengrep_bin=args.opengrep,
-            rule_pack=rule_pack,
+            pack=args.rule_pack,
             rule_allow=args.rule_allow,
-            allowlist=allowlist,
-            loc=engine.ctx.locations,
+            timeout=args.timeout,
+            binary=args.opengrep,
         )
-    except subprocess.TimeoutExpired:
+    except ConfigError as e:
+        print(f"ERROR: {e}", file=sys.stderr)
+        return 1
+    except (ValidationError, IntegrityError) as e:
+        print(f"ERROR: {e}", file=sys.stderr)
+        return 2
+    except TimeoutError:
         print(f"opengrep timed out after {args.timeout}s", file=sys.stderr)
         return 1
-    except json.JSONDecodeError:
+    except RuntimeError:
         print("opengrep produced no JSON", file=sys.stderr)
         return 1
 
@@ -134,7 +136,7 @@ def add_govulncheck_args(ap) -> None:
     )
 
 
-def call_govulncheck(engine, args) -> int:
+def call_govulncheck(args) -> int:
     repo = args.repo.resolve()
     if not (repo / "go.mod").exists() and not list(repo.glob("*/go.mod")):
         print(
@@ -144,56 +146,24 @@ def call_govulncheck(engine, args) -> int:
         return 1
 
     out = args.out or Path.cwd() / f"{repo.name}-govulncheck.json"
-    profile_map = engine.adapters.safe_exec_profile_map()
-    cmd = [args.govulncheck, "-json", "./..."]
     try:
-        rc, _out, err, tool, candidates = _run_govulncheck(
+        doc = govulncheck_report(
+            load(args.config_home),
             repo,
-            args.timeout,
-            args.govulncheck,
-            profile_map=profile_map,
+            timeout=args.timeout,
+            binary=args.govulncheck,
+            harness_version=version("traust"),
         )
-    except FileNotFoundError:
-        print(
-            f"ERROR: {args.govulncheck} not found — go install "
-            "golang.org/x/vuln/cmd/govulncheck@latest",
-            file=sys.stderr,
-        )
+    except ConfigError as e:
+        print(f"config not resolvable: {e}", file=sys.stderr)
+        return 2
+    except RuntimeError as e:
+        print(f"ERROR: {e}", file=sys.stderr)
         return 1
-    except subprocess.TimeoutExpired:
-        print(f"ERROR: govulncheck exceeded {args.timeout}s", file=sys.stderr)
-        return 1
-    if not tool:
-        print(
-            f"ERROR: govulncheck produced no scan output (exit {rc}):\n{err.strip()[:2000]}",
-            file=sys.stderr,
-        )
-        return 1
-
-    summary = {lvl: 0 for lvl in REACH_ORDER}
-    for c in candidates:
-        summary[c["reachability"]] += 1
-
-    doc = {
-        "metadata": {
-            "artifact": "govulncheck-reachability-candidates",
-            "role": (
-                "candidate generator — context for audit/triage agents; "
-                "never a finding or verdict of record. 'not_observed' is "
-                "not 'unreachable'."
-            ),
-            "harness_version": harness_version(),
-            "tool": tool,
-            "repository": str(repo),
-            "commit": repo_head(repo),
-            "generated_at": datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
-            "invocation": " ".join(cmd),
-        },
-        "summary": {"osv_total": len(candidates), **summary},
-        "candidates": candidates,
-    }
     out.write_text(json.dumps(doc, indent=2) + "\n", encoding="utf-8")
 
+    summary = doc["summary"]
+    candidates = doc["candidates"]
     print(f"wrote {out}")
     print(
         f"  {len(candidates)} advisories: "
@@ -226,16 +196,12 @@ def add_checkov_args(ap) -> None:
     )
 
 
-def call_checkov(_engine, args) -> int:
-    from traust_engine.adapters.checkov import Scanner
-
+def call_checkov(args) -> int:
     target = Path(args.target).resolve()
     if not target.is_dir():
         print(f"not a directory: {target}", file=sys.stderr)
         return 2
-    scanner = Scanner(target)
-    scanner.run()
-    report = scanner.report()
+    report = k8s_hardening_report(target)
     if args.summary:
         print(f"scan_k8s_hardening: {len(report['results'])} fact(s)")
         for check, count in report.get("summary", {}).items():
@@ -273,33 +239,26 @@ def add_gitleaks_args(ap) -> None:
     ap.add_argument("--gitleaks", default="gitleaks", help="gitleaks binary")
 
 
-def call_gitleaks(engine, args) -> int:
-    from traust_engine.adapters import gitleaks as gl
-
+def call_gitleaks(args) -> int:
     repo = args.repo.resolve()
     if not repo.is_dir():
         print(f"not a directory: {repo}", file=sys.stderr)
         return 2
-    config = gl.resolve_gitleaks_config(args.config, engine.ctx.locations)
     try:
-        raw = gl._run_gitleaks(repo, args.mode, config, args.timeout, args.gitleaks)
-    except (FileNotFoundError, RuntimeError, subprocess.TimeoutExpired) as e:
+        doc = gitleaks_report(
+            load(args.config_home),
+            repo,
+            mode=args.mode,
+            config=args.config,
+            timeout=args.timeout,
+            binary=args.gitleaks,
+        )
+    except (ConfigError, FileNotFoundError, RuntimeError, TimeoutError) as e:
         print(f"ERROR: {e}", file=sys.stderr)
         return 1
-    candidates = gl.parse_report(raw, repo, args.mode)
-    doc = {
-        "metadata": {
-            "artifact": "gitleaks-secret-candidates",
-            "mode": args.mode,
-            "repository": str(repo),
-            "head": gl.repo_head(repo),
-            "gitleaks_version": gl.tool_version(args.gitleaks),
-        },
-        "candidates": candidates,
-    }
     out = args.out or Path.cwd() / f"{repo.name}-gitleaks.json"
     out.write_text(json.dumps(doc, indent=2) + "\n", encoding="utf-8")
-    print(f"gitleaks: {len(candidates)} candidate(s) → {out}")
+    print(f"gitleaks: {len(doc['candidates'])} candidate(s) → {out}")
     return 0
 
 
@@ -313,15 +272,6 @@ GITLEAKS = OpSpec(
 # ---------------------------------------------------------------------------
 # osv — dependency advisories from the OSV API, or osv-scanner when air-gapped
 # ---------------------------------------------------------------------------
-
-AIR_GAPPED_HELP = (
-    "air-gapped OSV scanning needs osv-scanner and an offline OSV database, both "
-    "provided by you (the harness installs neither) — see docs/setup.md "
-    '"Air-gapped OSV scanning"'
-)
-
-
-OSV_SCANNER_OK_EXITS = (0, 1, 128)
 
 
 def add_osv_args(ap) -> None:
@@ -344,7 +294,7 @@ def add_osv_args(ap) -> None:
         "--source",
         choices=("api", "osv-scanner"),
         default=None,
-        help="Default: the `access` setting of the osv source in feeds.yaml — api "
+        help="Default: `feeds.osv_access` in traust.yaml — api "
         "(default: the engine's manifest parsers plus the OSV API) or air-gapped "
         "(osv-scanner offline against an adopter-provided database)",
     )
@@ -352,122 +302,29 @@ def add_osv_args(ap) -> None:
     ap.add_argument("--no-freeze", action="store_true", help=argparse.SUPPRESS)
 
 
-def _osv_binary_doc(args, repo: Path):
-    from traust_engine.adapters import osv as osv_mod
-
-    proc, invocation = osv_mod.run_scanner(
-        args.osv_scanner, repo, max(args.timeout, 600), freeze=not args.no_freeze
-    )
-    if not proc.stdout.strip().startswith("{"):
-        raise RuntimeError(
-            f"osv-scanner produced no JSON (exit {proc.returncode}):\n"
-            f"{(proc.stderr or proc.stdout).strip()[:2000]}"
-        )
-    # osv-scanner exits 0 (no vulnerabilities), 1 (vulnerabilities found) or
-    # 128 (no packages). Anything else is an error even when it prints JSON:
-    # a missing offline database exits 127 with an empty, clean-looking
-    # result (measured 2026-10-20, osv-scanner 2.7.0).
-    if proc.returncode not in OSV_SCANNER_OK_EXITS:
-        errors = [ln for ln in (proc.stderr or "").splitlines() if "rror" in ln or "unable" in ln]
-        raise RuntimeError(
-            f"osv-scanner failed (exit {proc.returncode}): "
-            + ("; ".join(errors[:3]) or (proc.stderr or "").strip()[-500:])
-        )
-    scan_doc = json.loads(proc.stdout)
-    return {
-        "provenance": {
-            "source": "osv-scanner",
-            "tool_version": (scan_doc.get("experimental_config") or {}).get("version")
-            or osv_mod._tool_version(args.osv_scanner)
-            or "",
-            "invocation": invocation,
-            "status": "complete",
-        },
-        "candidates": osv_mod.parse_output(scan_doc, repo),
-    }
+def _osv_core(args, source: str) -> tuple[Context, str | None, float]:
+    """The Context for an osv run (the feeds registry for the API), the osv-scanner binary when
+    air-gapped, and the timeout."""
+    core = load(args.config_home)
+    if source == "osv-scanner":
+        return core, args.osv_scanner, max(args.timeout, 600)
+    core.register_feeds()
+    return core, None, args.timeout
 
 
-def _failed_binary_doc(detail: str) -> dict:
-    return {
-        "provenance": {
-            "source": "osv-scanner",
-            "status": "failed",
-            "failure": {"status": "error", "detail": detail},
-        },
-        "candidates": [],
-    }
-
-
-def _sbom_body(args, source: str) -> dict:
-    """An image's language packages: OSV API, or osv-scanner offline when air-gapped."""
-    import tempfile
-
-    from traust_engine.adapters import osv_sbom
-    from traust_engine.osv import OsvClient
-
-    from traust.registry.osv_urls import nuget_ids, osv_query_url
-
-    doc = osv_sbom.load_syft(args.sbom)
-    if source == "api":
-        client = OsvClient(osv_query_url(), timeout=args.timeout, nuget_ids=nuget_ids())
-        return osv_sbom.scan_sbom(doc, client)
-    packages, stats = osv_sbom.collect_sbom_packages(doc)
-    try:
-        with tempfile.TemporaryDirectory() as tmp:
-            cdx = osv_sbom.write_cyclonedx(packages, Path(tmp) / "packages.cdx.json")
-            proc, invocation = osv_sbom.run_offline(args.osv_scanner, cdx, max(args.timeout, 600))
-        if proc.returncode not in OSV_SCANNER_OK_EXITS or not proc.stdout.strip().startswith("{"):
-            errors = [
-                ln for ln in (proc.stderr or "").splitlines() if "rror" in ln or "unable" in ln
-            ]
-            raise RuntimeError(
-                f"osv-scanner failed (exit {proc.returncode}): "
-                + ("; ".join(errors[:3]) or (proc.stderr or "").strip()[-500:])
-            )
-        body = {
-            "provenance": {"source": "osv-scanner", "invocation": invocation, "status": "complete"},
-            "candidates": osv_sbom.parse_offline(json.loads(proc.stdout), packages),
-        }
-    except FileNotFoundError:
-        body = _failed_binary_doc(f"osv-scanner not found ({args.osv_scanner}): {AIR_GAPPED_HELP}")
-    except (subprocess.TimeoutExpired, RuntimeError) as e:
-        body = _failed_binary_doc(f"{e} — {AIR_GAPPED_HELP}")
-    osv_sbom._with_stats(body["provenance"], stats, doc)
-    return body
-
-
-def _deps_dev_resolver(engine, args):
-    """deps.dev client per feeds.yaml: on by default, off with `access: disabled`."""
-    from traust_engine.depsdev import DepsDevClient
-
+def _note_unresolved_manifests() -> None:
     from traust.registry.osv_urls import deps_dev_settings
 
-    settings = deps_dev_settings()
-    if settings is None:
+    if deps_dev_settings() is None:
         print(
-            "NOTE: no deps_dev source in feeds.yaml: manifests without a lockfile are not "
-            "resolved (add it from the shipped config/feeds.yaml to enable)",
+            "NOTE: no deps_dev source in the feeds registry: manifests without a lockfile are "
+            "not resolved",
             file=sys.stderr,
         )
-        return None
-    url, access = settings
-    if access == "disabled":
-        return None
-    cache = None
-    try:
-        from traust.context import feeds_cache_dir
-
-        cache = feeds_cache_dir(engine) / "deps-dev" if engine is not None else None
-    except Exception:  # no configured cache: resolution still runs, uncached
-        cache = None
-    return DepsDevClient(url, timeout=args.timeout, cache_dir=cache)
 
 
-def call_osv(_engine, args) -> int:
-    from traust_engine.adapters import osv as osv_mod
-    from traust_engine.osv import OsvClient
-
-    from traust.registry.osv_urls import nuget_ids, osv_access, osv_query_url
+def call_osv(args) -> int:
+    from traust.registry.osv_urls import osv_access
 
     source = args.source or ("osv-scanner" if osv_access() == "air-gapped" else "api")
     if args.sbom is not None:
@@ -479,27 +336,16 @@ def call_osv(_engine, args) -> int:
     if not repo.is_dir():
         print(f"not a directory: {repo}", file=sys.stderr)
         return 2
-    if source == "osv-scanner":
-        try:
-            body = _osv_binary_doc(args, repo)
-        except FileNotFoundError:
-            body = _failed_binary_doc(
-                f"osv-scanner not found ({args.osv_scanner}): {AIR_GAPPED_HELP}"
-            )
-        except (subprocess.TimeoutExpired, RuntimeError) as e:
-            body = _failed_binary_doc(f"{e} — {AIR_GAPPED_HELP}")
-    else:
-        body = osv_mod.scan_api(
-            repo,
-            OsvClient(osv_query_url(), timeout=args.timeout, nuget_ids=nuget_ids()),
-            resolver=_deps_dev_resolver(_engine, args),
-        )
+    core, scanner, timeout = _osv_core(args, source)
+    if scanner is None:
+        _note_unresolved_manifests()
+    body = osv_report(core, repo, scanner=scanner, timeout=timeout, freeze=not args.no_freeze)
     prov = body["provenance"]
     doc = {
         "metadata": {
             "artifact": "osv-dependency-candidates",
             "repository": str(repo),
-            "harness_version": harness_version(),
+            "harness_version": version("traust"),
             **prov,
         },
         "candidates": body["candidates"],
@@ -509,38 +355,30 @@ def call_osv(_engine, args) -> int:
 
 
 def _call_osv_sbom(args, source: str) -> int:
-    from traust_engine.adapters import osv_sbom
-
     sbom = args.sbom.resolve()
     if not sbom.is_file():
         print(f"not a file: {sbom}", file=sys.stderr)
         return 2
-    try:
-        body = _sbom_body(args, source)
-    except (osv_sbom.SbomFormatError, json.JSONDecodeError) as e:
-        print(f"ERROR: {e}", file=sys.stderr)
-        return 2
-    prov = body["provenance"]
-    grype_os_installed = None
+    grype = None
     if args.grype is not None:
         try:
-            grype_doc = json.loads(args.grype.read_text(encoding="utf-8"))
+            grype = json.loads(args.grype.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as e:
             print(f"ERROR: cannot read --grype {args.grype}: {e}", file=sys.stderr)
             return 2
-        # grype's own matches on OS-installed language packages: listed even
-        # when the OSV lookup failed, since they come from grype and the SBOM
-        grype_os_installed = osv_sbom.grype_os_installed_matches(
-            grype_doc, osv_sbom.load_syft(args.sbom)
-        )
-        prov["grype_os_installed_matches"] = len(grype_os_installed)
-        if prov.get("status") != "failed":
-            prov["grype_dedupe"] = osv_sbom.mark_grype_duplicates(body["candidates"], grype_doc)
+    core, scanner, timeout = _osv_core(args, source)
+    try:
+        body = osv_sbom_report(core, args.sbom, scanner=scanner, timeout=timeout, grype=grype)
+    except ValueError as e:  # not syft JSON
+        print(f"ERROR: {e}", file=sys.stderr)
+        return 2
+    prov = body["provenance"]
+    grype_os_installed = body.get("grype_os_installed")
     doc = {
         "metadata": {
             "artifact": "osv-dependency-candidates",
             "sbom": str(sbom),
-            "harness_version": harness_version(),
+            "harness_version": version("traust"),
             **prov,
         },
         "candidates": body["candidates"],
@@ -626,152 +464,6 @@ OSV = OpSpec(
 
 
 # ---------------------------------------------------------------------------
-# llm-app — deterministic LLM, agent and MCP application detection
-# ---------------------------------------------------------------------------
-
-
-def add_llm_app_args(ap) -> None:
-    ap.add_argument("--repo", required=True, type=Path, help="Target checkout")
-    ap.add_argument("--out", type=Path, help="Output JSON (default: <repo>-llm-app.json)")
-
-
-def call_llm_app(_engine, args) -> int:
-    from traust_engine.adapters import llm_app
-
-    repo = args.repo.resolve()
-    if not repo.is_dir():
-        print(f"not a directory: {repo}", file=sys.stderr)
-        return 2
-    body = llm_app.detect(repo)
-    doc = {
-        "metadata": {
-            "artifact": "llm-app-detection",
-            "repository": str(repo),
-            "harness_version": harness_version(),
-            "detected_at": datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
-            **body["stats"],
-        },
-        "llm_application": body["llm_application"],
-        "kinds": body["kinds"],
-        "signals": body["signals"],
-        "files": body["files"],
-    }
-    out = args.out or Path.cwd() / f"{repo.name}-llm-app.json"
-    out.write_text(json.dumps(doc, indent=2) + "\n", encoding="utf-8")
-    if body["llm_application"]:
-        print(
-            f"llm-app: LLM application ({', '.join(body['kinds'])}); "
-            f"{len(body['files'])} file(s) tagged → {out}"
-        )
-    else:
-        print(f"llm-app: no LLM, agent or MCP signals → {out}")
-    return 0
-
-
-LLM_APP = OpSpec(
-    add_args=add_llm_app_args,
-    call=call_llm_app,
-    help="Deterministic LLM, agent and MCP application detection (gates the LLM review)",
-)
-
-
-# ---------------------------------------------------------------------------
-# below-range — evidence packets for advisories whose stated range starts above
-# the installed version (traust_engine.applicability; Go, PyPI, npm, Maven, Cargo)
-# ---------------------------------------------------------------------------
-
-
-def add_below_range_args(ap) -> None:
-    ap.add_argument("--repo", type=Path, required=True, help="Target checkout")
-    ap.add_argument(
-        "--out", type=Path, help="Packet directory (default: <repo>-below-range/ beside it)"
-    )
-    ap.add_argument(
-        "--ecosystems",
-        default="Go,PyPI,npm,Maven,crates.io,RubyGems,NuGet",
-        help=(
-            "Comma list of OSV ecosystem names "
-            "(supported: Go, PyPI, npm, Maven, crates.io, RubyGems, NuGet)"
-        ),
-    )
-    ap.add_argument("--max-candidates", type=int, default=100)
-    ap.add_argument("--timeout", type=int, default=60, help="Per-request OSV timeout, seconds")
-
-
-def call_below_range(engine, args) -> int:
-    from traust_engine.applicability import build
-    from traust_engine.applicability.fetch import Fetcher
-    from traust_engine.osv import OsvClient, Query
-
-    from traust.registry.applicability_sources import applicability_hosts
-    from traust.registry.osv_urls import nuget_ids, osv_access, osv_query_url
-
-    repo = Path(args.repo).resolve()
-    if not repo.is_dir():
-        print(f"not a directory: {repo}", file=sys.stderr)
-        return 2
-    if osv_access() == "air-gapped":
-        print(
-            "below-range needs the OSV API and the package registries; feeds.yaml sets the "
-            "osv source air-gapped",
-            file=sys.stderr,
-        )
-        return 2
-    client = OsvClient(osv_query_url(), timeout=args.timeout, nuget_ids=nuget_ids())
-    failure = client.probe(Query("PyPI", "requests", "2.19.0"))
-    if failure:
-        print(f"OSV unreachable: {failure[0]}: {failure[1]}", file=sys.stderr)
-        return 2
-    hosts = applicability_hosts()
-    if hosts is None:
-        print(
-            "NOTE: feeds.yaml names no fix-patches or package-source source: using the "
-            "engine's built-in hosts (add them from the shipped config/feeds.yaml)",
-            file=sys.stderr,
-        )
-        fetcher = Fetcher()
-    else:
-        fetcher = Fetcher(
-            forges=hosts.forges, registries=hosts.registries, redirects=hosts.redirects
-        )
-    out = args.out or repo.parent / f"{repo.name}-below-range"
-    index = build(
-        repo,
-        out,
-        ecosystems=tuple(e.strip() for e in args.ecosystems.split(",") if e.strip()),
-        max_candidates=args.max_candidates,
-        client=client,
-        fetcher=fetcher,
-        # the dependencies a fix's code imports, resolved as the OSV pre-scan
-        # resolves them (deps.dev; `access: disabled` turns it off)
-        resolver=_deps_dev_resolver(engine, args),
-    )
-    gaps: dict[str, int] = {}
-    for g in index["coverage_gaps"]:
-        gaps[g["reason"]] = gaps.get(g["reason"], 0) + 1
-    print(
-        json.dumps(
-            {
-                "out": str(out),
-                "installed_exact": index["installed_exact"],
-                "candidates": index["candidates"],
-                "packets": len(index["packets"]),
-                "coverage_gaps": gaps,
-                "status": index["status"],
-            }
-        )
-    )
-    return 3 if index["status"] == "degraded" else 0
-
-
-BELOW_RANGE = OpSpec(
-    add_args=add_below_range_args,
-    call=call_below_range,
-    help="Evidence packets for advisories whose stated range starts above the installed version",
-)
-
-
-# ---------------------------------------------------------------------------
 # yara
 # ---------------------------------------------------------------------------
 
@@ -790,22 +482,24 @@ def add_yara_args(ap) -> None:
     ap.add_argument("--max-file-mb", type=int, default=64)
 
 
-def call_yara(_engine, args) -> int:
-    from traust_engine.adapters import yara as yara_mod
-
+def call_yara(args) -> int:
     target = Path(args.target).resolve()
     if not target.is_dir():
         print(f"not a directory: {target}", file=sys.stderr)
         return 2
     try:
-        report = yara_mod._execute_yara_scan(
+        report = yara_report(
+            load(args.config_home),
             target,
             args.rules,
             timeout=args.timeout,
-            yara_bin=args.yara,
+            binary=args.yara,
             max_file_mb=args.max_file_mb,
         )
-    except (FileNotFoundError, RuntimeError, subprocess.TimeoutExpired) as e:
+    except ValidationError as e:
+        print(f"ERROR: {e}", file=sys.stderr)
+        return 2
+    except (FileNotFoundError, RuntimeError, TimeoutError) as e:
         print(f"ERROR: {e}", file=sys.stderr)
         return 1
     out = args.out or Path.cwd() / f"{target.name}-yara.json"
@@ -846,23 +540,24 @@ def add_joern_args(ap) -> None:
     ap.add_argument("--max-sites", type=int, default=200)
 
 
-def call_joern(_engine, args) -> int:
-    from traust_engine.adapters import joern as joern_mod
-
+def call_joern(args) -> int:
     repo = args.repo.resolve()
     if not repo.is_dir():
         print(f"not a directory: {repo}", file=sys.stderr)
         return 2
-    doc = joern_mod._run_joern_scan(
+    doc = joern_report(
+        load(args.config_home),
         repo,
-        symbols=list(args.symbols) or None,
-        timeout=args.timeout,
-        max_sites=args.max_sites,
+        symbols=args.symbols,
         language=args.language,
         packages=args.packages,
         module=args.module,
+        timeout=args.timeout,
+        max_sites=args.max_sites,
     )
-    joern_mod.emit(args.out, doc)
+    args.out.parent.mkdir(parents=True, exist_ok=True)
+    args.out.write_text(json.dumps(doc, indent=1) + "\n", encoding="utf-8")
+    print(f"joern-reachability: {doc['status']} → {args.out}")
     return 0
 
 
@@ -873,137 +568,32 @@ JOERN = OpSpec(
 )
 
 
-# ---------------------------------------------------------------------------
-# crypto-probe
-# ---------------------------------------------------------------------------
-
-
-def add_crypto_probe_args(ap) -> None:
-    ap.add_argument("--repo-dir", required=True, type=Path, help="Repository root")
-    ap.add_argument("-o", "--out", type=Path, help="Write JSON facts (default: stdout)")
-    ap.add_argument("--json", action="store_true", help="Emit JSON (default when -o omitted)")
-
-
-def call_crypto_probe(_engine, args) -> int:
-    from dataclasses import asdict
-
-    from traust_engine.adapters import crypto_probe as cp
-
-    repo = args.repo_dir.resolve()
-    if not repo.is_dir():
-        print(f"not a directory: {repo}", file=sys.stderr)
-        return 2
-    facts = [asdict(f) for f in cp.probe_repo(repo)]
-    payload = json.dumps(facts, indent=2) + "\n"
-    if args.out:
-        args.out.write_text(payload, encoding="utf-8")
-        print(f"crypto-probe: {len(facts)} fact(s) → {args.out}")
-    else:
-        print(payload, end="")
-    return 0
-
-
-CRYPTO_PROBE = OpSpec(
-    add_args=add_crypto_probe_args,
-    call=call_crypto_probe,
-    help="Source-level crypto provider census (CRYPTO_* facts)",
+# crypto-analysis's doors on traust-core (traust.cli.crypto)
+CRYPTO_SOURCE = passthrough_op("crypto", "A commit's crypto census (checkout + SBOM).", "source")
+CRYPTO_IMAGE = passthrough_op("crypto", "An image's crypto census, by digest.", "image")
+CRYPTO_CLUSTER = passthrough_op(
+    "crypto", "A cluster's runtime crypto census, scope-gated.", "cluster"
 )
 
-
-# ---------------------------------------------------------------------------
-# crypto-audit (source | image | cluster)
-# ---------------------------------------------------------------------------
-
-
-def add_crypto_audit_args(ap) -> None:
-    sub = ap.add_subparsers(dest="crypto_audit_cmd", required=True)
-
-    src = sub.add_parser("source", help="Source-level repo crypto census")
-    src.add_argument("path", type=Path, help="Repository root directory")
-    src.add_argument("--from-sbom", type=Path, default=None, help="Optional CycloneDX SBOM")
-    _add_crypto_audit_common(src)
-
-    img = sub.add_parser("image", help="Container image structural data extraction")
-    img.add_argument("image", help="Container image reference")
-    img.add_argument(
-        "--runtime",
-        choices=["podman", "docker"],
-        default="",
-        help="Container runtime (auto-detected if omitted)",
-    )
-    img.add_argument("--platform", default="", help="Platform override (e.g. linux/arm64)")
-    img.add_argument("--no-pull", action="store_true", help="Skip image pull")
-    _add_crypto_audit_common(img)
-
-    cl = sub.add_parser("cluster", help="Runtime cluster data collection via oc")
-    cl.add_argument("--context", required=True, help="Kubeconfig context name")
-    cl.add_argument(
-        "--namespaces",
-        nargs="+",
-        required=True,
-        help="Namespaces to probe",
-    )
-    cl.add_argument(
-        "--targets",
-        required=True,
-        type=Path,
-        help="Mode-1 rules-of-engagement targets.yaml for scope gating",
-    )
-    cl.add_argument(
-        "--discover",
-        action="store_true",
-        help="Enumerate services in namespaces and probe each for TLS",
-    )
-    cl.add_argument(
-        "--groups",
-        default="",
-        help="TLS groups to offer (e.g. X25519MLKEM768:X25519)",
-    )
-    _add_crypto_audit_common(cl)
-
-
-def _add_crypto_audit_common(ap) -> None:
-    ap.add_argument("--component", default="", help="Component name for governance chain keying")
-    ap.add_argument("--output", "-o", default="", help="Write JSON to file (default: stdout)")
-    ap.add_argument("--quiet", "-q", action="store_true", help="Suppress progress on stderr")
-
-
-def call_crypto_audit(_engine, args) -> int:
-    from traust_engine.adapters import crypto_audit as ca
-
-    out = Path(args.output) if args.output else None
-    if args.crypto_audit_cmd == "source":
-        return ca.audit_source(
-            args.path,
-            from_sbom=args.from_sbom,
-            component=args.component,
-            output=out,
-            quiet=args.quiet,
-        )
-    if args.crypto_audit_cmd == "image":
-        return ca.audit_image(
-            args.image,
-            runtime=args.runtime,
-            platform=args.platform,
-            no_pull=args.no_pull,
-            component=args.component,
-            output=out,
-            quiet=args.quiet,
-        )
-    return ca.audit_cluster(
-        args.context,
-        args.namespaces,
-        targets=args.targets,
-        discover=args.discover,
-        groups=args.groups,
-        component=args.component,
-        output=out,
-        quiet=args.quiet,
-    )
-
-
-CRYPTO_AUDIT = OpSpec(
-    add_args=add_crypto_audit_args,
-    call=call_crypto_audit,
-    help="Crypto data collector (source | image | cluster)",
+# secure-code-audit's pre-scans on traust-core's code facts (traust.cli.code_facts)
+ROUTE_GUARDS = passthrough_op("code_facts", "A checkout's route x guard matrix.", "route_guards")
+GRPC_GUARDS = passthrough_op(
+    "code_facts", "A checkout's gRPC service x interceptor matrix.", "grpc_guards"
 )
+LLM_APP = passthrough_op(
+    "code_facts", "Whether a checkout is an LLM, agent or MCP application.", "llm_app"
+)
+CONFIG_MATRIX = passthrough_op(
+    "code_facts", "A checkout's effective deployed defaults.", "config_matrix"
+)
+SANITIZERS = passthrough_op("code_facts", "A checkout's sanitizer-shaped functions.", "sanitizers")
+FORK_LAG = passthrough_op(
+    "code_facts", "A checkout's fork signals and in-range upstream advisories.", "fork_lag"
+)
+PRIV_PROFILE = passthrough_op(
+    "code_facts", "A checkout's operator privilege profile (tiers 1-2).", "priv_profile"
+)
+
+# secure-container-audit's image doors on traust-core (traust.cli.image)
+IMAGE_SBOM = passthrough_op("image", "Record an image's SBOM, keyed by digest.", "sbom")
+IMAGE_PACKAGES = passthrough_op("image", "The packages an image's recorded SBOM holds.", "packages")

@@ -1,0 +1,45 @@
+rules:
+  - id: traust-go-cors-any-origin-with-credentials
+    languages: [go]
+    severity: ERROR
+    message: >-
+      CORS accepts any origin and allows credentials: an origin check that
+      always returns true, rs/cors with a "*" origin (it echoes the caller's
+      Origin), echo's unsafe wildcard option, or the Origin header copied
+      into Access-Control-Allow-Origin. Any site can then make requests with
+      the user's cookies and read the responses. List the allowed origins
+      explicitly. CWE-942.
+    metadata:
+      cwe: ["CWE-942", "CWE-346"]
+      category: cors
+      asvs: ["V3"]
+      confidence: HIGH
+      references:
+        - "CWE-942 permissive cross-origin policy — any origin with credentials"
+    pattern-either:
+      - patterns:
+          - pattern-either:
+              - pattern: '$PKG.Options{..., AllowedOrigins: []string{"*"}, ...}'
+              - pattern: '$PKG.Options{..., AllowOriginFunc: func($O string) bool { return true }, ...}'
+              - pattern: '$PKG.Options{..., AllowOriginRequestFunc: func($R *http.Request, $O string) bool { return true }, ...}'
+              - pattern: '$PKG.Config{..., AllowOriginFunc: func($O string) bool { return true }, ...}'
+              - pattern: '$PKG.CORSConfig{..., AllowOriginFunc: func($O string) (bool, error) { return true, nil }, ...}'
+              - pattern: '$PKG.CORSConfig{..., UnsafeWildcardOriginWithAllowCredentials: true, ...}'
+          - pattern-either:
+              - pattern: '$PKG.$T{..., AllowCredentials: true, ...}'
+      - patterns:
+          - pattern: $W.Header().Set("Access-Control-Allow-Origin", $R.Header.Get("Origin"))
+          - pattern-inside: |
+              func $F(...) {
+                ...
+                $W.Header().Set("Access-Control-Allow-Credentials", "true")
+                ...
+              }
+      - patterns:
+          - pattern: $W.Header().Set("Access-Control-Allow-Origin", $R.Header.Get("Origin"))
+          - pattern-inside: |
+              func(...) {
+                ...
+                $W.Header().Set("Access-Control-Allow-Credentials", "true")
+                ...
+              }

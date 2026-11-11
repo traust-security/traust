@@ -1,9 +1,9 @@
 {
-  "tree_version": "1.0.0",
+  "tree_version": "2.0.0",
   "plan": "progress-tracker/plans/pqc-readiness-campaign-plan.md (v1.3, sections 4.3, 4.5-4.7)",
   "schema": "schema/pqc-decision-tree.schema.json",
   "provenance_tree": {
-    "_comment": "Ordered rules; first match wins. Conditions reference fact families and provider-census facts from pqc_facts.py.",
+    "_comment": "Ordered rules; first match wins. Conditions reference fact families and provider-census facts produced and recorded by Core through traust pqc prescan.",
     "rules": [
       {"provenance": "vendored", "when": "fact paths are vendor-tagged (VENDOR_RX)"},
       {"provenance": "externalized", "when": "zero crypto facts AND portfolio graph shows sidecar/route TLS termination for the product"},
@@ -15,29 +15,29 @@
     ]
   },
   "remediation_effort": {
-    "_comment": "Deterministic mapping, plan v1.3 section 4.5. Keyed by provenance, refined by agility facts.",
+    "_comment": "Ordered rules; first match wins. Provenance/agility facts do not establish effort size: null means unknown. Canonical sizes are defined by traust-contracts enums/v1/effort.json, with no duration thresholds or legacy-label mapping. Only the first rule establishes external blocking; omitted blocked_external remains unknown. If no rule matches, size remains null and blocking requires separate evidence.",
     "rules": [
-      {"effort": "blocked-external", "when": "provenance in [vendored, externalized] OR (delegated-dependency AND library has no PQC roadmap)"},
-      {"effort": "significant", "when": "native-first-party AND (AGIL-1 or AGIL-2 or AGIL-6 = no)"},
-      {"effort": "moderate", "when": "delegated-dependency OR (inherited-constrained AND pin facts > 1) OR (native-first-party AND AGIL-3/6 = yes)"},
-      {"effort": "trivial", "when": "inherited-platform OR (inherited-constrained AND pin facts == 1)"}
+      {"effort": null, "blocked_external": true, "when": "provenance in [vendored, externalized] OR (delegated-dependency AND library has no PQC roadmap)"},
+      {"effort": null, "when": "native-first-party AND (AGIL-1 or AGIL-2 or AGIL-6 = no)"},
+      {"effort": null, "when": "delegated-dependency OR (inherited-constrained AND pin facts > 1) OR (native-first-party AND AGIL-3/6 = yes)"},
+      {"effort": null, "when": "inherited-platform OR (inherited-constrained AND pin facts == 1)"}
     ],
-    "classes": ["trivial", "moderate", "significant", "blocked-external"]
+    "classes": ["xs", "s", "m", "l", "xl"]
   },
   "readiness_buckets": {
-    "_comment": "Plan v1.3 section 4.6; thresholds are calibration knob 5.",
+    "_comment": "Plan v1.3 section 4.6; thresholds are calibration knob 5. Evaluate rules in listed order, first match wins, then apply bucket_override. Predicates preserve the original ordered provenance/agility branches, independently of effort size or separately evidenced blocking. Keep the existing dominant-blocking selection and all-clock-items quantifier (including its empty-set behavior); do not introduce new aggregation or fallback rules.",
     "score_ready_min": 80,
     "score_partial_min": 50,
     "rules": [
       {"bucket": "not-applicable", "when": "zero-hit with coverage assertion, OR sbom-only with all scored checks na"},
-      {"bucket": "blocked-external", "when": "dominant blocking effort class is blocked-external"},
+      {"bucket": "blocked-external", "when": "dominant blocking condition is provenance in [vendored, externalized] OR (provenance=delegated-dependency AND library has no PQC roadmap)"},
       {"bucket": "ready", "when": "overall >= 80 AND no 2030-clock items AND PQCA-1 = yes"},
-      {"bucket": "partial", "when": "overall in [50, 80) OR all clock items trivial/moderate"},
-      {"bucket": "not-ready", "when": "overall < 50 OR any significant-effort clock item"}
+      {"bucket": "partial", "when": "overall in [50, 80) OR all clock items satisfy (NOT (provenance in [vendored, externalized] OR (provenance=delegated-dependency AND library has no PQC roadmap)) AND NOT (provenance=native-first-party AND (AGIL-1 or AGIL-2 or AGIL-6 = no)) AND (provenance=delegated-dependency OR (provenance=inherited-constrained AND pin facts > 1) OR (provenance=native-first-party AND AGIL-3/6 = yes) OR provenance=inherited-platform OR (provenance=inherited-constrained AND pin facts == 1)))"},
+      {"bucket": "not-ready", "when": "overall < 50 OR any clock item satisfies provenance=native-first-party AND (AGIL-1 or AGIL-2 or AGIL-6 = no)"}
     ],
     "buckets": ["ready", "partial", "not-ready", "blocked-external", "not-applicable"],
     "bucket_override": [
-      {"override_to": "partial", "when": "overall >= 80 AND any clock_item has blast_radius=fleet AND remediation_effort=significant", "rationale_field": "blast_radius_caveat"}
+      {"override_to": "partial", "when": "overall >= 80 AND any clock_item has blast_radius=fleet AND provenance=native-first-party AND (AGIL-1 or AGIL-2 or AGIL-6 = no)", "rationale_field": "blast_radius_caveat"}
     ]
   },
   "tls_control_crosswalk": {

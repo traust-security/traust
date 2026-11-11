@@ -20,6 +20,9 @@ Optional: --push-sheet <spreadsheet-id> [--tab <title>] upserts the rows
 into a Google Sheets tab using a `gcloud auth print-access-token` bearer
 token (requires a Drive-scoped gcloud login; see the PQC campaign notes).
 
+Kept until `<slug>-xcrypto-usage.json` (scan_xcrypto_usage.py) has a contracts schema traust-core
+can record (NEED(Michele: xcrypto-usage artifact or code-facts section)).
+
 Usage:
     python3 build_xcrypto_tracker.py --results-root <analysis-results> \
         [--out-dir DIR] [--push-sheet ID] [--tab TITLE]
@@ -37,7 +40,7 @@ from pathlib import Path
 
 from traust.context import (
     add_config_home_arg,
-    load_engine,
+    load,
     progress_tracker_dir,
     resolve_results_root,
 )
@@ -271,11 +274,11 @@ def main() -> int:
     ap.add_argument("--tab", default="Hybrid Platforms Sec (PQC static sweep)")
     args = ap.parse_args()
     results = resolve_results_root(args)
-    engine = load_engine(args.config_home)
+    core = load(args.config_home)
     out_dir = (
         args.out_dir.resolve()
         if args.out_dir
-        else progress_tracker_dir(engine) / "metrics" / "dashboards" / "pqc"
+        else progress_tracker_dir(core) / "metrics" / "dashboards" / "pqc"
     )
     rows = collect(results)
     out_dir.mkdir(parents=True, exist_ok=True)

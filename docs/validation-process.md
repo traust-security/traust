@@ -1,121 +1,164 @@
-# Validation Process — how live validation reaches a trustworthy verdict
+# Validation Process — from observations to core-owned decisions
 
-The reference for the validate* lanes (`/validate-findings`,
-`/validate-browser-finding`): what a verdict must survive before it
-enters the disposition ledger. The doctrine behind the gates is
-[error-model.md](error-model.md) (machines confirm, humans dismiss); the
-lane procedure is the
-[validate-findings skill](../harnessing/5-validate/validate-findings/SKILL.md);
-how the resulting events are weighed and countersigned is
-[disposition-ledger.md](disposition-ledger.md) §5–§6.
+The validate lanes assess claims against explicitly authorized targets. Scope and
+live execution remain separate from recording already-produced evidence. The
+[validate-findings skill](../harnessing/5-validate/validate-findings/SKILL.md)
+describes the existing guarded runner; the [record protocol](cli-reference.md#machine-validation-recording)
+is callable without contacting any live target.
 
-## Mission — three purposes
+`traust admin attest-target --url <authorized-target> --out <run>/target-attestation.json`
+records only browser-lane HTTP answer presence, separately from authentication,
+authorization, browser usability and finding validity. An answering non-5xx endpoint,
+including HTTP 401, 403 or 429, satisfies `url-reachable`; it does not prove that the
+validator can log in or exercise the intended action. Transport errors, TLS failures
+and HTTP 5xx responses fail that required check. `attested` remains the AND of every
+required check: an answering URL cannot override a failed version or cluster check.
+The command writes its artifact and exits zero for either attestation result;
+consumers must inspect `attested` and the individual checks, not infer success from exit status.
 
-1. **Validity** — prove or refute that a finding is an accurate,
-   exploitable security issue against an authorized live target.
-2. **Severity** — validate the assigned severity: a live run turns CVSS
-   vector components from estimates into observations.
-3. **Chaining** — identify further issues by combining findings into
-   demonstrated attack chains; chain membership is severity evidence
-   for its constituents.
+The pack owns this narrow preflight policy in `attest_target._url_answer_check`, with
+the cutoff pinned by the HTTP-status matrix in `tests/test_target_attestation.py`.
+Both normal responses and HTTP errors pass through that same policy. Preflight uses
+one urllib GET operation with a 15-second `urlopen` timeout and normal redirect handling;
+it closes responses without reading bodies and does not apply application retries or
+wait on `Retry-After`.
 
-## The gate stack (every verdict passes all of these)
+This is deliberately not Core's provider-fetch success policy. Core is a required,
+installed dependency, selected by `pyproject.toml`; its public `Context.http` door
+owns retried body fetching. Its public `get`/`fetch` results do not retain successful
+HTTP status, and `stream` promises body consumption, not a status-probe result.
+Provider refusals and exhausted retries therefore are not an interchangeable
+attestation taxonomy. Sharing this transport would first need a public status-only,
+one-attempt probe preserving HTTP answers, rather than importing Core provider internals,
+copying retry policy or silently changing the preflight claim.
 
-Layered fail-closed controls, in execution order. Each gate quarantines
-to `needs_review` — never silently drops, never emits a false-positive
-ledger event. This table is the single list of gates; other documents
-link here rather than restating it.
+The [main-branch remediation (PR #353)](https://github.com/traust-security/traust/pull/353)
+uses the same non-5xx-answer policy. This development follow-up preserves that URL
+semantics; authorization and soundness remain separate validation gates.
 
-| # | Gate | Question it answers | Quarantine flags |
-|---|---|---|---|
-| 0 | **Target attestation** (python3 -m traust.cli admin attest-target → `target-attestation.json`) | *Is the environment even testable?* Cluster reachable, operator installed, pods Ready, version inside the affected range, endpoint answering. `attested: false` voids **every** verdict in the run, confirmed and refuted alike. | `environment_invalid`; `attestation_missing` when the artifact is absent |
-| 0b | **Positive controls** (`step_result.controls[]`) | *Did the assay work?* Every refutation-capable probe pairs a same-session action that must succeed (known-allowed RBAC action, planted canary secret, owned page) or must be denied. | `failed-positive-control` at any age; `missing-positive-control` when no control passed |
-| 0c | **Differential probing** (`step_result.differential`) | *Can the oracle discriminate?* Authz refutations probe the claimed action AND a neighbour with a known-different expected outcome. | `non-discriminating-oracle` when outcomes are identical, at any age; `missing-differential-probe` for an authz refutation without a pair |
-| 0d | **Evidence grades** (`validated_finding.evidence_grade`) | *How strong is a confirmation?* E0 observed effect · E1 authenticated success on the exploit action · E2 strong inference · E3 error-message inference. Only E0/E1 are execution-class evidence with override power over human FP signatures; E2 records as machine-static with a grade annotation; E3 never auto-confirms. | `weak_confirmation` (E3, any age); `ungraded_confirmation` |
-| 1 | **Soundness signatures** (`soundness.py`) | *Does the transcript actually test the claim?* Error-signature transcripts, zero-subject RBAC enumerations, template placeholders, install-failure runs. | `unsound_refutation` |
-| 1b | **Conflict routing** (`derive_disposition`) | *Do the lanes agree?* Confirmed and false_positive both in evidence (fuzz confirms, live refutes) adjudicates as a CONFLICT card carrying both transcripts and DECISION markers — never as an unopposed FP countersign. | — (card type, not a quarantine) |
-| 2 | **Ledger discipline** (`emit_validation_ledger_events.py`) | Machine `refuted` → countersign queue (humans dismiss); machine `confirmed` → class-1 evidence (machines confirm); quarantined items → `needs_review` with the flag and transcript on the countersign card. | — |
+## Recording owner and gates
 
-**Grandfathering.** Gates that require *new* artifacts apply only to
-reports at or after the harness version that introduced the artifact
-(the `*_SINCE` constants in the emitter: attestation 0.176.0, controls
-0.177.0, differential 0.178.0, grades 0.179.0); older reports pass those
-gates ungated. Gates that detect *broken* evidence (failed control,
-non-discriminating oracle, error signatures) apply at any age.
-Pre-grade confirmations keep their historical class-1 weight.
+`traust validation record` parses exact report bytes as core's
+`ValidationArtifact`, then calls `Context.services().validation.record` with explicit
+stored source/finding bindings and the actual producer run's provenance. It does
+not discover baselines, reinterpret source labels as UUIDs, walk source paths,
+authenticate a machine as a human, or write a second ledger/state format.
+
+Core's `ValidationObservations.soundness` owns the policy;
+legacy executor/report adapters translate observations into those models, not a
+second app implementation of the rules.
+
+| Gate | Required observation and outcome |
+|---|---|
+| Target attestation | Full embedded or explicitly supplied `target-attestation.json`; explicit false voids EVERY verdict, at any age. Missing required evidence retains `attestation_missing`; failed evidence retains `environment_invalid`. Both route to review without a validity decision. |
+| Positive controls | Real same-session controls on refuting probes; failed controls are unsound at every age, missing passing controls are unsound when required. No control is fabricated from an expected result. |
+| Differential probe | An authz oracle must distinguish the claimed action from a known-different neighbour when required. A nondiscriminating observation is unsound at every age. |
+| Transcript soundness | Probe errors, validator Forbidden/auth failures, zero-subject RBAC, unsubstituted templates, absent target and supplied install-failure observations cannot refute a claim. Their retained detailed cause reaches review. |
+| Explicit evidence grade | E3 confirmations and current-policy ungraded confirmations request review. Missing grades remain null; report type, channel, actor and version never infer proof strength. |
+| Canonical recording | An admitted confirmation records `confirmed`; a sound refutation records `false_positive` pending verified human signoff, never automatic dismissal. Inconclusive/blocked/not-attempted evidence cannot become a validity conclusion. |
+| Severity proposal | A supplied proposal is review-only. Machine validation never writes severity overrides. OWASP risk-rating methodology is unchanged; CVSS observation fields do not replace it. |
+| Native integrity | Source membership/digests and ledger integrity gate the whole aggregate, including replay review mutations. Refusal leaves no partial decision, review, assessment or evidence metadata. |
+
+Soundness flags are retained in immutable core evidence and linked to the finding
+through existing external references, including voided verdicts with no decision
+row. Review uses the canonical review-reason vocabulary; detailed causes stay in
+the evidence, not invented registry values. Human review cards expose those linked
+observations for inspection.
+
+## Current and historical admission
+
+`ValidationRecordInput.policy` defaults to `current`. The version reset does not
+make a current run legacy: attestation, controls, differential probing and explicit
+confirmation grades remain required. The existing unattended runner requires
+current policy and an isolated `environment: lab` rules-of-engagement scope.
+
+Only a deliberate `historical` replay applies the original introduction cutoffs:
+attestation 0.176.0, controls 0.177.0, differential 0.178.0 and confirmation grades
+0.179.0. Malformed/unknown versions refuse instead of silently grandfathering.
+Explicit failed attestation, failed controls, nondiscriminating oracles and actual
+error signatures remain invalid at every age. An admitted legacy confirmation's
+missing grade stays unknown; it is not promoted to execution proof.
+
+Core preserves explicit evidence precedence. Existing E0 proof stays open until
+two independent later E0 human judgements concur; an ungraded legacy record or
+machine refutation cannot bypass that rule. Replays are idempotent and append
+history without rewrites; distinct runs/target environments remain distinct.
 
 ## Artifact flow
 
-```
-scope (targets.yaml, fail-closed)
-  └─ target-attestation.json          gate 0 — testability proof
-  └─ attack-plan.yaml                 replay + chained + novel probes
-  └─ execution: each step records
-        controls[]                    gate 0b — assay proof
-        differential                  gate 0c — oracle discrimination
-        replay                        script + inputs + attestation fingerprint
-        evidence artifacts            transcripts, artifacts/, rollback
-  └─ <slug>-validation.{json,md}      schemas/v1/validation.schema.json
-  └─ validation-audit.jsonl           append-only action trail
-        │
-        ▼
-emit_validation_ledger_events.py      gates 0/0b/0c/0d/1 re-checked at
-        │                             ingest; quarantines → needs_review
-        ▼
-disposition ledger (per-finding)      confirmed = class-1 execution
-        │                             evidence; refuted = pending human
-        ▼                             countersign — never auto-FP
-countersign cards                     attestation status, transcripts,
-                                      control results on every card
+```text
+explicit authorized scope + actual preflight observations
+    -> existing guarded execution (full service port remains separate)
+    -> StepResult observations, audit log and evidence companions
+    -> report.build_validation_json -> report.write (typed pre-write gate)
+    -> traust validation record + stored source bindings + actual provenance
+    -> core immutable validation artifact + recording evidence
+    -> canonical decision OR retained-cause review item
+    -> core ReviewItemCase -> verified human countersign when required
 ```
 
-Discovery candidates found while validating (cluster-state diffing,
-python3 -m traust.cli impact cluster-state-diff) carry
-`origin: validation-discovery` and route to `/triage` as new findings,
-not as verdicts.
+`run.py` performs that report/record handoff and records an actual run UUID/start
+instant before execution. For external producers, supply their original run
+provenance instead of creating a new UUID/time on each import. Source references
+stay opaque report labels; every source report and finding needs a validated
+binding. The report's original source IDs survive planner-local multi-repo prefixes.
+Auxiliary surface/credential counts live under
+`metadata.additional.validation_producer`, while the declared
+`not_attempted_reason` retains skip causes. Chain context is bounded; transcripts
+are not multiplied across every chain.
 
-## Severity validation
+### Credential-safe execution evidence
 
-Every confirmation records the CVSS v3.1 components the exploit
-**demonstrated** — vector used, privileges actually held, interaction,
-scope crossing, impact axes evidenced — plus the signed delta against
-the claimed score. Material deltas (|delta| ≥ 1.0) from E0/E1/E2
-evidence become machine severity **proposals** in the countersign queue
-(`severity_proposal`); E3 never proposes. Machines never write
-`disposition.severity` — the layer validator rejects a machine actor
-carrying one — so severity stays human-decided. Chain membership
-(`chain_context`) is severity evidence for constituents and is cited in
-the proposal rationale. Downgrades are as valuable as upgrades.
+The guarded adapters share the skill-local
+[`adapters/credentials.py`](../harnessing/5-validate/validate-findings/adapters/credentials.py)
+redactor for artifact content and observed transcripts. Core's public
+`traust_core.v1.models.redaction.SecretDetector` owns the secret shapes shared with
+publication redaction. This adapter owns only strict marker rendering and recursive
+JSON Secret/SecretList `data`/`stringData` traversal; execution, classification,
+rollback and artifact storage remain in `AdapterBase`.
+Every Secret-map value is masked, including arbitrary custom keys. Plain-text
+credential assignments retain their key prefixes; DSN passwords, JWTs, PEM/key
+material and forge/cloud tokens are masked without retaining a secret prefix.
+Existing redaction markers retain their evidence lengths/digests on repeat passes.
 
-## Where the rest is defined
+`_save_artifact` hashes the **original UTF-8 content**, writes only redacted
+content, and retains the existing `type`, relative `path`, `sha256` and `caption`
+metadata, adding `redacted: true` when the stored content differs. The digest is
+not a checksum of the sanitized file. Verdict logic still reads the original
+in-memory transcript; observed text is redacted before its display-length cap
+so truncation cannot prevent Secret-map traversal.
 
-- **Evidence classes and grades → ledger weight**, the override rule and
-  the two-person rule: [disposition-ledger.md](disposition-ledger.md) §5
-  and §6. The validation-lane emitter has no auto-accept path; that tier
-  exists only in the triage lane.
-- **Fuzzing as the offline execution-evidence lane** (a reproducing
-  crash is E0 by construction; the refuted register feeds target
-  selection; build plus deterministic reproduction is its environment
-  gate): the [create-fuzzing skill](../harnessing/6-fuzz/create-fuzzing/SKILL.md).
-- **Credential-liveness probing** (one read-only introspection call,
-  scope-gated to a `credential_probes.classes` entry and the single verb
-  `introspect`): the validate-findings skill, section
-  "Credential-liveness verification".
-- **The benchmark** (vulnerable/safe-twin fixture pairs under
-  `harnessing/5-validate/validate-findings/benchmark/`; confirm-recall
-  and refute-precision floors; severity within ±1.0 of the planted
-  vector): the validate-findings skill, section "Benchmark mode", run by
-  python3 -m traust.cli sweep benchmark. Its `check-trigger`
-  subcommand exits non-zero when validation-lane paths changed since the
-  last benchmarked tag, and `/drift-watch` flags a stale scorecard.
+`SecretDetector.evidence_rules()` includes every publication detector automatically,
+plus stricter evidence variants and key-material shapes owned in that same Core
+catalog. A new shared shape therefore reaches saved evidence without a second local
+regex table. Publication keeps its existing prefix/marker semantics through
+`core.services().redaction`; validation never calls that weaker renderer. Only known
+emitted tags with canonical ASCII lengths and 12 lowercase hexadecimal digest
+characters (or length-only `secret-data` markers) are opaque. Marker-like wrappers,
+unknown tags and embedded legitimate markers cannot hide surrounding credentials.
 
-## Hard rules
+No local cumulative rebuild, refuted-register refresh or retired emitter is part
+of this path. Supplied install-failure text and full target-attestation checks are
+retained by core; adjacent files are never silently discovered at the CLI edge.
+The runner does not fabricate controls, grades, replay artifacts or novel intake
+that the unfinished live execution port has not produced: missing required
+observations route safely to review.
 
-- The scope guard is absolute: out-of-scope steps are refused and
-  logged, never silently skipped.
-- No auto-FP from machine evidence: refutations queue for
-  identity-verified countersign; execution evidence overrides FP
-  signatures loudly (`fp_overridden`), and re-asserting FP after an
-  executed proof takes two independent humans.
-- Probe transcripts are evidence, not verdicts — the verdict is what
-  survives the gate stack.
+Supplied CVSS observations and chain context remain evidence for a human's
+severity review, including downgrades as well as upgrades. They do not change the
+rating methodology or authorize a machine severity override. Core retains a
+supplied severity proposal as review-only evidence rather than writing severity.
+
+## Remaining boundaries
+
+This is the step19 machine-recording producer/readiness slice, not completion of
+plan24 preparation, planning, authorization or live execution services. Novel
+finding intake, browser-specific report adaptation, scanner adapter/model and
+carried/cumulative families remain separate work. Historical deployment/corpus
+mapping acceptance and live portfolio counts are separate gates and are not
+certified here.
+
+Related references: [error model](error-model.md),
+[human review workflow](../harnessing/4-triage/track-findings/SKILL.md),
+[artifact catalog](artifacts.md), and
+[benchmark fixtures](../harnessing/5-validate/validate-findings/benchmark/expected.json).

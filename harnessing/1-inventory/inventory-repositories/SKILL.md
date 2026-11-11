@@ -5,7 +5,8 @@ description: >-
   repositories that ship in a release payload image or an OLM operator
   bundle/catalog — e.g. "inventory release 4.21", "which repos ship in the
   foo operator 2.3", "refresh the payload inventory". Writes the per-segment
-  CSV inventory and owners.csv that repo-graph and the dashboards read.
+  CSV inventory that the dashboards read, and registers the
+  repositories and their owner teams in traust-core.
 argument-hint: "<segment> <version|bundle-tag> [--image <ref>]"
 metadata:
   harness.tier: "secondary"
@@ -21,14 +22,18 @@ allowed-tools:
   - Bash(podman create:*)
   - Bash(podman cp:*)
   - Bash(podman rm:*)
-  - Bash(python3 *traust/harnessing/1-inventory/inventory-repositories/scripts/fetch_forge_owners.py:*)
+  - Bash(traust portfolio onboard:*)
+  - Bash(traust portfolio plan:*)
+  - Bash(traust portfolio owner-hints:*)
+  - Bash(traust portfolio import-owners:*)
+  - Bash(traust portfolio file:*)
   - Bash(python3 -m traust.cli registry:*)
 ---
 
 # Repository Inventory — Release Payloads and Operator Catalogs
 
 > **Paths.** `analysis-results/…` and `progress-tracker/…` in this skill are the
-> default workspace layout. They resolve through `locations.yaml` in
+> default workspace layout. They resolve through `locations:` in `traust.yaml` in
 > `$TRAUST_CONFIG_HOME` (`docs/setup.md`, Storage locations); substitute your
 > configured roots. The inventory tree itself is `locations.inputs`.
 
@@ -41,9 +46,9 @@ allowed-tools:
 
 This skill discovers every source repository that ships in a **release payload
 image** or an **OLM operator bundle**, maps each image back to its source
-repository, categorises by functional area, and writes a CSV inventory, a
-Markdown report and an `owners.csv` into the matching segment of the inputs
-inventory. `/add-inputs` is the lightweight counterpart for registering
+repository, categorises by functional area, writes a CSV inventory and a
+Markdown report into the matching segment of the inputs inventory, and
+registers the repositories and their owner teams in traust-core. `/add-inputs` is the lightweight counterpart for registering
 repositories by hand.
 
 ---
@@ -83,36 +88,43 @@ All output goes under the target segment of `locations.inputs`:
 <inputs>/
 ├── <release-payload segment>/
 │   ├── <segment>-<version>-payload-repos.csv
-│   ├── <segment>-<version>-payload-analysis.md
-│   └── owners.csv                      # one file across all versions
+│   └── <segment>-<version>-payload-analysis.md
 └── <catalog segment>/
     └── <product>/
-        ├── <version>/
-        │   ├── <product>-<version>-payload-repos.csv
-        │   └── <product>-<version>-payload-analysis.md
-        └── owners.csv                  # one file per product, all versions
+        └── <version>/
+            ├── <product>-<version>-payload-repos.csv
+            └── <product>-<version>-payload-analysis.md
 ```
 
-These are the layouts `repo-graph` reads for the two kinds; the CSV column
-schemas are in each procedure.
+These are the layouts `traust.inventory` describes for the two kinds; the CSV column
+schemas are in each procedure. The CSVs keep the payload images and
+categories (traust-core has no column for them yet); the
+repositories themselves are registered with
+`traust portfolio onboard --product <segment or product> --repo <URL>…`
+(needs `traust auth local`; base images have no repository), and a release
+payload's version with the commits it ships with
+`traust portfolio import-release` (release-payload Step 7).
 
 ---
 
 ## Ownership resolution
 
-Every inventoried repository gets a row in the segment's `owners.csv`. Try the
-sources in order and record which one answered in `Ownership Source`:
+Every inventoried repository gets its owner team recorded in traust-core. Try the
+sources in order:
 
 1. **Deployment ownership sources** — if your deployment extension provides an
    organisation registry or an infrastructure-as-code service catalogue,
    consult it first (it is the only source that knows teams and managers).
    The extension documents its own procedure; the harness ships none.
+   Record each team it yields under `assignments: [{repo, teams}]` in
+   `<inputs>/inventory.yaml`, the declared ownership source.
 2. **`OWNERS` / `approvers` / `CODEOWNERS` files in the repository** —
-   `python3 harnessing/1-inventory/inventory-repositories/scripts/fetch_forge_owners.py --repo-url <URL>` fetches them
+   `traust portfolio owner-hints --repo <URL>` fetches them
    through the forge CLI (`gh api` / `glab api`; the token never touches
-   argv) and prints `approvers` parsed from the file.
-3. **Forge top contributors** — the same script's `contributors` list
-   (bots removed); take the top one or two as a fallback.
+   argv) and prints the approvers parsed from the file (`origin: owners-file`).
+   Hints: report them, they are not stored.
+3. **Forge top contributors** — the same command's `origin: contributor` hints
+   (bots removed); take the top one or two as a fallback (reported, not stored).
 4. **Organisation-level mapping** — `org_teams:` in the inventory descriptor
    maps a forge organisation to a team name for repos where nothing
    per-repo is available:
@@ -120,38 +132,23 @@ sources in order and record which one answered in `Ownership Source`:
    org_teams:
      example-org: Platform Team
    ```
-5. **Manager fallback** — if a team manager is known from source 1 but no
-   individual owner was found, record the manager as the individual owner.
-6. **Unknown** — if nothing answers, set `Owner Team` = `Unknown`. Never
+   `traust portfolio import-owners --source <inputs>/inventory.yaml` records
+   it (and source 1's `assignments:`) in traust-core for every registered
+   repository; a team the source stops naming is closed, so the descriptor
+   is the whole ownership source.
+5. **Manager fallback** — *retired*: traust-core stores the owner team only
+   (no manager or individual-owner column).
+6. **Unknown** — if nothing answers, record no team for the repository. Never
    guess.
-7. **Escalation contact (optional)** — if your deployment maintains a product
-   registry, `python3 -m traust.cli registry products --repo-url <URL>`
-   (or `--package`) returns the best contact-ladder identifier; record it in
-   the final `Escalation Contact` column. Only `mapped` and `repo-url` match
-   tiers qualify (`slug` is advisory). The value is the registry's bare
-   contact identifier, never a forge username. Blank when unresolved — it
-   never blocks inventory generation and is never fabricated.
+7. **Escalation contact** — *retired*: traust-core has no escalation-contact
+   column.
 
 ### owners.csv schema
 
-`Escalation Contact` is always the **final** column — downstream positional
-parsers read only the leading columns, so a trailing append is the only
-compatible spot.
-
-Release payload:
-```
-Repository,URL,Owner Team,Manager,Individual Owners,Ownership Source,Jira Project,Jira Component,Payload Versions,Escalation Contact
-```
-
-Catalog:
-```
-Repository,URL,Owner Team,Manager,Individual Owners,Ownership Source,Jira Project,Jira Component,Operator Versions,Escalation Contact
-```
-
-`Jira Project` / `Jira Component` are the issue-tracker columns the
-`owners.csv` schema has always carried; leave them **empty** unless a
-deployment extension resolves them (see below). Downstream skills tolerate
-blanks.
+*Retired*: no `owners.csv`. traust-core stores the owning team (`ownership`
+rows); `Manager`, `Individual Owners`, `Ownership Source`, `Jira Project`,
+`Jira Component`, `Payload Versions` / `Operator Versions` and
+`Escalation Contact` have no column.
 
 ---
 
@@ -161,11 +158,9 @@ An adopter's private extension directory (`<extension>`, beside its
 `$TRAUST_CONFIG_HOME`) may add procedures this skill calls at two seams:
 
 - **Ownership source 1** — an organisation registry or IaC service catalogue
-  that yields `Owner Team` and `Manager`.
-- **Tracker resolution** — a procedure that fills `Jira Project` /
-  `Jira Component` (or your tracker's equivalents) after ownership is
-  resolved, plus any product-specific defaults (which project a payload's
-  repos file bugs to, which shared images belong to another product).
+  that yields the owner team (recorded as `assignments:`).
+- **Tracker resolution** — *retired with `owners.csv`*: traust-core has no
+  `Jira Project` / `Jira Component` column.
 
 If `<extension>/harnessing/1-inventory/inventory-repositories/procedures/`
 exists, read its `README.md` and follow the procedures it lists **after** the
@@ -179,37 +174,38 @@ When the same repository appears across multiple versions:
 
 - **Repository CSV** — list the repo once per version where it appears
   (separate CSV files per version).
-- **owners.csv** — list the repo once, with all versions in the versions
-  column joined with `; `.
+- **Registered repositories** — registered once (`repository.url` is
+  unique); re-running `onboard` leaves them unchanged.
 - **Cross-segment** — a repo that ships in both a release payload and a
   catalog product appears in both segments. This is intentional; the
-  ownership may differ by context.
+  ownership is recorded once per repository.
 
 ---
 
 ## Post-generation checklist
 
-1. Every repository in the CSV appears in the corresponding `owners.csv`.
-2. No `owners.csv` entry has an empty `Owner Team` column (`Unknown` is a
-   value; blank is not).
-3. `Individual Owners` is populated for every repo whose forge was reachable.
-4. CSV headers match the schemas above exactly, including the trailing
-   `Escalation Contact`.
+1. Every repository in the CSV is registered (`traust portfolio plan`
+   reports none of them as new).
+2. Every owner team came from a declared source (no team is a valid state;
+   a guessed one is not).
+3. Owner hints were reported for every repo whose forge was reachable.
+4. CSV headers match the procedure schemas exactly.
 5. Markdown reports have the metadata table, category sections and linked
    repository names.
-6. A blank `Escalation Contact` or tracker cell is a valid state — never
-   fabricate one.
+6. A repository with no owner team is a valid state — never fabricate one.
 7. Commit the inventory changes with a descriptive message and push to the
-   inventory's remote, then rebuild the graph with `/repo-graph`.
+   inventory's remote.
 
 ## Integrations
 
 - **Consumes**: `<inputs>/inventory.yaml` (segment kinds, `payload_image`,
   `registries`, `org_teams`); registry data via `oc`/`skopeo`/`podman`; forge
-  data only via `harnessing/1-inventory/inventory-repositories/scripts/fetch_forge_owners.py`.
-- **Emits**: `<segment>-<version>-payload-repos.csv`, `*-payload-analysis.md`
-  and `owners.csv` under `locations.inputs`, read by `repo-graph` (graph
-  nodes, release/product-version layers, owner edges),
-  `executive-summary-findings --by-segment` and the coverage dashboards.
+  data only via `traust portfolio owner-hints` (and
+  `traust portfolio file`).
+- **Emits**: `<segment>-<version>-payload-repos.csv` and `*-payload-analysis.md`
+  under `locations.inputs`, read by inventory discovery (`traust portfolio
+  inventory-discover`) and the coverage dashboards; `repository` and `ownership` rows in
+  traust-core (`traust portfolio onboard`, `import-owners`); a release
+  payload's `release` and `component` rows (`traust portfolio import-release`).
 - **Counterpart**: `/add-inputs` for hand-registered repos in `groups`
   segments; `/corpus-intake` registers the *output* tree audits will write to.

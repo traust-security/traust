@@ -85,7 +85,8 @@ sha ties every routed decision to the exact policy revision that made it.
 
 ## Spend declaration
 
-Every model-consuming batch declares a spend row into the metrics ledger:
+Every model-consuming batch declares a spend event in traust-core (priced from the registry;
+an unknown or unpriced `--model` exits 1 and records nothing):
 
 ```bash
 python3 -m traust.cli registry models spend --skill secure-code-audit \
@@ -93,8 +94,10 @@ python3 -m traust.cli registry models spend --skill secure-code-audit \
     [--repo <slug> --loc <size>]
 ```
 
-`--repo`/`--loc` attribute the row to one audited target — the calibration
-tuple `(spend, repo, size)` the scan estimator fits against. Batch drivers
+`--repo`, `--loc`, `--batch` and `--note` are retained with each priced event.
+The calibration tuple keeps the supplied repository label verbatim; an exact registered
+URL or UUID additionally attributes the canonical repository. Ambiguous slugs remain
+unresolved text and warn without losing cost. Batch drivers
 SHOULD pass both on per-repo rows; batch-level rows omit them. Every
 model-heavy per-target skill carries a "Spend declaration (calibration tuple)"
 section instructing the row; any other skill that consumes model tokens should
@@ -108,10 +111,10 @@ Two properties of declared rows to keep in mind:
   Actual cost is measured from the runtime's own usage records by the
   deployment's spend-collection chain, which is deployment tooling, not part
   of this contract.
-- **Embedded environments may skip the declaration cleanly.** A workspace with
-  no metrics ledger (a platform worker that records usage itself) skips at the
-  script level; `HARNESS_REQUIRE_SPEND_LEDGER=1` turns the skip into a failure
-  where the ledger is mandatory.
+- **The registry is required.** A config home without `model-registry.yaml`
+  (a platform worker that records usage itself) still copies the shipped one
+  — `scripts/install_traust` does — and `traust registry models spend` refuses,
+  naming the fix, rather than silently recording an unpriced declaration.
 
 Cost, where a dashboard shows one, comes from the registry rate card
 (`price_per_mtok_*`); verify it against the current published prices before

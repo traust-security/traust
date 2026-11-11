@@ -1,28 +1,28 @@
 # Routers — the authoritative index
 
 "Router" is overloaded in this harness. **Seven distinct kinds** carry the name,
-implemented across **16 components** (the two tables below are grouped by kind, so
+implemented across **15 components** (the two tables below are grouped by kind, so
 one row can name more than one module). They do different and sometimes opposite
 jobs, and confusing them has caused real defects. This page is the single index:
 what each one is, what it may and may not write, and where the detail lives.
 
-If you are auditing coverage, the 16 are: `build_rescan_worklist.py` (work
-routing + the budget guard inside it), `budget_shadow.py`,
+If you are auditing coverage, the 15 are: the retired `build_rescan_worklist.py` (work
+routing + the budget guard inside it, now `traust.ops.router` and engine admission), `traust.ops.router`,
 `traust_engine.registry.models`, `route_regressions.py`,
 `route_impact_findings.py`, `/assign-findings-owners` (internal extension),
 `/reassign-findings-owners` (internal extension), `/file-security-defect`,
-`emit_drain_tranche.py`, `build_verify_sweep.py`, `build_pqc_worklist.py`,
-`fleet_sweep.py`, `run_impact_sweep.py`, `fetch_feeds.py`.
+`traust remediation verify-sweep`,
+`traust impact sweep`, `traust feeds fetch` (`feeds_fetch.py`).
 
 | Kind | Routes | Implementation | Detail |
 |---|---|---|---|
-| **Work routing** — *the rescan router* | repos → one of 12 scan lanes | `build_rescan_worklist.py` | [continuous-operations.md](continuous-operations.md) |
-| **Cost routing** — *the budget guard* | **drops queued work to fit a USD ceiling** | budget guard inside `build_rescan_worklist.py`; `budget_shadow.py` | [continuous-operations.md](continuous-operations.md) |
+| **Work routing** — *the rescan router* | repos → one of 12 scan lanes | `traust.ops.router` (the security pack's router), per repository in continuous ops; the daily `build_rescan_worklist.py` is retired | [continuous-operations.md](continuous-operations.md) |
+| **Cost routing** — *the budget guard* | **drops queued work to fit a USD ceiling** | traust-engine's admission (lane budgets, `admission.estimate_usd`) | [continuous-operations.md](continuous-operations.md) |
 | **Model routing** | a task → a model tier, and what it costs | `traust_engine.registry.models`, `config/model-registry.yaml` | [model-routing.md](model-routing.md) |
 | **Findings routing** | a producer's findings → ledger events | `route_regressions.py`, `route_impact_findings.py` | [findings-routing.md](findings-routing.md) |
 | **Owner routing** | findings packages → teams and named maintainers | `/assign-findings-owners` (internal extension), `/reassign-findings-owners` | those skills' `SKILL.md` |
 | **Defect routing** | findings → Jira issues | `/file-security-defect` (internal extension) | those skills' `SKILL.md` |
-| **Feed routing** — *the security-data refresh* | external sources → the local feed cache | `fetch_feeds.py`, `config/feeds.yaml` | [continuous-operations.md](continuous-operations.md) |
+| **Feed routing** — *the security-data refresh* | external sources → traust-core feed snapshots | `traust feeds fetch` (`ExposureService.refresh_feeds`), traust-core's shipped `feeds.yaml` | [continuous-operations.md](continuous-operations.md) |
 
 ### Worklist builders — routing's other half
 
@@ -32,48 +32,56 @@ work, and none of them authors a finding:
 
 | Builder | Selects | Detail |
 |---|---|---|
-| `emit_drain_tranche.py` | this week's tranche from the router's drain ordering | [continuous-operations.md](continuous-operations.md) |
-| `build_verify_sweep.py` | the `/verify-remediation` full-sweep worklist | `harnessing/8-verify/verify-remediation/SKILL.md` |
-| `build_pqc_worklist.py` | one entry per unique repo URL for the PQC sweep | `harnessing/3-audit/pqc-readiness/SKILL.md` |
-| `fleet_sweep.py` | `/dependency-watch`'s bootstrap / full-baseline OSV sweep | `harnessing/3-audit/dependency-watch/SKILL.md` |
-| `run_impact_sweep.py` | executes a fleet-OSV worklist | `harnessing/3-audit/impact-analysis/SKILL.md` |
+| `traust remediation verify-sweep` (traust-core `VerificationService.sweep`) | the `/verify-remediation` full-sweep worklist | `harnessing/8-verify/verify-remediation/SKILL.md` |
+| `traust impact sweep` (traust-core `ExposureService.sweep`) | `/dependency-watch`'s bootstrap / full-baseline OSV sweep | `harnessing/3-audit/dependency-watch/SKILL.md` |
 
 ---
 
 ## 1. Work routing — the rescan router
 
-**Decides what work to do.** Reads fleet change signals and emits
-`rescan-worklist.json`: one row per repo, each assigned a lane —
-`full-audit+validate`, `full-audit`, `impact-lane`, `iac-lane`, `iac-baseline`,
-`release-passthrough`, `threat-model-review`, `deps-lane`, `diff-scan`,
-`diff-scan-quarterly`, `threat-model-quarterly`, `none`.
+**Decides what work to do.** The `inventory_discovery` intake registers every
+configured input URL before the per-repository observation. The router reads
+that repository's `repo_state` and routes it to a lane, which traust-engine
+queues as an order — `full-audit+validate`, `full-audit`, `impact-lane`,
+`iac-lane`, `iac-baseline`, `release-passthrough`, `threat-model-review`,
+`deps-lane`, `diff-scan`, `diff-scan-quarterly`, `threat-model-quarterly`,
+`none`. Methodology and CVE injection is planned directly by
+`rescan_event_intake`, with priority preference rather than a completion barrier
+ahead of ordinary observation. External-report intake plans separate
+approved audit and scoped live-validation orders; the validation waits for the
+audit and carries an immutable binding to its report and targets file.
 
-**Writes:** the worklist, nothing else. Read-only over its inputs, it **never
-authors a finding, verdict, or audit**, and never self-tunes.
+**Writes:** routes (engine orders), nothing else. It **never authors a finding,
+verdict, or audit**, and never self-tunes.
 
 **Why it matters beyond scheduling:** it holds the authority over **when a new
 baseline is cut** — exactly what a producer appending findings straight into a
 baseline used to bypass (§4).
+
+In continuous ops the same decision table runs per repository:
+`traust.ops.router` routes a repository each time its `repo_state` materializes,
+and the lane's asset in `packs/security/assets.yaml` gets the order.
 
 → **[continuous-operations.md](continuous-operations.md)**
 
 ## 2. Cost routing — the budget guard
 
 **Decides what the harness can afford to do.** This is a router in the literal
-sense: when the projected spend of the routed worklist exceeds the ceiling in
-`$TRAUST_CONFIG_HOME/budget-policy.yaml`, **lowest-tier table-routed full audits are dropped
+sense: when the projected spend of the routed worklist exceeds the full-audit
+lanes' `budgets` in `$TRAUST_CONFIG_HOME/traust.yaml`, **lowest-tier table-routed full audits are dropped
 to fit** and listed in `dropped_for_budget`. Event-injected rows are never
 dropped.
 
-**Know before relying on it:** `enforcement` in
-`$TRAUST_CONFIG_HOME/budget-policy.yaml` takes `none | observe | advisory |
+**Know before relying on it:** a budget's `enforcement` in
+`$TRAUST_CONFIG_HOME/traust.yaml` takes `none | observe | advisory |
 enforced`. At `observe` the guard does shadow accounting only: the ceiling is a
 recorded verdict, not a control, and **nothing is ever withheld**. Only
 `advisory` and `enforced` bind a run, and moving to either is a deliberate
 deployment decision, never a side effect. The code states the principle plainly:
 *"a config that documents its own non-enforcement is honest; one that implies
-enforcement it lacks is a vulnerability."* `budget_shadow.py` does the shadow
-accounting for observe mode.
+enforcement it lacks is a vulnerability."* In continuous ops, traust-engine's
+admission records the verdict in each order's run manifest and, at `observe`,
+withholds nothing.
 
 **Writes:** the worklist's drop list and shadow ledger. Never a finding.
 
@@ -133,9 +141,10 @@ specific tracker project is an internal-extension skill, not part of the harness
 ## 7. Feed routing — the security-data refresh
 
 **Decides which external sources to pull, and when.** Reads
-`config/feeds.yaml` — the registry covering both the cached tier this
-refreshes and the live tier `fetch_advisory.py` queries — and re-downloads
-every source whose cached copy has aged past its declared `max_age_hours`.
+traust-core's shipped `feeds.yaml` — the registry covering both the cached tier this
+snapshots and the live tier `traust impact document` queries — and snapshots
+every cached source through traust-core (`ExposureService.refresh_feeds`);
+the pack's `feeds_cache` cadence decides when.
 
 **Why it is a router and not a pipeline job:** the same reason every other
 runner here is one. A router is the orchestrator-neutral seam — the same
@@ -145,9 +154,9 @@ to a CI pipeline in this repository would couple it to one orchestrator and
 break that property, which is precisely what the abstraction exists to
 prevent.
 
-**Writes:** the feed cache (`locations.feeds_cache`; no engine default — the
-deployment sets it in `locations.yaml`) and `feeds-meta.json` — retrieval
-timestamp, sha256, and per-source watermarks. **Never a finding, never a
+**Writes:** a traust-core `feed_snapshot` per source, its bytes in core's
+object store (the `rh-cve` snapshot is what its next run builds on).
+**Never a finding, never a
 baseline, never a worklist.** Read-only over its registry; it does not
 self-tune and cannot advance a pin.
 

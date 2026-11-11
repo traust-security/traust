@@ -1,0 +1,26 @@
+rules:
+  - id: traust-bash-cryptography-cosign-classical-signing
+    languages: [bash]
+    severity: INFO
+    message: >-
+      cosign artifact signing in a release/CI path — sigstore signatures
+      are ECDSA-based (classical, Shor-vulnerable) and release artifacts
+      carry multi-year verification lifetimes, which makes this
+      harvest-now/verify-later relevant under the NIST IR 8547 2035
+      transition. Not a defect today: inventory it, tag the finding
+      pqc_classification=shor-signature, and track the sigstore PQC
+      roadmap. CWE-327.
+    metadata:
+      cwe: ["CWE-327"]
+      category: cryptography
+      asvs: ["V11"]
+      confidence: HIGH
+      pqc_classification: shor-signature
+      references:
+        - "CWE-327 — cosign classical signing inventory (command-verb anchored)"
+    patterns:
+      - pattern-either:
+          - pattern: cosign sign ...
+          - pattern: cosign sign-blob ...
+          - pattern: cosign attest ...
+          - pattern: cosign generate-key-pair ...

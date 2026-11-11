@@ -15,19 +15,17 @@ These skills are specific to the scanning campaign. They consume the full `*-res
 |-------|-------|--------------|-----------|
 | `census` | — | Corpus census: report population per ownership cut, five duplication vectors, the **distinct-vulnerabilities** canonical headline, repo liveness — the denominator authority every other dashboard cites (`findings.db `repos``) | opus-class |
 | `add-inputs` | ① | Ad-hoc registration of repos or whole orgs into the inputs inventory (`locations.inputs`) — the lightweight counterpart of `inventory-repositories` | opus-class |
-| `inventory-repositories` | ① | Discovers every source repo shipped in a release payload image or an OLM operator bundle (segment kinds `release-payload` / `catalog` in `<inputs>/inventory.yaml`) and writes the per-segment CSV inventory + `owners.csv` | opus-class |
-| `corpus-intake` | — | The only supported write path for `$TRAUST_CONFIG_HOME/corpus-config.yaml` — interview-driven registration of corpus trees/engagements with ownership tags (owned / upstream / external-bu), validated atomic writes, census refresh | opus-class |
+| `inventory-repositories` | ① | Discovers every source repo shipped in a release payload image or an OLM operator bundle (segment kinds `release-payload` / `catalog` in `<inputs>/inventory.yaml`) writes the per-segment CSV inventory and registers the repositories and owner teams in traust-core | opus-class |
+| `corpus-intake` | — | The only supported write path for traust-core's corpus registry — interview-driven registration of corpus trees/engagements with ownership tags (owned / upstream / external-bu), validated writes in one transaction, census refresh | opus-class |
 | `financial-tracking` | — | Campaign cost over time: per-lane spend, **per-business-unit** split (bridged from transcript paths via findings.db `business_unit`; partial coverage, always stated), unit economics ($/repo, $/finding), month-over-month trend, and an `--invoice` seam. All figures are **list-price estimates, never invoiced actuals** | opus-class |
-| `executive-summary-findings` | — | Cross-portfolio leadership roll-up dashboard (deterministic builder + machine sidecar for the scoreboard) | haiku-class (`render-narrate` floor) |
+| `executive-summary-findings` | — | Cross-portfolio leadership roll-up dashboard (traust-core view) | haiku-class (`render-narrate` floor) |
 | `loc-dashboard` | — | Lines-of-code coverage dashboard (also reads the inputs inventory) | haiku-class (`render-narrate` floor) |
-| `repo-graph` | — | Portfolio segment→product→repo→findings graph (JSON/DOT/GEXF/HTML; also reads the inputs inventory) | opus-class |
 | `insecure-patterns` | — | Cross-portfolio insecure-coding-pattern roll-up (CWE → OWASP ASVS taxonomy) | mythos-class |
 | `findings-trends` | — | Up/down trend dashboard by ledger replay: burndown, headline risk signals (`owasp_high_plus_pct`, `mean_cvss_open`), velocity, MTTR, accepted-risk register | haiku-class (`render-narrate` floor) |
 | `validation-fuzz-dashboard` | — | Combined live-validation + fuzzing results dashboard | opus-class |
 | `threat-register` | — | Fleet-wide threat roll-up from every threat-model file: open-threat exposure by product, stable `<slug>:<Tn>` keys, class-closing quick wins | opus-class |
-| `isolation-review` | — | Service-level tenant-isolation review (PEACH cited by reference only): interface inventory from the portfolio graph + existing findings, per-interface complexity, five hardening dimensions with cited evidence, posture + prioritized gaps | mythos-class |
-| `traust-metrics` | — | Campaign metrics scoreboard + append-only hash-chained metrics-history ledger and Executive-Trends dashboard under `progress-tracker/metrics/` | opus-class |
-| `rbac-tenancy-rollup` | — | RBAC + multi-tenancy misconfiguration rollup: executive one-pager, top-misconfigurations detail, HTML dashboard, MITRE ATT&CK candidate inference | opus-class |
+| `isolation-review` | — | Service-level tenant-isolation review (PEACH cited by reference only): interface inventory from interface signals + existing findings, per-interface complexity, five hardening dimensions with cited evidence, posture + prioritized gaps | mythos-class |
+| `traust-metrics` | — | Campaign metrics scoreboard under `progress-tracker/metrics/` | opus-class |
 | `attack-coverage` | — | Fleet-wide MITRE ATT&CK coverage rollup joining observed (live-validation), modeled (threat-model), and derived (category-mapped) technique IDs into a Navigator layer | opus-class |
 | `compliance-check` | — | Evidence-gated per-control compliance assessment (PCI DSS, NIST 800-53, FedRAMP, SOC 2, GDPR slice); deterministic verdicts the agent cannot override | mythos-class |
 | `property-test` | ⑦ | Authors a property test for a patched sink with an algebraic shape (codec, parser, normaliser, comparator, validator, bounds) and runs it against the unpatched and patched revisions; emits `property` evidence only when it fails before the fix and passes after. Says "an example test is the right answer here" when the sink has no such shape | opus-class |
@@ -54,8 +52,7 @@ workspace/                              # Run the agent from here
 └── *-results/                          # Audit output
     ├── findings/
     │   ├── _manifest/                  # Campaign manifests, progress tracking
-    │   │   ├── *-manifest.csv
-    │   │   └── rescan-worklist.json
+    │   │   └── *-manifest.csv
     │   ├── <product>/
     │   │   └── <repo>/
     │   │       ├── <repo>-security-audit.{md,json}

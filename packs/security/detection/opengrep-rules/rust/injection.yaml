@@ -1,0 +1,84 @@
+rules:
+  - id: traust-rust-injection-sql-format
+    languages: [rust]
+    severity: ERROR
+    message: >-
+      SQL text built with format! (inline, or bound to a local first) and
+      run through sqlx, diesel, rusqlite or the postgres client — any
+      interpolated value becomes SQL syntax. Bind values with the driver's
+      placeholders (`$1` / `?`) or the query! macros. CWE-89.
+    metadata:
+      cwe: ["CWE-89"]
+      category: injection
+      asvs: ["V1"]
+      confidence: HIGH
+      references:
+        - "CWE-89 SQL injection — format!-built SQL handed to a Rust database driver"
+    pattern-either:
+      # a driver function: sqlx::query(...), diesel::sql_query(...)
+      - patterns:
+          - pattern-either:
+              - pattern: $F(&format!(...), ...)
+              - pattern: $F(format!(...), ...)
+              - patterns:
+                  - pattern-inside: |
+                      let $Q = format!(...);
+                      ...
+                  - pattern-either:
+                      - pattern: $F(&$Q, ...)
+                      - pattern: $F($Q, ...)
+          - metavariable-regex:
+              metavariable: $F
+              regex: ^(sqlx::query|sqlx::query_as|sqlx::query_scalar|query|query_as|query_scalar|diesel::sql_query|sql_query)$
+      # a client or connection method: client.execute(...), conn.query_row(...)
+      - patterns:
+          - pattern-either:
+              - pattern: $C.$M(&format!(...), ...)
+              - pattern: $C.$M(format!(...), ...)
+              - patterns:
+                  - pattern-inside: |
+                      let $Q = format!(...);
+                      ...
+                  - pattern-either:
+                      - pattern: $C.$M(&$Q, ...)
+                      - pattern: $C.$M($Q, ...)
+          - metavariable-regex:
+              metavariable: $M
+              regex: ^(query|query_one|query_opt|execute|simple_query|batch_execute|prepare|prepare_cached|query_row|query_map)$
+
+  - id: traust-rust-injection-shell-format
+    languages: [rust]
+    severity: ERROR
+    message: >-
+      A shell (`sh -c`, `bash -c`, `cmd /C`) runs a command string built
+      with format! — interpolated values become shell syntax. Run the
+      program directly with Command::new(program).arg(value) for each
+      argument. CWE-78.
+    metadata:
+      cwe: ["CWE-78"]
+      category: injection
+      asvs: ["V1"]
+      confidence: HIGH
+      references:
+        - "CWE-78 command injection — format!-built command line passed to a shell"
+    patterns:
+      - pattern-either:
+          - pattern: Command::new($SH).arg($FLAG).arg(format!(...))
+          - pattern: Command::new($SH).arg($FLAG).arg(&format!(...))
+          - pattern: Command::new($SH).args([$FLAG, &format!(...)])
+          - pattern: Command::new($SH).args(&[$FLAG, &format!(...)])
+          - patterns:
+              - pattern-inside: |
+                  let $CMD = format!(...);
+                  ...
+              - pattern-either:
+                  - pattern: Command::new($SH).arg($FLAG).arg($CMD)
+                  - pattern: Command::new($SH).arg($FLAG).arg(&$CMD)
+                  - pattern: Command::new($SH).args([$FLAG, &$CMD])
+                  - pattern: Command::new($SH).args(&[$FLAG, &$CMD])
+      - metavariable-regex:
+          metavariable: $SH
+          regex: ^"(sh|bash|zsh|/bin/sh|/bin/bash|/usr/bin/env|cmd|cmd\.exe|powershell|pwsh)"$
+      - metavariable-regex:
+          metavariable: $FLAG
+          regex: ^"(-c|/C|/c|-Command)"$

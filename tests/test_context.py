@@ -1,4 +1,4 @@
-"""Composition root — load_engine and config-home resolution."""
+"""Composition root — config-home resolution."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ import yaml
 from traust.context import (
     add_config_home_arg,
     analysis_results_dir,
-    load_engine,
+    load,
     resolve_results_root,
 )
 
@@ -19,12 +19,14 @@ from traust.context import (
 def _minimal_home(tmp_path: Path) -> Path:
     home = tmp_path / "cfg"
     home.mkdir()
-    (home / "locations.yaml").write_text(
+    (home / "traust.yaml").write_text(
         yaml.safe_dump(
             {
-                "workspace": str(tmp_path / "ws"),
-                "analysis_results": str(tmp_path / "ar"),
-                "progress_tracker": str(tmp_path / "pt"),
+                "locations": {
+                    "workspace": str(tmp_path / "ws"),
+                    "analysis_results": str(tmp_path / "ar"),
+                    "progress_tracker": str(tmp_path / "pt"),
+                }
             }
         ),
         encoding="utf-8",
@@ -34,27 +36,6 @@ def _minimal_home(tmp_path: Path) -> Path:
         if name.is_file():
             shutil.copy2(name, home / name.name)
     return home
-
-
-def test_load_engine_happy_path(tmp_path, monkeypatch):
-    home = _minimal_home(tmp_path)
-    monkeypatch.setenv("TRAUST_CONFIG_HOME", str(home))
-    engine = load_engine()
-    assert engine.ctx.config_home == home
-
-
-def test_load_engine_explicit_config_home(tmp_path, monkeypatch):
-    home = _minimal_home(tmp_path)
-    monkeypatch.delenv("TRAUST_CONFIG_HOME", raising=False)
-    engine = load_engine(config_home=home)
-    assert engine.ctx.config_home == home
-
-
-def test_load_engine_missing_config_exits_2(tmp_path, monkeypatch):
-    monkeypatch.delenv("TRAUST_CONFIG_HOME", raising=False)
-    with pytest.raises(SystemExit) as exc:
-        load_engine(config_home=tmp_path / "missing")
-    assert exc.value.code == 2
 
 
 def test_add_config_home_arg():
@@ -75,7 +56,7 @@ def test_resolve_results_root_from_config(tmp_path, monkeypatch):
     add_config_home_arg(ap)
     ap.add_argument("--results-root", type=Path, default=None)
     args = ap.parse_args([])
-    assert resolve_results_root(args) == analysis_results_dir(load_engine())
+    assert resolve_results_root(args) == analysis_results_dir(load())
 
 
 def test_resolve_results_root_cli_overrides_config(tmp_path, monkeypatch):

@@ -1,0 +1,182 @@
+rules:
+  # --- LLM05: improper output handling (model output is untrusted input) ---
+
+  - id: traust-go-llm-application-output-to-exec-taint
+    languages: [go]
+    severity: ERROR
+    message: >-
+      Model output reaches exec.Command. Treat completions like input from an
+      anonymous user: whoever steers the prompt (directly or through retrieved
+      content) chooses the process and its arguments. Map the answer to a fixed
+      set of allowed actions instead. CWE-1426, CWE-78.
+    metadata:
+      cwe: ["CWE-1426", "CWE-78"]
+      category: llm-application
+      asvs: ["V1"]
+      owasp_llm: ["LLM05"]
+      confidence: HIGH
+      references:
+        - "CWE-1426 improper validation of generative AI output — reaches a command sink"
+    mode: taint
+    pattern-sources:
+      - pattern-either:
+          - pattern: $C.Chat.Completions.New(...)
+          - pattern: $C.Completions.New(...)
+          - pattern: $C.Responses.New(...)
+          - pattern: $C.Messages.New(...)
+          - pattern: $C.CreateChatCompletion(...)
+          - pattern: $C.CreateCompletion(...)
+          - pattern: $M.GenerateContent(...)
+          - pattern: llms.GenerateFromSinglePrompt(...)
+          - pattern: $R.Choices[$I].Message.Content
+          - pattern: $R.Choices[$I].Text
+          - pattern: $R.Content[$I].Text
+    pattern-sinks:
+      - pattern-either:
+          - pattern: exec.Command(...)
+          - pattern: exec.CommandContext(...)
+
+  - id: traust-go-llm-application-output-to-sql-taint
+    languages: [go]
+    severity: ERROR
+    message: >-
+      Model output is executed as SQL. Generated queries are attacker-steerable,
+      so they can read or change anything the connection reaches. Run them only
+      on a read-only connection scoped to the caller's data, or map the request
+      to parameterized queries. CWE-1426, CWE-89.
+    metadata:
+      cwe: ["CWE-1426", "CWE-89"]
+      category: llm-application
+      asvs: ["V1"]
+      owasp_llm: ["LLM05"]
+      confidence: HIGH
+      references:
+        - "CWE-1426 improper validation of generative AI output — reaches a SQL sink"
+    mode: taint
+    pattern-sources:
+      - pattern-either:
+          - pattern: $C.Chat.Completions.New(...)
+          - pattern: $C.Completions.New(...)
+          - pattern: $C.Responses.New(...)
+          - pattern: $C.Messages.New(...)
+          - pattern: $C.CreateChatCompletion(...)
+          - pattern: $C.CreateCompletion(...)
+          - pattern: $M.GenerateContent(...)
+          - pattern: llms.GenerateFromSinglePrompt(...)
+          - pattern: $R.Choices[$I].Message.Content
+          - pattern: $R.Choices[$I].Text
+          - pattern: $R.Content[$I].Text
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: $DB.Exec($Q, ...)
+              - pattern: $DB.Query($Q, ...)
+              - pattern: $DB.QueryRow($Q, ...)
+              - pattern: $DB.ExecContext($CTX, $Q, ...)
+              - pattern: $DB.QueryContext($CTX, $Q, ...)
+              - pattern: $DB.QueryRowContext($CTX, $Q, ...)
+          - focus-metavariable: $Q
+
+  - id: traust-go-llm-application-output-to-path-taint
+    languages: [go]
+    severity: ERROR
+    message: >-
+      Model output is used as a file path. A steered completion can read,
+      overwrite or delete files outside the intended directory. Generate the
+      name yourself, or resolve it under a fixed root and reject anything that
+      escapes it. CWE-1426, CWE-22.
+    metadata:
+      cwe: ["CWE-1426", "CWE-22"]
+      category: llm-application
+      asvs: ["V5"]
+      owasp_llm: ["LLM05"]
+      confidence: HIGH
+      references:
+        - "CWE-1426 improper validation of generative AI output — reaches a file path"
+    mode: taint
+    pattern-sources:
+      - pattern-either:
+          - pattern: $C.Chat.Completions.New(...)
+          - pattern: $C.Completions.New(...)
+          - pattern: $C.Responses.New(...)
+          - pattern: $C.Messages.New(...)
+          - pattern: $C.CreateChatCompletion(...)
+          - pattern: $C.CreateCompletion(...)
+          - pattern: $M.GenerateContent(...)
+          - pattern: llms.GenerateFromSinglePrompt(...)
+          - pattern: $R.Choices[$I].Message.Content
+          - pattern: $R.Choices[$I].Text
+          - pattern: $R.Content[$I].Text
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: os.Open($P)
+              - pattern: os.OpenFile($P, ...)
+              - pattern: os.Create($P)
+              - pattern: os.ReadFile($P)
+              - pattern: os.WriteFile($P, ...)
+              - pattern: os.Remove($P)
+              - pattern: os.RemoveAll($P)
+          - focus-metavariable: $P
+
+  # --- LLM06: excessive agency ---------------------------------------------
+
+  - id: traust-go-llm-application-mcp-http-without-auth
+    languages: [go]
+    severity: WARNING
+    message: >-
+      MCP server exposed over HTTP/SSE (go-sdk NewStreamableHTTPHandler/NewSSEHandler, or mcp-go NewStreamableHTTPServer/NewSSEServer) with no authentication configured in this
+      file. The MCP authorization spec expects HTTP transports to authenticate
+      clients (OAuth 2.1 bearer tokens); without it anyone who can reach the
+      port can list and call every tool. Configure auth.RequireBearerToken (go-sdk) or bearer/OAuth middleware around the handler. The check is
+      file-scoped: if a reverse proxy or middleware in another file
+      authenticates requests, record where. CWE-306.
+    metadata:
+      cwe: ["CWE-306", "CWE-862"]
+      category: llm-application
+      asvs: ["V6"]
+      owasp_llm: ["LLM06"]
+      confidence: MEDIUM
+      references:
+        - "CWE-306 missing authentication for critical function — MCP HTTP transport"
+        - "https://modelcontextprotocol.io/specification/2025-06-18/basic/authorization"
+    patterns:
+      - pattern-either:
+          - pattern: mcp.NewStreamableHTTPHandler(...)
+          - pattern: mcp.NewSSEHandler(...)
+          - pattern: server.NewStreamableHTTPServer(...)
+          - pattern: server.NewSSEServer(...)
+      # Auth configured anywhere in the file (middleware, verifier, OAuth
+      # router) clears every match in it: the trust boundary is the
+      # transport, and a file that wires auth is not this defect.
+      - pattern-not-regex: (?is)\A.*?\b\w*(bearer|oauth|jwt|authenticat|authoriz|auth_?middleware|auth_?router|token_?verifier|verify_?token|extract_?\w*token)\w*.*\z
+
+  # --- LLM10: unbounded consumption ----------------------------------------
+
+  - id: traust-go-llm-application-unbounded-agent-loop
+    languages: [go]
+    severity: WARNING
+    message: >-
+      Model calls inside an unconditional for loop with no visible step, time or
+      cost limit. A model that never emits the stop signal (or is steered not
+      to) keeps calling the model, and paying for it, indefinitely. Bound the
+      loop with a maximum number of steps and a budget. CWE-400, CWE-834.
+    metadata:
+      cwe: ["CWE-400", "CWE-834"]
+      category: llm-application
+      asvs: ["V2"]
+      owasp_llm: ["LLM10"]
+      confidence: MEDIUM
+      references:
+        - "CWE-834 excessive iteration — unbounded agent loop"
+    patterns:
+      - pattern: |
+          for {
+            $...BODY
+          }
+      - metavariable-regex:
+          metavariable: $...BODY
+          regex: (?s).*\b(Chat\.Completions\.New|Completions\.New|Responses\.New|Messages\.New|CreateChatCompletion|CreateCompletion|GenerateContent|GenerateFromSinglePrompt)\s*\(
+      - metavariable-regex:
+          metavariable: $...BODY
+          regex: (?is)^(?!.*\b(max_?(steps|iterations|turns|rounds|calls)|step_?limit|budget|deadline|timeout)\b).*$

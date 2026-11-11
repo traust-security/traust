@@ -16,6 +16,7 @@ from pathlib import Path
 import pytest
 
 from traust.cli import check_docs_consistency as C
+from traust.cli.__main__ import main as cli_main
 
 
 class TestDocConsistency(unittest.TestCase):
@@ -125,18 +126,17 @@ class TestVersionSyncAndSymlinks(unittest.TestCase):
         self.assertEqual(C.version_sync_failures(), [])
         self.assertEqual(C.symlink_failures(), [])
 
-    def test_pyproject_drift_flagged(self):
+    def test_pyproject_missing_flagged(self):
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp)
-            (repo / "VERSION").write_text("2.0.0\n")
-            (repo / "pyproject.toml").write_text('[project]\nversion = "1.0.0"\n')
+            (repo / "pyproject.toml").write_text('[project]\nname = "x"\n')
             failures = C.version_sync_failures(repo)
-            self.assertTrue(any("1.0.0" in f and "2.0.0" in f for f in failures))
+            self.assertTrue(any("no [project] version field" in f for f in failures))
 
     def test_version_args_drift_flagged(self):
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp)
-            (repo / "VERSION").write_text("2.0.0\n")
+            (repo / "pyproject.toml").write_text('[project]\nversion = "2.0.0"\n')
             (repo / "version.args").write_text("VERSION=1.9.0\n")
             failures = C.version_sync_failures(repo)
             self.assertTrue(any("version.args" in f and "2.0.0" in f for f in failures))
@@ -144,9 +144,16 @@ class TestVersionSyncAndSymlinks(unittest.TestCase):
     def test_version_args_in_sync_clean(self):
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp)
-            (repo / "VERSION").write_text("2.0.0\n")
+            (repo / "pyproject.toml").write_text('[project]\nversion = "2.0.0"\n')
             (repo / "version.args").write_text("VERSION=2.0.0\n")
             self.assertEqual(C.version_sync_failures(repo), [])
+
+    def test_version_args_missing_flagged(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "pyproject.toml").write_text('[project]\nversion = "2.0.0"\n')
+            failures = C.version_sync_failures(repo)
+            self.assertTrue(any("version.args: missing" in f for f in failures))
 
     def test_dangling_symlink_flagged(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -355,7 +362,7 @@ class TestDocsIndexCoverage(unittest.TestCase):
 
 
 class TestSingleRulePack(unittest.TestCase):
-    """Rule packs live only in traust-engine; no copy or stale pointer here."""
+    """Rule packs live only in the security pack; no other copy or stale pointer here."""
 
     def test_live_tree_has_no_rule_pack_copy(self):
         self.assertEqual(C.rule_pack_copy_failures(), [])
@@ -389,13 +396,13 @@ class TestSingleRulePack(unittest.TestCase):
 
 
 class TestModelClassRoot(unittest.TestCase):
-    def test_selected_checkout_defines_real_skills(self):
+    def test_model_class_failures_uses_selected_repo_skill_tree(self):
         with tempfile.TemporaryDirectory() as td:
             repo = Path(td)
             skill = repo / "harnessing" / "3-audit" / "campaign-fixture-skill"
             skill.mkdir(parents=True)
             (skill / "SKILL.md").write_text(
-                "---\nname: campaign-fixture-skill\ndescription: Fixture.\n---\n",
+                "---\nname: campaign-fixture-skill\ndescription: Fixture skill.\n---\n",
                 encoding="utf-8",
             )
             docs = repo / "docs"
@@ -404,99 +411,225 @@ class TestModelClassRoot(unittest.TestCase):
             index = docs / "model-classes.md"
             usage.write_text("| `campaign-fixture-skill` | sonnet-class |\n", encoding="utf-8")
             index.write_text("### `sonnet-class`\n\n`campaign-fixture-skill`\n", encoding="utf-8")
+
             self.assertEqual(C.model_class_failures(repo), [])
+
             usage.write_text("| `triage` | sonnet-class |\n", encoding="utf-8")
             index.write_text("### `sonnet-class`\n\n`triage`\n", encoding="utf-8")
-            self.assertTrue(any("triage" in f for f in C.model_class_failures(repo)))
+            self.assertTrue(any("triage" in failure for failure in C.model_class_failures(repo)))
+
+
+@pytest.fixture
+def estate_repo(tmp_path):
+    (tmp_path / "config").mkdir()
+    (tmp_path / "docs").mkdir()
+    text = (
+        "endpoint: http://10.23.45.67\n"
+        "service: estate-fixture.invalid\n"
+        "public: public-fixture.invalid\n"
+    )
+    (tmp_path / "config" / "model-registry.yaml").write_text(text, encoding="utf-8")
+    (tmp_path / "docs" / "guide.md").write_text(text, encoding="utf-8")
+    return tmp_path
+
+
+def test_configured_vocabulary_keeps_universal_and_deployment_rules(estate_repo, monkeypatch):
+    vocabulary = estate_repo / "vocabulary.yaml"
+    vocabulary.write_text(
+        "rules:\n"
+        "  - {id: estate-fixture, tier: review, pattern: 'estate-fixture\\.invalid'}\n"
+        "  - {id: public-fixture, tier: note, pattern: 'public-fixture\\.invalid'}\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("HARNESS_INTERNAL_VOCABULARY", str(vocabulary))
+    for check in (C.config_hygiene_failures, C.docs_estate_marker_failures):
+        failures = check(estate_repo)
+        assert len(failures) == 2
+        assert any("rfc1918" in failure for failure in failures)
+        assert any("estate-fixture" in failure for failure in failures)
 
 
 @pytest.mark.parametrize(
-    "contents",
+    "content",
     [
-        "rules: [",
-        "rules: []\n",
-        "- not-a-mapping\n",
-        "rules:\n  - {id: fixture, tier: block, pattern: '['}\n",
+        b"rules: [",
+        b"",
+        b"false",
+        b"[]",
+        b"rules: []",
+        b"rules:\n  - {id: fixture, tier: block, pattern: '['}\n",
+        b"rules:\n  - {id: fixture, tier: nope, pattern: fixture}\n",
+        b"rules:\n  - {id: [], tier: block, pattern: fixture}\n",
+        b"rules:\n  - {id: fixture, tier: block, pattern: 42}\n",
+        b"rules:\n  - {id: fixture, tier: block, pattern: fixture, why: [invalid]}\n",
+        b"rules:\n  - {id: fixture, tier: block, pattern: fixture, why: false}\n",
+        b"rules:\n  - {id: fixture, tier: block, pattern: fixture, why: 0}\n",
+        b"rules:\n  - {id: fixture, tier: block, pattern: fixture, why: []}\n",
+        b"rules:\n  - {id: fixture, tier: block, pattern: fixture, why: null}\n",
         b"\xff",
     ],
 )
-def test_broken_vocabulary_fails_gate_and_keeps_universal_rules(tmp_path, monkeypatch, contents):
-    from traust.cli import scan_internal_refs as scanner
+def test_malformed_configured_vocabulary_fails_and_retains_universal_rules(
+    estate_repo, monkeypatch, content
+):
+    vocabulary = estate_repo / "vocabulary.yaml"
+    vocabulary.write_bytes(content)
+    monkeypatch.setenv("HARNESS_INTERNAL_VOCABULARY", str(vocabulary))
+    for check in (C.config_hygiene_failures, C.docs_estate_marker_failures):
+        failures = check(estate_repo)
+        assert len(failures) == 2
+        assert any(str(vocabulary) in failure for failure in failures)
+        assert any("rfc1918" in failure for failure in failures)
 
-    vocabulary = tmp_path / "internal-vocabulary.yaml"
-    vocabulary.write_bytes(contents if isinstance(contents, bytes) else contents.encode())
-    monkeypatch.setattr(scanner, "vocabulary_path", lambda explicit=None: vocabulary)
-    (tmp_path / "config").mkdir()
-    (tmp_path / "docs").mkdir()
-    (tmp_path / "config" / "model-registry.yaml").write_text("endpoint: 10.23.45.67\n")
-    (tmp_path / "docs" / "example.md").write_text("Private endpoint: 10.23.45.67\n")
+
+def test_vocabulary_directory_is_invalid_configured_data(estate_repo, monkeypatch):
+    vocabulary = estate_repo / "vocabulary.yaml"
+    vocabulary.mkdir()
+    monkeypatch.setenv("HARNESS_INTERNAL_VOCABULARY", str(vocabulary))
+    for check in (C.config_hygiene_failures, C.docs_estate_marker_failures):
+        failures = check(estate_repo)
+        assert len(failures) == 2
+        assert any(str(vocabulary) in failure for failure in failures)
+        assert any("rfc1918" in failure for failure in failures)
+
+
+@pytest.mark.parametrize("setting", [None, "", "   "])
+def test_unconfigured_vocabulary_is_optional(estate_repo, monkeypatch, setting):
+    if setting is None:
+        monkeypatch.delenv("HARNESS_INTERNAL_VOCABULARY", raising=False)
+    else:
+        monkeypatch.setenv("HARNESS_INTERNAL_VOCABULARY", setting)
+    assert C.config_hygiene_failures(estate_repo) == []
+    assert C.docs_estate_marker_failures(estate_repo) == []
+    (estate_repo / "config" / "deployment.yaml").write_text("private: true\n", encoding="utf-8")
+    failures = C.config_hygiene_failures(estate_repo)
+    assert len(failures) == 1
+    assert "config/deployment.yaml" in failures[0]
+
+
+def test_configured_missing_vocabulary_fails_and_retains_universal_rules(estate_repo, monkeypatch):
+    vocabulary = estate_repo / "absent.yaml"
+    monkeypatch.setenv("HARNESS_INTERNAL_VOCABULARY", str(vocabulary))
+    for check in (C.config_hygiene_failures, C.docs_estate_marker_failures):
+        failures = check(estate_repo)
+        assert len(failures) == 2
+        assert any(str(vocabulary) in failure for failure in failures)
+        assert any("rfc1918" in failure for failure in failures)
+
+
+@pytest.mark.parametrize("configured", [False, "missing", "malformed"])
+def test_vocabulary_configuration_is_checked_even_without_scan_directories(
+    tmp_path, monkeypatch, configured
+):
+    vocabulary = tmp_path / "absent.yaml"
+    if configured == "malformed":
+        vocabulary.write_text("rules: [", encoding="utf-8")
+    if configured:
+        monkeypatch.setenv("HARNESS_INTERNAL_VOCABULARY", str(vocabulary))
+    else:
+        monkeypatch.delenv("HARNESS_INTERNAL_VOCABULARY", raising=False)
     for check in (C.config_hygiene_failures, C.docs_estate_marker_failures):
         failures = check(tmp_path)
-        assert any("internal-vocabulary.yaml:" in f for f in failures)
-        assert any("rfc1918" in f for f in failures)
+        assert len(failures) == int(bool(configured))
+        if configured:
+            assert str(vocabulary) in failures[0]
 
 
-@pytest.mark.parametrize("present", [False, True])
-def test_vocabulary_configuration_boundary(tmp_path, monkeypatch, present):
-    from traust.cli import scan_internal_refs as scanner
-
-    vocabulary = tmp_path / "internal-vocabulary.yaml"
-    monkeypatch.setattr(scanner, "vocabulary_path", lambda explicit=None: vocabulary)
-    if present:
-        vocabulary.write_text(
-            "rules:\n  - {id: fixture-host, tier: block, pattern: fixture-internal, why: test}\n"
-        )
-    (tmp_path / "config").mkdir()
-    (tmp_path / "docs").mkdir()
-    (tmp_path / "config" / "model-registry.yaml").write_text("endpoint: fixture-internal\n")
-    (tmp_path / "docs" / "example.md").write_text("Endpoint: fixture-internal\n")
-    for check in (C.config_hygiene_failures, C.docs_estate_marker_failures):
-        failures = check(tmp_path)
-        assert any("fixture-host" in f for f in failures) is present
-        assert not any("cannot load" in f for f in failures)
-
-
-@pytest.mark.parametrize("directories", [(), ("config",), ("docs",)])
-@pytest.mark.parametrize("state", ["malformed", "valid", "missing"])
-def test_vocabulary_validation_does_not_depend_on_scannable_directories(
-    tmp_path, monkeypatch, directories, state
+@pytest.mark.parametrize("vocabulary_error", [False, True])
+def test_vocabulary_read_error_is_safe_and_retains_universal_rules(
+    estate_repo, monkeypatch, vocabulary_error
 ):
-    from traust.cli import scan_internal_refs as scanner
+    from traust.cli import scan_internal_refs as S
 
-    vocabulary = tmp_path / "internal-vocabulary.yaml"
-    if state == "malformed":
-        vocabulary.write_text("rules: [")
-    elif state == "valid":
-        vocabulary.write_text(
-            "rules:\n  - {id: fixture-host, tier: block, pattern: fixture-internal, why: test}\n"
-        )
-    monkeypatch.setattr(scanner, "vocabulary_path", lambda explicit=None: vocabulary)
-    repo = tmp_path / "checkout"
-    repo.mkdir()
-    for directory in directories:
-        (repo / directory).mkdir()
+    vocabulary = estate_repo / "vocabulary.yaml"
+    monkeypatch.setenv("HARNESS_INTERNAL_VOCABULARY", str(vocabulary))
+    error_type = S.VocabularyError if vocabulary_error else OSError
 
+    def cannot_read(*args, **kwargs):
+        raise error_type("PRIVATE_VOCABULARY_SENTINEL")
+
+    monkeypatch.setattr(S, "all_rules", cannot_read)
     for check in (C.config_hygiene_failures, C.docs_estate_marker_failures):
-        failures = check(repo)
-        if state == "malformed":
-            assert any(str(vocabulary) in failure for failure in failures)
-        else:
-            assert failures == []
+        failures = check(estate_repo)
+        assert len(failures) == 2
+        assert any(str(vocabulary) in failure for failure in failures)
+        assert any("rfc1918" in failure for failure in failures)
+        assert "PRIVATE_VOCABULARY_SENTINEL" not in "\n".join(failures)
 
 
-def test_docs_gate_reports_broken_vocabulary_on_an_empty_selected_root(
-    tmp_path, monkeypatch, capsys
+@pytest.mark.parametrize(
+    "content",
+    [
+        "rules: [",
+        "rules:\n  - {id: false, tier: block, pattern: PRIVATE_VOCABULARY_SENTINEL}\n",
+        "rules:\n  - {id: [], tier: block, pattern: PRIVATE_VOCABULARY_SENTINEL}\n",
+        "rules:\n  - {id: PRIVATE_VOCABULARY_SENTINEL, tier: block, pattern: x, why: false}\n",
+        "rules:\n  - {id: PRIVATE_VOCABULARY_SENTINEL, tier: block, pattern: x, why: 0}\n",
+        "rules:\n  - {id: PRIVATE_VOCABULARY_SENTINEL, tier: block, pattern: x, why: []}\n",
+    ],
+)
+def test_grouped_docs_gate_refuses_configured_failures_without_echoing_private_data(
+    estate_repo, monkeypatch, capsys, content
 ):
-    from traust.cli import scan_internal_refs as scanner
+    from traust.cli.groups import GROUPS
 
-    vocabulary = tmp_path / "internal-vocabulary.yaml"
-    vocabulary.write_text("rules: [")
-    monkeypatch.setattr(scanner, "vocabulary_path", lambda explicit=None: vocabulary)
-    repo = tmp_path / "checkout"
-    repo.mkdir()
-    for name in ("PROCESS.md", "README.md", "AGENTS.md"):
-        (repo / name).write_text("# Fixture\n")
-    (repo / "VERSION").write_text("1.0.0\n")
+    (estate_repo / "config" / "model-registry.yaml").write_text("models: {}\n", encoding="utf-8")
+    (estate_repo / "docs" / "guide.md").write_text("# Portable guide\n", encoding="utf-8")
+    (estate_repo / "PROCESS.md").write_text(
+        "\n".join(f"## Stage {stage}" for stage in range(1, C.CANONICAL_STAGE_COUNT + 1)),
+        encoding="utf-8",
+    )
+    (estate_repo / "VERSION").write_text("1.0.0\n", encoding="utf-8")
+    (estate_repo / "docs" / "cli-reference.md").write_text(
+        "# CLI Command Reference\n\n"
+        "| Group | Description | Operations |\n"
+        "|---|---|---|\n"
+        + "\n".join(
+            f"| `{group}` | CLI group | {', '.join(f'`{op}`' for op in sorted(ops))} |"
+            for group, ops in GROUPS.items()
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    vocabulary = estate_repo / "vocabulary.yaml"
+    monkeypatch.delenv("HARNESS_INTERNAL_VOCABULARY", raising=False)
+    argv = ["check", "docs-consistency", "--root", str(estate_repo)]
+    assert cli_main(argv) == 0
+    monkeypatch.setenv("HARNESS_INTERNAL_VOCABULARY", str(vocabulary))
+    assert cli_main(argv) == 1  # an explicitly configured missing file is not optional
+    vocabulary.write_text(content, encoding="utf-8")
+    assert cli_main(argv) == 1
+    captured = capsys.readouterr()
+    assert str(vocabulary) in captured.out
+    assert "cannot load vocabulary" in captured.out
+    assert "PRIVATE_VOCABULARY_SENTINEL" not in captured.out + captured.err
+    assert "Traceback" not in captured.out + captured.err
+    vocabulary.write_text(
+        "rules:\n  - {id: estate-fixture, tier: block, pattern: 'estate-fixture\\.invalid'}\n",
+        encoding="utf-8",
+    )
+    assert cli_main(argv) == 0
 
-    assert C.main(["--root", str(repo)]) == 1
-    assert str(vocabulary) in capsys.readouterr().out
+
+@pytest.mark.parametrize("malformed", [False, True])
+def test_grouped_docs_gate_reports_configured_failure_without_config_or_docs(
+    tmp_path, monkeypatch, capsys, malformed
+):
+    (tmp_path / "PROCESS.md").write_text(
+        "\n".join(f"## Stage {stage}" for stage in range(1, C.CANONICAL_STAGE_COUNT + 1)),
+        encoding="utf-8",
+    )
+    (tmp_path / "VERSION").write_text("1.0.0\n", encoding="utf-8")
+    vocabulary = tmp_path / "private-vocabulary.yaml"
+    if malformed:
+        vocabulary.write_text(
+            "rules:\n  - {id: false, tier: block, pattern: PRIVATE_VOCABULARY_SENTINEL}\n",
+            encoding="utf-8",
+        )
+    monkeypatch.setenv("HARNESS_INTERNAL_VOCABULARY", str(vocabulary))
+
+    assert cli_main(["check", "docs-consistency", "--root", str(tmp_path)]) == 1
+    captured = capsys.readouterr()
+    assert str(vocabulary) in captured.out
+    assert "PRIVATE_VOCABULARY_SENTINEL" not in captured.out + captured.err
+    assert "Traceback" not in captured.out + captured.err

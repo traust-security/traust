@@ -1,0 +1,5 @@
+version: 1
+workspace: /srv/traust/workspace
+analysis_results: /srv/traust/analysis-results
+progress_tracker: ""
+rule_drafts: drafts

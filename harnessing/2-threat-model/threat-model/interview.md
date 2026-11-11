@@ -179,10 +179,13 @@ modeling can result in knowing what we're not going to do and why."
 After scoring, ask one closing question per **threat class** (not per row):
 "If we could land one engineering control that makes this whole class go
 away or shrink, what would it be?" Record the answer (or your own proposal
-if the owner punts) as a section 8 row: `mitigation | threat_ids | closes_class |
-effort`. Prefer controls that survive the next bug (sandboxing, type-safe
-parsers, parameterized queries, CSP, allocation caps) over patches for the
-last one.
+if the owner punts) as a section 8 mitigation with `mitigation`, `threat_ids`,
+`closes_class`, and required `effort` per schema.md section 8. Ask for an
+effort-size estimate; if it is unknown, emit JSON `null`, not a guessed
+small size. Ask independently whether an external dependency blocks it;
+include `blocked_external` only for a known answer, otherwise omit it.
+Prefer controls that survive the next bug (sandboxing, type-safe parsers,
+parameterized queries, CSP, allocation caps) over patches for the last one.
 
 ### Q4 — Did we do a good job?
 
@@ -235,7 +238,9 @@ Then hand back to the user:
 
 1. Path to the file.
 2. Top 5 threats by severity, one line each.
-3. The section 8 recommended mitigations, top 3 by (closes_class, effort asc).
+3. The section 8 recommended mitigations, top 3 by (closes_class, known
+   effort in size order). Keep unknown effort separate, never cheapest;
+   carry any reported external-blocking state with each recommendation.
 4. Every `[Owner-states]` claim that affects a rating factor, as a follow-up list.
    Format each as a section 6 bullet: `- [Owner-states] <claim>. Affects: <Tn
    field>. Verify by: <suggested check>.`

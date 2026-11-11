@@ -1,0 +1,57 @@
+rules:
+  - id: traust-ts-injection-child-process-taint
+    languages: [typescript, javascript]
+    severity: ERROR
+    message: >-
+      Request-derived value reaches a child_process shell execution — the
+      caller controls the command line. Use execFile/spawn with an argument
+      array, or validate against a strict allowlist. CWE-78.
+    metadata:
+      cwe: ["CWE-78"]
+      category: injection
+      asvs: ["V1"]
+      confidence: HIGH
+      references:
+        - "CWE-78 OS command injection — request-derived child_process exec"
+    mode: taint
+    pattern-sources:
+      - pattern-either:
+          - pattern: $REQ.query.$P
+          - pattern: $REQ.params.$P
+          - pattern: $REQ.body.$P
+    pattern-sinks:
+      - pattern-either:
+          - pattern: exec(...)
+          - pattern: execSync(...)
+          - patterns:
+              - pattern-either:
+                  - pattern: $CP.exec(...)
+                  - pattern: $CP.execSync(...)
+              - metavariable-regex:
+                  metavariable: $CP
+                  regex: ^(childProcess|child_process|cp)$
+
+  - id: traust-ts-injection-eval-taint
+    languages: [typescript, javascript]
+    severity: ERROR
+    message: >-
+      Request-derived value reaches dynamic code evaluation — the caller
+      executes arbitrary JavaScript in-process. Remove the dynamic
+      evaluation. CWE-95.
+    metadata:
+      cwe: ["CWE-95"]
+      category: injection
+      asvs: ["V1"]
+      confidence: HIGH
+      references:
+        - "CWE-95 — dynamic evaluation of request input"
+    mode: taint
+    pattern-sources:
+      - pattern-either:
+          - pattern: $REQ.query.$P
+          - pattern: $REQ.params.$P
+          - pattern: $REQ.body.$P
+    pattern-sinks:
+      - pattern-either:
+          - pattern: eval(...)
+          - pattern: new Function(...)

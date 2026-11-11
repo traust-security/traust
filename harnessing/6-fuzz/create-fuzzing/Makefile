@@ -83,11 +83,13 @@ $(addprefix fuzz-,$(TARGETS)): fuzz-%: install
 
 fuzz-all: $(addprefix fuzz-,$(TARGETS))
 
-## clone: (re)fetch all repos at pinned commits. Idempotent.
+## clone: (re)fetch all repos at pinned commits through the checkout
+## service (traust repo checkout), symlinking clones/<id> at the printed
+## workspace path. Idempotent.
 clone:
 	@$(JQ) -r '.targets[] | "\(.id)|\(.repo)|\(.commit)"' $(MANIFEST) | \
 	while IFS='|' read -r id url sha; do \
-	  test -d "$(CLONES)/$$id/.git" && { echo "  skip $$id (exists)"; continue; }; \
+	  test -e "$(CLONES)/$$id/.git" && { echo "  skip $$id (exists)"; continue; }; \
 	  case "$$url" in \
 	    *'$${FUZZ_MIRROR_BASE}'*) \
 	      if [ -z "$$FUZZ_MIRROR_BASE" ]; then \
@@ -98,11 +100,11 @@ clone:
 	  esac; \
 	  case "$$url" in https://*) ;; *) echo "  refuse $$id (non-https url)"; continue;; esac; \
 	  if [ "$$sha" = "HEAD" ]; then \
-	    GIT_ALLOW_PROTOCOL=https git clone -q --depth 1 "$$url" "$(CLONES)/$$id"; \
-	  else \
-	    git init -q "$(CLONES)/$$id" && ( cd "$(CLONES)/$$id" && git remote add origin "$$url" && GIT_ALLOW_PROTOCOL=https git fetch -q --depth 1 origin "$$sha" && git checkout -q FETCH_HEAD ); \
+	    sha=$$(git ls-remote "$$url" HEAD | cut -f1); \
 	  fi; \
-	  echo "  cloned $$id"; \
+	  work=$$(python3 -m traust.cli repo checkout "$$url" --ref "$$sha" --history 1 --writable); \
+	  mkdir -p "$(CLONES)"; ln -sfn "$$work" "$(CLONES)/$$id"; \
+	  echo "  checked out $$id"; \
 	done
 
 clean-harnesses:

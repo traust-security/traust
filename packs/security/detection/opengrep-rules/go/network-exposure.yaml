@@ -1,0 +1,19 @@
+rules:
+  - id: traust-go-network-exposure-pprof-import
+    languages: [go]
+    severity: WARNING
+    message: >-
+      net/http/pprof registers profiling endpoints on the default mux — if
+      any server in this binary uses the default mux, heap/goroutine/cpu
+      profiles (which can contain secrets) become reachable over the
+      network. Serve pprof only on a localhost-bound debug listener, or
+      drop the import from production builds. CWE-489.
+    metadata:
+      cwe: ["CWE-489", "CWE-200"]
+      category: network-exposure
+      asvs: ["V13"]
+      confidence: MEDIUM
+      references:
+        - "CWE-489 active debug code — net/http/pprof on default mux"
+    patterns:
+      - pattern: import _ "net/http/pprof"

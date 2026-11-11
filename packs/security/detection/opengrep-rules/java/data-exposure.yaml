@@ -1,0 +1,64 @@
+rules:
+  - id: traust-java-data-exposure-actuator-permit-all
+    languages: [java]
+    severity: ERROR
+    message: >-
+      Every Spring Boot actuator endpoint is permitted without
+      authentication. Whatever the application exposes over the web (env,
+      heapdump, configprops, loggers, shutdown) is open to anyone who can
+      reach it. Permit only health (and info), and require an operator
+      role for the rest. CWE-200.
+    metadata:
+      cwe: ["CWE-200", "CWE-306"]
+      category: data-exposure
+      asvs: ["V13"]
+      confidence: HIGH
+      references:
+        - "CWE-200 exposed management endpoints — actuator permitted to anonymous callers"
+    pattern-either:
+      - pattern: $A.requestMatchers(EndpointRequest.toAnyEndpoint()).permitAll()
+      - pattern: $A.requestMatchers(EndpointRequest.toAnyEndpoint(...)).permitAll()
+      - pattern: $A.requestMatcher(EndpointRequest.toAnyEndpoint()).$AUTH(...)
+      - pattern: $A.requestMatchers("/actuator/**").permitAll()
+      - pattern: $A.antMatchers("/actuator/**").permitAll()
+      - pattern: $A.mvcMatchers("/actuator/**").permitAll()
+
+  - id: traust-java-data-exposure-actuator-web-exposure-all
+    languages: [regex]
+    severity: WARNING
+    message: >-
+      The Spring Boot configuration exposes every actuator endpoint over
+      HTTP, or a sensitive one by name (env, heapdump, threaddump,
+      configprops, beans, mappings, loggers, shutdown, jolokia). They show
+      configuration and secrets, memory contents, or change state. Expose
+      health and info, and anything else only behind an operator role.
+      CWE-200.
+    metadata:
+      cwe: ["CWE-200"]
+      category: data-exposure
+      asvs: ["V13"]
+      confidence: MEDIUM
+      references:
+        - "CWE-200 exposed management endpoints — management.endpoints.web.exposure.include"
+    paths:
+      include: ["*.properties"]
+    pattern-regex: (?m)^[ \t]*management\.endpoints\.web\.exposure\.include[ \t]*[=:][ \t]*(?:\*|.*\b(?:env|heapdump|threaddump|configprops|beans|mappings|loggers|shutdown|jolokia)\b).*$
+
+  - id: traust-java-data-exposure-error-stacktrace-always
+    languages: [regex]
+    severity: WARNING
+    message: >-
+      Spring Boot error responses always include the stack trace, which
+      shows callers the code paths, library versions and sometimes the data
+      behind a failure. Leave include-stacktrace at never in deployed
+      configuration. CWE-209.
+    metadata:
+      cwe: ["CWE-209"]
+      category: data-exposure
+      asvs: ["V16"]
+      confidence: HIGH
+      references:
+        - "CWE-209 error detail exposure — server.error.include-stacktrace=always"
+    paths:
+      include: ["*.properties"]
+    pattern-regex: (?m)^[ \t]*server\.error\.include-stacktrace[ \t]*[=:][ \t]*(?:always|ALWAYS)[ \t]*$

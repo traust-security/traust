@@ -1,0 +1,5 @@
+budget_policy:
+  version: 1
+  enforcement: observe
+  monthly_budget: {usd_central: 10000, usd_band_low: 8000}
+  per_run_defaults: {default: 1000000}

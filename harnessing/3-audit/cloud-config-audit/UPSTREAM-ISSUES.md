@@ -7,7 +7,7 @@ automatically**: an agent never opens an upstream issue; a maintainer
 reviews each draft, re-verifies the repro against the then-current
 Checkov release, strips any internal references, and files by hand.
 All observations are against the pinned engine, **Checkov 3.3.6**
-(`PINNED_CHECKOV_VERSION` in `run_checkov.py`), running under the
+(`CHECKOV_VERSION` in traust-core's `models/cloud_config.py`), running under the
 skill's standard contract: **declared-configuration evidence only**
 (no cloud API calls) and every runner invocation recorded in the
 report's `metadata.deterministic_steps` — see SKILL.md.
@@ -36,7 +36,7 @@ not unblocking us.
 - **Our evidence:** rhoim-bootc-images `vllm-bootc/Containerfile`
   silently unassessed —
   `analysis-results/cloud-config/rhoim-bootc-images/`.
-- **Our mitigation:** `run_checkov.py` materializes Dockerfile-named
+- **Our mitigation:** traust-engine's `CheckovProvider` materializes Dockerfile-named
   alias symlinks in a temp scan tree and maps fact paths back
   (`containerfile_alias_workaround`).
 
@@ -56,8 +56,8 @@ not unblocking us.
 - **Our evidence:** `analysis-results/cloud-config/
   terraform-provider-rhoas/`, `er-cloudflare-account/`,
   `er-cloudflare-zone/`, `ibmc-workspace-vlans/`.
-- **Our mitigation:** mechanical `detect_coverage_gaps()` in
-  `run_checkov.py` emits a NOT-ASSESSED gap whenever `.tf` files exist
+- **Our mitigation:** mechanical `IacInventory.gaps()` in
+  traust-core's `models/cloud_config.py` emits a NOT-ASSESSED gap whenever `.tf` files exist
   but the terraform framework evaluated zero checks.
 
 ## 3. Weak Bicep parsing (large real-world parse-failure rate)
@@ -152,4 +152,4 @@ not unblocking us.
   and Pipelines-as-Code `.tekton/` trees
   (`analysis-results/cloud-config/`).
 - **Our mitigation:** mechanical NOT-ASSESSED gaps for both classes in
-  `run_checkov.py` (template unwrapping deliberately not attempted).
+  traust-core's `IacInventory.gaps()` (template unwrapping deliberately not attempted).

@@ -17,11 +17,7 @@
 /src/traust/cli/check_content_licenses.py @traust-security/traust-admins
 /src/traust/cli/check_drift.py @traust-security/traust-admins
 
-# The sandbox policy (the sandbox itself is traust-engine/src/traust_engine/_util/safe_exec.py)
-/config/safe-exec-profiles.example.yaml @traust-security/traust-admins
-
 # Ledger integrity / two-person rule
-/src/traust/cli/countersign.py @traust-security/traust-admins
 
 # The boundary itself
 /.githooks/ @traust-security/traust-admins

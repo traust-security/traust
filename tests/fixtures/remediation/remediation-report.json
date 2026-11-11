@@ -1,0 +1,54 @@
+{
+  "title": "Remediation of an unbounded read in the upload handler",
+  "metadata": {
+    "date": "2026-10-23",
+    "harness_version": "1.4.0-abcdef1",
+    "logical_product": "example-product",
+    "repository": "https://github.com/example-org/example-service",
+    "audited_commit": "0123456789abcdef0123456789abcdef01234567",
+    "language": "go",
+    "jira_keys": ["SEC-101"],
+    "operator": "agent"
+  },
+  "source_findings": [
+    {
+      "finding_ref": "FINDING_ID",
+      "title": "Unbounded read of the request body",
+      "severity": "high",
+      "cwes": ["CWE-400"],
+      "locations": [{"path": "pkg/upload/handler.go", "lines": "42-57"}],
+      "validation_verdict": "not_validated"
+    }
+  ],
+  "fork": {
+    "url": "https://github.com/example-mirrors/example-service",
+    "host": "github",
+    "visibility": "private",
+    "upstream_remote": "https://github.com/example-org/example-service",
+    "base_ref": "0123456789abcdef0123456789abcdef01234567",
+    "fix_branch": "fix/finding/unbounded-read",
+    "fix_commit": "89abcdef0123456789abcdef0123456789abcdef"
+  },
+  "patch": {
+    "strategy": "bound-resource",
+    "rationale": "The handler reads the whole request body with io.ReadAll; wrapping it in http.MaxBytesReader bounds the read at the configured limit, which is the root cause the triage named.",
+    "behaviour_change": "requests over 10 MiB are refused with 413",
+    "files_changed": [{"path": "pkg/upload/handler.go", "change_type": "modified", "additions": 4, "deletions": 1}],
+    "diffstat": {"files": 1, "additions": 4, "deletions": 1}
+  },
+  "checks": [
+    {"name": "go build", "command": "go build ./...", "outcome": "pass"},
+    {"name": "unit-tests", "command": "go test ./...", "outcome": "pass"}
+  ],
+  "evidence": [
+    {
+      "kind": "mutation",
+      "outcome": "proves",
+      "base_observation": "19 mutant(s) generated across 1 non-test file(s) in ./pkg/upload; 19 exercised against the suite as patched",
+      "patched_observation": "19 caught, 0 uncaught, 0 timed out, 0 never exercised (skipped 0, untested 0)",
+      "tool": "mewt 4.0.0",
+      "deterministic_steps": "ran"
+    }
+  ],
+  "summary": {"status": "checks_passed", "checks_passed": 2, "checks_total": 2, "findings_addressed": 1}
+}

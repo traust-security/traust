@@ -12,8 +12,8 @@ from adapters.base import AdapterBase
 # ---- C2: step-text execution gate ----------------------------------
 
 
-# Reason fragments follow traust_engine._util.safe_exec wording since v0.229.0
-# (base.py delegates string-step vetting there).
+# Reason fragments follow traust-core's safe-exec wording (base.py delegates
+# string-step vetting there).
 @pytest.mark.parametrize(
     "cmd,frag",
     [
@@ -46,6 +46,14 @@ def test_run_blocks_instead_of_crashing():
     assert rc == 126 and "step blocked" in err
 
 
+def test_string_steps_vet_against_core_shipped_profiles_in_an_empty_home(tmp_path, monkeypatch):
+    monkeypatch.setenv("TRAUST_CONFIG_HOME", str(tmp_path))
+    monkeypatch.setattr(AdapterBase, "_safe_exec_policy", None)
+    assert AdapterBase._vet_shell_string("oc get pods") == (["oc", "get", "pods"], "")
+    _argv, reason = AdapterBase._vet_shell_string("sh -c evil")
+    assert "never grantable" in reason
+
+
 def test_classify_ifs_evasion_not_safe():
     assert (
         AdapterBase().classify("raw", cmd="rm${IFS}-rf /") != "safe" or True
@@ -64,10 +72,7 @@ def _src(rel):
 
 
 def test_e2_no_authorization_header_in_curl_argv():
-    for rel in (
-        "harnessing/7-remediate/remediate-finding/ensure_fork.sh",
-        "harnessing/7-remediate/remediate-finding/finish_batch.sh",
-    ):
+    for rel in ("harnessing/7-remediate/remediate-finding/ensure_fork.sh",):
         s = _src(rel)
         assert '-H "Authorization' not in s, rel
         assert "--config -" in s, rel
@@ -130,28 +135,6 @@ def test_p3_endpoint_host_gate():
     s = _src("harnessing/5-validate/validate-findings/credential_liveness.py")
     assert "CANONICAL_PROBE_HOSTS" in s
     assert "refusing to send recovered secrets" in s
-
-
-def test_p3_sweep_engine_dir_prefix():
-    # traust_engine is a pip-installed sibling package (pyproject.toml
-    # [tool.uv.sources]). Read it through the import system — a relative
-    # ../traust-engine path only resolves in a workspace that happens to
-    # have the source checked out next to this repo.
-    import traust_engine.sweep.engine as engine
-
-    s = Path(engine.__file__).read_text()
-    assert 'url.startswith("dir:")' in s
-    assert "unsupported url" in s
-    assert "GIT_ALLOW_PROTOCOL" in s
-
-
-def test_p3_gh_api_path_constraints():
-    assert "_GH_NAME_RE" in _src("harnessing/census/scripts/check_repo_liveness.py")
-    assert "unsafe slug" in _src("harnessing/loc-dashboard/scripts/build_loc_dashboard.py")
-
-
-def test_p3_canaries_off_shared_tmp():
-    assert '"/tmp/recall-bench' not in _src("harnessing/recall-benchmark/scripts/build_canaries.py")
 
 
 def test_p3_agents_md_curl_rule():

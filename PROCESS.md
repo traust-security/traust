@@ -27,17 +27,24 @@ quoted here — they live in the dashboards
                                                                    ├─▶ ⑥ Fuzzing          (create-fuzzing)
                                                                    └─▶ ⑦ Remediation      (remediate-finding / patch / verify)
 
-  Stages ③–⑦ feed the append-only disposition ledger (track-findings), gated by human countersign;
-  follow-up scans (vuln-scan, verify-remediation regressions, dependency-watch) enter it directly.
+  Stages ③–⑦ produce evidence. Triage and human statements record through core findings.
+  Legacy layer/cumulative writers are retired; machine validation/verification skill ports remain incomplete.
 
   Standing loop (daily, after the first pass — docs/continuous-operations.md):
   fleet refresh ─▶ router ─▶ lanes: diff-scan │ deps (/dependency-watch) │ IaC │ verify treadmill │ rule mining (/mine-ledger)
-                              └─ findings re-enter ④ Triage / the ledger; dashboards & drift-watch rebuild on cadence
+                              └─ findings re-enter ④ Triage; ledger/dashboard ports remain incomplete
 ```
 
 Each stage uses skills from this repository and produces artifacts that
 feed the next; the disposition ledger and the metrics spine run across
 all of them.
+
+The arrows describe the assessment methodology, not a claim that every service
+port is complete. Core owns finding intake, decisions, identity and persistence;
+the retired layer emitters, finding routers and cumulative builders have no
+executable fallback. Triaged decisions and verified-human countersign queue,
+request, record and apply now use core; see [docs/cli-reference.md](docs/cli-reference.md#direct-human-severity-recording).
+Component ownership is documented in [docs/components.md](docs/components.md).
 
 > **Model routing & spend:** every stage's model comes from
 > `config/model-registry.yaml` and spend lands on the spend dashboard —
@@ -54,16 +61,16 @@ in the Hybrid Platforms portfolio: OpenShift release payloads, OLM
 operator bundles, and managed services.
 
 For repos or whole orgs outside those discovery paths, `add-inputs`
-appends them (plus `owners.csv` rows) to a segment CSV directly —
-default segment `adhoc/`. When the addition is a new scan engagement,
+registers them in traust-core under a product (`traust portfolio onboard`). When the addition is a new scan engagement,
 `corpus-intake` registers the matching *output* tree in
-`$TRAUST_CONFIG_HOME/corpus-config.yaml` and records the inventory path, linking the
-two sides. The full sequence — both registrations, census confirmation,
-repo-graph rebuild — is a deployment procedure; each step is its own skill
-(`/add-inputs`, `/corpus-intake`, `/census`, `/repo-graph`).
+traust-core's corpus registry, linking the
+two sides. The full sequence — both registrations and census confirmation
+— is a deployment procedure; each step is its own skill
+(`/add-inputs`, `/corpus-intake`, `/census`).
 
-**Output:** CSV inventories, Markdown analysis reports, and `owners.csv`
-files pushed to the **inventory repository** (see Repository Map).
+**Output:** CSV inventories and Markdown analysis reports pushed to the
+**inventory repository** (see Repository Map); repositories and owner teams
+registered in traust-core.
 
 ---
 
@@ -118,10 +125,13 @@ repository** (see Repository Map).
 Adversarially verify every audit finding: N-vote verification with
 cited evidence, duplicate collapse, derived-exploitability re-ranking,
 and owner tagging. Verdicts land as `<repo>-triage.{json,md}` next to
-the audit report and flow into the disposition ledger automatically
-(Phase 6e → python3 -m traust.cli ledger emit-triage): true positives
-become machine-`confirmed` events, false positives enter the tiered
-countersign flow, hardening findings take the `hardening` validity.
+the audit report; Phase 6e (`traust triage record`) records them through core
+finding decisions. True positives become machine-`confirmed` decisions, false
+positives enter the tiered countersign flow. Hardening is a confirmed weakness
+kind, never a separate validity. `/track-findings` reads current state, imports
+human source statements and exposes full review cards, requests and explicit
+single/bulk human answers through `traust findings` and shared `traust auth`.
+It never restores the retired layer emitter or cumulative-file rebuild.
 The full contract: [docs/disposition-ledger.md](docs/disposition-ledger.md) §6b.
 
 ---
@@ -144,9 +154,10 @@ The campaign manifest lives at `analysis-results/validations/_manifest/`
 the internal extension's deploy-operator product map). Every verdict passes the
 fail-closed gate stack in
 [docs/validation-process.md](docs/validation-process.md); results emit
-`<slug>-validation.{json,md}` + `validation-audit.jsonl` and enter the
-ledger via python3 -m traust.cli ledger emit-validation (execution-graded
-evidence — E0/E1 carries class-1 override power).
+`<slug>-validation.{json,md}` + `validation-audit.jsonl`. The former validation
+emitter admitted execution-graded evidence into the ledger; it is retired.
+Core validation and finding decisions own the replacement, but the skill port
+is unfinished and there is no executable fallback for machine validation writes.
 
 ---
 
@@ -173,8 +184,10 @@ packet (terminal by design — no auto-apply path exists);
 `/remediate-finding` builds reviewable patches on private forks and
 runs the repo's own build/test suite in containment;
 `/verify-remediation` re-audits each original finding against the
-patched code (single repo, or the weekly full-sweep treadmill) and its
-verdicts resolve ledger entries via `/track-findings`.
+patched code (single repo, or the weekly full-sweep treadmill). Its former
+verification emitter and regression router are retired; their core remediation
+and finding-intake skill ports remain unfinished, so verdicts do not currently
+resolve ledger entries through `/track-findings`.
 
 **What a patch here has been proven to do depends on how it got here.**
 `/patch`'s executable ladder — build → reproduce → regress → re-attack —
@@ -267,25 +280,33 @@ in `progress-tracker/tracking/opened-tickets.md`.
 
 ## The Disposition Ledger & Countersign (cross-stage)
 
-Everything from ③ on feeds one append-only evidence stream per repo
-(`<repo>-findings-layer.json`), merged deterministically into
-`<repo>-findings-current.{json,md}` by
-[`track-findings`](.claude/skills/track-findings/SKILL.md). Machine
-refutations pend until an LDAP-verified human signs them at the
-[`countersign`](.claude/skills/countersign/SKILL.md) workbench
-(two-person rule against execution proof; salted audit valve on the
-auto-accept tier); every false positive enters a refuted register that
-feeds ⑥ Fuzzing and ⑤ Live-validation target selection. Design
-rationale: [docs/disposition-ledger.md](docs/disposition-ledger.md);
-artifact chain: [docs/artifacts.md](docs/artifacts.md);
-error doctrine: [docs/error-model.md](docs/error-model.md).
+Historically, stages ③–⑦ fed one append-only evidence stream per repo
+(`<repo>-findings-layer.json`), replayed into
+`<repo>-findings-current.{json,md}`. Those ingestion and cumulative-file
+workflows remain retired, with no file fallback. Core owns finding state.
+
+[`track-findings`](.claude/skills/track-findings/SKILL.md) owns human review
+through `traust findings`: paged core review cards and evidence, review requests,
+direct validity/severity/resolution judgements and single/bulk reviewed answers.
+Selected-review apply atomically appends the person's actual judgement and
+settles only the selected item. Core verifies the shared `traust auth` login or
+an explicitly selected stdin credential and owns proof precedence, independent
+reviewers and integrity. Machine refutations await human sign-off except for
+core's auto-accept tier and salted audit sample; execution proof requires two
+independent later E0 human dismissals. Refuted findings remain validation and
+fuzzing targets through core reads, not rebuilt register files.
+
+Invocation and identity/secret guidance:
+[CLI reference](docs/cli-reference.md#direct-human-severity-recording).
+Historical design rationale: [disposition ledger](docs/disposition-ledger.md);
+artifact chain: [artifacts](docs/artifacts.md);
+error doctrine: [error model](docs/error-model.md).
 
 ## Continuous Operation (cross-stage) — when stages re-run
 
 The stages above describe one pass. After the initial baseline, **rescan
 frequency is decided deterministically by the continuous-operations
-router** (python3 -m traust.cli build rescan-worklist
-→ `analysis-results/findings/_manifest/rescan-worklist.json`), not by a
+router** (`traust.ops.router`, run by traust-engine per repository), not by a
 calendar: heavy or security-sensitive code churn and injected events
 (external reports, methodology releases, CVE reachability, artifact
 releases) route repos back into ③ as full audits or
@@ -301,18 +322,18 @@ Dashboards rebuild on cadence via
 Every campaign number flows through one consistency spine
 (`progress-tracker/plans/metrics-improvement-plan.md`):
 
-- **`$TRAUST_CONFIG_HOME/corpus-config.yaml`** registers every output tree with an
+- **traust-core's corpus registry** (was `corpus-config.yaml`) registers every output tree with an
   ownership tag — `owned` (`findings/`, Hybrid Platforms), `upstream`
   (`oss-findings/`, community code HP depends on; reported adjacent,
   never folded into the owned headline), `external-bu` (scan engagements
-  for other business units; work-performed only). Updated only via
-  `/corpus-intake`.
-- **python3 -m traust.cli corpus** is the one implementation of report discovery,
-  identity (branch-ref stripping, symlink aliasing), and dedup that every
-  dashboard builder uses; **`/census`** publishes the resolved population,
-  the five duplication vectors, repo liveness, and the
-  **distinct-vulnerabilities** headline as the denominator authority
-  (findings.db `repos`).
+  for other business units; work-performed only). `/corpus-intake`
+  writes traust-core's corpus registry instead; `/census` reads it once ported.
+- **The retired corpus CLI** supplied report discovery, identity
+  (branch-ref stripping, symlink aliasing), dedup and the `findings.db`
+  projection. Core assessment/population and finding services own the
+  replacement; the census skill port is unfinished and there is no executable
+  fallback. Existing population artifacts are historical inputs, not proof
+  that the current corpus has been refreshed.
 - **Three-lens taxonomy** — every reported number carries a lens: Lens 1
   work performed (occurrences/throughput; a defect shipped in N products
   counts N times), Lens 2 distinct exposure (unique finding fingerprints

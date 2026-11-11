@@ -1,0 +1,58 @@
+rules:
+  - id: traust-ruby-xss-html-safe
+    languages: [ruby]
+    severity: ERROR
+    message: >-
+      A request parameter marked as safe HTML (html_safe, raw) or rendered
+      as an HTML response (render html:) — Rails stops escaping it, so the
+      caller's markup or script runs. Keep it a plain string and let the
+      view escape it, or pass it through Rails' sanitize helper. CWE-79.
+    metadata:
+      cwe: ["CWE-79"]
+      category: cross-site-scripting
+      asvs: ["V1"]
+      confidence: MEDIUM
+      references:
+        - "CWE-79 — params reaching html_safe, raw or render html:"
+    mode: taint
+    pattern-sources:
+      - pattern-either:
+          - pattern: params[...]
+          - pattern: params.fetch(...)
+          - pattern: request.query_parameters[...]
+    pattern-sanitizers:
+      - pattern-either:
+          - pattern: sanitize(...)
+          - pattern: ERB::Util.html_escape(...)
+          - pattern: h(...)
+          - pattern: CGI.escapeHTML(...)
+    pattern-sinks:
+      - pattern-either:
+          - pattern: $X.html_safe
+          - pattern: raw($X)
+          - pattern: 'render(html: $X, ...)'
+          - pattern: 'render html: $X'
+
+  - id: traust-ruby-injection-render-inline
+    languages: [ruby]
+    severity: ERROR
+    message: >-
+      A request parameter rendered as an inline ERB template (render
+      inline:) — the caller writes Ruby that runs on the server. Render
+      only templates shipped with the code. CWE-94 / CWE-1336.
+    metadata:
+      cwe: ["CWE-94", "CWE-1336"]
+      category: injection
+      asvs: ["V1"]
+      confidence: HIGH
+      references:
+        - "CWE-94 — params as render inline: template source"
+    mode: taint
+    pattern-sources:
+      - pattern-either:
+          - pattern: params[...]
+          - pattern: params.fetch(...)
+    pattern-sinks:
+      - pattern-either:
+          - pattern: 'render(inline: $X, ...)'
+          - pattern: 'render inline: $X'

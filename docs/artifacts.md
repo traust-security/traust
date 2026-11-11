@@ -1,17 +1,20 @@
 # Artifacts — what each stage produces, where it lands, and what consumes it
 
-Every stage of the harness emits one machine-readable artifact, validated
-against a JSON Schema before it is written, plus a Markdown rendering for
-people. The schemas in the `traust-contracts` package (`schemas/v1/`) are
-the authority on what each artifact contains. This page is the map between
-them: which skill produces each artifact, which skills and tools consume it,
-and where it is written. Field-level structure is in
-[report-structure.md](report-structure.md) and the schemas; the ledger's
-design is in [disposition-ledger.md](disposition-ledger.md); how a finding
-travels from a producer into the ledger is in
-[findings-routing.md](findings-routing.md).
+This page maps legacy exchange artifacts and their intended consumers; it is
+not a claim that every pipeline edge is implemented. Schemas supplied through
+the pinned core dependency are the authority on artifact structure.
+See [components.md](components.md) for current ownership and
+[report-structure.md](report-structure.md) for fields.
 
-## The chain at a glance
+The hub retired ledger emitters, findings routers and cumulative projection
+builders. Those rows below describe historical or intended interfaces pending
+their skill ports. Triage recording, bound machine-validation recording and the
+human countersign workbench now use core and emit JSON receipts; they do not
+regenerate legacy files or infer proof strength from the report kind.
+Historical layer design is in [disposition-ledger.md](disposition-ledger.md)
+and [findings-routing.md](findings-routing.md).
+
+## The historical chain at a glance
 
 ```
  threat model (/threat-model)         -> the surface an audit checks itself against
@@ -35,42 +38,43 @@ travels from a producer into the ledger is in
  dashboards                             trends, executive views
 ```
 
-Every arrow narrows with memory: nothing is deleted, and every stage's output
-is auditable back to file:line evidence.
+The historical chain preserves evidence provenance. Its diagram is not permission
+to recreate retired file writers or treat unfinished service ports as available.
 
-## The core chain
+## Artifact and consumer map
 
-Each row is a scan or assessment result. "Consumed by" lists the downstream
-skills and tools that read it directly, checked against each skill's declared
-inputs; an artifact with no consumer is marked terminal rather than left
-unexplained.
+Active core-backed recording and review rows are identified explicitly below;
+other legacy producers/consumers remain intended interfaces pending their skill
+ports. Read the owning skill's retirement notice; no retired emitter is active.
 
 | Artifact | Schema | Produced by | Consumed by |
 |---|---|---|---|
 | `<repo>-threat-model.md` | linted by python3 -m traust.cli reporting lint (no JSON schema) | `/threat-model` | `/secure-code-audit` (coverage diff), `/vuln-scan` (focus areas), `/triage` (environment context), `/threat-register` |
 | `<repo>-security-audit.json` — the **baseline** | `report.schema.json` | `/secure-code-audit`, `/secure-rpm-audit` | `/triage`, `/track-findings`, `/verify-remediation`, `/patch`, `/vuln-scan` (dedup), `/threat-model` bootstrap, `/create-fuzzing`, `/file-security-defect`, every dashboard via the corpus resolver |
 | `<image>-container-audit.json` — a baseline for a registry image | `report.schema.json` | `/secure-container-audit` | `/track-findings`, `/verify-remediation`, dashboards |
-| `<repo>-vuln-findings.json` — candidates, not a baseline | `vuln-findings.schema.json` | `/vuln-scan` | `/triage`, `/patch`; in diff mode, verified findings also enter the ledger as events |
-| `<repo>-triage.json` | `triage.schema.json` | `/triage` | `/patch`; `/track-findings` via `emit_triage_ledger_events` (which also emits the needs-review queue items `/countersign` later reads from the ledger) |
-| `<repo>-validation.json` | `validation.schema.json` | `/validate-findings` (and extension validators) | `/track-findings` via `emit_validation_ledger_events` (execution-verified events); `/findings-db` |
-| `<rem_id>-remediation.json` | `remediation.schema.json` | `/remediate-finding` | human review (no machine consumer; `/verify-remediation` re-checks the fork or MR, not this JSON); merge events reach the ledger through `/track-findings` |
-| `<repo>-remediation-verification.json` | `verification.schema.json` | `/verify-remediation` | `/track-findings` via `emit_verification_ledger_events` (resolution events); `regressions[]` routed into the ledger by `route_regressions` |
-| `<repo>-findings-layer.json` — **the ledger** | `layer.schema.json` | `/track-findings` (every ledger writer appends here) | `build_cumulative` (derives findings-current), `findings.db` (and through it `/sla-view`), `/findings-trends`, `/countersign`, `/verify-remediation` sweep tiering |
-| `<repo>-findings-current.{json,md}` — derived, regenerable | `report.schema.json` | `build_cumulative` (replay of the ledger over the baseline) | owner routing, team reports, `/file-security-defect`, dashboards, SARIF export |
+| `<repo>-vuln-findings.json` — candidates, not a baseline | `vuln-findings.schema.json` | `/vuln-scan` | `/triage`, `/patch`; `traust reporting record` enters its findings in traust-core as findings of the scan's assessment |
+| `<repo>-triage.json` | `triage.schema.json` | `/triage` | `/patch`; explicitly bound source evidence for `traust validation record`; `traust triage record` saves core decisions/review items consumed by `/track-findings` |
+| `<repo>-validation.json` | `validation.schema.json` | `/validate-findings` (and extension validators) | `traust validation record` with explicit stored source bindings and run provenance; core canonical decisions/reviews feed `/track-findings`; `/validation-fuzz-dashboard` reads retained reports |
+| `<rem_id>-remediation.json` | `remediation.schema.json` | `/remediate-finding` | Human review; `/verify-remediation` re-checks the fork or MR, not this JSON; the core remediation/verification skill port remains unfinished |
+| `<repo>-remediation-verification.json` | `verification.schema.json` | `/verify-remediation` | `traust remediation verify-record` records it (`VerificationService.record`): each verdict a decision, `regressions[]` taken in once as findings of the patched commit |
+| `<repo>-findings-layer.json` — legacy ledger | `layer.schema.json` | Historical `/track-findings` output | Historical cumulative/projection inputs only; current review reads core findings and attestation, never this file |
+| `<repo>-findings-current.{json,md}` — historical derived output | `report.schema.json` | Retired cumulative replay | Retained owner-routing/report/dashboard inputs only; current finding state comes from core queries, not a file refresh |
 | `PATCHES/` packet | — | `/patch` | **terminal by design**: a human-review packet; nothing consumes it automatically |
+| Private `countersign-queue.md` / human answer / JSON receipt | Core `ReviewItemCase`, `RecordDecision` and review service models | `/track-findings` through `traust findings review-cases --output` / `record` / `apply` | Human reviews escaped cards and edits only the typed JSON answer block; apply records through core history/disposition/attestation, never imports workbench state; token/rationale-free write receipt |
 
-Two rules shape this table. Only the three `secure*audit` skills write a
-baseline (gate A15); every other producer's findings enter the ledger as
-events. And `findings-current` is a cache: it is regenerated from the ledger
-on every run and is never edited.
+The baseline-only boundary remains a guardrail, not an exception to core
+ownership. New findings and decisions go through their domain record doors.
+Legacy `findings-current` files are retained artifacts, not files the new
+severity writer rebuilds or a second write target.
 
 ## Assessment artifacts beside the chain
 
 | Artifact | Schema | Produced by | Consumed by |
 |---|---|---|---|
 | `<target>-cloud-config-audit.json` (+ its own findings-current) | `cloud-config-audit.schema.json`, `cloud-config-findings-current.schema.json` | `/cloud-config-audit` | `/track-findings`, `/verify-remediation`, SARIF export, dashboards |
-| `<cve>-impact-analysis.json` | `impact-analysis.schema.json` | `/impact-analysis` | `/triage`, `/verify-remediation --impact-filter`, `/patch`, the `findings.db` `impact` table; `affected` rows become ledger events via `route_impact_findings` |
-| `<slug>-pqc-facts.json`, `-pqc-readiness.json`, `-pqc-blockers.json` | `pqc-facts`, `pqc-readiness`, `pqc-blockers` schemas | `/pqc-readiness` | its own Layer-2 scoring, `/patch` (first-party blockers), the PQC rollup and dashboards |
+| Native impact document (one commit/package/version) | `impact-analysis.schema.json` | `/impact-analysis` via Core exposure/assessment services | Core exposure reads and dependency finding intake for `affected` rows; never `route_impact_findings` or a `findings.db` write |
+| `<advisory-id>-impact-analysis.json` | Core `ImpactExport` view; each `.repos[].document` retains a complete native `impact-analysis` document | `traust impact export <advisory-id> --out <path>` after `/impact-analysis` | `/triage`, `/patch`, dependency-exposure review and `traust remediation verify-sweep --impact-filter <path>`; every classification/evidence retained, verification scopes to affected/likely rows |
+| `<slug>-pqc-facts.json`, `-pqc-readiness.json`, `-pqc-blockers.json` | `pqc-facts`, `pqc-readiness`, `pqc-blockers` schemas | Core produces and records native facts via `traust pqc prescan`; `/pqc-readiness` authors Layer 2, `traust pqc blockers` derives its remediation projection | `traust pqc prepare` for Layer-2 scoring, `/patch` (first-party blockers), the PQC rollup and dashboards; facts exports retain the native published payload |
 | `<service>-isolation-review.{json,md}` | `isolation-review.schema.json` | `/isolation-review` | `/threat-model` tenant-boundary rows (`isolation_review_ref`), portfolio rollups |
 | `compliance-assessment.{json,md}` | `compliance-assessment.schema.json` | `/compliance-check` | the compliance dashboard |
 | fleet-fix transform records | `fleet-fix.schema.json` | `/fleet-fix` | MR flow via `/remediate-finding`; merge events via `/track-findings` |
@@ -113,8 +117,10 @@ input.
 
 ## Projections — one-way views over the artifacts
 
-Four derived views exist. None is authoritative; each is regenerated from the
-artifacts above and can be deleted without losing anything.
+These forms are not authoritative. Markdown/SARIF helpers remain separately
+registered; the old corpus database and cumulative builders were retired.
+Do not assume a projection is being regenerated or delete historical artifacts
+as part of the severity cutover.
 
 - **Markdown renderings** (`python3 -m traust.cli reporting render`) — the
   `.md` beside every JSON artifact.

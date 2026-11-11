@@ -1,6 +1,6 @@
 # Review Surfaces (`/secure-code-audit` companion)
 
-Six places in a codebase where audits most often find nothing, not because
+Seven places in a codebase where audits most often find nothing, not because
 the code is clean, but because no step of the review was pointed at them.
 Each is a defect class that scanners rarely see whole and checklists rarely
 name. This file is part of the `/secure-code-audit` skill: it defines how to
@@ -9,7 +9,7 @@ check each surface. The surface IDs themselves are defined by the
 and every audit records its answer for each in the report's
 `review_surface_coverage` (see [Recording coverage](#recording-coverage)).
 
-The six surfaces are review guidance, not a finding field. A finding on any
+The surfaces are review guidance, not a finding field. A finding on any
 of them is filed like any other: the shared `category` vocabulary and `cwes`
 (see [report-structure.md](../../../docs/report-structure.md)), with the mapping below.
 
@@ -21,6 +21,7 @@ of them is filed like any other: the shared `category` vocabulary and `cwes`
 | [`outbound-fetch`](#outbound-fetch) | `ssrf` | CWE-918 |
 | [`stored-content-integrity`](#stored-content-integrity) | `tenant-isolation` | CWE-345, CWE-354 |
 | [`scope-enforcement`](#scope-enforcement) | `authorization` | CWE-863, CWE-285 |
+| [`llm-integration`](#llm-integration) | the category of the check's CWE (for example `injection` for CWE-1427, `authorization` for CWE-862) | per check in [`llm-application-review.md`](llm-application-review.md) |
 
 ---
 
@@ -168,6 +169,37 @@ credential type that bypasses fresh-login or scope limits altogether.
    it. An unscoped credential that runs with full user rights is a candidate
    finding.
 
+## `llm-integration`
+
+**What it is.** Every place the code calls a model, an agent framework, an
+MCP SDK or a vector store: the prompts it builds, the tools it exposes,
+what it does with model output, and the data it retrieves or trains on.
+
+**Why review misses it.** The other surfaces treat a model call as a
+library call. The defects are in what flows through it: untrusted text
+reaching a prompt that can call tools, model output reaching a shell or
+SQL sink, a tool broader than its task, an agent loop with no cap. None of
+them looks wrong at the call site.
+
+**The check.**
+1. Run the LLM application pre-scan (`traust adapters llm-app`). Its result
+   is this surface's evidence either way.
+2. When it reports `llm_application: true`, review the tagged files and the
+   call paths into and out of them against
+   [`llm-application-review.md`](llm-application-review.md): the sections
+   its `kinds` select, plus those every LLM application gets. That file sets
+   the evidence rules and each check's CWE.
+3. When it reports `llm_application: false`, the surface is
+   `not_applicable`, and the note cites the pre-scan (`"llm-app: ran: none"`).
+4. With no local checkout the pre-scan can't run, so the surface is
+   `not_assessed`, with its coverage gap.
+
+**Negative result.** Name the checks applied, e.g.
+`{"area": "llm-integration", "files": "agent/run.py, tools/*.py", "result":
+"llm-app: model-sdk, mcp-server; checks 01.1-01.3, 05.1-05.3, 06.1-06.6 and
+10.4: retrieved text is a delimited data block, no tool reaches a shell,
+the loop stops at 20 steps"}`.
+
 ---
 
 ## Recording coverage
@@ -177,9 +209,12 @@ Every code-profile report (from traust 0.20.0) and rpm-profile report (from
 surface, each `{"status": ...}` with one of the `review_surface_status`
 values in traust-contracts. This section's table and example are for
 audit reports; scans record coverage differently (see
-[Scans that follow an audit](#scans-that-follow-an-audit)). The schema requires all six,
-and `traust reporting validate` checks each entry against the rest of the
-report, so a surface left out or pointed at nothing fails validation.
+[Scans that follow an audit](#scans-that-follow-an-audit)). The schema requires the
+first six surfaces. `llm-integration` is required for audits dated from
+2026-11-02: the schema allows it, and `traust reporting validate` requires
+it from that date, so earlier reports stay valid. The validator checks each
+entry against the rest of the report, so a surface left out or pointed at
+nothing fails validation.
 
 | Status | Use when | The report must also carry |
 |---|---|---|
@@ -196,7 +231,8 @@ report, so a surface left out or pointed at nothing fails validation.
   "security-flags": {"status": "finding", "finding_ids": ["APP-abc1234-001"]},
   "outbound-fetch": {"status": "not_assessed", "note": "scoped audit: identity-provider client not in scope"},
   "stored-content-integrity": {"status": "not_applicable", "note": "no content-addressed or deduplicated store"},
-  "scope-enforcement": {"status": "negative"}
+  "scope-enforcement": {"status": "negative"},
+  "llm-integration": {"status": "not_applicable", "note": "llm-app: ran: none"}
 }
 ```
 
@@ -205,7 +241,7 @@ that the surface is absent, the other a recorded gap.
 
 ### Scans that follow an audit
 
-`/vuln-scan` and `/verify-remediation` record the same six-surface
+`/vuln-scan` and `/verify-remediation` record the same
 `review_surface_coverage` in their own reports, from traust 0.21.0, for the
 code they reviewed: the whole tree, a `--diff`, or the regression-scan scope.
 Those reports have no `negative_results`, so every status except `finding`

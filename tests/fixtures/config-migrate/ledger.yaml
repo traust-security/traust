@@ -1,0 +1,5 @@
+dsn: postgresql+psycopg://ledger_rw@db.example.internal/traust
+signing:
+  required: true
+  method: keypair
+  key_path: /run/secrets/traust/cosign.key

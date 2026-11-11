@@ -1,0 +1,5 @@
+<project>
+  <properties>
+    <maven.compiler.release>21</maven.compiler.release>
+  </properties>
+</project>

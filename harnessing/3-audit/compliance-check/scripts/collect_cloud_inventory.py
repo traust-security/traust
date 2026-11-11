@@ -4,7 +4,7 @@
 Materializes the `cloud_inventory` snapshot contract the compliance
 mapping registry asserts over: `resources[]`, each carrying
 {id, kind, region, encryption_at_rest, public_exposure, tags, source}.
-The snapshot is canonicalized (compliance_assert.canonicalize — sorted
+The snapshot is canonicalized (traust-core's evidence_id — sorted
 keys, volatile fields stripped) and stamped with its own sha256
 (`snapshot_id`), so two collections over an unchanged environment are
 byte-identical and every assessment can cite exactly which snapshot it
@@ -36,9 +36,9 @@ import subprocess
 import sys
 from pathlib import Path
 
-from traust_engine._util.script_loader import load_script
+from traust_core.v1.models.compliance import evidence_id
 
-from traust.paths import HARNESS_ROOT, skill_dir
+from traust.paths import skill_dir
 
 
 def _load(name: str, path: Path):
@@ -49,7 +49,6 @@ def _load(name: str, path: Path):
     return mod
 
 
-ca = load_script("compliance_assert", HARNESS_ROOT)
 scope_mod = _load("vf_scope_inv", skill_dir("validate-findings") / "scope.py")
 
 AWS_TIMEOUT = 120
@@ -256,7 +255,7 @@ def main(argv=None) -> int:
             gaps.extend(g)
 
     body = {"resources": sorted(resources, key=lambda r: r["id"]), "gaps": sorted(gaps)}
-    snapshot_id = ca.evidence_id(body)
+    snapshot_id = evidence_id(body)
     doc = {
         "metadata": {
             "artifact": "cloud-inventory-snapshot",

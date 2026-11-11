@@ -1,0 +1,50 @@
+rules:
+  - id: traust-java-open-redirect-taint
+    languages: [java]
+    severity: ERROR
+    message: >-
+      A request value is the target of a redirect (sendRedirect, a
+      "redirect:" view name, RedirectView, a Location header) with no
+      allow-list — the server sends users wherever the link says. Redirect
+      only to relative paths or allow-listed hosts. CWE-601.
+    metadata:
+      cwe: ["CWE-601"]
+      category: open-redirect
+      asvs: ["V3"]
+      confidence: MEDIUM
+      references:
+        - "CWE-601 open redirect — request-supplied redirect targets in servlets and Spring MVC"
+    mode: taint
+    pattern-sources:
+      - pattern-either:
+          - patterns:
+              - pattern-either:
+                  - pattern-inside: |
+                      $RT $M(..., @RequestParam $T $P, ...) { ... }
+                  - pattern-inside: |
+                      $RT $M(..., @RequestParam($A) $T $P, ...) { ... }
+                  - pattern-inside: |
+                      $RT $M(..., @PathVariable $T $P, ...) { ... }
+                  - pattern-inside: |
+                      $RT $M(..., @PathVariable($A) $T $P, ...) { ... }
+                  - pattern-inside: |
+                      $RT $M(..., @RequestHeader($A) $T $P, ...) { ... }
+                  - pattern-inside: |
+                      $RT $M(..., @QueryParam($A) $T $P, ...) { ... }
+                  - pattern-inside: |
+                      $RT $M(..., @PathParam($A) $T $P, ...) { ... }
+              - pattern: $P
+          - pattern: $REQ.getParameter(...)
+          - pattern: $REQ.getHeader(...)
+          - pattern: $REQ.getQueryString()
+          - pattern: $REQ.getPathInfo()
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: $RESP.sendRedirect($U)
+              - pattern: '"redirect:" + $U'
+              - pattern: new RedirectView($U, ...)
+              - pattern: $RESP.setHeader("Location", $U)
+              - pattern: $RESP.addHeader("Location", $U)
+          - focus-metavariable: $U
+

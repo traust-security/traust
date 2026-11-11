@@ -1,0 +1,361 @@
+rules:
+  # --- LLM03: supply chain -------------------------------------------------
+
+  - id: traust-python-llm-application-trust-remote-code
+    languages: [python]
+    severity: ERROR
+    message: >-
+      Model loading with trust_remote_code=True runs Python shipped inside the
+      model repository at load time. Anyone who can publish to that repository
+      (or swap the configured model name) gets code execution here. Remove the
+      flag, or pin a reviewed revision of a model you control. CWE-494.
+    metadata:
+      cwe: ["CWE-494", "CWE-829"]
+      category: llm-application
+      asvs: ["V15"]
+      owasp_llm: ["LLM03"]
+      confidence: HIGH
+      references:
+        - "CWE-494 download of code without integrity check — remote model code executed on load"
+    pattern-either:
+      - pattern: $X.from_pretrained(..., trust_remote_code=True, ...)
+      - pattern: pipeline(..., trust_remote_code=True, ...)
+      - pattern: transformers.pipeline(..., trust_remote_code=True, ...)
+
+  - id: traust-python-llm-application-unsafe-model-deserialization
+    languages: [python]
+    severity: ERROR
+    message: >-
+      torch.load with weights_only=False unpickles the file, so a crafted model
+      or checkpoint runs arbitrary code when loaded. Use weights_only=True, or
+      a safetensors file. CWE-502.
+    metadata:
+      cwe: ["CWE-502"]
+      category: llm-application
+      asvs: ["V15"]
+      owasp_llm: ["LLM03"]
+      confidence: HIGH
+      references:
+        - "CWE-502 deserialization of untrusted data — pickle-format model load"
+    pattern: torch.load(..., weights_only=False, ...)
+
+  - id: traust-python-llm-application-model-load-default-pickle
+    languages: [python]
+    severity: WARNING
+    message: >-
+      torch.load without weights_only=True unpickles the file on PyTorch
+      releases before 2.6, where weights_only defaults to False. A crafted
+      model file then runs code on load. Pass weights_only=True explicitly so
+      the behaviour doesn't depend on the installed version. CWE-502.
+    metadata:
+      cwe: ["CWE-502"]
+      category: llm-application
+      asvs: ["V15"]
+      owasp_llm: ["LLM03"]
+      confidence: MEDIUM
+      references:
+        - "CWE-502 deserialization of untrusted data — pickle-format model load"
+    patterns:
+      - pattern: torch.load(...)
+      - pattern-not: torch.load(..., weights_only=True, ...)
+      - pattern-not: torch.load(..., weights_only=False, ...)
+      # options forwarded by the caller may carry weights_only
+      - pattern-not: torch.load(..., **$KW)
+
+  - id: traust-python-llm-application-unpinned-model-download
+    languages: [python]
+    severity: WARNING
+    message: >-
+      Model or adapter fetched from a hub by name with no pinned revision: the
+      bytes loaded can change whenever the repository does. Pass revision=<commit
+      hash> (and verify a hash where the loader supports it). CWE-494.
+    metadata:
+      cwe: ["CWE-494"]
+      category: llm-application
+      asvs: ["V15"]
+      owasp_llm: ["LLM03"]
+      confidence: MEDIUM
+      references:
+        - "CWE-494 download of code without integrity check — unpinned model revision"
+    patterns:
+      - pattern-either:
+          - pattern: $X.from_pretrained($NAME, ...)
+          - pattern: hf_hub_download(...)
+          - pattern: huggingface_hub.hf_hub_download(...)
+          - pattern: snapshot_download(...)
+          - pattern: huggingface_hub.snapshot_download(...)
+      - pattern-not: $X.from_pretrained(..., revision=$R, ...)
+      - pattern-not: hf_hub_download(..., revision=$R, ...)
+      - pattern-not: huggingface_hub.hf_hub_download(..., revision=$R, ...)
+      - pattern-not: snapshot_download(..., revision=$R, ...)
+      - pattern-not: huggingface_hub.snapshot_download(..., revision=$R, ...)
+      - pattern-not: $X.from_pretrained("=~/^(\.|/)/", ...)
+
+  # --- LLM05: improper output handling (model output is untrusted input) ---
+
+  - id: traust-python-llm-application-output-to-shell-taint
+    languages: [python]
+    severity: ERROR
+    message: >-
+      Model output reaches a shell or process call. Treat completions like input
+      from an anonymous user: anyone who can steer the prompt (directly or
+      through retrieved content) chooses the command. Map the model's answer to
+      a fixed set of allowed actions instead. CWE-1426, CWE-78.
+    metadata:
+      cwe: ["CWE-1426", "CWE-78"]
+      category: llm-application
+      asvs: ["V1"]
+      owasp_llm: ["LLM05"]
+      confidence: HIGH
+      references:
+        - "CWE-1426 improper validation of generative AI output — reaches a command sink"
+    mode: taint
+    pattern-sources:
+      - pattern-either:
+          - pattern: $C.chat.completions.create(...)
+          - pattern: $C.completions.create(...)
+          - pattern: $C.responses.create(...)
+          - pattern: $C.messages.create(...)
+          - pattern: $M.generate_content(...)
+          - pattern: litellm.completion(...)
+          - pattern: ollama.chat(...)
+          - pattern: ollama.generate(...)
+          - pattern: $LLM.invoke(...)
+          - pattern: $LLM.ainvoke(...)
+          - pattern: await $C.chat.completions.create(...)
+          - pattern: await $C.messages.create(...)
+          # response shapes, however the response was obtained (SDK call or
+          # an in-repo wrapper around it)
+          - pattern: $R.choices[$I].message.content
+          - pattern: $R.choices[$I].text
+          - pattern: $R.content[$I].text
+          - pattern: $R.output_text
+    pattern-sinks:
+      - pattern-either:
+          - pattern: subprocess.run(...)
+          - pattern: subprocess.Popen(...)
+          - pattern: subprocess.call(...)
+          - pattern: subprocess.check_call(...)
+          - pattern: subprocess.check_output(...)
+          - pattern: os.system(...)
+          - pattern: os.popen(...)
+
+  - id: traust-python-llm-application-output-to-code-exec-taint
+    languages: [python]
+    severity: ERROR
+    message: >-
+      Model output is evaluated as code. A steered completion becomes arbitrary
+      Python in this process. Parse a constrained format (JSON against a schema)
+      instead of executing it. CWE-1426, CWE-94.
+    metadata:
+      cwe: ["CWE-1426", "CWE-94"]
+      category: llm-application
+      asvs: ["V1"]
+      owasp_llm: ["LLM05"]
+      confidence: HIGH
+      references:
+        - "CWE-1426 improper validation of generative AI output — reaches eval/exec"
+    mode: taint
+    pattern-sources:
+      - pattern-either:
+          - pattern: $C.chat.completions.create(...)
+          - pattern: $C.completions.create(...)
+          - pattern: $C.responses.create(...)
+          - pattern: $C.messages.create(...)
+          - pattern: $M.generate_content(...)
+          - pattern: litellm.completion(...)
+          - pattern: ollama.chat(...)
+          - pattern: ollama.generate(...)
+          - pattern: $LLM.invoke(...)
+          - pattern: $LLM.ainvoke(...)
+          - pattern: await $C.chat.completions.create(...)
+          - pattern: await $C.messages.create(...)
+          # response shapes, however the response was obtained (SDK call or
+          # an in-repo wrapper around it)
+          - pattern: $R.choices[$I].message.content
+          - pattern: $R.choices[$I].text
+          - pattern: $R.content[$I].text
+          - pattern: $R.output_text
+    pattern-sinks:
+      - pattern-either:
+          - pattern: eval(...)
+          - pattern: exec(...)
+          - pattern: compile(...)
+
+  - id: traust-python-llm-application-output-to-sql-taint
+    languages: [python]
+    severity: ERROR
+    message: >-
+      Model output is executed as SQL. Text-to-SQL output is attacker-steerable,
+      so it can read or change any data the connection can reach. Run generated
+      queries only on a read-only connection scoped to the caller's data, or map
+      the request to parameterized queries. CWE-1426, CWE-89.
+    metadata:
+      cwe: ["CWE-1426", "CWE-89"]
+      category: llm-application
+      asvs: ["V1"]
+      owasp_llm: ["LLM05"]
+      confidence: HIGH
+      references:
+        - "CWE-1426 improper validation of generative AI output — reaches a SQL sink"
+    mode: taint
+    pattern-sources:
+      - pattern-either:
+          - pattern: $C.chat.completions.create(...)
+          - pattern: $C.completions.create(...)
+          - pattern: $C.responses.create(...)
+          - pattern: $C.messages.create(...)
+          - pattern: $M.generate_content(...)
+          - pattern: litellm.completion(...)
+          - pattern: ollama.chat(...)
+          - pattern: ollama.generate(...)
+          - pattern: $LLM.invoke(...)
+          - pattern: $LLM.ainvoke(...)
+          - pattern: await $C.chat.completions.create(...)
+          - pattern: await $C.messages.create(...)
+          # response shapes, however the response was obtained (SDK call or
+          # an in-repo wrapper around it)
+          - pattern: $R.choices[$I].message.content
+          - pattern: $R.choices[$I].text
+          - pattern: $R.content[$I].text
+          - pattern: $R.output_text
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: $DB.execute($Q, ...)
+              - pattern: $DB.executemany($Q, ...)
+              - pattern: $DB.executescript($Q)
+              - pattern: $DB.raw($Q, ...)
+          - focus-metavariable: $Q
+
+  - id: traust-python-llm-application-output-to-path-taint
+    languages: [python]
+    severity: WARNING
+    message: >-
+      Model output chooses a file path that is then opened. A steered completion
+      can read or overwrite files outside the intended directory. Resolve the
+      path and check it stays under a fixed root, or map names to an allowlist.
+      CWE-1426, CWE-22.
+    metadata:
+      cwe: ["CWE-1426", "CWE-22"]
+      category: llm-application
+      asvs: ["V1"]
+      owasp_llm: ["LLM05"]
+      confidence: MEDIUM
+      references:
+        - "CWE-1426 improper validation of generative AI output — reaches a file path"
+    mode: taint
+    pattern-sources:
+      - pattern-either:
+          - pattern: $C.chat.completions.create(...)
+          - pattern: $C.completions.create(...)
+          - pattern: $C.responses.create(...)
+          - pattern: $C.messages.create(...)
+          - pattern: $M.generate_content(...)
+          - pattern: litellm.completion(...)
+          - pattern: ollama.chat(...)
+          - pattern: ollama.generate(...)
+          - pattern: $LLM.invoke(...)
+          - pattern: $LLM.ainvoke(...)
+          - pattern: await $C.chat.completions.create(...)
+          - pattern: await $C.messages.create(...)
+          # response shapes, however the response was obtained (SDK call or
+          # an in-repo wrapper around it)
+          - pattern: $R.choices[$I].message.content
+          - pattern: $R.choices[$I].text
+          - pattern: $R.content[$I].text
+          - pattern: $R.output_text
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: open($P, ...)
+              - pattern: pathlib.Path($P)
+              - pattern: Path($P)
+              - pattern: os.remove($P)
+              - pattern: shutil.rmtree($P, ...)
+          - focus-metavariable: $P
+
+  # --- LLM06: excessive agency ---------------------------------------------
+
+  - id: traust-python-llm-application-mcp-http-without-auth
+    languages: [python]
+    severity: WARNING
+    message: >-
+      MCP server exposed over HTTP/SSE (FastMCP streamable-http/sse/http, or the low-level SSE/streamable HTTP transports) with no authentication configured in this
+      file. The MCP authorization spec expects HTTP transports to authenticate
+      clients (OAuth 2.1 bearer tokens); without it anyone who can reach the
+      port can list and call every tool. Configure FastMCP(auth=..., token_verifier=...) or authentication middleware on the ASGI app. The check is
+      file-scoped: if a reverse proxy or middleware in another file
+      authenticates requests, record where. CWE-306.
+    metadata:
+      cwe: ["CWE-306", "CWE-862"]
+      category: llm-application
+      asvs: ["V6"]
+      owasp_llm: ["LLM06"]
+      confidence: MEDIUM
+      references:
+        - "CWE-306 missing authentication for critical function — MCP HTTP transport"
+        - "https://modelcontextprotocol.io/specification/2025-06-18/basic/authorization"
+    patterns:
+      - pattern-either:
+          - patterns:
+              - pattern-inside: |
+                  $MCP = FastMCP(...)
+                  ...
+              - pattern-not-inside: |
+                  $MCP = FastMCP(..., auth=$A, ...)
+                  ...
+              - pattern-not-inside: |
+                  $MCP = FastMCP(..., token_verifier=$A, ...)
+                  ...
+              - pattern-not-inside: |
+                  $MCP = FastMCP(..., auth_server_provider=$A, ...)
+                  ...
+              - pattern-either:
+                  - patterns:
+                      - pattern-either:
+                          - pattern: $MCP.run(..., transport=$T, ...)
+                          - pattern: $MCP.run($T, ...)
+                      # a transport chosen at run time (args.transport) is
+                      # not decidable here; only literal HTTP transports match
+                      - metavariable-regex:
+                          metavariable: $T
+                          regex: ^["'](streamable-http|sse|http)["']$
+                  - pattern: $MCP.streamable_http_app(...)
+                  - pattern: $MCP.sse_app(...)
+                  - pattern: $MCP.http_app(...)
+          - pattern: SseServerTransport(...)
+          - pattern: StreamableHTTPSessionManager(...)
+      # Auth configured anywhere in the file (middleware, verifier, OAuth
+      # router) clears every match in it: the trust boundary is the
+      # transport, and a file that wires auth is not this defect.
+      - pattern-not-regex: (?is)\A.*?\b\w*(bearer|oauth|jwt|authenticat|authoriz|auth_?middleware|auth_?router|token_?verifier|verify_?token|extract_?\w*token)\w*.*\z
+
+  # --- LLM10: unbounded consumption ----------------------------------------
+
+  - id: traust-python-llm-application-unbounded-agent-loop
+    languages: [python]
+    severity: WARNING
+    message: >-
+      Model calls inside an unconditional loop with no visible step, time or
+      cost limit. A model that never emits the stop signal (or is steered not
+      to) keeps calling the model, and paying for it, indefinitely. Bound the
+      loop with a maximum number of steps and a budget. CWE-400, CWE-834.
+    metadata:
+      cwe: ["CWE-400", "CWE-834"]
+      category: llm-application
+      asvs: ["V2"]
+      owasp_llm: ["LLM10"]
+      confidence: MEDIUM
+      references:
+        - "CWE-834 excessive iteration — unbounded agent loop"
+    patterns:
+      - pattern: |
+          while True:
+              $...BODY
+      - metavariable-regex:
+          metavariable: $...BODY
+          regex: (?s).*\b(chat\.completions\.create|messages\.create|responses\.create|generate_content|invoke|ainvoke|complete|completion)\s*\(
+      - metavariable-regex:
+          metavariable: $...BODY
+          regex: (?is)^(?!.*\b(max_?(steps|iterations|turns|rounds|calls|loops)|step_limit|budget|deadline|timeout)\b).*$

@@ -1,0 +1,67 @@
+# Traust-owned gitleaks rules — traust-* extensions over the built-in set.
+#
+# Default config for the gitleaks adapter: upstream defaults plus the
+# detectors below. Override via traust.yaml ``locations.gitleaks_config``, the
+# GITLEAKS_CONFIG env var, or ``--config``.
+#
+# Rule conventions: ids are traust-<slug>; each rule has a fixture line in
+# fixtures/secrets-fixture.txt; tests/test_run_gitleaks.py asserts every
+# traust-* rule fires on its fixture (calibration gate).
+
+title = "Traust gitleaks extension"
+
+[extend]
+useDefault = true
+
+# OpenShift OAuth access tokens (`oc whoami -t` output): sha256~ prefix +
+# 43 url-safe base64 chars. Live cluster credentials — highest liveness
+# priority (routes to the `openshift` probe class).
+[[rules]]
+id = "traust-openshift-sha256-token"
+description = "OpenShift OAuth access token (sha256~ bearer token)"
+regex = '''sha256~[A-Za-z0-9_-]{43}'''
+keywords = ["sha256~"]
+
+# Connection-string URLs with embedded credentials (postgres://user:pass@,
+# mysql://, mongodb://, amqp://, redis://, …). Upstream gitleaks defaults
+# have NO detector for this shape (verified against 8.30.1). Targets the
+# config/DSN credential miss class: embedded credentials in helm values,
+# docker-compose, .env files, and application config. Covers every file type
+# gitleaks reads: yaml, .env, toml, properties, and code. Placeholder
+# shapes (template vars, <user:pass@>, :password@ doc examples) are
+# allowlisted below; well-known DEFAULT credentials (guest:guest,
+# admin:admin) are deliberately NOT allowlisted — shipped defaults are
+# the miss class this rule closes.
+[[rules]]
+id = "traust-dsn-url-credentials"
+description = "Connection-string URL with embedded credentials (DSN user:password@host)"
+regex = '''(?i)\b(?:postgres(?:ql)?|mysql|mariadb|mongodb(?:\+srv)?|amqps?|rediss?|mssql|sqlserver|jdbc:[a-z0-9]+|ldaps?|ftp|smtps?)://([A-Za-z0-9._%-]{1,64}):([^@/\s'"`]{2,128})@[A-Za-z0-9._-]+'''
+secretGroup = 2
+keywords = ["://"]
+
+[rules.allowlist]
+# Placeholder/templated passwords, not credentials: ${VAR}, $(VAR), $VAR,
+# {{ template }}, <angle-placeholder>, %s/%(var)s interpolation, ***/xxx
+# masks, and literal doc-example passwords (:pass@ / :password@ /
+# :changeme@ / :example@ / :secret@).
+regexTarget = "secret"
+regexes = [
+  '''^\$''',
+  '''^\{\{.*\}\}$''',
+  '''^<[^>]*>$''',
+  '''^%(\([A-Za-z0-9_]+\))?s$''',
+  '''^\*{2,}$''',
+  '''^(?i)x{3,}$''',
+  '''^(?i)(pass|password|passwd|example|placeholder|redacted|dummy|your[_-]?password|change[_-]?me|changeme)$''',
+]
+
+# Committed Ansible Vault payloads. The blob itself is encrypted, but a
+# vault ciphertext in git history outlives every rotation of the vault
+# password — and password files routinely leak alongside. Candidate for
+# review, not proof of exposure (the audit agent weighs whether the vault
+# password is co-committed or otherwise reachable).
+[[rules]]
+id = "traust-ansible-vault-payload"
+description = "Ansible Vault ciphertext committed to the repository"
+regex = '''\$ANSIBLE_VAULT;1\.[12];AES256'''
+keywords = ["$ANSIBLE_VAULT"]

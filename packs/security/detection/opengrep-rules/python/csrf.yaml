@@ -1,0 +1,47 @@
+rules:
+  - id: traust-python-csrf-protection-disabled
+    languages: [python]
+    severity: WARNING
+    message: >-
+      A view is exempted from CSRF protection, or Flask-WTF's CSRF check is
+      switched off, so any site the user visits can submit requests to it
+      with the user's session. Keep the check on; for a webhook, verify the
+      sender's signature instead, and for an API, authenticate with tokens
+      rather than cookies. CWE-352.
+    metadata:
+      cwe: ["CWE-352"]
+      category: csrf
+      asvs: ["V3"]
+      confidence: MEDIUM
+      references:
+        - "CWE-352 cross-site request forgery — csrf_exempt and WTF_CSRF_ENABLED = False"
+    patterns:
+      - pattern-either:
+          - pattern: |
+              @csrf_exempt
+              def $F(...): ...
+          - pattern: |
+              @method_decorator(csrf_exempt, ...)
+              class $C(...): ...
+          - pattern: |
+              @method_decorator(csrf_exempt, ...)
+              def $F(...): ...
+          - pattern: |
+              @$CSRF.exempt
+              def $F(...): ...
+          - pattern: csrf_exempt($VIEW)
+          - pattern: $APP.config["WTF_CSRF_ENABLED"] = False
+          - pattern: WTF_CSRF_ENABLED = False
+      # test configuration switches it off on purpose
+      - pattern-not-inside:
+          patterns:
+            - pattern-either:
+                - pattern: |
+                    class $T(...):
+                      ...
+                - pattern: |
+                    def $T(...):
+                      ...
+            - metavariable-regex:
+                metavariable: $T
+                regex: (?i)test

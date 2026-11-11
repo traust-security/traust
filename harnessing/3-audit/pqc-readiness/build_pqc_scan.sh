@@ -3,17 +3,18 @@
 # Supply-chain posture: pinned commit, --locked build, sha256 recorded.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
+HARNESS="${HERE}"
+while [ ! -f "${HARNESS}/pyproject.toml" ] && [ "${HARNESS}" != / ]; do
+  HARNESS="$(dirname "${HARNESS}")"
+done
+[ -f "${HARNESS}/pyproject.toml" ] || { echo "harness root not found above ${HERE}" >&2; exit 1; }
+# shellcheck source=../../_lib/traust_paths.sh
+source "${HARNESS}/harnessing/_lib/traust_paths.sh"
 PIN="be5c760adb7d1d4d99e39d35d87d2956079db76e"
-# per-user build dir — a fixed /tmp source dir allows TOCTOU between
-# checkout and cargo build by any local user (audit E9, plan P2.15)
-SRC="${PQC_SCAN_SRC:-${XDG_CACHE_HOME:-$HOME/.cache}/pqc-scan-src}"
-export GIT_ALLOW_PROTOCOL=https
 
-if [ ! -d "$SRC/.git" ]; then
-  git clone --quiet https://github.com/wakaken/pqc-scan "$SRC"
-fi
-git -C "$SRC" fetch --quiet origin "$PIN" 2>/dev/null || true
-git -C "$SRC" checkout --quiet "$PIN"
+# cargo writes target/ inside the checkout, so it must be writable
+SRC="$("$(_traust_py)" -m traust.cli repo checkout \
+  https://github.com/wakaken/pqc-scan --ref "$PIN" --writable)"
 ACTUAL="$(git -C "$SRC" rev-parse HEAD)"
 [ "$ACTUAL" = "$PIN" ] || { echo "pin mismatch: $ACTUAL != $PIN" >&2; exit 1; }
 

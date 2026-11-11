@@ -1,0 +1,79 @@
+{
+  "artifact": "pqc-vendor-claims",
+  "version": 1,
+  "updated": "2026-07-19",
+  "note": "Curated PQC roadmap claims for the delegated / blocked-external class.",
+  "vendors": [
+    {
+      "id": "openssl",
+      "name": "OpenSSL (OS provider)",
+      "class": "provider",
+      "packages": [{"name": "openssl", "ecosystem": "ruby"}, {"name": "openssl-sys", "ecosystem": "cargo"}],
+      "status": "available",
+      "claim": "3.5 LTS ships ML-KEM/ML-DSA/SLH-DSA; the current OS major defaults to it.",
+      "watch": "FIPS provider 3.5 adoption across base images",
+      "sources": [{"url": "https://openssl-library.org/news/openssl-3.5-notes/", "title": "OpenSSL 3.5 release notes", "retrieved": "2026-07-19"}],
+      "last_reviewed": "2026-07-19",
+      "reviewer": "crypto-review team"
+    },
+    {
+      "id": "go",
+      "name": "Go toolchain / stdlib",
+      "class": "provider",
+      "packages": [],
+      "status": "partial",
+      "claim": "go>=1.24: hybrid X25519MLKEM768 TLS default and a FIPS 140-3 module with ML-KEM; ML-DSA not yet in stdlib.",
+      "watch": "crypto/mldsa landing in stdlib",
+      "sources": [{"url": "https://go.dev/doc/go1.24", "retrieved": "2026-07-19"}],
+      "last_reviewed": "2026-07-19",
+      "reviewer": "crypto-review team"
+    },
+    {
+      "id": "go-jose",
+      "name": "go-jose (JOSE/JWT)",
+      "class": "library",
+      "packages": [{"name": "github.com/go-jose/go-jose/v4", "ecosystem": "go"}],
+      "status": "none",
+      "claim": "JOSE PQC algorithm identifiers pending IETF (JOSE/COSE ML-DSA drafts).",
+      "watch": "IETF JOSE ML-DSA registration; a go-jose release adopting it",
+      "sources": [{"url": "https://datatracker.ietf.org/doc/draft-ietf-cose-dilithium/", "retrieved": "2026-07-19"}],
+      "last_reviewed": "2026-07-19",
+      "reviewer": "crypto-review team"
+    },
+    {
+      "id": "rustls",
+      "name": "rustls / Rust TLS stack",
+      "class": "library",
+      "packages": [{"name": "rustls", "ecosystem": "cargo"}, {"name": "hyper-rustls", "ecosystem": "cargo"}],
+      "status": "partial",
+      "claim": "X25519MLKEM768 via the aws-lc-rs provider in 0.23.x; ring-backed builds stay classical.",
+      "watch": "rustls default-provider flip",
+      "sources": [{"url": "https://github.com/rustls/rustls/releases", "retrieved": "2026-07-19"}],
+      "last_reviewed": "2026-07-19",
+      "reviewer": "crypto-review team"
+    },
+    {
+      "id": "pyca",
+      "name": "pyca/cryptography + Python ssl",
+      "class": "library",
+      "packages": [{"name": "Cryptography"}, {"name": "paramiko", "ecosystem": "pypi"}],
+      "status": "partial",
+      "claim": "Transport inherits the linked OpenSSL; ML-KEM/ML-DSA primitives are not in the stable API.",
+      "watch": "pyca PQC primitive API",
+      "sources": [{"url": "https://cryptography.io/en/latest/changelog/", "retrieved": "2026-07-19"}],
+      "last_reviewed": "2026-07-19",
+      "reviewer": "crypto-review team"
+    },
+    {
+      "id": "forge-app-jwt",
+      "name": "Code forge (App JWT RS256)",
+      "class": "service",
+      "packages": [],
+      "status": "none",
+      "claim": "The forge mandates RS256 for App JWTs; tokens are minutes-lived (no harvest risk).",
+      "sources": [{"url": "https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/generating-a-json-web-token-jwt-for-a-github-app", "retrieved": "2026-07-19"}],
+      "last_reviewed": "2026-07-19",
+      "reviewer": "crypto-review team"
+    }
+  ]
+}

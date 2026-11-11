@@ -1,6 +1,6 @@
 ---
 name: secure-rpm-audit
-description: Use when the user asks to perform a security audit, security review, or vulnerability assessment of an RPM packaging repository (CentOS Stream / Fedora / RHEL dist-git) — a repo containing a .spec file, downstream patches, and a sources lookaside manifest — using OWASP ASVS, the SEI CERT C/C++ Coding Standards, Fedora Packaging Guidelines, SLSA, and OpenSSF Scorecard.
+description: Use when the user asks to perform a security audit, security review, or vulnerability assessment of an RPM packaging repository (CentOS Stream / Fedora / RHEL dist-git) — a repo containing a .spec file, downstream patches, and a sources lookaside manifest — using OWASP ASVS, the SEI CERT C/C++ Coding Standards, Fedora Packaging Guidelines, SLSA, and OpenSSF Scorecard. Omits unauthored validity answers; authors canonical remediation sizes or explicit unknowns, independent blocking, and explicit roadmap priorities through Core's report record door.
 metadata:
   harness.tier: "primary"
 ---
@@ -8,7 +8,7 @@ metadata:
 # Secure RPM Audit
 
 > **Paths.** `analysis-results/…` and `progress-tracker/…` in this skill are the
-> default workspace layout. They resolve through `locations.yaml` in
+> default workspace layout. They resolve through `locations:` in `traust.yaml` in
 > `$TRAUST_CONFIG_HOME` (`docs/setup.md`, Storage locations); substitute your
 > configured roots.
 
@@ -45,6 +45,8 @@ Perform a comprehensive security assessment of one or more RPM dist-git packagin
    - Use the **Branch** column as the ref to analyze. If the value starts with `commit:`, treat the remainder as a commit SHA.
    - Use the **Category** and **Image Count** columns for prioritization (see below).
 
+   A dist-git commit has no release version and never triggers a version-gated threat review.
+
 ---
 
 ## Repository Access
@@ -69,10 +71,10 @@ Files to retrieve for every component:
 When a full local checkout is required for deep analysis (e.g. running static analysis tools on the prepared source tree, or applying patches that the remote view cannot resolve):
 
 ```bash
-GIT_ALLOW_PROTOCOL=https git clone --depth 1 --branch <branch> -- https://gitlab.com/redhat/centos-stream/rpms/<component>.git <local-path>
+traust repo checkout https://gitlab.com/redhat/centos-stream/rpms/<component>.git --ref <commit-sha> --history 1
 ```
 
-If the ref is a commit SHA rather than a branch name, clone with `--depth 1` and then `git fetch origin <sha> && git checkout <sha>`.
+The command prints the checkout's path (`<local-path>` below). If the input names a branch rather than a commit SHA, resolve it to its head SHA first (the GitLab MCP tools).
 
 **Always analyze the branch or commit ref specified in the input**, not the repository default branch. The ref represents the exact packaging shipped in the target stream.
 
@@ -145,8 +147,9 @@ Process components in the following order:
 RPM packaging repos change rarely and atomically (spec bump, new
 patch). Re-audits are **dist-git-commit-driven** — any commit touching
 spec/patches/sources triggers one, surfaced by the continuous-operations
-router's `release-passthrough` lane (docs/continuous-operations.md) —
-with a 365-day ceiling as the only calendar backstop.
+router's `release-passthrough` lane (docs/continuous-operations.md; its asset refuses
+until traust-core has a release feed, NEED(release-passthrough)) — with a 365-day ceiling
+as the only calendar backstop.
 
 ---
 
@@ -303,7 +306,7 @@ Every critical/high candidate must pass all of:
    audit leads. A finding requires a traced untrusted flow to the sink
    in the prepared tree, or the concrete spec/patch construct.
    High-value sink with plausible-but-untraced input → medium,
-   `validation_status: not_verified`, with the untraced hop named.
+   omit `validation_status`, with the untraced hop named.
 
 **Severity floors (identical to `/secure-code-audit`'s)** —
 **verification-disable** (a downstream patch removing certificate,
@@ -336,30 +339,31 @@ below the floor.
    `negative_results` citing the evidence — **not** a low-severity
    finding.
 
-### FP-precedent gate (vendored bundles, optional-degrade)
+### Shared-component precedent handoff (post-record, not an audit-time gate)
 
-Vendored dependency bundles are this profile's shared-component
-re-refutation shape. Before filing a critical/high candidate located in
-a vendored bundle (`SourceN` vendor tarballs, bundled libraries),
-consult the portfolio precedent cache exactly as `/secure-code-audit`
-does:
+For candidates in vendored bundles (`SourceN` vendor tarballs, bundled
+libraries), independently check **this package's own build wiring,
+compiled components and configuration**. Apply the audit-time gates and
+file using only evidence available before recording; another repo's
+context does not prove this spec compiles the component the same way.
 
-```bash
-python3 -m traust.cli corpus precedent match \
-    --cache ../analysis-results/graph/fp-precedent-cache.json \
-    --findings <candidates.json>
-```
-
-A match at `max_strength: human_countersigned` is citeable prior
-adjudication: record it in `precision_gates.fired` (gate
-`"fp-precedent"`, plus the precedent's source repo + date in the entry)
-and apply the standard downgrade-not-drop posture — **this package's
-own build wiring is still checked** (a precedent from another repo does
-not prove this spec compiles the component the same way).
-`machine_refuted_sound` matches are context only — never gate evidence
-at audit time; they surface again at /triage Phase 2g. A missing/empty
-cache skips this gate silently (clean no-op by contract); the precedent
-is evidence to cite, never a verdict to copy.
+Successful canonical `reporting record --kind rpm` stores the
+assessment/artifact and atomically admits its findings under Core's
+recorded schema. Pass the returned assessment ID directly to `traust
+triage prepare`; current-finding lookups can read the admitted findings
+without another intake or wait. Precedent matching is post-record only, for actual native
+items. A canonical report with zero findings is a valid empty native
+batch, not proof the package is secure. Do not rewrite or convert the report.
+For admitted candidates, `/triage` Phase 2g owns the supplied `precedents`,
+their provenance, verification routing and subsequent adjudication.
+Do not require a pre-filing match, downgrade on an
+unavailable match, or add an `"fp-precedent"` entry to
+`precision_gates.fired`. Human-countersigned matches reduce triage votes,
+never skip verification; machine matches are context only with full votes.
+Any supported downgrade-not-drop decision belongs in the new triage
+determination after independent verification, not in a retroactive edit
+to this audit's findings, `dependency_audit` or gate metadata. A match
+never supplies an automatic false-positive verdict.
 
 ### Do-not-report classes
 
@@ -386,12 +390,13 @@ evidence.
 
 ### Review surfaces
 
-Check the six surfaces in
+Check the seven surfaces in
 [`review-surfaces.md`](../secure-code-audit/review-surfaces.md) against the
 prepared source tree, weighting the downstream delta: patches carried in
 dist-git are first-party code, and the spec's shipped config files and
 `%configure` flags set the defaults that `security-flags` asks about.
-Record each answer in `review_surface_coverage`
+For `llm-integration`, run `python3 -m traust.cli adapters llm-app` on the
+prepared source tree. Record each answer in `review_surface_coverage`
 ([Recording coverage](../secure-code-audit/review-surfaces.md#recording-coverage)),
 with the same evidence rules as code audits: a `negative` needs a matching
 `negative_results` entry, and a `not_assessed` needs a `coverage_gaps` entry.
@@ -421,10 +426,10 @@ When a finding originates in upstream code, note in the finding `description` wh
 > C/C++ source this manual CERT review is the *only*
 > semantic detection layer — treat it as primary detection, not a
 > supplement. Report plausible memory-safety and injection findings
-> that lack corroborating tool facts rather than dropping them: keep
-> `validation_status: not_verified`, severity per CVSS (never
-> inflated), and name in each description what would confirm or refute
-> it. Record `metadata.additional.assertive_inference: {"languages":
+> that lack corroborating tool facts rather than dropping them: omit
+> unauthored `validation_status`, keep severity per CVSS (never inflated),
+> and name in each description what would confirm or refute it.
+> Record `metadata.additional.assertive_inference: {"languages":
 > ["c", "cpp"], "trigger": "no semantic pre-scan rules for C/C++"}` so
 > triage weights the expected false-positive rate accordingly — the
 > triage N-vote and disposition ledger are the intended absorber for
@@ -467,12 +472,14 @@ For each RPM01–RPM10 finding, reference the specific RPM risk ID in the findin
 ### Crypto Provider Census & Governance (crypto-analysis)
 
 When the prepared source tree exists **and**
-python3 -m traust.cli adapters crypto-audit is available, run the crypto provider census
-over the tree the package will actually build from:
+python3 -m traust.cli adapters crypto-source is available, run the crypto provider census
+over the tree the package will actually build from (`--sbom` records the
+tree's SBOM from *SBOM & Dependency Scan* below on the dist-git commit first):
 
 ```bash
-python3 -m traust.cli adapters crypto-audit source <prepared-tree> \
-    --component <component> --output /tmp/<component>-crypto-audit.json
+python3 -m traust.cli adapters crypto-source <prepared-tree> \
+    --repo-url <dist-git url> --sha <dist-git commit> [--branch <stream>] [--public] \
+    --sbom /tmp/<component>-sbom.cdx.json --out /tmp/<component>-crypto-audit.json
 ```
 
 Contract (identical in spirit to the other deterministic pre-scans —
@@ -542,7 +549,7 @@ The wrapper runs `yara` against an **explicitly pinned rule pack** — by defaul
 Include any findings that already exist for the component from automated scanning tools and trackers:
 
 - **Red Hat Bugzilla / Jira** — open CVE flaw bugs filed against the component (`component=<name>`, keyword `Security`)
-- **OSV.dev** — query by the upstream package ecosystem and version parsed from `Source0`, through `harnessing/3-audit/impact-analysis/scripts/fetch_advisory.py osv <package> --ecosystem <eco>`. A failed query is a coverage gap (`coverage_gaps`), never "no known CVEs".
+- **OSV.dev** — query by the upstream package ecosystem and version parsed from `Source0`, through `python3 -m traust.cli impact package <package> <version> --ecosystem <eco>`. A failed query is a coverage gap (`coverage_gaps`), never "no known CVEs".
 - **rpminspect** — if a baseline `rpminspect.yaml` exists, note any waived findings and their justification
 - **`traust adapters osv` / govulncheck** — run against vendored lock files extracted in Source Preparation. `status: degraded` (exit 3), `status: failed` (exit 2) or a skipped tool is a coverage gap. Vulnerability claims about bundled libraries cite an advisory one of these tools or feeds supplied; none are named from memory (see `/secure-code-audit` → *No data, no dependency conclusion*).
 - **Portfolio impact artifacts** — when `analysis-results/impact/<cve>-impact-analysis.json` (from `/impact-analysis`) covers a CVE found in the vendored dependencies, cite this package's source repo's classification and evidence block as promote/dismiss context: `affected` at symbol level strengthens promotion, `not_observed` at symbol level is documented dismissal evidence, manifest-level classifications inform but never decide. Record the artifact path in the finding's evidence — same convention as `/secure-code-audit` K07.
@@ -581,7 +588,12 @@ Where:
 - `<stream>` is the dist-git branch analyzed (e.g. `c10s`, `c9s`, `c8s`) — it plays the role `<product-name>` plays for code audits.
 - `<component>` is the source package name (the `Name:` field from the spec, e.g. `389-ds-base`).
 
-Because the reports use the standard `-security-audit.json` naming inside the registered findings tree, they are discovered by the corpus resolver, enter the census and dashboards, and are disposition-ledger baselines for `/triage`, `/validate-findings`, and `/track-findings` with no extra wiring — `metadata.audit_profile: "rpm"` is what distinguishes them, not the filename. If a campaign's ownership differs from the findings tree default (Hybrid Platforms / owned), register a per-product override for the stream directory in `$TRAUST_CONFIG_HOME/corpus-config.yaml` via `/corpus-intake`.
+The standard `-security-audit.json` filename and
+`metadata.audit_profile: "rpm"` identify the report artifact/profile.
+File discovery or census/dashboard inclusion alone is not admission.
+Successful canonical `reporting record --kind rpm` does atomically admit
+the report's findings, making its returned assessment ID available
+directly for native triage and current-finding reads (Step 5).
 
 **Ref provenance.** Stamp `metadata.ref: "<stream>"` with `metadata.ref_kind: "stream"`. A dist-git stream is a **mainline deliverable audited in its own right** — `"stream"` keeps the report in the census HEAD cuts, whereas `"branch"` would misclassify it as a branch re-audit and drop it from every headline count. Never stamp `ref_kind: "branch"` for a stream checkout.
 
@@ -632,18 +644,33 @@ Reports are **JSON files** validated against `contracts/schemas/report.schema.js
 
 **The structure tables live in one place: [`docs/report-structure.md`](../../../docs/report-structure.md).**
 Read it before writing the report — it defines the required/optional
-top-level keys, the finding object fields (including the script-computed
-`fingerprint` cross-scan identity), and this skill's profile deltas
-(`metadata.audit_profile: "rpm"`). The schema
+top-level keys, the authored finding fields, and this skill's profile
+deltas (`metadata.audit_profile: "rpm"`). Core's cross-scan finding
+identity is computed on native finding admission, including successful
+canonical RPM recording, never model-stamped into the report. The schema
 (`contracts/schemas/report.schema.json`) remains the authoritative source for types
 and constraints. Do not restate the tables here — duplicated copies drift.
+
+Follow the shared
+[Validity authoring](../../../docs/report-structure.md#validity-authoring)
+rules: unjudged findings omit `validation_status`, not `null` or a default
+confirmation. Core's installed contracts registry owns explicit new
+assertions; static-review confidence does not supply one. Preserve patch,
+backport, and correction context in existing evidence/description fields.
+
+Follow the shared
+[Remediation authoring](../../../docs/report-structure.md#remediation-authoring)
+rules for findings and roadmap items. Packaging category, patch scope,
+Image Count, severity, release stream, or an upstream dependency do not
+establish size or roadmap priority. Preserve unknown size and omit unknown
+blocking; author each required roadmap priority explicitly.
 
 Key profile obligations for this skill:
 - Set `metadata.audit_profile: "rpm"`.
 - `metadata.repository` = dist-git URL; upstream Source0/Version/Release/patches under `metadata.additional`.
 - `category` uses the `RPM01`–`RPM10` packaging taxonomy; digit-leading slugs take the `RPM_` prefix.
 - Emit `review_surface_coverage`, one entry per review surface (see *Review surfaces* above). Required from traust 0.21.0; the validator checks every entry against the rest of the report.
-- After validation, run python3 -m traust.cli corpus finding-identity fingerprint <report.json> --write.
+- Successful canonical `reporting record --kind rpm` (Step 5) atomically admits the report's findings by Core-computed identity. Preserve its receipt and use the returned assessment ID for native triage preparation; current-finding reads can use the admitted findings without separate intake.
 
 ### Report Validation
 
@@ -688,7 +715,26 @@ analysis-results/findings/<stream>/<component>/<component>-security-audit.md
 
 This Markdown file is for human consumption only — the JSON file remains the authoritative report artifact.
 
-**A report is not complete until python3 -m traust.cli reporting validate exits with 0 errors. Do not begin analysis of the next component until the current report passes validation.**
+**Step 5 — Record it** as an RPM assessment of the audited dist-git commit:
+
+```bash
+python3 -m traust.cli reporting record <path-to-report.json> --kind rpm \
+  --repo-url <dist-git url> --sha <dist-git commit> [--branch <stream>]
+```
+
+**A report is not complete until python3 -m traust.cli reporting validate
+exits with 0 errors and Core accepts its record, including the new-report
+remediation fields.** Do not begin analysis of the next component before
+both succeed. Compatibility validation and rendering alone are not
+publication; historical reports and stored-run replay are not rewritten.
+
+**Native finding handoff:** successful canonical RPM recording admits the
+report's findings under the returned assessment ID. Pass that ID directly
+to `traust triage prepare`; current-finding lookups can read the admitted
+findings without another intake. Genuine zero-finding canonical reports
+follow the valid empty-batch contract, not an unavailable-adjudication
+path. Preserve the original report; admission does not author a validity
+verdict or guarantee precedent matches.
 
 ## Spend declaration (calibration tuple)
 

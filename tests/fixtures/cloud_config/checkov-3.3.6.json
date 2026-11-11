@@ -1,0 +1,488 @@
+[
+ {
+  "check_type": "terraform",
+  "results": {
+   "passed_checks": [],
+   "failed_checks": [
+    {
+     "check_id": "CKV_AWS_24",
+     "check_name": "Ensure no security groups allow ingress from 0.0.0.0:0 to port 22",
+     "file_path": "/iac/main.tf",
+     "repo_file_path": "/work/clone-a/myrepo/iac/main.tf",
+     "file_line_range": [
+      6,
+      14
+     ],
+     "resource": "aws_security_group.admin",
+     "guideline": null,
+     "severity": null
+    },
+    {
+     "check_id": "CKV_AWS_23",
+     "check_name": "Ensure every security group and rule has a description",
+     "file_path": "/iac/main.tf",
+     "repo_file_path": "/work/clone-a/myrepo/iac/main.tf",
+     "file_line_range": [
+      6,
+      14
+     ],
+     "resource": "aws_security_group.admin",
+     "guideline": null,
+     "severity": null
+    },
+    {
+     "check_id": "CKV2_AWS_5",
+     "check_name": "Ensure that Security Groups are attached to another resource",
+     "file_path": "/iac/main.tf",
+     "repo_file_path": "/work/clone-a/myrepo/iac/main.tf",
+     "file_line_range": [
+      6,
+      14
+     ],
+     "resource": "aws_security_group.admin",
+     "guideline": null,
+     "severity": null
+    },
+    {
+     "check_id": "CKV_AWS_20",
+     "check_name": "S3 Bucket has an ACL defined which allows public READ access.",
+     "file_path": "/iac/main.tf",
+     "repo_file_path": "/work/clone-a/myrepo/iac/main.tf",
+     "file_line_range": [
+      1,
+      4
+     ],
+     "resource": "aws_s3_bucket.data",
+     "guideline": null,
+     "severity": null
+    },
+    {
+     "check_id": "CKV2_AWS_62",
+     "check_name": "Ensure S3 buckets should have event notifications enabled",
+     "file_path": "/iac/main.tf",
+     "repo_file_path": "/work/clone-a/myrepo/iac/main.tf",
+     "file_line_range": [
+      1,
+      4
+     ],
+     "resource": "aws_s3_bucket.data",
+     "guideline": null,
+     "severity": null
+    },
+    {
+     "check_id": "CKV2_AWS_6",
+     "check_name": "Ensure that S3 bucket has a Public Access block",
+     "file_path": "/iac/main.tf",
+     "repo_file_path": "/work/clone-a/myrepo/iac/main.tf",
+     "file_line_range": [
+      1,
+      4
+     ],
+     "resource": "aws_s3_bucket.data",
+     "guideline": null,
+     "severity": null
+    },
+    {
+     "check_id": "CKV2_AWS_61",
+     "check_name": "Ensure that an S3 bucket has a lifecycle configuration",
+     "file_path": "/iac/main.tf",
+     "repo_file_path": "/work/clone-a/myrepo/iac/main.tf",
+     "file_line_range": [
+      1,
+      4
+     ],
+     "resource": "aws_s3_bucket.data",
+     "guideline": null,
+     "severity": null
+    },
+    {
+     "check_id": "CKV_AWS_145",
+     "check_name": "Ensure that S3 buckets are encrypted with KMS by default",
+     "file_path": "/iac/main.tf",
+     "repo_file_path": "/work/clone-a/myrepo/iac/main.tf",
+     "file_line_range": [
+      1,
+      4
+     ],
+     "resource": "aws_s3_bucket.data",
+     "guideline": null,
+     "severity": null
+    },
+    {
+     "check_id": "CKV_AWS_18",
+     "check_name": "Ensure the S3 bucket has access logging enabled",
+     "file_path": "/iac/main.tf",
+     "repo_file_path": "/work/clone-a/myrepo/iac/main.tf",
+     "file_line_range": [
+      1,
+      4
+     ],
+     "resource": "aws_s3_bucket.data",
+     "guideline": null,
+     "severity": null
+    },
+    {
+     "check_id": "CKV_AWS_144",
+     "check_name": "Ensure that S3 bucket has cross-region replication enabled",
+     "file_path": "/iac/main.tf",
+     "repo_file_path": "/work/clone-a/myrepo/iac/main.tf",
+     "file_line_range": [
+      1,
+      4
+     ],
+     "resource": "aws_s3_bucket.data",
+     "guideline": null,
+     "severity": null
+    },
+    {
+     "check_id": "CKV_AWS_21",
+     "check_name": "Ensure all data stored in the S3 bucket have versioning enabled",
+     "file_path": "/iac/main.tf",
+     "repo_file_path": "/work/clone-a/myrepo/iac/main.tf",
+     "file_line_range": [
+      1,
+      4
+     ],
+     "resource": "aws_s3_bucket.data",
+     "guideline": null,
+     "severity": null
+    }
+   ],
+   "skipped_checks": [],
+   "parsing_errors": []
+  },
+  "summary": {
+   "passed": 7,
+   "failed": 11,
+   "skipped": 0,
+   "parsing_errors": 0,
+   "resource_count": 2,
+   "checkov_version": "3.3.6"
+  },
+  "url": "Add an api key '--bc-api-key <api-key>' to see more detailed insights via https://bridgecrew.cloud"
+ },
+ {
+  "check_type": "kubernetes",
+  "results": {
+   "passed_checks": [],
+   "failed_checks": [
+    {
+     "check_id": "CKV_K8S_37",
+     "check_name": "Minimize the admission of containers with capabilities assigned",
+     "file_path": "/k8s/deploy.yaml",
+     "repo_file_path": "/work/clone-a/myrepo/k8s/deploy.yaml",
+     "file_line_range": [
+      1,
+      12
+     ],
+     "resource": "Deployment.default.web",
+     "guideline": null,
+     "severity": null
+    },
+    {
+     "check_id": "CKV_K8S_31",
+     "check_name": "Ensure that the seccomp profile is set to docker/default or runtime/default",
+     "file_path": "/k8s/deploy.yaml",
+     "repo_file_path": "/work/clone-a/myrepo/k8s/deploy.yaml",
+     "file_line_range": [
+      1,
+      12
+     ],
+     "resource": "Deployment.default.web",
+     "guideline": null,
+     "severity": null
+    },
+    {
+     "check_id": "CKV_K8S_8",
+     "check_name": "Liveness Probe Should be Configured",
+     "file_path": "/k8s/deploy.yaml",
+     "repo_file_path": "/work/clone-a/myrepo/k8s/deploy.yaml",
+     "file_line_range": [
+      1,
+      12
+     ],
+     "resource": "Deployment.default.web",
+     "guideline": null,
+     "severity": null
+    },
+    {
+     "check_id": "CKV_K8S_12",
+     "check_name": "Memory requests should be set",
+     "file_path": "/k8s/deploy.yaml",
+     "repo_file_path": "/work/clone-a/myrepo/k8s/deploy.yaml",
+     "file_line_range": [
+      1,
+      12
+     ],
+     "resource": "Deployment.default.web",
+     "guideline": null,
+     "severity": null
+    },
+    {
+     "check_id": "CKV_K8S_20",
+     "check_name": "Containers should not run with allowPrivilegeEscalation",
+     "file_path": "/k8s/deploy.yaml",
+     "repo_file_path": "/work/clone-a/myrepo/k8s/deploy.yaml",
+     "file_line_range": [
+      1,
+      12
+     ],
+     "resource": "Deployment.default.web",
+     "guideline": null,
+     "severity": null
+    },
+    {
+     "check_id": "CKV_K8S_13",
+     "check_name": "Memory limits should be set",
+     "file_path": "/k8s/deploy.yaml",
+     "repo_file_path": "/work/clone-a/myrepo/k8s/deploy.yaml",
+     "file_line_range": [
+      1,
+      12
+     ],
+     "resource": "Deployment.default.web",
+     "guideline": null,
+     "severity": null
+    },
+    {
+     "check_id": "CKV_K8S_40",
+     "check_name": "Containers should run as a high UID to avoid host conflict",
+     "file_path": "/k8s/deploy.yaml",
+     "repo_file_path": "/work/clone-a/myrepo/k8s/deploy.yaml",
+     "file_line_range": [
+      1,
+      12
+     ],
+     "resource": "Deployment.default.web",
+     "guideline": null,
+     "severity": null
+    },
+    {
+     "check_id": "CKV_K8S_10",
+     "check_name": "CPU requests should be set",
+     "file_path": "/k8s/deploy.yaml",
+     "repo_file_path": "/work/clone-a/myrepo/k8s/deploy.yaml",
+     "file_line_range": [
+      1,
+      12
+     ],
+     "resource": "Deployment.default.web",
+     "guideline": null,
+     "severity": null
+    },
+    {
+     "check_id": "CKV_K8S_16",
+     "check_name": "Container should not be privileged",
+     "file_path": "/k8s/deploy.yaml",
+     "repo_file_path": "/work/clone-a/myrepo/k8s/deploy.yaml",
+     "file_line_range": [
+      1,
+      12
+     ],
+     "resource": "Deployment.default.web",
+     "guideline": null,
+     "severity": null
+    },
+    {
+     "check_id": "CKV_K8S_22",
+     "check_name": "Use read-only filesystem for containers where possible",
+     "file_path": "/k8s/deploy.yaml",
+     "repo_file_path": "/work/clone-a/myrepo/k8s/deploy.yaml",
+     "file_line_range": [
+      1,
+      12
+     ],
+     "resource": "Deployment.default.web",
+     "guideline": null,
+     "severity": null
+    },
+    {
+     "check_id": "CKV_K8S_9",
+     "check_name": "Readiness Probe Should be Configured",
+     "file_path": "/k8s/deploy.yaml",
+     "repo_file_path": "/work/clone-a/myrepo/k8s/deploy.yaml",
+     "file_line_range": [
+      1,
+      12
+     ],
+     "resource": "Deployment.default.web",
+     "guideline": null,
+     "severity": null
+    },
+    {
+     "check_id": "CKV_K8S_28",
+     "check_name": "Minimize the admission of containers with the NET_RAW capability",
+     "file_path": "/k8s/deploy.yaml",
+     "repo_file_path": "/work/clone-a/myrepo/k8s/deploy.yaml",
+     "file_line_range": [
+      1,
+      12
+     ],
+     "resource": "Deployment.default.web",
+     "guideline": null,
+     "severity": null
+    },
+    {
+     "check_id": "CKV_K8S_29",
+     "check_name": "Apply security context to your pods and containers",
+     "file_path": "/k8s/deploy.yaml",
+     "repo_file_path": "/work/clone-a/myrepo/k8s/deploy.yaml",
+     "file_line_range": [
+      1,
+      12
+     ],
+     "resource": "Deployment.default.web",
+     "guideline": null,
+     "severity": null
+    },
+    {
+     "check_id": "CKV_K8S_14",
+     "check_name": "Image Tag should be fixed - not latest or blank",
+     "file_path": "/k8s/deploy.yaml",
+     "repo_file_path": "/work/clone-a/myrepo/k8s/deploy.yaml",
+     "file_line_range": [
+      1,
+      12
+     ],
+     "resource": "Deployment.default.web",
+     "guideline": null,
+     "severity": null
+    },
+    {
+     "check_id": "CKV_K8S_38",
+     "check_name": "Ensure that Service Account Tokens are only mounted where necessary",
+     "file_path": "/k8s/deploy.yaml",
+     "repo_file_path": "/work/clone-a/myrepo/k8s/deploy.yaml",
+     "file_line_range": [
+      1,
+      12
+     ],
+     "resource": "Deployment.default.web",
+     "guideline": null,
+     "severity": null
+    },
+    {
+     "check_id": "CKV_K8S_21",
+     "check_name": "The default namespace should not be used",
+     "file_path": "/k8s/deploy.yaml",
+     "repo_file_path": "/work/clone-a/myrepo/k8s/deploy.yaml",
+     "file_line_range": [
+      1,
+      12
+     ],
+     "resource": "Deployment.default.web",
+     "guideline": null,
+     "severity": null
+    },
+    {
+     "check_id": "CKV_K8S_23",
+     "check_name": "Minimize the admission of root containers",
+     "file_path": "/k8s/deploy.yaml",
+     "repo_file_path": "/work/clone-a/myrepo/k8s/deploy.yaml",
+     "file_line_range": [
+      1,
+      12
+     ],
+     "resource": "Deployment.default.web",
+     "guideline": null,
+     "severity": null
+    },
+    {
+     "check_id": "CKV_K8S_43",
+     "check_name": "Image should use digest",
+     "file_path": "/k8s/deploy.yaml",
+     "repo_file_path": "/work/clone-a/myrepo/k8s/deploy.yaml",
+     "file_line_range": [
+      1,
+      12
+     ],
+     "resource": "Deployment.default.web",
+     "guideline": null,
+     "severity": null
+    },
+    {
+     "check_id": "CKV_K8S_11",
+     "check_name": "CPU limits should be set",
+     "file_path": "/k8s/deploy.yaml",
+     "repo_file_path": "/work/clone-a/myrepo/k8s/deploy.yaml",
+     "file_line_range": [
+      1,
+      12
+     ],
+     "resource": "Deployment.default.web",
+     "guideline": null,
+     "severity": null
+    }
+   ],
+   "skipped_checks": [],
+   "parsing_errors": []
+  },
+  "summary": {
+   "passed": 69,
+   "failed": 19,
+   "skipped": 0,
+   "parsing_errors": 0,
+   "resource_count": 1,
+   "checkov_version": "3.3.6"
+  },
+  "url": "Add an api key '--bc-api-key <api-key>' to see more detailed insights via https://bridgecrew.cloud"
+ },
+ {
+  "check_type": "dockerfile",
+  "results": {
+   "passed_checks": [],
+   "failed_checks": [
+    {
+     "check_id": "CKV_DOCKER_7",
+     "check_name": "Ensure the base image uses a non latest version tag",
+     "file_path": "/img/Dockerfile",
+     "repo_file_path": "/work/clone-a/myrepo/img/Dockerfile",
+     "file_line_range": [
+      1,
+      1
+     ],
+     "resource": "/img/Dockerfile.FROM",
+     "guideline": null,
+     "severity": null
+    },
+    {
+     "check_id": "CKV_DOCKER_2",
+     "check_name": "Ensure that HEALTHCHECK instructions have been added to container images",
+     "file_path": "/img/Dockerfile",
+     "repo_file_path": "/work/clone-a/myrepo/img/Dockerfile",
+     "file_line_range": [
+      1,
+      2
+     ],
+     "resource": "/img/Dockerfile.",
+     "guideline": null,
+     "severity": null
+    },
+    {
+     "check_id": "CKV_DOCKER_3",
+     "check_name": "Ensure that a user for the container has been created",
+     "file_path": "/img/Dockerfile",
+     "repo_file_path": "/work/clone-a/myrepo/img/Dockerfile",
+     "file_line_range": [
+      1,
+      2
+     ],
+     "resource": "/img/Dockerfile.",
+     "guideline": null,
+     "severity": null
+    }
+   ],
+   "skipped_checks": [],
+   "parsing_errors": []
+  },
+  "summary": {
+   "passed": 20,
+   "failed": 3,
+   "skipped": 0,
+   "parsing_errors": 0,
+   "resource_count": 1,
+   "checkov_version": "3.3.6"
+  },
+  "url": "Add an api key '--bc-api-key <api-key>' to see more detailed insights via https://bridgecrew.cloud"
+ }
+]

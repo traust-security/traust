@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 
 import pytest
-from traust_contracts.v1.timestamps import TimestampError
+from traust_core.v1.models.values import TimestampError
 
 from traust.lib.event_time import recorded_at_arg, report_occurred_at
 

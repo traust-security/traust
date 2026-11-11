@@ -5,20 +5,10 @@ every harness step uses when it executes something derived from an **audited
 checkout** — build systems, test suites, scanners that load target code, and
 string-form PoC steps in live validation. Gate rule **S10**
 (python3 -m traust.cli check skill-security) makes routing
-through it mandatory at commit time: each detected target-build invocation must run
-through safe_exec. A prose or comment mention, an import alone, or an unrelated
-sandboxed build does not exempt direct builds elsewhere. `safe-exec check` validates
-argv but does not execute a build, so it is not routing evidence.
-
-For Python, S10 tracks execution-function aliases and static command values in
-statement order, merges possible control-flow bindings conservatively, and
-distinguishes actual argv executables from output data. It recognizes command
-variables and split operations without trusting a later import, wildcard name,
-unrelated safe-exec call or printed example as routing evidence.
-
-S10 is a static admission guard, not a replacement for the execution-time
-validator. Target-derived commands must still run under the selected safe-exec
-profile; static uncertainty never grants additional runtime privileges.
+through it mandatory at commit time: each detected target-build invocation must run through
+safe_exec. A prose or comment mention, an import alone, or an unrelated sandboxed build
+does not exempt direct builds elsewhere. `safe-exec check` validates argv but does not
+execute a build, so it is not routing evidence for a direct invocation.
 
 The design keeps the containment that matters for an auditing harness — argv
 allowlisting, env scrubbing, and shell-free execution — and deliberately does
@@ -70,10 +60,9 @@ the doctrine says why, this section says what the launch must look like.
 
 ## Profiles
 
-Policy lives in **`$TRAUST_CONFIG_HOME/safe-exec-profiles.yaml`** (an embedded
-fallback copy of the `validation-step` profile lives in the module — keep them
-in sync; the harness ships the template as
-`config/safe-exec-profiles.example.yaml`). Each profile declares `allow`
+Policy lives in **the `safe-exec-profiles.yaml` traust-core ships** (the project's
+policy, not adopter config; an embedded fallback copy of the `validation-step`
+profile lives in the module — keep them in sync). Each profile declares `allow`
 (binary heads), optional `allowed_path_heads` (e.g. `./gradlew`),
 `allow_pipelines`, and `keep_env`. Current profiles and their consumers:
 

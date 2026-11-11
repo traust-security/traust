@@ -1,0 +1,19 @@
+# Example ADR registry: keep yours in your own repository and record it with
+# `traust compliance policy adr-registry <file>`. The harness never reads this example at run
+# time.
+#
+# Architecture-decision-record registers, schema-gated by the contracts
+# adr-registry.schema.json (checked through traust-core). Record it with `traust compliance policy
+# adr-registry`; traust-core reads each register AT ITS PIN; /drift-watch
+# reports pin-vs-upstream drift. Advancing a pin is a reviewed config
+# change: read the upstream diff (especially decisions that became
+# superseded), then move the SHA, then record it again.
+
+version: 1
+registers:
+  - name: example-architecture
+    repo: https://github.com/example-org/architecture
+    paths: [decisions]
+    pin: "0000000000000000000000000000000000000000"
+    governs: ["product:example"]
+    note: the example product's decision register

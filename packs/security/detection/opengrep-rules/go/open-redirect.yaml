@@ -1,0 +1,34 @@
+rules:
+  - id: traust-go-open-redirect-taint
+    languages: [go]
+    severity: ERROR
+    message: >-
+      A request value is the target of a redirect (http.Redirect, a
+      Location header, or a gin/echo/fiber Redirect) with no allow-list —
+      the server sends users wherever the link says (phishing, token
+      leakage through referer). Redirect only to relative paths or
+      allow-listed hosts. CWE-601.
+    metadata:
+      cwe: ["CWE-601"]
+      category: open-redirect
+      asvs: ["V3"]
+      confidence: MEDIUM
+      references:
+        - "CWE-601 open redirect — request-supplied redirect targets"
+    mode: taint
+    pattern-sources:
+      - pattern-either:
+          - pattern: $R.URL.Query().Get(...)
+          - pattern: $R.FormValue(...)
+          - pattern: $R.PostFormValue(...)
+          - pattern: $R.Header.Get("Referer")
+          - pattern: $C.Query(...)
+          - pattern: $C.QueryParam(...)
+          - pattern: $C.FormValue(...)
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: http.Redirect($W, $R, $U, ...)
+              - pattern: $W.Header().Set("Location", $U)
+              - pattern: $C.Redirect($CODE, $U)
+          - focus-metavariable: $U

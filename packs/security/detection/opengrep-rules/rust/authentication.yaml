@@ -1,0 +1,26 @@
+rules:
+  - id: traust-rust-authentication-jwt-validation-disabled
+    languages: [rust]
+    severity: ERROR
+    message: >-
+      JWT verification switched off in jsonwebtoken: signature validation
+      disabled, or expiry not checked — any token, or an expired one, is
+      accepted. Keep signature and exp validation on; pin the algorithm
+      (Validation::new(Algorithm::...)). CWE-347 / CWE-613.
+    metadata:
+      cwe: ["CWE-347", "CWE-613"]
+      category: authentication
+      asvs: ["V9"]
+      confidence: HIGH
+      references:
+        - "CWE-347 — jsonwebtoken insecure_disable_signature_validation / dangerous decode"
+        - "CWE-613 — expiry validation turned off"
+    pattern-either:
+      - pattern: $V.insecure_disable_signature_validation()
+      - pattern: $V.validate_exp = false
+      - pattern: dangerous_insecure_decode(...)
+      - pattern: dangerous_insecure_decode::<$T>(...)
+      - pattern: jsonwebtoken::dangerous_insecure_decode::<$T>(...)
+      - pattern: jsonwebtoken::dangerous_insecure_decode(...)
+      - pattern: insecure_decode(...)
+      - pattern: jsonwebtoken::dangerous::insecure_decode(...)

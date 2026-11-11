@@ -1,0 +1,122 @@
+rules:
+  - id: traust-java-input-validation-untrusted-deserialization
+    languages: [java]
+    severity: ERROR
+    message: >-
+      Java native deserialization site — ObjectInputStream.readObject()
+      reconstructs arbitrary object graphs, and gadget chains on the
+      classpath turn attacker-supplied bytes into code execution. Judge
+      whether the stream can carry untrusted data and whether an
+      ObjectInputFilter (or a look-ahead class allowlist) is enforced
+      before promotion. CWE-502; SEI CERT SER12-J.
+    metadata:
+      cwe: ["CWE-502"]
+      category: input-validation
+      asvs: ["V1"]
+      cert: ["SER12-J"]
+      confidence: MEDIUM
+      references:
+        - "seed rule: SEI CERT Oracle Coding Standard for Java, SER12-J (cited by ID; pattern and text original to this pack)"
+    patterns:
+      - pattern-either:
+          - pattern: new ObjectInputStream($IN)
+          - pattern: $OIS.readObject()
+          - pattern: $OIS.readUnshared()
+      - pattern-not-inside: |
+          $RET $M(...) {
+            ...
+            $O.setObjectInputFilter(...);
+            ...
+          }
+
+  - id: traust-java-input-validation-xxe-factory
+    languages: [java]
+    severity: WARNING
+    message: >-
+      XML parser factory created without visible external-entity hardening
+      in the same method — default JAXP parsers resolve DOCTYPE and
+      external entities, so attacker-influenced documents can read local
+      files or reach internal URLs. Verify the factory sets
+      disallow-doctype-decl (or disables external general/parameter
+      entities and ACCESS_EXTERNAL_*) before the parse; dismiss if
+      hardening happens in a shared helper. CWE-611; SEI CERT IDS17-J.
+    metadata:
+      cwe: ["CWE-611"]
+      category: input-validation
+      asvs: ["V1"]
+      cert: ["IDS17-J"]
+      confidence: MEDIUM
+      references:
+        - "seed rule: SEI CERT Oracle Coding Standard for Java, IDS17-J (cited by ID; pattern and text original to this pack)"
+    patterns:
+      - pattern-either:
+          - pattern: DocumentBuilderFactory.newInstance()
+          - pattern: SAXParserFactory.newInstance()
+          - pattern: XMLInputFactory.newInstance()
+          - pattern: TransformerFactory.newInstance()
+          - pattern: SAXTransformerFactory.newInstance()
+          - pattern: XPathFactory.newInstance()
+      - pattern-not-inside: |
+          $RET $M(...) {
+            ...
+            $F.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
+            ...
+          }
+      - pattern-not-inside: |
+          $RET $M(...) {
+            ...
+            $F.setFeature("http://xml.org/sax/features/external-general-entities", false);
+            ...
+          }
+      - pattern-not-inside: |
+          $RET $M(...) {
+            ...
+            $F.setProperty(XMLInputFactory.SUPPORT_DTD, false);
+            ...
+          }
+      - pattern-not-inside: |
+          $RET $M(...) {
+            ...
+            $F.setAttribute(XMLConstants.ACCESS_EXTERNAL_DTD, "");
+            ...
+          }
+    paths:
+      exclude:
+        - "*/src/test/*"
+        - "*/test/*"
+        - "*/testing/*"
+        - "*Test.java"
+
+  - id: traust-java-input-validation-variable-format-string
+    languages: [java]
+    severity: WARNING
+    message: >-
+      Run-time value used as the format string itself — a '%' sequence in
+      the data drives the formatter (exception-driven DoS, and %n / argument
+      reordering surprises). Pass a literal format and supply the value as
+      an argument ("%s"). Judge whether the value can carry external input.
+      CWE-134; SEI CERT IDS06-J.
+    metadata:
+      cwe: ["CWE-134"]
+      category: input-validation
+      asvs: ["V1"]
+      cert: ["IDS06-J"]
+      confidence: MEDIUM
+      references:
+        - "seed rule: SEI CERT Oracle Coding Standard for Java, IDS06-J (cited by ID; pattern and text original to this pack)"
+    patterns:
+      - pattern-either:
+          - pattern: String.format($FMT)
+          - pattern: (java.util.Formatter $F).format($FMT)
+          - pattern: $OUT.printf($FMT)
+      - metavariable-pattern:
+          metavariable: $FMT
+          patterns:
+            - pattern-not: '"..."'
+            - pattern-not: $X + $Y
+      # compile-time constants referenced by name (CONSTANT_CASE, plain
+      # or qualified) are literals in practice — not runtime format-string
+      # control (2026-07-29 dismissal class)
+      - metavariable-regex:
+          metavariable: $FMT
+          regex: ^(?!(?:[A-Za-z_$][A-Za-z0-9_$]*\.)*[A-Z][A-Z0-9_$]*$)(?s).*$

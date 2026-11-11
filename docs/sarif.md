@@ -6,8 +6,9 @@ tools:
 - **Emitter** — `python3 -m traust.cli reporting sarif` projects a harness
   report into a `.sarif` file for any SARIF consumer (code-scanning
   dashboards, viewers, aggregators).
-- **Importer** — `harnessing/4-triage/triage/scripts/normalize_input.py` turns
-  SARIF from any producer into the findings container `/triage` ingests.
+- **Importer** — `traust triage intake` (traust-core's
+  `AssessmentService.record_scan`) records SARIF from any producer as an
+  assessment and its findings, which `/triage` then judges.
 
 Neither round-trips the other, and neither is a store. The harness report and
 the disposition ledger stay authoritative; a SARIF file is a derived view on
@@ -95,44 +96,44 @@ Coverity, and the harness's own deterministic tools run standalone (opengrep
 also normalises Dependabot alert exports and govulncheck's native `-json`
 stream; those arms are outside this page.
 
-**Output.** `{"metadata": …, "findings": […]}` in triage's canonical field
-names — `file`, `line`, `category`, `severity`, `title`, `description`,
-`recommendation`, `cwes`, `orig_id` — the container `/triage` Phase 1 already
-recognises. Every imported finding is a **machine-static claim**: normalisation
-never sets a verdict, and triage's adversarial vote applies regardless of what
-level the producer asserted.
+**Output.** A `scanner` assessment of the commit (assessor and version from
+`tool.driver`) and its findings, through traust-core's finding intake: a
+finding is matched by fingerprint, else created, and this assessment's
+occurrence carries the reported severity, rule and locations. Every imported
+finding is a **machine-static claim**: intake never sets a verdict, and
+triage's adversarial vote applies regardless of what level the producer
+asserted.
 
 **Mapping, per result**
 
 | SARIF | Harness field |
 |---|---|
-| `ruleId` | `category` |
+| `ruleId` | `rule` |
 | `properties.security-severity` (result, then rule) | `severity` by band: ≥ 9 critical, ≥ 7 high, ≥ 4 medium, > 0 low, else informational |
-| `level`, when no `security-severity` is present | `error` → high, `warning` → medium, `note`/`none` → informational (SARIF's default level is `warning`) |
+| `level`, when no `security-severity` is present | `error` → high, `warning` → medium, `note`/`none` → informational (SARIF's default level is `warning`); a scanner giving no severity at all reports `unrated` |
 | rule `shortDescription`, else `ruleId` | `title` |
-| `message.text` + rule `fullDescription` | `description` |
-| rule `help.text` | `recommendation` |
+| `message.text` + rule `fullDescription` + rule `help.text` | `description` |
 | first `physicalLocation` | `file`, `line` |
 | `tags` on rule and result matching `CWE-nnn` | `cwes` |
-| `guid`, else `partialFingerprints.harnessFindingId/v1` | `orig_id`; all `partialFingerprints` kept as `sarif_fingerprints` |
-| rule `properties.precision` (CodeQL convention) | `scanner_confidence` (very-high 0.95, high 0.85, medium 0.6, low 0.4) |
-| `tool.driver.name` / `version` | `source_tool` and the `metadata.tools` roster |
+| `guid`, else `partialFingerprints.harnessFindingId/v1`, else `ruleId` | the finding's label in the scan |
+| rule `properties.precision` (CodeQL convention) | `confidence` (very-high 0.95, high 0.85, medium 0.6, low 0.4) |
+| `tool.driver.name` / `version` | the assessment's `assessor` / `assessor_version` |
 
-Results carrying `suppressions[]` are **skipped and counted** by default
-(`suppressed_skipped` in the output); `--include-suppressed` keeps them.
+Results carrying `suppressions[]` are **skipped**.
 Importing the harness's own export therefore drops the findings the ledger had
 dispositioned, which is the intended asymmetry: dispositions come from the
 ledger, never from a file that passed through a third-party tool.
 
-**Commands**
+**Command**
 
 ```bash
-python3 harnessing/4-triage/triage/scripts/normalize_input.py scan.sarif
-python3 harnessing/4-triage/triage/scripts/normalize_input.py scan.sarif --include-suppressed
-python3 harnessing/4-triage/triage/scripts/normalize_input.py a.sarif b.sarif   # one output per input
+python3 -m traust.cli triage intake scan.sarif --format sarif \
+    --repo-url https://github.com/org/repo --sha <scanned commit>
 ```
 
-Stdlib only; no subprocess, no network. The output feeds `/triage` directly;
-from there imported findings follow the same path as audit-born ones —
-adversarial verification, then the disposition ledger via
-`emit_triage_ledger_events`.
+It prints the new assessment's id; `/triage` takes it from there
+(`traust triage prepare`), and the verdicts are recorded as decisions
+(`traust triage record`).
+The scanner name/version in SARIF supplies the assessment's source metadata; no
+caller origin flag is accepted. Later observations do not replace the first
+reporting assessor used for origin grouping.

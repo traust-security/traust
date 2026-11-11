@@ -201,6 +201,14 @@ nothing else:
   R3b) and drops their legacy `impact`/`likelihood` labels, so the model
   moves to the OWASP method in one step. Record it in the update history
   ("rated T1-T9 with the OWASP Risk Rating Methodology").
+- **Mitigation effort and blocking stay independent.** For mitigation
+  additions or edits, follow schema.md section 8: required canonical
+  `effort` or JSON `null` for unknown size, plus `blocked_external` only
+  when its boolean state is known. Preserve existing reported blocking;
+  absence is unknown, not `false`. Reading a historical uppercase size is
+  valid; use only its exact registry-approved replacement when composing
+  fresh canonical output, without rewriting stored history. Keep unknown
+  effort separate from the cheapest known-size recommendations.
 
 ### U2. Apply
 

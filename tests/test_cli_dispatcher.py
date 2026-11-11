@@ -23,22 +23,34 @@ def test_all_planned_groups_registered():
     assert set(GROUPS) == {
         "adapters",
         "admin",
+        "assessments",
+        "attack",
+        "auth",
         "build",
         "check",
+        "cloud-config",
         "compliance",
-        "corpus",
+        "config",
         "dashboard",
         "feeds",
+        "findings",
         "impact",
+        "isolation",
         "ledger",
         "metrics",
         "portfolio",
+        "pqc",
+        "products",
         "registry",
+        "remediation",
+        "repo",
         "reporting",
-        "route",
+        "session",
         "sweep",
         "tools",
+        "triage",
         "util",
+        "validation",
     }
     assert sum(len(ops) for ops in GROUPS.values()) >= 81
 
@@ -51,16 +63,12 @@ def test_traust_impact_analyze_help():
         check=False,
     )
     assert proc.returncode == 0
-    assert "--module" in proc.stdout
+    assert "Assess every commit an advisory reaches" in proc.stdout
     assert "--config-home" in proc.stdout
 
 
-def test_traust_portfolio_and_corpus_help():
-    for group, op, flag in (
-        ("portfolio", "build", "--spine"),
-        ("corpus", "findings-db", "--results-root"),
-        ("sweep", "collect", "--force"),
-    ):
+def test_traust_portfolio_and_sweep_help():
+    for group, op, flag in (("sweep", "collect", "--force"),):
         proc = subprocess.run(
             [sys.executable, "-m", "traust.cli", group, op, "--help"],
             capture_output=True,
@@ -80,19 +88,7 @@ def test_traust_feeds_fetch_help():
     )
     assert proc.returncode == 0, proc.stderr
     assert "--config-home" in proc.stdout
-    assert "Pull-through cache for external reference feeds." in proc.stdout
-
-
-def test_traust_tools_fetch_feeds_help():
-    proc = subprocess.run(
-        [sys.executable, "-m", "traust.cli", "tools", "fetch-feeds", "--help"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert proc.returncode == 0, proc.stderr
-    assert "--config-home" in proc.stdout
-    assert "Pull-through cache for external reference feeds." in proc.stdout
+    assert "Snapshot the security feeds" in proc.stdout
 
 
 def test_legacy_tool_passthrough_does_not_require_config_home(tmp_path):

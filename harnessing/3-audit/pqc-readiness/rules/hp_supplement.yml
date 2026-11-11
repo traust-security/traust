@@ -1,8 +1,8 @@
 # Hybrid Platforms PQC supplement rule pack (v1)
 # Complements the vendored pqc-scan default rules (pinned be5c760a).
 # Design + rationale: progress-tracker/plans/pqc-readiness-campaign-plan.md Section 4.1.
-# Provider/toolchain/policy/material facts (HP-CHAIN/POLICY/ENV/MAT) are
-# extracted by pqc_facts.py directly; this pack covers source + config regex.
+# Core's native prescan combines the source scanner with its provider/toolchain/
+# policy census and material checks; this pack supplies source + config regex.
 
 # ---- HP-EC: non-RSA Shor-vulnerable APIs -----------------------------------
 - id: HP_EC_GO_ECDSA

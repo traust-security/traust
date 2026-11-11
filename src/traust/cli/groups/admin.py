@@ -6,6 +6,11 @@ from traust.cli.groups._registry import passthrough_op
 
 _ENTRIES: tuple[tuple[str, str, str], ...] = (
     (
+        "doctor",
+        "doctor",
+        "Environment preflight: the pack's requirements, config, tools, network, gates.",
+    ),
+    (
         "toolchain",
         "toolchain",
         "Toolchain management — install, check, and populate external tool pins.",
@@ -14,11 +19,6 @@ _ENTRIES: tuple[tuple[str, str, str], ...] = (
         "checkpoint",
         "checkpoint",
         "Checkpoint helper for the runbook skills (vuln-scan, triage, verify).",
-    ),
-    (
-        "countersign",
-        "countersign",
-        "Countersign workbench: the human inbox for the disposition ledger.",
     ),
     (
         "scan-internal-refs",

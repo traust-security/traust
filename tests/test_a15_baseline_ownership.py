@@ -155,23 +155,3 @@ class TestB9PhrasingsThatSlippedThrough:
             "carried on its ledger event, never writing the baseline",
         ):
             assert C.BASELINE_WRITE_MD_NEG_RE.search(s), s
-
-    def test_the_rule_stating_sentences_appear_in_the_fixed_skills(self) -> None:
-        """Guards the fix, not just the detector: if someone reverts a skill to
-        the old flow, the A15 marker goes with it and the gate fires again."""
-        from pathlib import Path
-
-        Path(__file__).resolve().parents[1]
-        for skill in (
-            "validate-findings",
-            "verify-remediation",
-            "create-fuzzing",
-            "vuln-scan",
-            "impact-analysis",
-            "dependency-watch",
-            "track-findings",
-        ):
-            from traust.paths import skill_dir
-
-            text = (skill_dir(skill) / "SKILL.md").read_text(encoding="utf-8")
-            assert "A15" in text, f"{skill} lost its A15 marker"

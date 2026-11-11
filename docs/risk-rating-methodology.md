@@ -1,27 +1,16 @@
 # Risk-rating methodology
 
 How the harness turns per-finding scores into portfolio risk metrics, and
-why. Implemented in `harnessing/findings-trends/scripts/build_trends.py`
-(`owasp_rating()`); surfaced by `/findings-trends`,
-`/traust-metrics`, and the executive-trends dashboard
-(python3 -m traust.cli metrics history).
+why. Implemented in traust-core's `RatingPolicy`
+(`traust_core.v1.services.findings.rating`); surfaced by `/findings-trends`
+(`traust dashboard view findings-trend`) and `/traust-metrics`.
 
 ## Machine-readable definition
 
 The factor mappings, bucket thresholds, 3×3 matrix, and fallbacks below
-are **data, not code**:
-[harnessing/findings-trends/risk-rating-methodology.json](../harnessing/findings-trends/risk-rating-methodology.json)
-(semver `methodology_version`, stamped into every `findings-trends.json`),
-validated against
-`risk-rating-methodology.schema.json` in traust-contracts
-by the test suite. The schema enforces the structural invariants a prose
-doc can't: every CVSS metric value has a mapped score, all nine matrix
-cells are present and band-valued, factor scores stay on the 0–9 scale,
-and the vector-less fallback likelihood is bounded below the HIGH bucket
-(so vector-less findings can never rate Critical). To evolve the
-methodology (e.g. per-BU business-impact weights), edit the JSON, bump
-`methodology_version`, and let the schema + tests gate the change — the
-engine (`build_trends.py`) contains no inline rating constants.
+are the tables in `RatingPolicy` (ported from methodology 1.1.0, which
+lived in a JSON file beside the findings-trends skill until its port). To evolve the methodology, change them there
+and let core's table-driven rating tests gate the change.
 
 ## The methodology: OWASP Risk Rating
 
@@ -63,7 +52,7 @@ feeds-cache snapshot:
 **Exploitation-evidence factor** (methodology v1.1.0): when a finding
 carries a CVE id and the threat-intel feeds cache is present
 (`<results-root>/feeds/`, FIRST EPSS + CISA KEV), `threat_intel_score()`
-(`build_trends.py`) appends one more score to the likelihood mean
+(`RatingPolicy`) appends one more score to the likelihood mean
 alongside the CVSS exploitability metrics: KEV membership scores 9;
 otherwise the highest EPSS score across the finding's CVEs maps through
 the `threat_intel_factor.epss_bands` in the methodology JSON

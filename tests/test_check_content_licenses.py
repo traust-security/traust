@@ -7,14 +7,14 @@ docs/external-dependencies.md: no re-imported CC-NC-licensed PEACH content
 and no CIS benchmark recommendation text — anywhere in the harness tree.
 """
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
 
-from traust_engine.reporting import validate as V
-
 from traust.cli import check_content_licenses as G
 from traust.cli import check_docs_consistency as D
+from traust.context import load
 
 
 def _mini_repo(tmp: Path, skill_text: str) -> Path:
@@ -277,8 +277,10 @@ class TestValidatorCisTextWarning(unittest.TestCase):
             "metadata": {},
             "executive_summary": {},
         }
-        result = V.ValidationResult(file_path="t.json")
-        V.strict_checks(report, result)
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "t-security-audit.json"
+            path.write_text(json.dumps(report), encoding="utf-8")
+            [result] = load().reporting.validate_reports(path, strict=True)
         return [w for w in result.warnings if "recommendation-title phrasing" in w]
 
     def test_clean_prose_no_warning(self):

@@ -1,0 +1,42 @@
+rules:
+  - id: traust-ts-input-validation-unsafe-deserialization
+    languages: [typescript, javascript]
+    severity: ERROR
+    message: >-
+      Untrusted data deserialized with a format that can run code:
+      node-serialize's unserialize evaluates `_$$ND_FUNC$$_` functions, and
+      js-yaml's load with a full or JavaScript-type schema builds functions
+      and regexps. Parse with JSON.parse, or js-yaml's default load (v4) /
+      safeLoad (v3). CWE-502.
+    metadata:
+      cwe: ["CWE-502"]
+      category: deserialization
+      asvs: ["V1"]
+      confidence: HIGH
+      references:
+        - "CWE-502 — node-serialize unserialize and js-yaml full-schema load"
+    pattern-either:
+      - pattern: $S.unserialize(...)
+      - pattern: unserialize(...)
+      - pattern: '$Y.load($X, { ..., schema: $Y.DEFAULT_FULL_SCHEMA, ... })'
+      - pattern: '$Y.load($X, { ..., schema: DEFAULT_FULL_SCHEMA, ... })'
+      - pattern: '$Y.loadAll($X, $F, { ..., schema: $Y.DEFAULT_FULL_SCHEMA, ... })'
+
+  - id: traust-ts-input-validation-xxe-noent
+    languages: [typescript, javascript]
+    severity: ERROR
+    message: >-
+      libxmljs parses XML with entity substitution on (`noent: true`), so
+      untrusted XML can read local files through external entities. Leave
+      noent off when parsing input. CWE-611.
+    metadata:
+      cwe: ["CWE-611"]
+      category: input-validation
+      asvs: ["V1"]
+      confidence: HIGH
+      references:
+        - "CWE-611 XXE — libxmljs noent option"
+    pattern-either:
+      - pattern: '$L.parseXml($X, { ..., noent: true, ... })'
+      - pattern: '$L.parseXmlString($X, { ..., noent: true, ... })'
+      - pattern: '$L.parseXmlAsync($X, { ..., noent: true, ... })'

@@ -1,30 +1,69 @@
-"""The app's single composition root for traust-engine.
+"""The app's single composition root: traust-core's Context with every provider registered.
 
-Every entry point resolves the engine here, once, and threads it (or the one ops
-namespace it needs) into its workers. Nothing else in the app calls
-HarnessEngine.load(); nothing reaches into traust_engine.* config internals.
+Every entry point builds it here, once (:func:`load`), and threads it into its workers. Nothing
+else in the app calls ``Context``.
 """
 
 from __future__ import annotations
 
 import os
 import sys
+from collections.abc import Callable
+from importlib.metadata import version
 from pathlib import Path
+from typing import TypeVar
 
-from traust_contracts import DeploymentConfigMissing
-from traust_contracts.config import deployment_config_dir
-from traust_engine import HarnessEngine, locations
+from traust_core.v1.context import (
+    TRAUST_CONFIG_HOME_DEFAULT,
+    Config,
+    Context,
+    Locations,
+    resolve_config_home,
+)
+from traust_core.v1.context.config import CONFIG_FILE
+from traust_core.v1.errors import AuthenticationError, ConfigError, DeploymentConfigMissing
+from traust_core.v1.models.identity import Credential, Principal
+
+from traust.paths import (
+    GITLEAKS_CONFIG,
+    HARNESSING_DIR,
+    OPENGREP_RULES_DIR,
+    SECURITY_PACK_DIR,
+    skill_dir,
+)
+
+T = TypeVar("T")
+
+SLA_POLICY = SECURITY_PACK_DIR / "sla-policy.yaml"  # the default until one is recorded
+MODEL_REGISTRY = "model-registry.yaml"
+# Security-pack content (home: traust-pack-security): the pinned ATT&CK release and its mapping.
+_ATTACK = HARNESSING_DIR / "attack-coverage" / "tables"
+ATTACK_TABLES = (_ATTACK / "attack-techniques.json", _ATTACK / "attack-mapping.json")
+ATLAS_TABLE = _ATTACK / "atlas-techniques.json"  # the pinned MITRE ATLAS release
 
 # ---------------------------------------------------------------------------
 # Sanctioned environment overrides — read ONLY in this module, never in consumers.
 #
-# ``locations.yaml`` owns estate/campaign paths. These three env vars are
-# deliberate escape hatches for layouts that must not live in checked-in config.
+# ``locations:`` in ``traust.yaml`` owns estate/campaign paths. These env vars are deliberate
+# escape hatches for layouts that must not live in checked-in config, plus one
+# secret that must never sit in a file or on argv.
 # ---------------------------------------------------------------------------
+#
+# TRAUST_CONFIG_HOME
+#   The config home, when no --config-home is given. Consumed by core's
+#   ``resolve_config_home``.
+#
+# HARNESS_ROOT
+#   Where the harness payload (harnessing/, packs/) sits when traust is installed as a wheel
+#   and not run from its checkout (the runtime image sets it). Consumed by :mod:`traust.paths`.
+#
+# XDG_CACHE_HOME
+#   Where the recall benchmark commits its canary repositories
+#   (``<cache>/recall-bench/<canaries>``). Consumed by :func:`load`.
 #
 # AUDIT_RESULTS_ROOT
 #   Point a one-off run or CI matrix job at an analysis-results tree without
-#   editing ``locations.yaml``. Used when the job checks out results elsewhere
+#   editing ``traust.yaml``. Used when the job checks out results elsewhere
 #   or shares a prebuilt tree across steps. Consumed by :func:`resolve_results_root`
 #   (after an explicit ``--results-root`` CLI flag).
 #
@@ -33,6 +72,19 @@ from traust_engine import HarnessEngine, locations
 #   temp dir, or orchestrator-managed path. Feed mirrors are third-party licensed
 #   data — intentionally kept out of ``analysis-results/`` (different provenance
 #   and retention). Consumed by :func:`feeds_cache_dir`.
+#
+# BENCHMARK_REPO_ROOT
+#   Override the validation benchmark checkout (otherwise ``locations.workspace/traust``).
+#
+# TRAUST_OIDC_CLIENT_SECRET
+#   A service account's client secret for ``traust auth service-account`` when no
+#   ``--client-secret-file`` is given. Consumed by :func:`oidc_client_secret`.
+#
+# HARNESS_INTERNAL_VOCABULARY
+#   The organization vocabulary the pre-publication scrub (``traust admin scan-internal-refs``)
+#   and the config/ hygiene gate read when no ``--vocabulary`` is given. It names internal
+#   hosts and tools, so it lives with the deployment, never in config. Consumed by
+#   :func:`internal_vocabulary`.
 #
 
 
@@ -50,17 +102,139 @@ def _feeds_cache_dir_from_env() -> Path | None:
     return Path(str(raw).strip()).expanduser().resolve()
 
 
-def load_engine(config_home: Path | None = None) -> HarnessEngine:
-    """Resolve the engine, or exit 2 with a one-line message (no traceback).
-
-    Pass config_home for tests / explicit overrides; production leaves it None
-    (contracts resolves $TRAUST_CONFIG_HOME).
-    """
+def _guarded(what: str, step: Callable[[], T]) -> T:
     try:
-        return HarnessEngine.load(config_home=config_home)
-    except DeploymentConfigMissing as e:
-        print(f"config not resolvable: {e}", file=sys.stderr)
+        return step()
+    except ConfigError as e:
+        print(f"{what} not resolvable: {e}", file=sys.stderr)
         raise SystemExit(2) from e
+
+
+def load(
+    config_home: Path | None = None,
+    *,
+    sla_policy: Path | None = None,
+    invoices: Path | None = None,
+    canaries: str = "canaries",
+    rule_pack: Path | None = None,
+    rule_drafts: Path | None = None,
+) -> Context:
+    """traust-core's Context from ``<config home>/traust.yaml`` with every provider registered
+    once, or exit 2 when the config is invalid.
+
+    No ``traust.yaml``: core's defaults (SQLite and artifacts under ``~/.traust``), the zero-setup
+    laptop install. The ATT&CK coverage view is built on the pack's pinned tables; the SLA view on
+    ``sla_policy``, else on the recorded policy, else on the pack's default; the spend view on
+    the home's model registry when there is one, reconciled against ``invoices``. The tools read
+    the pins and safe-exec profiles traust-core ships; detection quality scores the rule pack
+    (``rule_pack``, else :func:`_rule_pack`, with ``overrides.rule_pack_allowlist``) against
+    canaries from ``recall-benchmark/<canaries>`` and stages rule drafts in ``rule_drafts``, else
+    ``locations.rule_drafts`` when one resolves. Compliance docs targets are explicit per call
+    (``traust compliance docs``). PQC prescans use the skill's pinned scanner and rules; loading
+    the app neither runs the scanner nor grants permission to execute it.
+    """
+    home = resolve_config_home(config_home)
+    core = _guarded(CONFIG_FILE, lambda: Context(_with_bundled_rules(Config.from_home(home))))
+    if (
+        _feeds_cache_dir_from_env()
+        or core.config.locations.feeds_cache_dir()
+        or core.config.locations.progress_tracker_dir()
+    ):
+        effective = core.config.locations.model_copy(
+            update={"feeds_cache": str(feeds_cache_dir(core))}
+        )
+        core.config = core.config.model_copy(update={"locations": effective})
+    _guarded("ATT&CK catalog", lambda: core.register_attack_catalog(*ATTACK_TABLES))
+    _guarded("ATLAS catalog", lambda: core.register_atlas_catalog(ATLAS_TABLE))
+    _guarded("SLA policy", lambda: core.register_default_sla_policy(SLA_POLICY))
+    if sla_policy is not None:
+        _guarded("SLA policy", lambda: core.register_sla_policy(sla_policy))
+    if home is not None and (home / MODEL_REGISTRY).is_file():
+        _register_spend(core, home / MODEL_REGISTRY, invoices)
+    elif invoices is not None:
+        print(f"invoices need the spend view: no {MODEL_REGISTRY} in {home}", file=sys.stderr)
+        raise SystemExit(2)
+    core.register_toolchain()
+    pqc = skill_dir("pqc-readiness")
+    core.register_pqc_scanner(
+        pqc / "bin" / "pqc-scan",
+        pqc / "rules",
+        adapter_version="1.4.0",
+        scan_commit="be5c760adb7d1d4d99e39d35d87d2956079db76e",
+    )
+    pack, pack_version = (
+        (rule_pack, f"local:{rule_pack}") if rule_pack else _rule_pack(core.config.locations)
+    )
+    core.register_rule_pack(pack, core.config.overrides.rule_pack_allowlist)
+    files = home or TRAUST_CONFIG_HOME_DEFAULT
+    cache = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache"))
+    core.register_detection_quality(
+        pack_version, files / "recall-benchmark" / canaries, cache / "recall-bench" / canaries
+    )
+    if drafts := rule_drafts or core.config.locations.rule_drafts_dir():
+        core.register_rule_drafts(drafts)
+    core.register_fleet_fix()
+    _guarded("compliance sources", core.register_compliance_sources)
+    return core
+
+
+def _with_bundled_rules(config: Config) -> Config:
+    """``config`` with the pack's gitleaks config when ``locations.gitleaks_config`` is unset."""
+    if config.locations.gitleaks_config:
+        return config
+    locations = config.locations.model_copy(update={"gitleaks_config": str(GITLEAKS_CONFIG)})
+    return config.model_copy(update={"locations": locations})
+
+
+def _rule_pack(locations: Locations) -> tuple[Path, str]:
+    """The opengrep rule pack and its version: ``locations.opengrep_rules``, else the pack's."""
+    if raw := locations.opengrep_rules:
+        pack = Path(raw.removeprefix("file://"))
+        return pack, f"local:{pack}"
+    return OPENGREP_RULES_DIR, version("traust")
+
+
+def load_spend_core(config_home: Path | None = None) -> Context:
+    """``load_core`` pricing spend on ``<config home>/model-registry.yaml`` (template:
+    config/model-registry.yaml); exit 2 when it is missing or invalid."""
+    core = load(config_home)
+    if core.model_catalog is None:
+        home = resolve_config_home(config_home)
+        _register_spend(core, (home or Path()) / MODEL_REGISTRY, None)
+    return core
+
+
+def _register_spend(core: Context, registry: Path, invoices: Path | None) -> None:
+    try:
+        core.register_model_catalog(registry)
+        if invoices is not None:
+            core.register_invoices(invoices)
+    except ConfigError as e:
+        print(f"spend not resolvable: {e}", file=sys.stderr)
+        raise SystemExit(2) from e
+
+
+def load_caller(core: Context) -> Principal:
+    """Who is calling: the stored login (``traust auth``), verified by core's identity service."""
+    if core.identity is None:
+        raise ConfigError(
+            "no identity: section in traust.yaml; a solo install adds"
+            " `identity: {trust_local: true}` to accept its own `traust auth local` tokens"
+        )
+    login = core.credentials.load()
+    if login is None:
+        raise AuthenticationError("not logged in: run `traust auth login` or `traust auth local`")
+    return core.identity.authenticate(Credential(token=login.grant.access_token))
+
+
+def oidc_client_secret() -> str | None:
+    raw = os.environ.get("TRAUST_OIDC_CLIENT_SECRET", "").strip()
+    return raw or None
+
+
+def internal_vocabulary() -> Path | None:
+    raw = os.environ.get("HARNESS_INTERNAL_VOCABULARY", "").strip()
+    return Path(raw).expanduser() if raw else None
 
 
 def add_config_home_arg(parser) -> None:
@@ -73,221 +247,67 @@ def add_config_home_arg(parser) -> None:
     )
 
 
-def add_ledger_binding_args(parser) -> None:
-    """Standard --ledger-layer / --product-repo flags: the run's ledger layer.
-
-    Required when ``ledger.yaml`` sets a ``dsn`` (the database ledger is never
-    addressed by file name); refused otherwise. Given both, the layer must belong
-    to the product_repo.
-    """
-    group = parser.add_argument_group("ledger layer (when ledger.yaml sets a dsn)")
-    group.add_argument("--ledger-layer", default=None, help="the run's Ledger layer ID")
-    group.add_argument(
-        "--product-repo", default=None, help="product_repo whose Ledger layer this run uses"
-    )
+def locations(src: Context) -> Locations:
+    return src.config.locations
 
 
-def ledger_binding_argv(args) -> list[str]:
-    """The binding flags to forward to a child traust CLI (empty when unbound)."""
-    argv: list[str] = []
-    if getattr(args, "ledger_layer", None):
-        argv += ["--ledger-layer", args.ledger_layer]
-    if getattr(args, "product_repo", None):
-        argv += ["--product-repo", args.product_repo]
-    return argv
+def _required(value: Callable[[], Path | None], name: str) -> Path:
+    """A location from core, or :class:`DeploymentConfigMissing` naming it (what callers catch)."""
+    try:
+        return Locations.require(value(), name)
+    except ConfigError as e:
+        raise DeploymentConfigMissing(str(e)) from e
 
 
-def bind_ledger(engine: HarnessEngine, args) -> None:
-    """Bind the run's ledger layer from --ledger-layer / --product-repo, if given."""
-    from traust_engine.ledger import LayerBinding
-
-    layer_id = getattr(args, "ledger_layer", None)
-    product_repo_id = getattr(args, "product_repo", None)
-    if layer_id or product_repo_id:
-        engine.ledger.bind(LayerBinding(layer_id=layer_id, product_repo_id=product_repo_id))
-
-
-def analysis_results_dir(engine: HarnessEngine) -> Path:
+def analysis_results_dir(src: Context) -> Path:
     """Configured local analysis-results root (fail-loud when unset)."""
-    return locations.require(
-        locations.analysis_results_dir(engine.ctx.locations), "analysis_results"
-    )
+    return _required(locations(src).analysis_results_dir, "analysis_results")
 
 
-def workspace_dir(engine: HarnessEngine) -> Path:
+def workspace_dir(src: Context) -> Path:
     """Configured workspace root (fail-loud when unset)."""
-    return locations.workspace_dir(engine.ctx.locations)
+    return _required(locations(src).workspace_dir, "workspace")
 
 
-def inputs_dir(engine: HarnessEngine) -> Path:
-    """The repository-inventory tree, from ``locations.inputs``.
-
-    Falls back to ``<workspace>/inputs``. The inventory's directory name is
-    deployment config, not a harness constant — until 2026-09-07 this returned
-    a hardcoded sibling directory named after one organisation's repository.
-    Relative values resolve against the config home like every other location.
-    """
-    loc = engine.ctx.locations
-    val = getattr(loc, "inputs", None) if loc is not None else None
-    if val:
-        p = locations.local_path(val)
-        if p is not None:
-            if not p.is_absolute():
-                home = deployment_config_dir()
-                p = (home / p).resolve() if home else p.resolve()
-            return p
-    return workspace_dir(engine) / "inputs"
+def benchmark_repo_root(src: Context) -> Path:
+    """Validation benchmark checkout when no explicit CLI repository is supplied."""
+    override = os.environ.get("BENCHMARK_REPO_ROOT")
+    return Path(override).expanduser() if override else workspace_dir(src) / "traust"
 
 
-def _optional_config(name: str) -> dict:
-    """``$TRAUST_CONFIG_HOME/<name>`` as a dict, or {} when the file is absent.
-
-    For the small per-flow settings files (``remediation.yaml``,
-    ``campaign.yaml``) that ship as ``config/*.example.yaml`` templates. Read
-    directly rather than through the contracts manifest, which lists the
-    schema-gated files; a schema for these is a contracts follow-up.
-    """
-    home = deployment_config_dir()
-    if home is None:
-        return {}
-    path = home / name
-    if not path.is_file():
-        return {}
-    import yaml  # local import: only these two settings files need it here
-
-    data = yaml.safe_load(path.read_text()) or {}
-    return data if isinstance(data, dict) else {}
+def inputs_dir(src: Context) -> Path:
+    """The repository-inventory tree: ``locations.inputs``, else ``<workspace>/inputs``."""
+    return _required(locations(src).inputs_dir, "inputs")
 
 
-def _normalise_host(value: str) -> str:
-    """``https://gitlab.example.com/group/`` → ``gitlab.example.com``."""
-    h = str(value).strip().lower()
-    h = h.split("://", 1)[-1]
-    h = h.split("/", 1)[0]
-    return h.strip(". ")
-
-
-def _private_forge_hosts(cfg: dict) -> tuple[str, ...]:
-    raw = os.environ.get("HARNESS_PRIVATE_FORGE_HOSTS")
-    if raw and raw.strip():
-        values: list = raw.split(",")
-    else:
-        values = cfg.get("private_forge_hosts") or []
-        if isinstance(values, str):
-            values = values.split(",")
-        elif not isinstance(values, list):
-            values = []
-    return tuple(dict.fromkeys(h for h in (_normalise_host(v) for v in values) if h))
-
-
-def remediation_settings() -> dict:
-    """remediate-finding's deployment settings — ``fork_org``,
-    ``naming_prefix`` and ``private_forge_hosts`` — from ``remediation.yaml``
-    in the config home, each overridable by ``HARNESS_FORK_ORG`` /
-    ``REMEDIATION_PREFIX`` / ``HARNESS_PRIVATE_FORGE_HOSTS`` in the
-    environment. ``fork_org`` has no shipped default: the private mirror
-    organisation is the adopter's (decision D5, 2026-09-07); callers fail loud
-    when it is unset. ``naming_prefix`` defaults to ``traust``.
-    ``private_forge_hosts`` defaults to empty — naming an organisation's
-    internal forge is deployment config, never a shipped constant.
-    """
-    cfg = _optional_config("remediation.yaml")
-    fork_org = os.environ.get("HARNESS_FORK_ORG") or str(cfg.get("fork_org") or "").strip()
-    prefix = (
-        os.environ.get("REMEDIATION_PREFIX") or str(cfg.get("naming_prefix") or "traust").strip()
-    )
-    if fork_org in ("", "example-org"):
-        fork_org = ""
-    return {
-        "fork_org": fork_org,
-        "naming_prefix": prefix,
-        "private_forge_hosts": _private_forge_hosts(cfg),
-    }
-
-
-def private_forge_hosts() -> tuple[str, ...]:
-    """Hosts of self-hosted forges whose repositories ARE their own downstream
-    fork — remediation lands in place rather than in a mirror. Empty unless the
-    deployment lists them in ``remediation.yaml``; see
-    ``config/remediation.example.yaml``.
-    """
-    return remediation_settings()["private_forge_hosts"]
-
-
-def require_fork_org() -> str:
-    org = remediation_settings()["fork_org"]
-    if not org:
-        raise SystemExit(
-            "remediate-finding: no private mirror organisation configured — set "
-            "fork_org in $TRAUST_CONFIG_HOME/remediation.yaml (template: "
-            "config/remediation.example.yaml) or HARNESS_FORK_ORG in the environment"
-        )
-    return org
-
-
-def campaign_settings() -> dict:
-    """``campaign.yaml`` in the config home: ``tracking_reference`` (the
-    issue-tracker key dashboards cite) and ``display_name``. Both optional;
-    dashboards omit the line when unset."""
-    cfg = _optional_config("campaign.yaml")
-    return {
-        "tracking_reference": str(cfg.get("tracking_reference") or "").strip(),
-        "display_name": str(cfg.get("display_name") or "").strip(),
-    }
-
-
-def findings_db(engine: HarnessEngine) -> Path:
-    """``<analysis-results>/graph/findings.db`` (fail-loud when unset)."""
-    return locations.require(locations.findings_db(engine.ctx.locations), "analysis_results")
-
-
-def progress_tracker_dir(engine: HarnessEngine) -> Path:
+def progress_tracker_dir(src: Context) -> Path:
     """Configured progress-tracker root (fail-loud when unset)."""
-    return locations.require(
-        locations.progress_tracker_dir(engine.ctx.locations), "progress_tracker"
-    )
+    return _required(locations(src).progress_tracker_dir, "progress_tracker")
 
 
-def rule_drafts_dir(engine: HarnessEngine) -> Path:
+def rule_drafts_dir(src: Context) -> Path:
     """Configured rule-drafts root (fail-loud when unset)."""
-    return locations.require(locations.rule_drafts_dir(engine.ctx.locations), "rule_drafts")
+    return _required(locations(src).rule_drafts_dir, "rule_drafts")
 
 
-def feeds_cache_dir(engine: HarnessEngine) -> Path:
+def feeds_cache_dir(src: Context) -> Path:
     """Feeds pull-through cache: ``FEEDS_CACHE_DIR`` > config > ``progress_tracker/feeds``."""
     override = _feeds_cache_dir_from_env()
     if override is not None:
         return override
-    cache = locations.feeds_cache_dir(engine.ctx.locations)
-    if cache is not None:
-        return cache
-    return progress_tracker_dir(engine) / "feeds"
+    return locations(src).feeds_cache_dir() or progress_tracker_dir(src) / "feeds"
 
 
-def findings_tree_dir(engine: HarnessEngine) -> Path:
+def findings_tree_dir(src: Context) -> Path:
     """``<analysis-results>/findings`` (fail-loud when analysis_results unset)."""
-    return analysis_results_dir(engine) / "findings"
-
-
-def default_findings_roots(
-    engine: HarnessEngine,
-    audit_path: Path,
-) -> list[Path]:
-    """Path-confinement roots for ledger/triage writes under configured findings."""
-    findings = findings_tree_dir(engine)
-    parent = audit_path.resolve().parent
-    try:
-        parent.relative_to(findings)
-        return [parent, findings]
-    except ValueError:
-        return [findings]
+    return analysis_results_dir(src) / "findings"
 
 
 def resolve_results_root(args=None, *, config_home: Path | None = None) -> Path:
     """``--results-root`` > ``$AUDIT_RESULTS_ROOT`` > ``locations.analysis_results``.
 
-    Raises ``SystemExit(2)`` via :func:`load_engine` when config is required
-    but missing. Pass ``args`` from argparse after :func:`add_config_home_arg`.
+    Exits 2 when ``analysis_results`` is unset. Pass ``args`` from argparse after
+    :func:`add_config_home_arg`.
     """
     if args is not None and getattr(args, "results_root", None):
         return Path(args.results_root).expanduser().resolve()
@@ -296,4 +316,8 @@ def resolve_results_root(args=None, *, config_home: Path | None = None) -> Path:
     override = _audit_results_root_from_env()
     if override is not None:
         return override
-    return analysis_results_dir(load_engine(config_home)).resolve()
+    try:
+        return analysis_results_dir(load(config_home)).resolve()
+    except DeploymentConfigMissing as e:
+        print(f"config not resolvable: {e}", file=sys.stderr)
+        raise SystemExit(2) from e

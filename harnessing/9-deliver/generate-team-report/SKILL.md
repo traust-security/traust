@@ -1,6 +1,6 @@
 ---
 name: generate-team-report
-description: Use when the user asks to generate a shareable findings folder, executive summary, or team-specific security audit report for one or more products from the findings directory.
+description: Use when the user asks to generate a shareable findings folder, executive summary, or team-specific security audit report for one or more products from traust-core's recorded findings. Requires complete successful redaction before sharing.
 user-invocable: true
 metadata:
   harness.tier: "secondary"
@@ -9,7 +9,7 @@ metadata:
 # Generate Team Security Report
 
 > **Paths.** `analysis-results/…` and `progress-tracker/…` in this skill are the
-> default workspace layout. They resolve through `locations.yaml` in
+> default workspace layout. They resolve through `locations:` in `traust.yaml` in
 > `$TRAUST_CONFIG_HOME` (`docs/setup.md`, Storage locations); substitute your
 > configured roots.
 
@@ -32,12 +32,12 @@ findings reports and evidence stay in their source of record
 
 `$ARGUMENTS` is one or more **product names**, **team names**, or **operator names**.
 
-The findings live in the **analysis-results** sibling repo at:
-`../analysis-results/findings/<product>/<component>/<component>-security-audit.md`
+The findings live in **traust-core**; products are registered by slug
+(`traust products list`), teams by id (`--team-id`; no team-name lookup door yet).
 
-Map user-provided names to directory names under `findings/`. Common mappings:
+Map user-provided names to product slugs. Common mappings:
 
-| User says | Directories to scan |
+| User says | Product slugs |
 |-----------|-------------------|
 | RHACM, ACM, Advanced Cluster Management | `rhacm/`, `advanced-cluster-management/` |
 | MCE, Multicluster Engine | `multicluster-engine/`, `mce/`, `klusterlet-product/`, `placement-operator/` |
@@ -52,125 +52,65 @@ Map user-provided names to directory names under `findings/`. Common mappings:
 | Kiali OSSM | `kiali-ossm/` |
 | MCP Gateway | `mcp-gateway/` |
 
-If the user names a product not in this table, search the `findings/` directory
-for matching folder names (case-insensitive, partial match).
+If the user names a product not in this table, search `traust products list`
+for matching slugs or names (case-insensitive, partial match).
 
-When a product has mirror directories (e.g. `rhacm/` ↔ `advanced-cluster-management/`),
-do **not** assume they are identical — mirror trees drift as different pipeline
-stages (verify-remediation, validation backfill, branch re-audits) land on one
-side only. Pick the canonical tree by git recency
-(`git log -1 --format=%ad -- <dir>`), preferring the side that carries
-remediation-verification artifacts, then supplement it with files from the other
-tree whose **basename** does not exist in the canonical copy (this is how
-release-branch re-audits like `<comp>__release-5.1-*` usually arrive). For
-same-basename files that differ in content, the canonical (fresher) copy wins.
-Deduplicate by `(product_group, component_basename)` key.
+*Retired:* mirror directories. traust-core keeps one finding per fingerprint per
+repository, and a product's repositories come from the portfolio, so there is no
+canonical tree to pick and nothing to deduplicate.
 
 ## Procedure
 
 ### Step 1 — Locate the Analysis Results Repository
 
-The findings data lives in the sibling repository. Determine its path:
-
-```bash
-RESULTS_DIR="$(cd "$(dirname "$0")/../analysis-results" 2>/dev/null && pwd)" \
-  || RESULTS_DIR="$(find .. -maxdepth 1 -name 'analysis-results' -type d | head -1)"
-```
-
-If running from the `analysis-results` repo directly, `RESULTS_DIR` is the
-current repo root.
+*Retired:* the findings are read from traust-core (`traust dashboard team-report`).
 
 ### Step 2 — Identify Source Directories
 
-1. Search `$RESULTS_DIR/findings/` for all directories matching the requested products.
-2. List all report artefacts recursively under those directories — every file
-   matching one of these suffixes:
-   `-security-audit.md`, `-security-audit.json`, `-triage.json`, `-triage.md`,
-   `-threat-model.md`. The `.md` audit report drives the executive summary; the
-   JSON/triage/threat-model siblings are copied through so downstream tooling
-   (notably the `validate-findings` skill) can ingest structured data.
-3. **EXCLUDE** top-level flat `.md` files directly under `findings/` — these are
-   legacy experimental reports scheduled for cleanup.
+*Retired:* the product's repositories are its registered refs in the portfolio;
+`traust dashboard team-report` reads them. (A bundle, Step 4, still copies the
+report files from `analysis-results/`: no report-export door yet.)
 
 ### Step 3 — Extract Severity Data
 
 Severity counts must be **disposition-aware** wherever the artifacts allow it —
 raw audit reports overstate because they still contain findings later refuted or
-resolved. Per component, use the best available source, in this precedence:
+resolved. (`traust dashboard team-report` counts this way, from each finding's
+recorded decisions: false positives skipped; hardening routed to the Step 3a
+backlog; resolved and risk-accepted counted separately (remediation progress,
+not open exposure); the rest counted open by effective severity; execution-proven
+findings badged, findings with no verdict yet counted as **"unverified"**.)
 
-1. **`<component>-findings-current.json`** (disposition ledger view, harness
-   ≥ 0.27.0). This is the trusted source: its dispositions come from
-   live-validation events, `/verify-remediation` reports, and countersigned
-   human decisions. Per finding: skip `disposition.validity ==
-   "false_positive"`; route `validation_status == "hardening"` to the Step 3a
-   backlog; count `disposition.resolution == "resolved"` separately
-   (remediation progress, not open exposure); count the rest by the `severity`
-   field. `disposition.validity == "confirmed"` findings are execution-proven —
-   badge them in the outputs.
-2. **`<component>-security-audit.{json,md}`** raw audit counts, labeled
-   **"unverified"** in the outputs. Even when a `<component>-triage.json`
-   exists, do **not** count from its verdicts: the early `/triage` runs
-   over-marked false positives (unreachable repos, hardening issues misfiled as
-   FP), and counting "true positives only" silently trusts exactly those bad FP
-   verdicts — a wrong FP hides a real vulnerability. Triage `verdict:
-   "hardening"` entries are still trustworthy affirmative classifications and
-   still feed the Step 3a backlog; when a raw-audit finding can be matched to a
-   triage hardening verdict (by source finding id, else file+title), move it
-   out of the vulnerability counts into the backlog.
-
-Only count from unconfirmed triage TP/FP verdicts if the user explicitly asks;
-label those components "unconfirmed triage" wherever their numbers appear.
-⚠️ Triage schema trap if you do: `severity` holds the label
-(`critical`/`high`/…) while `severity_label` holds the CVSS **vector string**
-with the score in parentheses, e.g. `CVSS:3.1/AV:N/... (8.2)` — parse the score
-with `re.search(r'\((\d+\.\d+)\)', severity_label)`, never feed
-`severity_label` to the severity bucketer.
+*Retired:* counting from triage TP/FP verdicts or raw audit files. A machine
+verdict is one recorded decision among others in the fold, never a count source.
 
 Report the excluded false-positive and resolved totals in the KPI tiles and
 the Markdown one-pager
 so readers see which counts are validated and which are raw audit output.
+(The door's Summary section does.)
 
-**Branch variants:** artifacts whose slug contains `__` (e.g.
-`console__release-2.14`, `search-v2-api__release-5.1-*`) are release-branch
-re-audits of the same code. Copy them into the package and list them as a
-coverage note, but **exclude them from severity counts** — otherwise one
-component is counted once per audited branch.
-
-The audit-md fallback can use the extraction script at
-harnessing/9-deliver/generate-team-report/scripts/extract_findings.py relative to this skill's directory:
+*Retired:* branch variants and the extraction script. Findings are counted once
+per repository, whichever branch reported them; `extract_findings.py` and the
+inline CVSS parsing are gone.
 
 ```bash
-python3 <skill_dir>/scripts/extract_findings.py \
-  "$RESULTS_DIR/findings/dir1" "$RESULTS_DIR/findings/dir2" \
-  --product-map "dir1=ProductName1,dir2=ProductName2" \
-  > /tmp/findings_data.json
+traust dashboard team-report --product <slug> [--product <slug>…] [--team-id <id>…] \
+    [--as-of <ISO time>] --out <folder>
 ```
 
-If the script is unavailable, extract inline. For each audit file, scan for lines
-containing `CVSS` and parse score + severity:
-
-```python
-# Remove 'v3.1' etc to avoid matching as score
-cleaned = re.sub(r"v3\.\d+", "vXX", line)
-scores = [float(s) for s in re.findall(r"(?<![/v])(\d+\.\d+)", cleaned) if 1.0 <= float(s) <= 10.0]
-score = max(scores)
-# Extract severity keyword from same line
-sev = re.search(r"\b(Critical|High|Medium|Low|Informational)\b", line, re.IGNORECASE)
-```
-
-Also extract the finding ID and title from the preceding `### FIND-NNN — Title`
-header. Finding IDs may also use `FND-NNN`, `KC-NN`, or `SVC-NN` prefixes in
-some legacy reports.
+It prints the paths it wrote and the rollup model (totals, per product, per
+repository, the critical and high findings).
 
 ### Step 3a — Extract the Hardening Backlog
 
-When a component carries triage or ledger artifacts, split hardening
-findings out of the vulnerability counts (harness ≥ 0.27.0 taxonomy —
-see `docs/disposition-ledger.md` §7):
-
-- From `<component>-triage.json`: findings with `verdict: "hardening"`.
-- From `<component>-findings-current.json`: findings with
-  `validation_status: "hardening"` (this wins when both exist).
+Split confirmed weakness findings out of the vulnerability counts
+(see `docs/disposition-ledger.md` §7). The recorded shape is
+`validity: confirmed, kind: weakness`, not a new hardening validity.
+Historical hardening decisions remain readable as backlog. Unknown kind
+stays unknown; it is not a vulnerability default, and a kind alone never
+confirms an undetermined or manual-review item. Consume the door's
+disjoint backlog and vulnerability totals, not all confirmed findings as
+exploitable exposure.
 
 Collect per component: count, categories, titles + locations, and the
 owner hint. These are **accurate defense-in-depth/benchmark gaps with no
@@ -178,8 +118,8 @@ demonstrated exploit path** — engineering hygiene and compliance work,
 never presented as vulnerabilities, but never omitted: absent hardening
 degrades posture and amplifies co-located vulnerabilities. In the
 executive-summary HTML and Markdown one-pager (Steps 5-6), render a dedicated
-**"Hardening Backlog"** section AFTER the severity tables: per-component
-counts with category breakdown and a one-line framing ("posture debt —
+**"Hardening Backlog"** section AFTER the severity tables (the door renders it):
+per-component counts with category breakdown and a one-line framing ("posture debt —
 λ-weighted in the portfolio risk index; file as regular engineering work
 via `/file-security-defect --hardening`, not as security defects").
 
@@ -193,7 +133,9 @@ narratives are written to the schema's bar — present tense, jargon-free,
 readable by a non-technical VP — and are the single most effective
 persuasion artifact in a team package; never paraphrase them into table
 rows. Older threat models without section 9 get no such section (do not
-synthesize one from the threat table).
+synthesize one from the threat table). (`traust dashboard team-report` does:
+each repository's latest threat model's `attack_scenarios`, verbatim and
+escaped, one "Attack scenarios" section per scenario.)
 
 ### Step 4 — Create Output Folder
 
@@ -201,7 +143,8 @@ synthesize one from the threat table).
 
 **Rollup-only (default).** Create
 `progress-tracker/metrics/team-reports/<product-slug>-findings/` containing
-ONLY the executive-summary pair from Steps 5–6:
+ONLY the executive-summary pair from Steps 5–6
+(`traust dashboard team-report … --out progress-tracker/metrics/team-reports/<slug>-findings/`):
 
 ```
 progress-tracker/metrics/team-reports/<slug>-findings/
@@ -286,79 +229,28 @@ placing ANY finding-derived text into the HTML:
    images) and no `<script>` elements at all — the dashboard renders
    with inline CSS only.
 
-The HTML dashboard must follow this exact structure and styling. Use the
-reference template at [`references/executive-summary-template.html`](references/executive-summary-template.html) relative to
-this skill's directory for the complete CSS. The key elements are:
+(`traust dashboard team-report` renders the HTML through traust-core's
+`HtmlRenderer`, which escapes every value and sets this CSP. The rules still
+bind everything you add: banner, tracking reference, themes, actions, attack
+scenarios, source links.)
 
-#### 1. Document Structure
+*Retired:* the reference template and its exact structure and styling
+(`references/executive-summary-template.html` is gone); the layout is core's
+renderer. Sections 1–4 below now say what the door renders and what you add.
 
-```html
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<title>{Product} — Security Audit Executive Summary</title>
-<style>/* see CSS section below */</style>
-</head>
-<body>
-  <div class="banner">...</div>
-  <header>...</header>
-  <div class="grid">
-    <!-- KPI tiles -->
-    <!-- Severity bar -->
-    <!-- Themes -->
-    <!-- Component/product bar chart -->
-    <!-- Top findings table -->
-    <!-- Actions -->
-  </div>
-  <footer>...</footer>
-</body>
-</html>
-```
+#### 1–4. Sections
 
-#### 2. CSS Variables (required)
-
-```css
-:root {
-  --crit: #cc0000; --high: #ec7a08; --med: #f0ab00;
-  --low: #3f9c35; --info: #73bcf7;
-  --rh-red: #ee0000; --ink: #151515; --muted: #6a6e73;
-  --bg: #f5f5f5; --card: #ffffff;
-}
-```
-
-#### 3. Required Sections
-
-| Section | Grid span | Key class | Content |
-|---------|-----------|-----------|---------|
-| **Banner** | full width | `.banner` | `RED HAT INTERNAL — EMBARGOED.` warning |
-| **Header** | full width | `header` | Product name(s), component count, frameworks, date, the tracking reference from `campaign.yaml` (`tracking_reference`, omitted when unset) |
-| **KPI tiles** | 4 × `span-3` | `.kpi` + `.crit` or `.high` | Critical count, High count, Total findings, Repos audited |
-| **Severity bar** | `span-12` | `.sevbar` | Proportional colored bar with `.c`/`.h`/`.m`/`.l`/`.i` segments + `.legend` |
-| **Themes** | `span-7` | `.themes` | Grouped vulnerability themes with Critical/High `.pill` counts |
-| **Component chart** | `span-5` | `.hbar` | Horizontal stacked bars per component/product, C+H count |
-| **Top findings table** | `span-8` | `table` | Columns: Component, Finding, Impact, CVSS. Sort by CVSS desc. Show all Critical + top High. |
-| **Actions** | `span-4` | `.actions` | Ordered list with `.tag.now` (≤7d), `.tag.d30` (≤30d), `.tag.d90` (≤90d) time-horizon tags |
-| **Footer** | full width | `footer` | Source files, methodology note |
-
-#### 4. Key CSS Classes
-
-| Class | Purpose |
-|-------|---------|
-| `.grid` | 12-column CSS grid, 16px gap |
-| `.card` | White card with border-radius 6px, shadow |
-| `.kpi .num` | 40px bold number |
-| `.sevbar > div` | Flex segments with severity background colors |
-| `.hbar .row.tight` | Grid: 220px label, 1fr track, 50px value |
-| `.hbar .fill .c` / `.h` | Stacked bar segments (critical red, high orange) |
-| `.pill.c` / `.pill.h` | Inline pill badges for theme counts |
-| `.tag.now` / `.d30` / `.d90` | Priority time-horizon labels |
-| `td.cvss` | Bold red CVSS score |
-| `td.comp` | Bold component name |
-| `td.imp` | Muted impact description |
-
-For multi-product reports, add a `td.prod` column (font-size 11px, muted) before
-the Component column.
+| Section | Rendered by | Content |
+|---------|-------------|---------|
+| **Banner** | you | `RED HAT INTERNAL — EMBARGOED.` warning |
+| **Header** | door (title, date); you (tracking reference) | Product name(s), date, the tracking reference from `traust.yaml` (`campaign.tracking_reference`, omitted when unset) |
+| **KPI tiles** | door (Summary) | open by severity, execution-proven, unverified; false positives, resolved, risk accepted, hardening |
+| **By product / By repository** | door | Component/product × severity tables |
+| **Top findings table** | door (Critical and high findings) | repository, finding, severity, CVSS, proven, SLA due; sorted by severity then CVSS |
+| **Hardening backlog** | door | Step 3a |
+| **Themes** | you | §5 below |
+| **Actions** | you | §6 below, with ≤7d / ≤30d / ≤90d horizons |
+| **Footer** | you | Source references, methodology note |
 
 #### 5. Theme Identification
 
@@ -391,28 +283,31 @@ Only include themes that have ≥1 Critical or High finding in the current data.
 Name it as the HTML dashboard's pair — same basename, different extension:
 `Executive-Summary-<Product>.md` (never a generic `README.md`; the Markdown
 is the same executive summary in a paste-into-Slack/doc format, and the pair
-must sort and share together).
+must sort and share together). (`traust dashboard team-report` writes both.)
 
 Include:
-- `RED HAT INTERNAL — EMBARGOED` classification
-- Date and the tracking reference from `$TRAUST_CONFIG_HOME/campaign.yaml` (omit the line when unset)
-- Summary table: Component × Severity (Critical/High/Medium/Low/Info/Total)
-- Folder structure tree (abbreviated)
-- Top Critical findings with one-line impact descriptions
-- Source directory references
+- `RED HAT INTERNAL — EMBARGOED` classification (you add)
+- Date and the tracking reference from `campaign.tracking_reference` in `$TRAUST_CONFIG_HOME/traust.yaml` (omit the line when unset) (the door writes the date; you add the reference)
+- Summary table: Component × Severity (Critical/High/Medium/Low/Info/Total) (the door)
+- Folder structure tree (abbreviated) (you add, bundled mode)
+- Top Critical findings with one-line impact descriptions (the door lists them; you add the impact lines)
+- Source directory references (you add)
 
 ### Step 7 — Redact Secrets in Output
 
 > **Canonical patterns:** python3 -m traust.cli util redact is now the single
 > source for these patterns (plus Luhn-gated payment cards, SSNs, and
-> URL credentials it added — VVAH plan P2). Prefer
-> `python3 -c "from lib.redact import redact_text; ..."` over
+> URL credentials it added — VVAH plan P2). Use
+> python3 -m traust.cli util redact for the mandatory package gate rather than
 > re-implementing the table below; the table remains as the
 > human-readable contract.
 
 Applies to both modes (summaries can quote finding evidence; bundles copy
-whole reports). Scan every file in the output folder for secrets and partially redact them
-in-place. The original files in `analysis-results/` are never modified.
+whole reports). Inspect every deliverable in the output folder for secrets and
+partially redact readable UTF-8 text in place. The original files in
+`analysis-results/` are never modified. **Do not share a package until every
+deliverable has been successfully inspected and the final scan-only gate exits
+0.** Skipped or uninspected files are not evidence of a clean package.
 
 For each match, keep the **first 5 characters** and replace the remainder
 with `...REDACTED` (e.g., `AKIAI...REDACTED`, `xoxb-...REDACTED`).
@@ -463,31 +358,47 @@ This applies to all PEM private key variants (`PRIVATE KEY`,
 
 #### Procedure
 
-1. Use `grep -rn -P` with each pattern above against the output folder to
-   identify matches.
-2. For each match, apply the partial redaction using `sed -i` or the Edit
-   tool.
-3. After all redactions, report a summary: number of redactions, which files
-   were modified, and a sample of redacted stubs.
+1. Set `OUTPUT_DIR` to the output folder containing the complete package, then
+   run the canonical in-place redactor:
+
+   ```bash
+   python3 -m traust.cli util redact "$OUTPUT_DIR"
+   ```
+
+   Exit 0 means the traversal and readable-text redaction completed. Exit 2
+   means inspection or redaction was incomplete, even if other files were
+   successfully redacted. Unreadable or non-UTF-8 files, failed reads/writes,
+   inaccessible directories, symbolic links (including internal or dangling
+   links), and other unsupported deliverables block sharing. Remove or replace
+   those deliverables, or convert them to inspectable UTF-8 text, then rerun this
+   step. Do not ignore errors, follow links to outside source artifacts, treat
+   binaries as redacted, or share a partially inspected bundle.
+2. Require a successful complete scan-only pass over the final package:
+
+   ```bash
+   python3 -m traust.cli util redact --scan-only "$OUTPUT_DIR"
+   ```
+
+   This pass never writes deliverables. Exit 0 passes the gate; exit 1 means
+   secrets remain; exit 2 means inspection is incomplete and takes precedence
+   over detected secrets. Resolve every hit or operational error and rerun both
+   commands. Any package changes after the gate require rerunning it.
+3. Only after the gate passes, report the redaction count, which files were
+   modified, and samples of redacted stubs. Never include raw secrets or
+   unredacted file contents in the summary.
 
 ### Step 7a — Snapshot the Package Metrics (trends)
 
-Append the package's headline numbers to the central hash-chained metrics
-ledger, source `team-report:<product-slug>`:
+*Retired:* the metrics-history snapshot. Every decision is timestamped, so the
+previous package's numbers are the rollup as it stood then:
 
 ```bash
-echo '{"findings_total": <open>, "sev_critical": <C>, "sev_high": <H>,
-      "hardening_backlog": <N>, "resolved_findings": <N>}' | \
-python3 -m traust.cli metrics history append \
-    --source team-report:<product-slug> --metrics-json - \
-    --note "<counting-policy context if it changed>"
+traust dashboard team-report --product <slug> --as-of <previous package date> --out <scratch>
 ```
 
-When `metrics_history.py latest --source team-report:<product-slug>` returns a
-prior snapshot, render a "Trend vs previous package (<date>)" line in the
+When a previous package exists, render a "Trend vs previous package (<date>)" line in the
 executive summary (HTML header + Markdown one-pager) using the deltas — e.g.
-"Open findings ↓ 96 (improving) · Resolved ↑ 21". Prior rows are immutable;
-never edit the ledger by hand.
+"Open findings ↓ 96 (improving) · Resolved ↑ 21".
 
 ### Step 8 — Verify
 
@@ -508,19 +419,18 @@ Always present a final summary to the user with:
   K8s Top 10, CIS/STIG, Supply Chain, Detailed Analysis, Severity Summary,
   Remediation Roadmap.
 - Finding IDs are sequential within each report (`FIND-001`, `FIND-002`, …).
-- When mirror directories exist (same component shipped by multiple products),
-  the reports often diverge — pick the canonical copy by git recency (see
-  Inputs) and supplement with unique-basename files from the mirror.
+- A repository several products ship counts under each product (the door's
+  By product table says so); there are no mirror directories to reconcile.
 - Some components have 0 CVSS-scored findings (stub reports from failed audits
   or org-URL manifest entries). These should still be included in the folder for
   completeness but will show 0 in the severity table.
 
 ## Integrations
 
-**Consumes:** per-repo reports and cumulative findings from
-`analysis-results/findings/<product>/` (audit + triage +
-findings-current), threat-model attack scenarios (lifted verbatim into
-packages).
+**Consumes:** traust-core's findings rollup (`InsightService.publish`,
+`findings-rollup`, through `traust dashboard team-report`), threat-model attack
+scenarios (lifted verbatim into packages), and, for a bundle, the report files
+under `analysis-results/findings/<product>/`.
 
 **Emits:** self-contained findings packages under
 `progress-tracker/processed-results/` (reports + executive-summary

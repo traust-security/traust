@@ -20,10 +20,10 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HARNESS="${HERE}"
-while [ ! -f "${HARNESS}/VERSION" ] && [ "${HARNESS}" != / ]; do
+while [ ! -f "${HARNESS}/pyproject.toml" ] && [ "${HARNESS}" != / ]; do
   HARNESS="$(dirname "${HARNESS}")"
 done
-[ -f "${HARNESS}/VERSION" ] || { echo "harness root not found above ${HERE}" >&2; exit 1; }
+[ -f "${HARNESS}/pyproject.toml" ] || { echo "harness root not found above ${HERE}" >&2; exit 1; }
 # shellcheck source=../../_lib/traust_paths.sh
 source "${HARNESS}/harnessing/_lib/traust_paths.sh"
 traust_load_paths
@@ -56,7 +56,7 @@ fi
 export GIT_ALLOW_PROTOCOL=https
 
 if [[ -z "$FORK_URL" ]]; then
-  FORK_URL="$(python3 "$HERE/fork_map.py" "$UPSTREAM" | python3 -c 'import sys,json;print(json.load(sys.stdin)["fork_url"])')"
+  FORK_URL="$(python3 -m traust.cli remediation fork --repo-url "$UPSTREAM" | python3 -c 'import sys,json;print(json.load(sys.stdin)["url"])')"
 fi
 
 : "${GITHUB_TOKEN:?GITHUB_TOKEN must be set to push to the private fork}"
@@ -113,7 +113,7 @@ fi
 # Rewrite a private-forge HTTPS URL to SSH so the ambient SSH key handles
 # auth without embedding a token in the URL or .git/config. The forge is
 # named by FORK_SSH_REWRITE_HOST; unset means no rewrite. The DESTINATION mirror
-# is always a private repo in the adopter's mirror organisation (remediation.yaml
+# is always a private repo in the adopter's mirror organisation (traust.yaml `remediation:`
 # fork_org) regardless of upstream host — embargo perimeter stays uniform.
 CLONE_URL="$UPSTREAM"
 if [[ -n "${FORK_SSH_REWRITE_HOST:-}" ]]; then

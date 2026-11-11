@@ -1,0 +1,7 @@
+database:
+  url: postgresql+psycopg://traust@db.example.internal/traust
+  password_env: TRAUST_DB_PASSWORD
+identity:
+  trust_local: true
+  admins: [alice@example.com]
+forge_hosts: {github.com: github, gitlab.example.com: gitlab}

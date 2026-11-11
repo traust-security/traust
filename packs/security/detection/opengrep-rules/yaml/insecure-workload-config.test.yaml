@@ -1,0 +1,47 @@
+# Fixtures for the yaml insecure-workload-config config-defaults rules.
+api:
+  # ruleid: traust-yaml-insecure-workload-config-auth-disabled
+  authEnabled: false
+  # ruleid: traust-yaml-insecure-workload-config-auth-disabled
+  AUTH_REQUIRED: "false"
+  # ok: traust-yaml-insecure-workload-config-auth-disabled
+  authRequired: true
+
+toggles:
+  # ruleid: traust-yaml-insecure-workload-config-auth-disabled
+  disableAuth: true
+  # ruleid: traust-yaml-insecure-workload-config-auth-disabled
+  allowAnonymous: "yes"
+  # ok: traust-yaml-insecure-workload-config-auth-disabled
+  disableAuth2: false
+
+nested:
+  # ruleid: traust-yaml-insecure-workload-config-auth-disabled
+  auth:
+    enabled: false
+  metrics:
+    # ok: traust-yaml-insecure-workload-config-auth-disabled
+    enabled: false
+
+compose_environment:
+  # ruleid: traust-yaml-insecure-workload-config-auth-disabled
+  - AUTH_ENABLED=false
+  # ruleid: traust-yaml-insecure-workload-config-auth-disabled
+  - DISABLE_AUTH=true
+  # ok: traust-yaml-insecure-workload-config-auth-disabled
+  - AUTH_ENABLED=true
+  # ok: traust-yaml-insecure-workload-config-auth-disabled
+  - DISABLE_AUTH=false
+
+# k8s-manifest scoping: documents carrying apiVersion are excluded — no facts emitted.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+data:
+  # ok: traust-yaml-insecure-workload-config-auth-disabled
+  auth_enabled: "false"
+  settings:
+    # ok: traust-yaml-insecure-workload-config-auth-disabled
+    disableAuth: true

@@ -1,0 +1,44 @@
+# python authentication tranche (v1.8) — credential acceptance. A token decoder that skips
+# signature verification accepts any token an attacker writes. The shape
+# that slips past review is the CONDITIONAL one: verification switched off
+# when a test/debug flag is truthy, where that flag defaults on or can be
+# left unset in a shipped config. The dict key `verify_signature` is
+# specific to JWT libraries (PyJWT, python-jose), so the pattern rules stay
+# precise without taint.
+rules:
+  - id: traust-python-authentication-jwt-signature-unverified
+    languages: [python]
+    severity: ERROR
+    message: >-
+      A JWT is decoded with signature verification disabled (or with the
+      `none` algorithm allowed) — whoever writes the token chooses its
+      subject, audience and claims. This is a finding even when the switch
+      sits behind a test/debug flag: trace every place that flag is set,
+      including its shipped default. Always verify against a pinned key
+      and an explicit algorithm list; if claims must be read before the
+      key is known, read only the claim needed to select the key, then
+      verify. CWE-347.
+    metadata:
+      cwe: ["CWE-347", "CWE-287"]
+      category: authentication
+      asvs: ["V9"]
+      confidence: HIGH
+      references:
+        - "seeded defect shape: token signature check disabled by a configuration flag"
+    pattern-either:
+      # options passed inline: {"verify_signature": False}
+      - pattern: |
+          {..., "verify_signature": False, ...}
+      - pattern: dict(..., verify_signature=False, ...)
+      # options mutated before the decode — conditional or not
+      - pattern: $OPTS["verify_signature"] = False
+      # legacy PyJWT keyword
+      - pattern: jwt.decode(..., verify=False, ...)
+      # the unsigned algorithm admitted to the allow-list
+      - patterns:
+          - pattern-either:
+              - pattern: jwt.decode(..., algorithms=$ALGS, ...)
+              - pattern: $DEC.decode(..., algorithms=$ALGS, ...)
+          - metavariable-regex:
+              metavariable: $ALGS
+              regex: (?is).*["']none["']

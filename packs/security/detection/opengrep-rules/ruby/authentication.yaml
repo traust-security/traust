@@ -1,0 +1,22 @@
+rules:
+  - id: traust-ruby-authentication-jwt-verification-off
+    languages: [ruby]
+    severity: ERROR
+    message: >-
+      JWT.decode with verification off (the third argument false), or with
+      expiry checking disabled — any token, or an expired one, is accepted.
+      Pass true, the key and the expected algorithm
+      (JWT.decode(token, key, true, algorithm: "RS256")). CWE-347 /
+      CWE-613.
+    metadata:
+      cwe: ["CWE-347", "CWE-613"]
+      category: authentication
+      asvs: ["V9"]
+      confidence: HIGH
+      references:
+        - "CWE-347 — ruby-jwt decode with verify false"
+        - "CWE-613 — verify_expiration false"
+    pattern-either:
+      - pattern: JWT.decode($T, $K, false, ...)
+      - pattern: JWT.decode($T, nil, false, ...)
+      - pattern: 'JWT.decode($T, $K, $V, ..., verify_expiration: false, ...)'

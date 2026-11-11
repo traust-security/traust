@@ -1,0 +1,114 @@
+{
+ "ps_products": {
+  "widget": {
+   "name": "Example Widget",
+   "ps_modules": [
+    "widget-1"
+   ]
+  },
+  "gizmo": {
+   "name": "Example Gizmo",
+   "ps_modules": [
+    "gizmo-1"
+   ]
+  },
+  "relic": {
+   "name": "Example Relic",
+   "ps_modules": [
+    "relic-1"
+   ]
+  },
+  "future-thing": {
+   "name": "Example Future Thing",
+   "ps_modules": [
+    "future-1"
+   ]
+  }
+ },
+ "ps_modules": {
+  "widget-1": {
+   "public_description": "SECRET FREE TEXT MARKER",
+   "ps_update_streams": [
+    "widget-1-default"
+   ],
+   "private_tracker_cc": [
+    "embargoperson",
+    "+unexpanded"
+   ],
+   "component_cc": {
+    "widget-core": [
+     "componentperson"
+    ]
+   },
+   "default_cc": [
+    "publicperson",
+    "embargoperson"
+   ],
+   "bts": {
+    "name": "tracker",
+    "key": "WIDGET"
+   },
+   "cpe": [
+    "cpe:/a:example:widget:1"
+   ],
+   "errata_product_tags": [
+    "WIDGET"
+   ],
+   "team": "legacy-team",
+   "lifecycle": {
+    "supported_from": "2026-09-05",
+    "supported_until": null
+   }
+  },
+  "gizmo-1": {
+   "ps_update_streams": [
+    "gizmo-1-default"
+   ],
+   "default_cc": [
+    "gizmoperson@example.com"
+   ],
+   "lifecycle": {
+    "supported_from": "2026-09-05",
+    "supported_until": null
+   }
+  },
+  "relic-1": {
+   "ps_update_streams": [],
+   "default_cc": [
+    "relicperson"
+   ],
+   "lifecycle": {
+    "supported_from": "2024-07-27",
+    "supported_until": "2026-09-05"
+   }
+  },
+  "future-1": {
+   "ps_update_streams": [],
+   "default_cc": [
+    "futureperson"
+   ],
+   "lifecycle": {
+    "supported_from": "2027-11-09",
+    "supported_until": null
+   }
+  }
+ },
+ "ps_update_streams": {
+  "widget-1-default": {
+   "version": "1",
+   "managed_service_components": [
+    {
+     "name": "widget-api",
+     "git_repo_url": "https://github.com/acme/widget-api"
+    }
+   ]
+  },
+  "gizmo-1-default": {
+   "version": "1"
+  }
+ },
+ "cc_list_aliases": {},
+ "cc_groups": {},
+ "contacts": {},
+ "ps_components": {}
+}

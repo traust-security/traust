@@ -1,0 +1,48 @@
+rules:
+  - id: traust-bash-supply-chain-curl-pipe-shell
+    languages: [bash]
+    severity: ERROR
+    message: >-
+      Remote script piped straight into a shell — whoever controls (or
+      intercepts) the URL executes arbitrary code here, with no checksum
+      or signature between download and execution. Download to a file,
+      verify a pinned digest, then execute. CWE-494.
+    metadata:
+      cwe: ["CWE-494"]
+      category: supply-chain
+      asvs: ["V15"]
+      confidence: HIGH
+      references:
+        - "CWE-494 — remote script piped to shell without integrity check"
+    patterns:
+      - pattern-either:
+          - pattern: curl ... | sh
+          - pattern: curl ... | bash
+          - pattern: curl ... | sh ...
+          - pattern: curl ... | bash ...
+          - pattern: wget ... | sh
+          - pattern: wget ... | bash
+          - pattern: wget ... | sh ...
+          - pattern: wget ... | bash ...
+
+  - id: traust-bash-regression-codecov-uploader-latest
+    languages: [bash]
+    severity: ERROR
+    message: >-
+      Codecov uploader fetched from the mutable "latest" channel with no
+      digest verification — the 2021 uploader compromise was exactly this
+      shape: whoever controls the channel runs code in CI with the repo's
+      secrets. Pin a released version and verify the published SHASUM, or
+      use the codecov GitHub Action. CWE-494.
+    metadata:
+      cwe: ["CWE-494"]
+      category: supply-chain
+      asvs: ["V15"]
+      confidence: HIGH
+      regression_of:
+        fingerprint: "ca1826e8124ebb6b95894192037084008bfd95aa9069adb0cdd6ec38c7c7552d"
+        fix_commit: "512c192"
+      references:
+        - "CWE-494 regression guard — Codecov uploader fetched from mutable latest channel"
+    patterns:
+      - pattern-regex: uploader\.codecov\.io/latest/

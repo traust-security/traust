@@ -1,0 +1,321 @@
+# The security pack's asset graph (contracts config/v1/pack.schema.json), read by traust-engine to
+# plan and admit, and by runners to execute from their pinned copy. Rows come from the
+# standing-jobs table in docs/continuous-operations.md; tests/test_security_pack.py maps every
+# row to an asset here or to an exclusion with its reason.
+# PENDING(labels): runner labels are a proposed vocabulary, `deterministic` (a command) and `llm`
+# (a skill session), until the engine's label set is agreed.
+pack: security
+# A repository is re-routed whenever repo_state materializes for it: traust.ops.router decides
+# its lane, and the lane's asset below (trigger.lanes) gets the order.
+route_on: repo_state
+# Dispatching an audit or a diff scan was an operator decision on the legacy worklist.
+approvers: [operators]
+assets:
+  feeds_cache:  # ExposureService.refresh_feeds; a source that doesn't answer is degraded
+    run: [python3, -m, traust.cli, feeds, fetch, --feed, all, --run-id, "{run_id}"]
+    trigger: {every: 24h}
+    priority: 10
+    freshness: {fail: 48h}
+    runner: {labels: [deterministic]}
+  inventory_discovery:  # input inventory -> registered engine partitions and bootstrap orders
+    run: [python3, -m, traust.cli, portfolio, inventory-discover, --run-id, "{run_id}"]
+    trigger: {every: 24h}
+    priority: 15
+    freshness: {fail: 48h}
+    runner: {labels: [deterministic]}
+
+  rescan_event_intake:  # direct event orders; priority preference, not an observation barrier
+    run: [python3, -m, traust.cli, portfolio, event-intake, --run-id, "{run_id}"]
+    deps: [inventory_discovery]
+    trigger: {every: 24h}
+    priority: 18
+    freshness: {fail: 48h}
+    runner: {labels: [deterministic]}
+
+
+  repo_state:  # PortfolioService.record_forge_facts through traust.ops.materializers
+    run: [python3, -m, traust.cli, portfolio, observe, --repo, "{repo_url}", --run-id, "{run_id}"]
+    params: {repo_url: HttpsRepoUrl}
+    partitions: dynamic:repo
+    deps: [inventory_discovery]
+    trigger: {every: 24h}
+    priority: 20
+    freshness: {fail: 72h}
+    # core's observation scans each change's patch for secrets (the tripwire's scanner):
+    # a deployment without gitleaks fails every observation of a changed repo, so the tool
+    # is required — the engine's start gate and doctor refuse on it before any work.
+    requires: {tools: [gitleaks]}
+    # One observation is about 5 forge calls (repo, branch, rate limit, compare, and the
+    # compare's patch for the router's tripwire when lines changed; the patch fetch stops while
+    # 100 calls stay in reserve): shared by every asset that calls the same host.
+    # PENDING(quota): per_hour was sized for about 4 calls an observation.
+    admission: {quota: {key: "forge:{host}", per_hour: 1000}}
+    runner: {labels: [deterministic]}
+
+  # Event rows are direct-planned by rescan_event_intake. Separate assets keep their earlier
+  # priority and source from being overwritten by the table's order for the same repository.
+  external_report_audit:
+    model: {role: deep-audit}
+    run: [python3, -m, traust.cli, session, run, --skill, secure-code-audit, --role, "{role}", --repo, "{repo_url}", --run-id, "{run_id}"]
+    partitions: dynamic:repo
+    deps: [repo_state]
+    admission: {approval: operators, estimate_usd: "29.04"}
+    runner: {labels: [llm]}
+
+  external_report_validation:
+    model: {role: validation-planner}
+    run: [python3, -m, traust.cli, portfolio, event-validate, --role, "{role}", --run-id, "{run_id}"]
+    deps: [external_report_audit]
+    admission: {approval: operators}
+    runner: {labels: [llm]}
+
+
+  methodology_audit:
+    model: {role: deep-audit}
+    run: [python3, -m, traust.cli, session, run, --skill, secure-code-audit, --role, "{role}", --repo, "{repo_url}", --run-id, "{run_id}"]
+    partitions: dynamic:repo
+    deps: [repo_state]
+    admission: {approval: operators, estimate_usd: "29.04"}
+    runner: {labels: [llm]}
+
+  cve_impact:
+    model: {role: fact-judge}
+    run: [python3, -m, traust.cli, session, run, --skill, dependency-watch, --role, "{role}", --run-id, "{run_id}"]
+    deps: [feeds_cache]
+    runner: {labels: [llm]}
+
+  # Routed lanes: planned only when traust.ops.router routes a repository to one of their lanes;
+  # no freshness, since a repository nothing routes needs no visit. Estimates are the legacy
+  # budget shadow's measured per-run medians (its retired LANE_UNIT_COST); a lane budget binds
+  # only on assets that declare one.
+  full_audit:  # skill session: a full audit; rules 1-bootstrap, 2, 3 (P0/P1), 4 and no-pinned-sha
+    model: {role: deep-audit}
+    run: [python3, -m, traust.cli, session, run, --skill, secure-code-audit, --role, "{role}", --repo, "{repo_url}", --run-id, "{run_id}"]
+    partitions: dynamic:repo
+    deps: [repo_state]
+    trigger: {lanes: [full-audit]}
+    admission: {approval: operators, estimate_usd: "29.04"}
+    runner: {labels: [llm]}
+
+  diff_scan:  # skill session: /vuln-scan <clone> --diff; rule 3 on P2/P3, outside the drain.
+    # A rule carrying the router's `+threat-model-pr` stamp adds a report-only
+    # `/threat-model pr <clone> --base <anchor>` on the same clone (both diff lanes).
+    model: {role: vuln-scan}
+    run: [python3, -m, traust.cli, session, run, --skill, vuln-scan, --role, "{role}", --repo, "{repo_url}", --checkout, --run-id, "{run_id}", --rule, "{rule}", --, --diff]
+    partitions: dynamic:repo
+    deps: [repo_state]
+    trigger: {lanes: [diff-scan]}
+    admission: {approval: operators, estimate_usd: "4.73"}
+    runner: {labels: [llm]}
+
+  diff_scan_quarterly:  # skill session: /vuln-scan <clone> --diff; rule 5's below-threshold pool
+    # Replaces the weekly diff-drain tranche (ceil(pool/13) a week, risk-ordered): pacing takes
+    # the highest-priority rows (external band first) each tick. Tune per_tick to the tick
+    # interval so a week drains what the tranche did.
+    model: {role: vuln-scan}
+    run: [python3, -m, traust.cli, session, run, --skill, vuln-scan, --role, "{role}", --repo, "{repo_url}", --checkout, --run-id, "{run_id}", --rule, "{rule}", --, --diff]
+    partitions: dynamic:repo
+    deps: [repo_state]
+    trigger: {lanes: [diff-scan-quarterly]}
+    admission: {approval: operators, estimate_usd: "6.24", pacing: {per_tick: 5}}
+    runner: {labels: [llm]}
+
+  cloud_config_audit:  # skill session: /cloud-config-audit <clone>; lever 6, additive to the
+    # table's lane: iac-lane re-runs against the repository's cloud-config baseline, iac-baseline
+    # creates one (both from an IaC change, iac-baseline also from the audit's companion_lanes).
+    # PENDING(roles): no registry role is cloud-config's own; deep-audit is the closest.
+    model: {role: deep-audit}
+    run: [python3, -m, traust.cli, session, run, --skill, cloud-config-audit, --role, "{role}", --repo, "{repo_url}", --checkout, --run-id, "{run_id}"]
+    partitions: dynamic:repo
+    deps: [repo_state]
+    trigger: {lanes: [iac-lane, iac-baseline]}
+    admission: {approval: operators, estimate_usd: "10.00"}
+    runner: {labels: [llm]}
+
+  threat_model_quarterly:  # skill session: /threat-model review <clone> --auto --apply-ratings;
+    # the calendar backstop for a HEAD model older than 92 days. It and threat_model_review write
+    # OWASP ratings (the 2026-10-01 decision); every other threat-model lane stays report-only.
+    # Drained over a quarter on the legacy tranche: pacing takes the highest-priority rows each
+    # tick.
+    # PENDING(estimate): the legacy budget shadow never measured this lane, so its budget can't
+    # bind until it has an estimate_usd.
+    model: {role: threat-model}
+    run: [python3, -m, traust.cli, session, run, --skill, threat-model, --mode, review, --role, "{role}", --repo, "{repo_url}", --checkout, --run-id, "{run_id}", --, --auto, --apply-ratings]
+    partitions: dynamic:repo
+    deps: [repo_state]
+    trigger: {lanes: [threat-model-quarterly]}
+    admission: {approval: operators, pacing: {per_tick: 5}}
+    runner: {labels: [llm]}
+
+  threat_model_review:  # skill session: /threat-model review <clone> --auto --apply-ratings;
+    # rule threat-model-2: a recorded release with a major or minor bump re-models every
+    # repository it ships. Writes OWASP ratings (the 2026-10-01 decision).
+    # PENDING(estimate): the legacy budget shadow never measured this lane either.
+    model: {role: threat-model}
+    run: [python3, -m, traust.cli, session, run, --skill, threat-model, --mode, review, --role, "{role}", --repo, "{repo_url}", --checkout, --run-id, "{run_id}", --, --auto, --apply-ratings]
+    partitions: dynamic:repo
+    deps: [repo_state]
+    trigger: {lanes: [threat-model-review]}
+    admission: {approval: operators}
+    runner: {labels: [llm]}
+
+  # NEED(release-passthrough): the lane's taker refuses until traust-core has a release feed
+  # (core.feeds.register) whose observations plan the container and RPM audits (ops.plan).
+  release_passthrough:
+    run: [python3, -m, traust.cli, portfolio, release-passthrough, --run-id, "{run_id}"]
+    deps: [repo_state]
+    trigger: {lanes: [release-passthrough]}
+    runner: {labels: [deterministic]}
+
+  # A skill session is `model: {role}` plus a `run` that starts it (`traust session run`);
+  # `traust-engine claim` fills `{role}`. PENDING(roles): each role is the registry role closest
+  # to the session's work, until the pack owner confirms.
+  dependency_watch:
+    model: {role: fact-judge}
+    run: [python3, -m, traust.cli, session, run, --skill, dependency-watch, --role, "{role}", --run-id, "{run_id}"]
+    deps: [feeds_cache]
+    trigger: {every: 24h}
+    priority: 40
+    freshness: {fail: 48h}
+    runner: {labels: [llm]}
+
+  # Below-range verification: versions an advisory's stated range leaves out while the vulnerable
+  # code is already there. Packets are deterministic facts; only the review decides (D1, D4).
+  # NEED(router): routing when repo_state shows dependency changes needs a manifest-change signal.
+  manifest_sbom:  # ExposureService.record_manifest_sbom through traust.ops.materializers
+    # The observed default head's dependency SBOM, from its manifests (the forge archive, only
+    # the files syft reads, capped). A head that already has one is a lookup, not a fetch, so the
+    # daily trigger only fetches where the head moved. One archive is one forge call, from the
+    # same bucket as repo_state; pacing spreads the first full pass over ticks instead of a burst.
+    run: [python3, -m, traust.cli, impact, manifest-sbom, --repo, "{repo_url}", --run-id, "{run_id}"]
+    params: {repo_url: HttpsRepoUrl}
+    partitions: dynamic:repo
+    deps: [repo_state]
+    trigger: {every: 24h}
+    priority: 25
+    freshness: {fail: 72h}
+    admission: {quota: {key: "forge:{host}", per_hour: 1000}, pacing: {per_tick: 30}}
+    runner: {labels: [deterministic]}
+
+  repo_checkout_refresh:  # RepoCheckoutService.refresh through traust.ops.materializers
+    # A pre-warm for the lanes' checkouts: repo_state says the head moved (pushed since the last
+    # audit), so the repository's mirror is fetched to the observed head before an order needs
+    # it; a repository at rest keeps whatever mirror it has. One mirror fetch is one forge
+    # call, from the same bucket as repo_state and manifest_sbom; pacing spreads the first full
+    # pass over ticks instead of a burst.
+    run: [python3, -m, traust.cli, portfolio, checkout-refresh, --repo, "{repo_url}", --run-id, "{run_id}"]
+    params: {repo_url: HttpsRepoUrl}
+    partitions: dynamic:repo
+    deps: [repo_state]
+    trigger: {every: 24h}
+    priority: 30
+    freshness: {fail: 48h}
+    admission: {quota: {key: "forge:{host}", per_hour: 1000}, pacing: {per_tick: 30}}
+    runner: {labels: [deterministic]}
+
+  mirror_evict:  # RepoCheckoutService.evict through traust.ops.materializers
+    # A mirror no checkout has touched in 30 days is dropped; the next checkout re-seeds it
+    # with one full fetch. Reclaim, never a gate: a dropped mirror only costs that fetch.
+    run: [python3, -m, traust.cli, portfolio, mirror-evict, --run-id, "{run_id}"]
+    trigger: {every: 24h}
+    priority: 60
+    freshness: {fail: 48h}
+    runner: {labels: [deterministic]}
+
+  below_range_packets:  # BelowRangeService.scan through traust.ops.materializers
+    run: [python3, -m, traust.cli, impact, below-range-scan, --repo, "{repo_url}", --run-id, "{run_id}"]
+    params: {repo_url: HttpsRepoUrl}
+    partitions: dynamic:repo
+    deps: [manifest_sbom]  # the scan refuses a head with no manifest SBOM
+    trigger: {every: 7d}
+    priority: 45
+    freshness: {fail: 14d}
+    # One bucket for every order's OSV, patch and registry fetches. NEED(engine): quotas per
+    # fetch host (forge, registry, OSV) inside an order; today a key holds the repository's host.
+    admission: {quota: {key: "below-range:fetch", per_hour: 60}}
+    runner: {labels: [deterministic]}
+
+  below_range_review:  # skill session: /dependency-watch below-range, recorded with
+    # `traust impact below-range-record`; applicable cases become dependency findings
+    model: {role: fact-judge}
+    run: [python3, -m, traust.cli, session, run, --skill, dependency-watch, --mode, below-range, --role, "{role}", --repo, "{repo_url}", --run-id, "{run_id}", --worker, "{worker}"]
+    partitions: dynamic:repo
+    deps: [below_range_packets]
+    trigger: {every: 7d}
+    priority: 46
+    freshness: {fail: 14d}
+    # ~25k tokens a packet across two reviews and a judge (Phase 3 acceptance) at opus- and
+    # sonnet-class rates: about 0.15 USD a packet. A floor: the estimate is per order, and an
+    # order holds every packet of the repository. NEED(engine): an estimate from the packet count.
+    admission: {estimate_usd: "0.15"}
+    runner: {labels: [llm]}
+
+  rule_mining:  # then the scheduled /mine-ledger session
+    run: [python3, -m, traust.cli, sweep, rule-lane]
+    trigger: {every: 7d}
+    priority: 50
+    freshness: {fail: 14d}
+    runner: {labels: [deterministic]}
+
+  remediate_finding:  # skill session: /remediate-finding on the work item its order names
+    # Core's scheduling door (POST /v1/remediations) submits these orders, so no trigger or deps.
+    # The session reads the work item from the order and records through the order's lease.
+    model: {role: remediation}
+    run: [python3, -m, traust.cli, session, run, --skill, remediate-finding, --role, "{role}", --run-id, "{run_id}", --worker, "{worker}"]
+    priority: 45
+    runner: {labels: [llm]}
+
+  verify_remediation:  # skill session: traust remediation verify-sweep → /verify-remediation full-sweep
+    model: {role: verification-verdict}
+    run: [python3, -m, traust.cli, session, run, --skill, verify-remediation, --role, "{role}", --run-id, "{run_id}", --, full-sweep]
+    trigger: {every: 7d}
+    priority: 50
+    freshness: {fail: 14d}
+    runner: {labels: [llm]}
+
+  spend_capture:  # skill session: /financial-tracking capture; lossy when late
+    model: {role: render-narrate}
+    run: [python3, -m, traust.cli, session, run, --skill, financial-tracking, --role, "{role}", --run-id, "{run_id}", --, capture]
+    trigger: {every: 7d}
+    priority: 50
+    freshness: {fail: 8d}
+    runner: {labels: [llm]}
+
+  ledger_audit:  # LedgerService.audit: an edit to stored events is found within a week
+    run: [python3, -m, traust.cli, ledger, audit, --run-id, "{run_id}"]
+    trigger: {every: 7d}
+    priority: 50
+    freshness: {fail: 8d}
+    runner: {labels: [deterministic]}
+
+  dashboards:  # InsightService.refresh through traust.ops.materializers, then the builders of
+    # views core lacks; spend dashboards go stale after 4d, the scoreboard after 7d
+    run: [python3, -m, traust.cli, dashboard, refresh, --run-id, "{run_id}"]
+    trigger: {every: 3d}
+    priority: 60
+    freshness: {warn: 4d, fail: 7d}
+    runner: {labels: [deterministic]}
+
+  validation_benchmark:  # the monthly half; the release-cut half has no trigger form yet
+    run: [python3, -m, traust.cli, sweep, benchmark, plan]
+    trigger: {every: 30d}
+    priority: 70
+    freshness: {fail: 35d}
+    runner: {labels: [deterministic]}
+
+  # PENDING(quarterly): `90d` stands for quarterly (durations are minutes, hours or days).
+  recall_benchmark:  # skill session: /recall-benchmark run; release scoring has no trigger form yet
+    model: {role: deep-audit}
+    run: [python3, -m, traust.cli, session, run, --skill, recall-benchmark, --role, "{role}", --run-id, "{run_id}", --, run]
+    trigger: {every: 90d}
+    priority: 70
+    freshness: {fail: 180d}
+    runner: {labels: [llm]}
+
+  class_sweep:  # targeted class-sweep sessions: a purpose-built prompt per weakness class, no skill
+    # to start (NEED(skill: class-sweep)); unrunnable until one exists
+    enabled: false
+    trigger: {every: 90d}
+    priority: 70
+    freshness: {fail: 180d}
+    runner: {labels: [llm]}

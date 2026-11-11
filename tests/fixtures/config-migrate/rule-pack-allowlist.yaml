@@ -1,0 +1,4 @@
+packs:
+  argus:
+    enabled: true
+    rules: [go-tls-bypass]
