@@ -62,6 +62,7 @@ import contextlib
 import datetime
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -214,6 +215,16 @@ def probe(repo: Path, candidates: list[dict], timeout: int) -> list[dict]:
     return probes
 
 
+def _harness_version() -> str:
+    """Version from the harness pyproject.toml — the single version source."""
+    try:
+        text = (HARNESS_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+        m = re.search(r'(?m)^version\s*=\s*"([^"]+)"', text)
+        return m.group(1) if m else "unknown"
+    except OSError:
+        return "unknown"
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("repo", type=Path)
@@ -256,9 +267,7 @@ def main(argv=None) -> int:
         "artifact": "sanitizer-probes",
         "repo": repo.name,
         "generated_at": datetime.datetime.now(datetime.UTC).isoformat(timespec="seconds"),
-        "harness_version": (HARNESS_ROOT / "VERSION").read_text().strip()
-        if (HARNESS_ROOT / "VERSION").is_file()
-        else "unknown",
+        "harness_version": _harness_version(),
         "mode": "run",
         "candidates": candidates,
         "probes": probes,

@@ -31,6 +31,7 @@ from __future__ import annotations
 import argparse
 import datetime
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -55,8 +56,13 @@ def load_register(path: Path, repo_url: str | None) -> dict:
 
 
 def _hv() -> str:
-    vp = HARNESS_ROOT / "VERSION"
-    return vp.read_text().strip() if vp.is_file() else "unknown"
+    """Harness version from pyproject.toml — the single version source."""
+    try:
+        pyproject = (HARNESS_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+        m = re.search(r'(?m)^version\s*=\s*"([^"]+)"', pyproject)
+        return m.group(1) if m else "unknown"
+    except OSError:
+        return "unknown"
 
 
 def emit(register_path: Path, new_records: list[dict], repo_url: str | None, update: bool) -> dict:

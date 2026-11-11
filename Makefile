@@ -1,12 +1,10 @@
-.PHONY: help install test doctor setup update-vuln-dbs build-image build-tools-image lint lint-fix hooks sync status bump $(BUMP_PARTS)
+.PHONY: help install test doctor setup update-vuln-dbs build-image build-tools-image lint lint-fix hooks sync
 .PHONY: skillsaw-lint skillsaw-fix skillsaw-badge
 .PHONY: ops-up ops-down ops-reset ops-run ops-claim ops-approve ops-approve-all ops-sh ops-scan ops-smoke ops-doctor
 
 PROFILE    ?= secure-code-audit
 CLI        := uv run python -m traust.cli.toolchain
 PYTHON     ?= python3
-RELEASE    := ./release.py
-BUMP_PARTS := patch minor major
 SKILLSAW_VERSION := 0.20.0
 # ops-approve's selector travels through the environment (never interpolated
 # into the recipe text): a value carrying quotes or semicolons reaches the
@@ -87,17 +85,3 @@ skillsaw-fix: ## Apply safe skillsaw autofixes (Podman)
 hooks: ## Enable .githooks for this clone
 	git config core.hooksPath .githooks
 	@chmod +x .githooks/* 2>/dev/null || true
-
-status: ## Current version, tag, git state
-	$(PYTHON) $(RELEASE) status
-
-$(BUMP_PARTS):
-	@:
-
-bump: ## Bump VERSION + pyproject.toml: make bump patch|minor|major
-	@part="$(filter $(BUMP_PARTS),$(MAKECMDGOALS))"; \
-	if [ -z "$$part" ]; then \
-		echo "usage: make bump patch|minor|major" >&2; \
-		exit 1; \
-	fi; \
-	$(PYTHON) $(RELEASE) bump $$part

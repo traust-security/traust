@@ -18,14 +18,14 @@ set -euo pipefail
 export GIT_ALLOW_PROTOCOL=https  # local mirrors + https fetches only (plan P0.1)
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# Harness root: the directory holding VERSION, walked rather than counted,
+# Harness root: the directory holding pyproject.toml, walked rather than counted,
 # so nesting this skill under a stage directory (skill-usability plan 1.2)
 # cannot silently repoint it.
 HARNESS="${HERE}"
-while [ ! -f "${HARNESS}/VERSION" ] && [ "${HARNESS}" != / ]; do
+while [ ! -f "${HARNESS}/pyproject.toml" ] && [ "${HARNESS}" != / ]; do
   HARNESS="$(dirname "${HARNESS}")"
 done
-[ -f "${HARNESS}/VERSION" ] || { echo "harness root not found above ${HERE}" >&2; exit 1; }
+[ -f "${HARNESS}/pyproject.toml" ] || { echo "harness root not found above ${HERE}" >&2; exit 1; }
 # shellcheck source=../../_lib/traust_paths.sh
 source "${HARNESS}/harnessing/_lib/traust_paths.sh"
 traust_load_paths

@@ -126,18 +126,17 @@ class TestVersionSyncAndSymlinks(unittest.TestCase):
         self.assertEqual(C.version_sync_failures(), [])
         self.assertEqual(C.symlink_failures(), [])
 
-    def test_pyproject_drift_flagged(self):
+    def test_pyproject_missing_flagged(self):
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp)
-            (repo / "VERSION").write_text("2.0.0\n")
-            (repo / "pyproject.toml").write_text('[project]\nversion = "1.0.0"\n')
+            (repo / "pyproject.toml").write_text('[project]\nname = "x"\n')
             failures = C.version_sync_failures(repo)
-            self.assertTrue(any("1.0.0" in f and "2.0.0" in f for f in failures))
+            self.assertTrue(any("no [project] version field" in f for f in failures))
 
     def test_version_args_drift_flagged(self):
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp)
-            (repo / "VERSION").write_text("2.0.0\n")
+            (repo / "pyproject.toml").write_text('[project]\nversion = "2.0.0"\n')
             (repo / "version.args").write_text("VERSION=1.9.0\n")
             failures = C.version_sync_failures(repo)
             self.assertTrue(any("version.args" in f and "2.0.0" in f for f in failures))
@@ -145,9 +144,16 @@ class TestVersionSyncAndSymlinks(unittest.TestCase):
     def test_version_args_in_sync_clean(self):
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp)
-            (repo / "VERSION").write_text("2.0.0\n")
+            (repo / "pyproject.toml").write_text('[project]\nversion = "2.0.0"\n')
             (repo / "version.args").write_text("VERSION=2.0.0\n")
             self.assertEqual(C.version_sync_failures(repo), [])
+
+    def test_version_args_missing_flagged(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "pyproject.toml").write_text('[project]\nversion = "2.0.0"\n')
+            failures = C.version_sync_failures(repo)
+            self.assertTrue(any("version.args: missing" in f for f in failures))
 
     def test_dangling_symlink_flagged(self):
         with tempfile.TemporaryDirectory() as tmp:

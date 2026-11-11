@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import datetime as _dt
 import json
+import re
 import subprocess
 import sys
 from collections import Counter
@@ -33,9 +34,10 @@ def harness_version() -> str:
     """Return '<VERSION>-<short-sha>' for the traust checkout."""
     here = Path(__file__).resolve()
     for p in here.parents:
-        vf = p / "VERSION"
-        if vf.is_file():
-            ver = vf.read_text(encoding="utf-8").strip()
+        vf = p / "pyproject.toml"
+        if vf.is_file() and 'name = "traust"' in vf.read_text(encoding="utf-8"):
+            m = re.search(r'(?m)^version\s*=\s*"([^"]+)"', vf.read_text(encoding="utf-8"))
+            ver = m.group(1) if m else "0.1.0"
             try:
                 sha = subprocess.run(
                     ["git", "-C", str(p), "rev-parse", "--short", "HEAD"],

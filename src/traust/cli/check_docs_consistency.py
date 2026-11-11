@@ -300,30 +300,32 @@ _PYPROJECT_VERSION = re.compile(r'(?m)^version\s*=\s*"([^"]+)"')
 
 
 def version_sync_failures(repo: Path = REPO) -> list[str]:
-    """pyproject.toml [project] version and version.args must equal VERSION.
+    """version.args must equal the pyproject.toml [project] version.
 
     version.args feeds the Konflux build-args-file param so the container
     image is labeled (and release-tagged via {{ oci_version }}) with the
-    harness version; if it drifts from VERSION, published images carry the
-    wrong version tag.
+    harness version; if it drifts from pyproject, published images carry the
+    wrong version tag. pyproject.toml is the single version source of truth.
     """
     failures = []
-    version = (repo / "VERSION").read_text(encoding="utf-8").strip()
     pyproject = repo / "pyproject.toml"
-    if pyproject.is_file():
-        m = _PYPROJECT_VERSION.search(pyproject.read_text(encoding="utf-8"))
-        if m is None:
-            # fail-closed: the guard was silently dead for months because
-            # pyproject carried no version field at all (docs-verification
-            # 2026-07-31 §core-6) — absence must fail, not pass
-            failures.append(
-                "pyproject.toml: no [project] version field — the "
-                f"version-sync guard cannot verify it equals {version}"
-            )
-        elif m.group(1) != version:
-            failures.append(f'pyproject.toml: version = "{m.group(1)}" but VERSION is {version}')
+    if not pyproject.is_file():
+        # No pyproject — nothing to sync version.args against.
+        return failures
+    text = pyproject.read_text(encoding="utf-8")
+    m = _PYPROJECT_VERSION.search(text)
+    if m is None:
+        # fail-closed: absence must fail, not pass
+        failures.append(
+            "pyproject.toml: no [project] version field — the "
+            "version-sync guard cannot verify version.args"
+        )
+        return failures
+    version = m.group(1)
     version_args = repo / "version.args"
-    if version_args.is_file():
+    if not version_args.is_file():
+        failures.append("version.args: missing — Konflux build-args-file has no version input")
+    else:
         args_value = version_args.read_text(encoding="utf-8").strip()
         if args_value != f"VERSION={version}":
             failures.append(f"version.args: {args_value!r} but expected 'VERSION={version}'")

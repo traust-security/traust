@@ -52,7 +52,12 @@ from pathlib import Path
 # Harness root: the directory holding VERSION, found by walking up rather
 # than counting parents, so nesting this skill under a stage directory
 # (skill-usability plan 1.2) cannot silently repoint it.
-HARNESS_ROOT = next(p for p in Path(__file__).resolve().parents if (p / "VERSION").is_file())
+HARNESS_ROOT = next(
+    p
+    for p in Path(__file__).resolve().parents
+    if (p / "pyproject.toml").is_file()
+    and 'name = "traust"' in (p / "pyproject.toml").read_text(encoding="utf-8")
+)
 _SCOPE_SPEC = importlib.util.spec_from_file_location(
     "vf_scope", Path(__file__).resolve().parent / "scope.py"
 )

@@ -48,7 +48,9 @@ from traust.paths import HARNESS_ROOT
 
 def _harness_version() -> str:
     try:
-        v = (HARNESS_ROOT / "VERSION").read_text().strip()
+        pyproject = (HARNESS_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+        m = re.search(r'(?m)^version\s*=\s*"([^"]+)"', pyproject)
+        v = m.group(1) if m else "0.1.0"
         sha = subprocess.run(
             ["git", "-C", str(HARNESS_ROOT), "rev-parse", "--short", "HEAD"],
             capture_output=True,
@@ -56,7 +58,7 @@ def _harness_version() -> str:
         ).stdout.strip()
         return f"{v}-{sha}" if sha else v
     except OSError:
-        return "0.0.0"
+        return "0.1.0"
 
 
 def _oc(args: list[str], kubeconfig: str | None, context: str | None):

@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import subprocess
 import sys
 import uuid
@@ -552,8 +553,10 @@ def below_range_record(argv: list[str] | None = None) -> int:
 
 
 def harness_version() -> str:
-    """`<VERSION>-<short sha>` of this harness, as the impact artifact records it."""
-    version = (HARNESS_ROOT / "VERSION").read_text().strip()
+    """`<version>-<short sha>` of this harness, as the impact artifact records it."""
+    pyproject = (HARNESS_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    m = re.search(r'(?m)^version\s*=\s*"([^"]+)"', pyproject)
+    version = m.group(1) if m else "0.1.0"
     sha = subprocess.run(
         ["git", "-C", str(HARNESS_ROOT), "rev-parse", "--short", "HEAD"],
         capture_output=True,

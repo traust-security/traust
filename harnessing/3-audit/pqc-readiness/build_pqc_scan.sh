@@ -4,10 +4,10 @@
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 HARNESS="${HERE}"
-while [ ! -f "${HARNESS}/VERSION" ] && [ "${HARNESS}" != / ]; do
+while [ ! -f "${HARNESS}/pyproject.toml" ] && [ "${HARNESS}" != / ]; do
   HARNESS="$(dirname "${HARNESS}")"
 done
-[ -f "${HARNESS}/VERSION" ] || { echo "harness root not found above ${HERE}" >&2; exit 1; }
+[ -f "${HARNESS}/pyproject.toml" ] || { echo "harness root not found above ${HERE}" >&2; exit 1; }
 # shellcheck source=../../_lib/traust_paths.sh
 source "${HARNESS}/harnessing/_lib/traust_paths.sh"
 PIN="be5c760adb7d1d4d99e39d35d87d2956079db76e"
