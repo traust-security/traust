@@ -372,19 +372,62 @@ def test_verification_hint_prefers_the_commit_over_the_branch(tmp_path):
 
 
 
-def test_worklist_skips_success_without_a_patch(tmp_path):
+def test_worklist_skips_succeeded_without_a_patch():
     wl = _load("emit_backport_worklist.py")
     report = {
         "metadata": {"repository": "https://github.com/o/r"},
         "source_fix": {"finding_refs": ["t#f001"], "commit": "a" * 40,
                        "branch": "main"},
         "target_branches": [
-            {"branch": "release-1", "status": "success", "has_patch": False},
-            {"branch": "release-2", "status": "success", "has_patch": True},
+            {"branch": "release-1", "status": "succeeded", "has_patch": False},
+            {"branch": "release-2", "status": "succeeded", "has_patch": True},
         ],
     }
     worklist = wl.build_worklist(report, "r.json")
     assert [e["target_branch"] for e in worklist["entries"]] == ["release-2"]
+
+
+def test_worklist_selects_the_emitted_succeeded_status(tmp_path):
+    # Regression: the emitter writes the contract's `succeeded`, so a filter
+    # keyed on the old `success`/`passed` names left every patched branch out.
+    wl = _load("emit_backport_worklist.py")
+    results = tmp_path / "results"
+    _write_branch(results / "release-a")
+    rem = {
+        "seam": "remediation", "audit_report_path": "",
+        "repository": "https://github.com/o/r", "logical_product": "p",
+        "language": "", "fix_commit": "c" * 40, "fix_branch_name": "",
+        "base_ref": "main", "fork_url": "", "cwes": [],
+        "finding_refs": ["t#f001"], "remediation_path": "",
+    }
+    report = emit.build_report(results, rem)
+    assert report["target_branches"][0]["status"] == "succeeded"
+
+    worklist = wl.build_worklist(report, "r.json")
+    # The report carries the real target name, not the directory slug.
+    assert [e["target_branch"] for e in worklist["entries"]] == ["release-4.16"]
+    entry = worklist["entries"][0]
+    assert entry["suggested_disposition"] == "fix_in_progress"
+    assert entry["has_patch"] is True
+    assert entry["backport_commit"] == "c" * 40
+    assert entry["finding_refs"] == ["t#f001"]
+
+
+def test_worklist_ignores_failed_and_skipped(tmp_path):
+    # failed/skipped branches may carry cost and an error but no patch to
+    # merge; they must not suggest fix_in_progress.
+    wl = _load("emit_backport_worklist.py")
+    report = {
+        "metadata": {"repository": "https://github.com/o/r"},
+        "source_fix": {"finding_refs": ["t#f001"], "commit": "a" * 40,
+                       "branch": "main"},
+        "target_branches": [
+            {"branch": "release-1", "status": "failed",
+             "stop_reason": "error", "has_patch": True},
+            {"branch": "release-2", "status": "skipped"},
+        ],
+    }
+    assert wl.build_worklist(report, "r.json")["entries"] == []
 
 
 def test_publish_failure_keeps_the_previous_publication(tmp_path, monkeypatch):
