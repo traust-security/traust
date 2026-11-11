@@ -33,27 +33,34 @@ These checks are Traust's own wording. Standards are cited by ID only.
 | axum and actix-web | Rust code uses `axum::` or `actix_web::`, or `traust adapters route-guards` reports `axum` or `actix-web` rows |
 | tonic | Rust code uses `tonic::` and builds a `Server`, or `traust adapters grpc-guards` reports `tonic` services |
 | Rails and Sinatra | the tree has `<app>/config/routes.rb`, Ruby code requires `sinatra` or subclasses `Sinatra::Base`, or `traust adapters route-guards` reports `rails` or `sinatra` rows |
+| Django, DRF and Flask: route ownership | `traust adapters route-guards` reports `django-drf` or `flask` rows. This section covers route ownership only |
 
 A checkout can select several. Record which sections ran (see Recording).
-Route-guards rows from a family no section covers (for example `go-http`,
-`django-drf`, `flask`) go in `coverage_gaps` with tool `framework-checks`,
-so they are not mistaken for reviewed.
+Route-guards rows from a family no section covers (for example `go-http`)
+go in `coverage_gaps` with tool `framework-checks`, so they are not mistaken
+for reviewed. Django, DRF and Flask have an ownership section only: review
+their rows' ownership under DF.1, and record the rest of those frameworks'
+review (authentication, authorization beyond ownership, CSRF, mass
+assignment, debug settings) as a `framework-checks` coverage gap.
 
 ## Route ownership (CWE-639)
 
 `traust adapters route-guards` classifies each authenticated route with an
-object id in its path (Spring, JAX-RS, FastAPI, Express and Rails today) in
-the row's `ownership`, with the spans it read in `ownership_evidence`
+object id in its path (Spring, JAX-RS, FastAPI, Express, Rails, axum,
+actix-web, Django/DRF and Flask today) in the row's `ownership`, with the spans it read in `ownership_evidence`
 (`lookup`, `caller`, `check`, `hop`, `record_type`, `owner_field`). The
 values are `scoped`, `checked`, `caller-blind`, `unchecked`, `none`,
 `unknown` and `n/a`. Rows marked `caller-blind` (the handler never sees the
 caller) or `unchecked` (it sees the caller but loads an owner-bearing
 record without tying it to the caller) are judged, so they set
 `judgement_required`. Read them first for the ownership checks below (FA.4,
-EX.4, JV.5, RW.4, RL.3). `unknown` means the reader couldn't follow the
+EX.4, JV.5, RW.4, RL.3, DF.1). `unknown` means the reader couldn't follow the
 handler: review it by hand. Protection is credited only from an allow-list
 of exact shapes, so a `scoped` or `checked` row is still a claim: spot-check
-one per controller or router. A framework or handler the reader doesn't
+one per controller or router. The axum/actix-web, Django/DRF and Flask
+readers never credit protection: their rows are only judged or `unknown`, so
+an `unknown` row there includes reads the code does tie to the caller, and a
+judged row includes ones it checks by hand after the read. Read each. A framework or handler the reader doesn't
 classify is a `<family> ownership` coverage gap naming its routes, never a
 blank: review those routes' ownership by hand and record the gap.
 
@@ -65,6 +72,19 @@ parameters, `req.query` or `req.body`, `@RequestParam` / `@QueryParam`, Rails
 handlers and answer the same check for each. List any you didn't review in
 `coverage_gaps`. These are facts, not findings: only a confirmed row becomes
 a finding.
+
+## Django, DRF and Flask: route ownership
+
+`traust adapters route-guards` reads Django URLconfs, DRF routers and
+viewsets, and Flask blueprints, class views and flask-restful resources,
+with each route's guards and, for authenticated id routes, its `ownership`.
+This section covers route ownership only. The rest of a Django or Flask
+review is a `framework-checks` coverage gap until a full section lands (see
+[Selecting sections](#selecting-sections)).
+
+| ID | Check | CWE | Requirement | Evidence |
+|---|---|---|---|---|
+| DF.1 | Does a route that takes an object ID (a URLconf or router path converter, `<int:id>` in a Flask route, `self.kwargs`, `request.view_args`) check that the caller may act on that object, and is the ownership or tenant filter taken from the authenticated principal (`request.user`, flask-login's `current_user`, flask-jwt-extended's identity) rather than a value the caller sets? A DRF object permission (`has_object_permission`) counts only where `get_object()` runs it. | CWE-639 | ASVS V8.2 | the route-guards rows' `ownership` ([Route ownership](#route-ownership-cwe-639); these readers judge but never credit), `caller-blind` and `unchecked` first, then `unknown`; then the ORM read (`get_object_or_404`, `Model.query.get_or_404`, `db.session.get`, a viewset's `get_queryset`) and the filter on it, `file:line` |
 
 ## Kubernetes operators
 
@@ -315,7 +335,7 @@ a traust-core dependency.
 | RW.1 | Does every route that changes state or returns non-public data require authentication: an auth layer wrapping it, an extractor that rejects, a `wrap` on its scope, or a proxy in front? In axum, a route added after the auth layer, or a router merged after it, isn't wrapped. | CWE-306 | ASVS V6.3 | the route-guards rows, `judgement_required` and asymmetry rows first |
 | RW.2 | Does each guard-named extractor reject a missing or bad credential (its `FromRequestParts` / `FromRequest` returns a rejection), rather than defaulting to an anonymous user? An `Option<AuthUser>` parameter makes it optional. | CWE-287 | ASVS V6.3 | the extractor's implementation, `file:line` |
 | RW.3 | Are admin and write routes authorized beyond "authenticated" (a role or permission check, `#[protect]`, a claim check in the handler)? | CWE-862 | ASVS V8.3 | the check, `file:line`; *judgement* |
-| RW.4 | Does a route that takes an object ID (`Path<Id>`, `web::Path`) check that the caller may act on that object? | CWE-639 | ASVS V8.2 | the `axum ownership` / `actix-web ownership` coverage gap's routes (no ownership reader yet, [Route ownership](#route-ownership-cwe-639)), then the lookup and the ownership or tenant filter on it |
+| RW.4 | Does a route that takes an object ID (`Path<Id>`, `web::Path`) check that the caller may act on that object? | CWE-639 | ASVS V8.2 | the route-guards rows' `ownership` ([Route ownership](#route-ownership-cwe-639); this reader judges but never credits), `caller-blind` and `unchecked` first, then the `unknown` rows, then the lookup and the ownership or tenant filter on it |
 | RW.5 | Is SQL built from request input with `format!` or concatenation (`sqlx::query(&format!(…))`, diesel `sql_query`) instead of bound parameters or the query macros? | CWE-89 | ASVS V1.2 | the query construction |
 | RW.6 | Does request input reach a process (`Command::new` with request-derived arguments, or `sh -c` with a built string)? | CWE-78 | ASVS V1.2 | a traced flow to the `Command` |
 | RW.7 | Does a request value become part of a filesystem path (`PathBuf::join` with `Path<String>`, `NamedFile::open`, `ServeDir` over a directory that holds more than public assets)? | CWE-22 | ASVS V5.3 | a traced flow to the file call |
