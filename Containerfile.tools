@@ -34,7 +34,7 @@
 #     1.26.9-builder builds both govulncheck and skopeo cleanly.
 # Bump this digest (staying on a stream both tools build under, and a -builder variant) when a
 # future pin needs it.
-FROM registry.access.redhat.com/hi/go:1.26.9-builder@sha256:c62803d6a744c045f1087cefe8b2b046d09048bdc499dcf090eaa623f3b9452d AS go-builder
+FROM registry.access.redhat.com/hi/go:1.26.10-builder@sha256:8534a929a08031ad051058a3573ebd9f2e7c187314e406dc2815070c64c445a2 AS go-builder
 USER 0
 RUN mkdir -p /out
 ARG SKOPEO_VERSION
