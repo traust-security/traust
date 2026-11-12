@@ -23,7 +23,7 @@ LABEL name="traust" \
       summary="Traust — skills, scripts, and schemas for automated security assessments" \
       description="A data-only OCI artifact containing AI agent skills, prompt engineering, \
 Python scripts, JSON schemas, and configuration for automated multi-framework security \
-audits of Red Hat Hybrid Platforms source code. Mounted as a volume by agent runtimes." \
+audits of source code. Mounted as a volume by agent runtimes." \
       version="${VERSION:-0.0.0}" \
       io.k8s.display-name="Traust" \
       io.k8s.description="AI agent harness for automated security assessments" \

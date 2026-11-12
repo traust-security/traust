@@ -398,7 +398,7 @@ Use before pushing to the traust repo, after adding or editing any skill, rule p
 
 ## check-skill-security
 
-Use before committing any new or edited skill or script to the traust repo, or when asked "does this skill degrade our security posture", "run the security-posture check", "is this skill safe to add" — runs python3 -m traust.cli check skill-security, the security-posture guard the pre-commit hook enforces alongside the alignment gate. Verifies privileged skills declare allowed-tools confinement, untrusted-content readers carry the adversarial-content doctrine, no git network command takes an ungated non-literal URL (the confirmed-RCE class from the 2026-07 self-audit), no shell-execution constructs or ps-visible Authorization headers, no fixed /tmp state paths, no unpinned runtime installs, no raw-egress tool grants, headless agents under repo-config isolation, and target-build invocations routed through the safe_exec sandbox.
+Use before committing any new or edited skill or script to the traust repo, or when asked "does this skill degrade our security posture", "run the security-posture check", "is this skill safe to add" — runs python3 -m traust.cli check skill-security, the security-posture guard the pre-commit hook enforces alongside the alignment gate. Verifies privileged skills declare allowed-tools confinement, untrusted-content readers carry the adversarial-content doctrine, no git network command takes an ungated non-literal URL, no shell-execution constructs or ps-visible Authorization headers, no fixed /tmp state paths, no unpinned runtime installs, no raw-egress tool grants, headless agents under repo-config isolation, and target-build invocations routed through the safe_exec sandbox.
 
 - **Stage:** —
 - **Tier:** `ci`

@@ -9,7 +9,7 @@ name = "traust"
 # closed if this field is removed)
 version = "0.1.0"
 license = "Apache-2.0"
-description = "AI agent tooling for automated security audits of Red Hat Hybrid Platforms source code"
+description = "AI agent tooling for automated source-code security audits"
 requires-python = ">=3.11"
 dependencies = [
     "traust-core",

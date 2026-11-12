@@ -10,8 +10,6 @@ allowed-tools:
   - Bash(traust products update:*)
   - Bash(ls:*)
   - Read
-  # scoped 2026-07-31 (P1-W4): A11 grandfather retired —
-  # per-script anchored grants replace Bash(python3:*)
 ---
 
 # Corpus Intake — register trees and engagements
@@ -56,16 +54,16 @@ Collect, one question at a time, anything not already provided:
 3. **Tree** — *retired*: the name is the tree.
    Convention: name it `<engagement>-findings`, one tree per engagement.
 4. **Ownership tag** — exactly one of:
-   - `owned` — Hybrid Platforms BU backlog (Lens 2 headline);
-   - `upstream` — community code HP relies on; adjacent line, never
+   - `owned` — the organization's remediation backlog (Lens 2 headline);
+   - `upstream` — community code the organization relies on; adjacent line, never
      folded into the owned headline;
    - `external-bu` — scan work for another BU; Lens 1 (work performed)
-     only, excluded from HP executive risk numbers.
+     only, excluded from the organization's executive risk numbers.
    - `harness-qa` — harness self-measurement artifacts (probes,
      benchmarks, side-by-side sweeps); registered so drift-watch knows
      the tree is vetted, but excluded from EVERY metrics lens —
      `corpus.resolve()` never walks it.
-   Probe the semantics, not just the label: "Does Hybrid Platforms own
+   Probe the semantics, not just the label: "Does the organization own
    the remediation backlog for this code?" (owned) / "Do we ship or
    depend on it?" (upstream) / "Are we only performing the scanning
    work?" (external-bu) / "Is this the harness measuring itself, where
@@ -120,8 +118,8 @@ the user to run `/add-inputs` to add them to the inputs inventory.
 
 - Products and the corpus registry in traust-core (validated).
 - Refreshed `census.{json,md,html}` under
-  `progress-tracker/metrics/dashboards/census/`. (`corpus-manifest.json` was
-  retired 2026-08-20; the resolved record list lives in findings.db `repos`.)
+  `progress-tracker/metrics/dashboards/census/`. The resolved record list
+  lives in findings.db `repos`.
 
 ## Failure modes
 

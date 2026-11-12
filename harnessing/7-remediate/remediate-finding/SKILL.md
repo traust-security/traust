@@ -425,11 +425,10 @@ have one form of guard each — neither is portfolio-wide assurance.
 
 Once Phase 4 is done (the checks green, or a genuine compatibility break
 recorded as Phase 4 allows), the patch becomes a commit through a script,
-never through the agent's git (followup ask E — the same isolation SCI's
-worker applies). `push_fix.sh commit` snapshots the worktree's **files**
-(`.git` excluded — the worktree's `.git` is agent-adjacent and,
-per assessment 2026-07-31 C2, potentially tainted by hostile target test
-code; it is never read), lays the snapshot over a **fresh clone** at the
+never through the agent's git. `push_fix.sh commit` snapshots the worktree's
+**files** (`.git` excluded — the worktree's `.git` is agent-adjacent and
+potentially tainted by hostile target test code; it is never read), lays the
+snapshot over a **fresh clone** at the
 recorded pre-agent base commit (SHA-verified after checkout, so the clone
 is exactly the audited tree plus your snapshot), and commits under the
 fixed machine identity `sci-remediation <sci-remediation@localhost>` —
@@ -662,7 +661,7 @@ layout; `push_fix.sh push` removes it after the push, `push_fix.sh discard` when
   remotes at all (its mirror's config stays pristine); Phase 6 pushes
   from the pristine Phase 4d clone — never the agent's worktree — to the
   fork by URL only, with a per-command credential helper.
-- **Deterministic commit** (followup ask E): the agent never runs a
+- **Deterministic commit**: the agent never runs a
   mutating git command; `push_fix.sh` commits a file-level snapshot of
   the worktree (`.git` excluded) on a fresh clone at the recorded
   pre-agent base commit, under the fixed machine identity
@@ -678,8 +677,7 @@ layout; `push_fix.sh push` removes it after the push, `push_fix.sh discard` when
 
 After this skill's report/artifact is written, declare the run's spend
 against the target so `estimate_scan` can calibrate per-skill cost
-models (contract: docs/model-routing.md; analysis:
-progress-tracker/metrics/estimate-calibration-analysis.md §F5):
+models (contract: docs/model-routing.md):
 
 ```bash
 python3 -m traust.cli registry models spend --skill remediate-finding \

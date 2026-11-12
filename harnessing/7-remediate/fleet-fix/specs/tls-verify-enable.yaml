@@ -1,7 +1,7 @@
 # Fleet-fix: re-enable TLS certificate validation on credential-bearing
 # Ansible uri/get_url calls that disable it.
 #
-# Pattern: 2026-07 cloud-config Phase-0 sweep, Checkov CKV_ANSIBLE_1
+# Pattern: Checkov CKV_ANSIBLE_1
 # (uri) / CKV_ANSIBLE_2 (get_url) — TLS validation disabled where
 # credentials transit (CWE-295). Confirmed in 4 repos:
 #   - openshift/assisted-test-infra   CCA-assisted-test-infra-004 (high)
@@ -31,7 +31,7 @@
 # No resolver: pure line rewrite; apply with --pin <40 hex> (value
 # unused by the template) so the applier skips URL resolution.
 id: tls-verify-enable
-pattern_ref: "Cloud-config Phase-0 sweep 2026-07: CKV_ANSIBLE_1/CKV_ANSIBLE_2 — TLS certificate validation disabled on credential-bearing uri/get_url tasks"
+pattern_ref: "CKV_ANSIBLE_1/CKV_ANSIBLE_2 — TLS certificate validation disabled on credential-bearing uri/get_url tasks"
 description: >-
   Rewrites literal `validate_certs: false|no` lines to
   `validate_certs: true` when a uri:/get_url: module key appears within

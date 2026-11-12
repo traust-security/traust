@@ -1,10 +1,7 @@
 """Inventory descriptor — what each segment of the repository inventory *is*.
 
 The inventory tree (``locations.inputs``) is one directory per *segment*.
-Until 2026-09-07 three segment names were hardcoded across the graph builder,
-the executive summary and the IaC inventory (one organisation's product
-names), and every other segment fell through to the generic layout. The
-descriptor replaces those names with a declared *kind*:
+Each segment declares its *kind* rather than relying on hardcoded names:
 
     <inputs>/inventory.yaml
     ---

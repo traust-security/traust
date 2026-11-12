@@ -85,9 +85,6 @@ RULES: tuple[tuple[str, str, str, str], ...] = (
         "private-range IP",
     ),
     # ---- block: cloud tenancy identity ---------------------------------
-    # Added 2026-09-01. The 27-skill scrub found an AWS account id, two GCP
-    # project ids and an installer service account BY HAND, in files this
-    # scanner had already passed — so a recurrence would have been invisible.
     #
     # Both are ANCHORED, never shape-based. A bare 12-digit rule matches
     # fuzz-crash output (velocity-engine logs are full of long digit runs),
@@ -110,9 +107,7 @@ RULES: tuple[tuple[str, str, str, str], ...] = (
     # ---- block: a person's data --------------------------------------
     # Consumer-mailbox domains: a corporate address is org vocabulary (the
     # deployment's internal-vocabulary.yaml names it), but an address at a
-    # consumer provider is a PERSON's, whatever repo it sits in. Found the
-    # hard way 2026-09-07: eight people's personal addresses shipped in a
-    # skill's reference table for two months while every gate passed.
+    # consumer provider is a PERSON's, whatever repo it sits in.
     (
         "personal-email",
         "block",
@@ -277,8 +272,7 @@ RULE_EXEMPT_PATHS: dict[str, tuple[str, ...]] = {
     # AWS's own published documentation key. It exists to be written down.
     "aws-key": ("tests/test_redact.py",),
     # docs/external-dependencies.md is the licence-intake record. Naming where
-    # a dependency comes from IS the evidence; blanking the URLs would make the
-    # provenance less true, not less internal (Michele, 2026-09-01). Exempting
+    # a dependency comes from is evidence; the URLs preserve provenance.
     # RFC1918 space is non-routable by definition, so a 10.x literal in a test
     # fixture -- a CIDR selector, a connection-refused message -- is the correct
     # thing to write, not a disclosure. Scoped to tests/ so a real internal
@@ -296,10 +290,8 @@ def _exempt(rule_id: str, rel: str) -> bool:
 
 
 # A vocabulary file is the SOURCE of the deployment rules: a literal pattern
-# matches its own text, so scanning it with the rules it defines is circular
-# (the shipped template and the test fixture both tripped `campaign` and
-# `internal-tooling` on their own placeholders in the 2026-09-08 export
-# dry-run). Universal rules (keys, personal data) still apply to it.
+# matches its own text, so scanning it with the rules it defines is circular.
+# Universal rules (keys, personal data) still apply to it.
 VOCABULARY_FILE_RX = re.compile(r"(^|/)internal-vocabulary[^/]*\.ya?ml$")
 _UNIVERSAL_IDS = frozenset(r[0] for r in RULES)
 

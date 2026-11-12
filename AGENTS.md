@@ -192,10 +192,7 @@ Changes to report schemas, finding disposition states, or metrics computed by sk
 
 ## Documentation upkeep
 
-The 2026-07-25 docs-verification sweep (report:
-`progress-tracker/gap-assessments/docs-verification-2026-07-25.md`) found ~60
-discrepancies that had accumulated over ~150 releases. Four conventions,
-three of them mechanically enforced, keep that from recurring:
+Four conventions, three of them mechanically enforced, keep documentation current:
 
 - **Skill changes update the reference in the same commit.** A staged
   `harnessing/*/SKILL.md` change must ship with a staged [`docs/skills.md`](docs/skills.md)
@@ -227,10 +224,7 @@ three of them mechanically enforced, keep that from recurring:
   Other emitter formats use shared `traust_engine.escaping` helpers: generated
   HTML (`esc_html`), inline `<script>` JSON (`json_script`), Markdown table
   cells (`md_cell`), CSV cells (`csv_cell`), or path/API segments (`safe_slug`).
-  One sibling having
-  the control while its neighbor lacks it was the measured failure shape
-  (assessment 2026-07-31 root cause 4) — import the shared helpers, do
-  not re-implement them locally
+  Import the shared helpers; do not re-implement them locally.
 - **Never put an Authorization header (or any secret) in curl argv** — argv
   is ps-visible to every local user. Pipe `header = "Authorization: …"` to
   `curl --config -` on stdin (enforced by check_skill_security rule S5)

@@ -1,6 +1,6 @@
 # Fleet-fix: close world-open SSH ingress in Terraform security groups.
 #
-# Pattern: 2026-07 cloud-config Phase-0 sweep, CKV_AWS_24 class —
+# Pattern: CKV_AWS_24 class —
 # security-group ingress on port 22 from 0.0.0.0/0 (CWE-284 exposure).
 # Confirmed in 7 repos:
 #   - RHEcosystemAppEng/amq-cob                CCA-amq-cob-001 (critical)
@@ -47,7 +47,7 @@
 # No resolver: pure line rewrite; apply with --pin <40 hex> (value
 # unused by the template) so the applier skips URL resolution.
 id: ssh-cidr-restrict
-pattern_ref: "Cloud-config Phase-0 sweep 2026-07: CKV_AWS_24 class — SSH (22/tcp) ingress from 0.0.0.0/0 in Terraform security groups"
+pattern_ref: "CKV_AWS_24 class — SSH (22/tcp) ingress from 0.0.0.0/0 in Terraform security groups"
 description: >-
   Replaces the literal one-element ["0.0.0.0/0"] cidr_blocks list with
   var.allowed_ssh_cidrs in security-group rules whose from_port is 22,

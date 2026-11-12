@@ -25,7 +25,6 @@ allowed-tools:
   - Bash(python3 *-m traust.cli impact symbols:*)
   - Bash(python3 *-m traust.cli impact analyze:*)
   - Bash(python3 *-m traust.cli impact export:*)
-  # (Bash(git:*) dropped 2026-07-31 P1-W4: no git invocation in this skill's flow)
   - Bash(jq:*)
   - Bash(python3 *-m traust.cli impact document:*)
 ---
@@ -147,13 +146,7 @@ produced, so it never ran). `linked` caps at `likely_affected`;
   matching — prefix matching on short C identifiers would over-match);
   gated on include/linked evidence AND advisory-named symbols; the
   same promotion-only asymmetry (C function pointers hide edges the
-  way Java DI does). Validated 2026-07-31
-  against the 2026-07 Java engagement corpus: audit-confirmed sink METHODS
-  re-found (dnsjava TSIG.verify at the exact audited SHA; jline3
-  CursorSupport.getCursorPosition at upstream HEAD; jackson's actual
-  Class.forName choke point correctly resolved to
-  TypeFactory.classForName) — record in
-  analysis-results/scan-testing/joern-validation/.
+  way Java DI does).
 
 Every repo entry records `evidence.evidence_level`
 (`symbol > symbol-usage > binary > manifest > none`) so downstream

@@ -2,16 +2,11 @@
 
 Why a gate and not only a schema rule: a finding's ledger identity is
 `repo | sorted canonical paths | primary CWE`, so a location of `.` or `/`
-canonicalizes to empty and collapses identity to `(repo, '', cwe)`. Measured
-2026-08-18 across the corpus: **hundreds of fingerprints were each shared by
-several findings** — "no SECURITY.md" and "not onboarded to OpenSSF
-Scorecard" in one repo were the
-same finding as far as the ledger could tell, so a disposition on one silently
-covered the other.
+canonicalizes to empty and collapses identity to `(repo, '', cwe)`. Distinct
+findings can then share a fingerprint, causing a disposition on one to cover
+another silently.
 
-Three layers enforce this, because each fails alone (P0.1 had the rule and only
-checked presence: 606 forged stamps passed for months; `event.fingerprint` had the
-code and no schema: every stamped layer failed validation):
+Three layers enforce this, because each fails alone:
 
 1. `traust-contracts` declares the rule and the pseudo-path vocabulary.
 2. `traust_ledger.identity.fingerprint(strict=True)` refuses at stamp time.

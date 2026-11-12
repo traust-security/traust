@@ -2,16 +2,10 @@
 """Skill security-posture guard — catch a new or edited skill degrading
 the harness's security posture, before it is committed.
 
-Born from the 2026-07-24 pre-release self-audit
-(progress-tracker/plans/harness-security-remediation-plan.md). The audit
-found one repeating meta-pattern: the most privileged skills were the
-least confined, and each unsafe construct (git transport injection,
-token-in-argv, /tmp credential caches, unpinned installs) entered through
-one skill while its siblings already carried the safe pattern. This
-checker makes the safe patterns mechanical for every FUTURE skill; the
-EXEMPTIONS map grandfathers today's known violators, each entry citing
-the remediation-plan item that will remove it — the list must only ever
-shrink.
+The most privileged skills need confinement, and unsafe constructs include
+git transport injection, token-in-argv, /tmp credential caches and unpinned
+installs. This checker enforces safe patterns across skills; the EXEMPTIONS
+map records known exceptions.
 
 Rules (S-series; A-series lives in check_skill_alignment.py):
   S1 confinement      A SKILL.md whose prose indicates privileged
@@ -53,10 +47,7 @@ Rules (S-series; A-series lives in check_skill_alignment.py):
                       isolation doctrine: agent cwd outside the
                       untrusted checkout, and repo-supplied agent config
                       (`.claude/`, `CLAUDE.md`, hooks) never loaded as
-                      configuration — it is data under audit. Measured
-                      incident 2026-07-26 (b-lite-p5): corpus repos
-                      shipping their own `.claude` hooks killed — and
-                      could have injected — headless scan workers.
+                      configuration — it is data under audit.
 
   S10 target-build   A skill/script that executes an audited checkout's
       sandbox        own build machinery (make/mvn/gradle/go build/npm/
@@ -64,9 +55,7 @@ Rules (S-series; A-series lives in check_skill_alignment.py):
                      through traust-core's safe-exec (`traust util safe-exec`) — enforced command
                      validation with profile allowlists, git -c/network
                      hardening, and shell-free pipeline execution.
-                     (sandbox-adoption WS1,
-                     the sandbox-adoption plan (internal);
-                     pattern source: balor-fianna SafeBash.)
+                     Pattern source: balor-fianna SafeBash.
 
 Exit 0 = clean (exemptions printed), 1 = violations found.
 """
@@ -99,8 +88,6 @@ EXEMPTIONS: dict[tuple[str, str], str] = {
         "harnessing/validate-browser-finding/SKILL.md",
     ): "grandfathered — remediation plan P2.14 batch; the core "
     "ValidationScope gate (validate-browser-finding run.py) is the operative control",
-    # (verify-remediation S1 retired 2026-07-31 P1-W4: allowed-tools
-    # added — scoped git + anchored scripts.)
     (
         "S1",
         "harnessing/create-fuzzing/SKILL.md",
@@ -110,8 +97,6 @@ EXEMPTIONS: dict[tuple[str, str], str] = {
         "harnessing/compliance-check/SKILL.md",
     ): "grandfathered — P1.6 batch; compliance lane reads declared inventory only",
     # --- S2 doctrine: grandfathered per audit D4; plan P1.6 ---
-    # (cloud-config-audit retired 2026-07-31: doctrine section added in
-    # the P1 gate rework — exemption no longer needed)
     ("S2", "harnessing/isolation-review/SKILL.md"): "grandfathered — D4 batch, P1.6",
     ("S2", "harnessing/fleet-fix/SKILL.md"): "grandfathered — D4 batch, P2.11",
     ("S2", "harnessing/create-fuzzing/SKILL.md"): "grandfathered — D4 batch, P2.11",
@@ -140,17 +125,13 @@ EXEMPTIONS: dict[tuple[str, str], str] = {
     ): "reviewed — pod-side sh -c via kubectl/oc exec; host never "
     "shells out (P0-2 kubeargv classification + scope gate)",
     # --- S4 shell-exec ---
-    # (base.py entry REMOVED 2026-07-31: P2.13 closed — PoC-string steps
-    #  now validate and execute via traust-core's safe-exec, no shell.)
     # --- S5 token-argv ---
     (
         "S5",
         "harnessing/5-validate/validate-findings/novel.py",
     ): "reviewed — Authorization header is in a cmd_template string (recon step"
     " template executed inside the target pod via kubectl exec, not on the harness host)",
-    # --- S10 target-build sandbox: grandfathered pending the WS1 skill
-    #     integrations (sandbox-adoption-plan §WS1, D-decisions open);
-    #     each lands behind safe_exec profiles when its skill integrates ---
+    # --- S10 target-build sandbox: grandfathered pending safe_exec integration ---
     (
         "S10",
         "harnessing/create-fuzzing/SKILL.md",
@@ -218,10 +199,7 @@ PRIVILEGE_RX = re.compile(
     r"|oc (apply|create|delete|adm|exec)|kubectl (apply|create|delete|exec)"
     r"|--destructive|WebFetch|clone[sd]? (it |the |automatically)"
     r"|make test|npm ci|cargo test|go test|run the repo'?s own"
-    # container/IaC/sweep tokens (assessment 2026-07-31 root-cause 1:
-    # secure-container-audit, crypto-analysis, cloud-config-audit and
-    # portfolio-graph were fully unconfined because none of their verbs
-    # appeared here)
+    # container/IaC/sweep tokens
     r"|podman (pull|create|export|run)|skopeo|docker (pull|create|run)"
     r"|tar -x|checkov|bicep build|govulncheck"
     r"|clone sweep|shallow[- ]clone|gh api",
@@ -345,10 +323,8 @@ FENCED_BLOCK_RX = re.compile(r"```[a-z]*\n(.*?)```", re.S)
 SCRIPT_EXTS = {".py", ".sh", ".bash", ".mk"}
 SCRIPT_NAMES = {"Makefile", "GNUmakefile", "justfile"}
 # rule-pack fixtures contain intentional vulnerabilities; the checker's
-# own source contains the rule regexes it hunts for. The blanket
-# "tests/" substring exempted harnessing/<skill>/tests/ scripts from
-# every rule (assessment 2026-07-31 rollup-F3) — only the repo-level
-# tests tree (rule-regex test data) is excluded now.
+# own source contains the rule regexes it hunts for. Only the repo-level
+# tests tree (rule-regex test data) is excluded.
 FIXTURE_MARKERS = ("opengrep-rules/", "rule-drafts/", "src/traust/cli/check_skill_security.py")
 FIXTURE_PREFIXES = ("tests/",)
 
@@ -425,13 +401,8 @@ def _s10_unrouted_build(text: str) -> bool:
 
 
 def _s3_failures(text: str) -> list[str]:
-    """S3 over EVERY git-network call site, with continuation-line
-    handling and per-site gate proximity. The old shape checked only
-    the first match, one physical line, and accepted a gate marker
-    anywhere in the file — all three were confirmed evasions
-    (assessment 2026-07-31 rollup-F3; live miss in
-    build_portfolio_graph.py where the URL f-string sat on the next
-    line)."""
+    """S3 over every git-network call site, with continuation-line
+    handling and per-site gate proximity."""
     lines = text.splitlines()
     fails = []
     for m in GIT_NET_RX.finditer(text):
@@ -459,8 +430,7 @@ def _s3_failures(text: str) -> list[str]:
 def _s4_ast_failures(text: str) -> list[str]:
     """AST leg of S4 for .py files — the shapes the regex cannot see:
     sh/zsh/dash -c argv lists with non-literal payloads, shell=<expr>
-    that is not the literal False, and os.exec*/spawn* (assessment
-    2026-07-31 rollup-F3)."""
+    that is not the literal False, and os.exec*/spawn*."""
     import ast
 
     try:
@@ -634,7 +604,6 @@ def security_failures(repo: Path = REPO) -> tuple[list[str], list[str]]:
         fenced = "\n".join(blocks)
         # S3 over SKILL execution blocks too — prose clone commands with
         # <url>/<branch> placeholders are agent-executed instructions
-        # (assessment 2026-07-31 adjudication-H7)
         for s3fail in _s3_failures(fenced):
             if not _exempt("S3", rel, used):
                 fails.append(f"S3 {rel} (execution block): {s3fail}")
@@ -645,8 +614,7 @@ def security_failures(repo: Path = REPO) -> tuple[list[str], list[str]]:
                 f"S10 {rel}: target-build invocation in an execution "
                 "block without safe_exec routing — build systems of "
                 "audited checkouts are hostile code; run them "
-                "through traust-core's safe-exec (`traust util safe-exec`) "
-                "(sandbox-adoption WS1)"
+                "through traust-core's safe-exec (`traust util safe-exec`)"
             )
 
         if (
@@ -658,7 +626,7 @@ def security_failures(repo: Path = REPO) -> tuple[list[str], list[str]]:
                 f"S9 {rel}: launches a headless agent without the "
                 "repo-config isolation doctrine (agent cwd outside "
                 "the checkout; .claude/CLAUDE.md/hooks never loaded "
-                "as config) (b-lite-p5 incident 2026-07-26)"
+                "as config)"
             )
 
     # -- script rules (S3-S7) ---------------------------------------------
@@ -682,8 +650,7 @@ def security_failures(repo: Path = REPO) -> tuple[list[str], list[str]]:
                 if not _exempt("S4", rel, used):
                     fails.append(
                         f"S4 {rel}: shell-execution construct — "
-                        f"{s4hit} (AST leg; assessment 2026-07-31 "
-                        "rollup-F3)"
+                        f"{s4hit} (AST leg)"
                     )
                 break
 
@@ -692,7 +659,7 @@ def security_failures(repo: Path = REPO) -> tuple[list[str], list[str]]:
                 f"S10 {rel}: target-build invocation without "
                 "safe_exec routing — build systems of audited "
                 "checkouts are hostile code; run them through "
-                "traust-core's safe-exec (`traust util safe-exec`) (sandbox-adoption WS1)"
+                "traust-core's safe-exec (`traust util safe-exec`)"
             )
 
         if CURL_AUTH_RX.search(text) and not _exempt("S5", rel, used):
@@ -732,7 +699,7 @@ def security_failures(repo: Path = REPO) -> tuple[list[str], list[str]]:
                 f"S9 {rel}: launches a headless agent without the "
                 "repo-config isolation doctrine (agent cwd outside "
                 "the checkout; .claude/CLAUDE.md/hooks never loaded "
-                "as config) (b-lite-p5 incident 2026-07-26)"
+                "as config)"
             )
 
     return fails, used
@@ -760,9 +727,8 @@ def main(argv=None) -> int:
         for f in fails:
             print(f"    - {f}")
         print(
-            "\nFix the skill (or add a reviewed EXEMPTIONS entry citing "
-            "a remediation-plan item) — see /check-skill-security and "
-            "progress-tracker/plans/harness-security-remediation-plan.md"
+            "\nFix the skill or add a reviewed EXEMPTIONS entry with a "
+            "design rationale; see /check-skill-security"
         )
         return 1
     print(

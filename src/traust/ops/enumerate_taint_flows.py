@@ -69,8 +69,7 @@ CATALOG: dict[str, dict] = {
             "reflection and DI-injected flows invisible to static analysis",
             "store-then-fetch flows (request value stored in session/"
             "heap state and executed on a later fetch — the H2-console "
-            "shape) are invisible to per-request reachableByFlows "
-            "(calibration 2026-07-31)",
+            "shape) are invisible to per-request reachableByFlows",
         ],
     },
     "c": {
@@ -115,8 +114,7 @@ QUERY_SC = r"""
     // NON-RECEIVER arguments only: argument(0) is the instance receiver
     // in Joern, and taint on the receiver object (e.g. a Statement
     // selected via a tainted map key) is NOT taint in the executed
-    // data — the h2 judge pass measured 16/16 false positives from
-    // exactly this class (calibration 2026-07-31)
+    // data — calibration found false positives from exactly this class.
     def snk = cpg.call.methodFullName(sinkRe).argument
       .filter(_.argumentIndex > 0)
       // constant pruning: an argument expression containing no

@@ -439,10 +439,8 @@ def recon_steps(scope, *, id_prefix: str = "recon") -> list[ReconStep]:
                 "minTLSVersion, custom ciphers/groups)",
             )
         )
-        # Metadata + PUBLIC cert only — never `-o json` (assessment
-        # 2026-07-31 F3: the full dump committed every cluster TLS
-        # PRIVATE key to artifacts; the cert-algorithm probe needs
-        # tls.crt, which is public, and nothing needs tls.key).
+        # Metadata + PUBLIC cert only — never `-o json`, which would expose
+        # cluster TLS private keys. The probe needs tls.crt, not tls.key.
         out.append(
             ReconStep(
                 sid(),
