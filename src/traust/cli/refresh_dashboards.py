@@ -6,6 +6,12 @@ as one command: first traust-core's insight views (`DashboardsMaterializer`,
 one `InsightService.refresh`, the leadership scoreboard among them), then the
 builders of the dashboards core has no view for yet.
 
+`--census` is the dashboards lane's fast leg instead (the `insight_builds`
+asset, performance-lane wave (d)): fold the four census views once and store
+them as the newest build — the artifact `GET /v1/insights/{name}` serves
+between builds — with no renders and no workspace writes. The pack runs it
+at a 5-15 minute cadence; the full refresh above stays on its own.
+
 All stages are deterministic (~$0, no agent). A failure is recorded and
 the remaining stages still run; the exit code is non-zero if anything failed.
 The summary goes to stderr: a runner reads the views stage's JobResult as the last stdout line.
@@ -23,6 +29,7 @@ Usage:
   python3 -m traust.cli.refresh_dashboards --skip validation-fuzz
   python3 -m traust.cli.refresh_dashboards --dry-run
   python3 -m traust.cli.refresh_dashboards --spend-actuals
+  python3 -m traust.cli.refresh_dashboards --census       # store the census build only
 """
 
 import argparse
@@ -42,7 +49,11 @@ from traust.context import (
     resolve_results_root,
     workspace_dir,
 )
-from traust.ops.materializers import MANUAL, DashboardsMaterializer
+from traust.ops.materializers import (
+    MANUAL,
+    DashboardsMaterializer,
+    InsightBuildsMaterializer,
+)
 from traust.paths import HARNESS_ROOT
 
 VIEWS = "views"
@@ -100,6 +111,17 @@ def run_views(args, out: Path) -> int:
     return EXIT_CODES[result.outcome]
 
 
+def run_census(args) -> int:
+    """The `insight_builds` asset's materializer: one stored-build publication, no renders;
+    prints its JobResult (the runner records the last stdout line)."""
+    materializer = InsightBuildsMaterializer(load(args.config_home).services())
+    result = materializer.materialize(
+        AssetRequest(asset=materializer.asset, run_id=args.run_id, partition=None)
+    )
+    print(result.model_dump_json(), flush=True)
+    return EXIT_CODES[result.outcome]
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(
         description="Rebuild all deterministic dashboards: traust-core's views, "
@@ -135,6 +157,13 @@ def main(argv=None):
         "transcripts (operator workstations only)",
     )
     ap.add_argument(
+        "--census",
+        action="store_true",
+        help="store the census build only (the `insight_builds` asset): fold the four census "
+        "views once and publish them as the artifact the insight route serves between builds; "
+        "no renders, no workspace writes",
+    )
+    ap.add_argument(
         "--view",
         choices=[v.value for v in ViewName],
         help="the views stage renders only this insight view (default: every built view)",
@@ -153,16 +182,19 @@ def main(argv=None):
     )
     args = ap.parse_args(argv)
 
+    if args.list:  # introspection only: a probe for "the pack's flags all parse" (see tests)
+        for name, tier, _ in build_stages(Path("/w"), Path("/r"), False):
+            print(f"{name:20s} {tier}")
+        return 0
+
+    if args.census:
+        return run_census(args)
+
     core = load(args.config_home)
     workspace = (args.workspace_root or workspace_dir(core)).resolve()
     results_root = resolve_results_root(args)
     spend_actuals = args.spend_actuals or args.list or "spend-actuals" in (args.only or [])
     stages = build_stages(workspace, results_root, spend_actuals, config_home=args.config_home)
-
-    if args.list:
-        for name, tier, _ in stages:
-            print(f"{name:20s} {tier}")
-        return 0
 
     known = {name for name, _, _ in stages}
     for requested in (args.only or []) + args.skip:
