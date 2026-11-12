@@ -1161,7 +1161,7 @@ source text; `test_path: true` rows sit under a test/example directory.
 Other detected frameworks appear as `coverage_gaps`. Guard recognition
 is name-based and over-inclusive by design — the judge decides
 enforcement. Authenticated id routes of Spring, JAX-RS, FastAPI, Express, Rails,
-axum, actix-web, Django/DRF and Flask also carry `ownership` and
+axum, actix-web, Django/DRF, Flask and aiohttp also carry `ownership` and
 `ownership_evidence`: whether the handler
 ties the object it acts on to the caller (CWE-639). `framework-checks.md`
 "Route ownership" says what each value means. Its judged rows set

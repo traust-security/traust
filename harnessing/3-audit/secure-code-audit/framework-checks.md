@@ -47,7 +47,7 @@ assignment, debug settings) as a `framework-checks` coverage gap.
 
 `traust adapters route-guards` classifies each authenticated route with an
 object id in its path (Spring, JAX-RS, FastAPI, Express, Rails, axum,
-actix-web, Django/DRF and Flask today) in the row's `ownership`, with the spans it read in `ownership_evidence`
+actix-web, Django/DRF, Flask and aiohttp today) in the row's `ownership`, with the spans it read in `ownership_evidence`
 (`lookup`, `caller`, `check`, `hop`, `record_type`, `owner_field`). The
 values are `scoped`, `checked`, `caller-blind`, `unchecked`, `none`,
 `unknown` and `n/a`. Rows marked `caller-blind` (the handler never sees the
@@ -57,8 +57,8 @@ record without tying it to the caller) are judged, so they set
 EX.4, JV.5, RW.4, RL.3, DF.1). `unknown` means the reader couldn't follow the
 handler: review it by hand. Protection is credited only from an allow-list
 of exact shapes, so a `scoped` or `checked` row is still a claim: spot-check
-one per controller or router. The axum/actix-web, Django/DRF and Flask
-readers never credit protection: their rows are only judged or `unknown`, so
+one per controller or router. The axum/actix-web, Django/DRF, Flask and
+aiohttp readers never credit protection: their rows are only judged or `unknown`, so
 an `unknown` row there includes reads the code does tie to the caller, and a
 judged row includes ones it checks by hand after the read. Read each. A framework or handler the reader doesn't
 classify is a `<family> ownership` coverage gap naming its routes, never a
@@ -186,7 +186,7 @@ the Python facts with `python3 -m traust.cli adapters opengrep <local-path>
 | FA.1 | Does every route that changes state or returns non-public data require authentication, through a dependency, a router or app dependency, a middleware that refuses unauthenticated requests, or a reverse proxy, ingress or sidecar in front of the app (nginx `auth_basic`, oauth-proxy, kube-rbac-proxy)? When it is the proxy, cite it and check whether the app's port can be reached around it (bind address, Service type, NetworkPolicy). | CWE-306 | ASVS V6.3 | each guard family confirmed to reject (see above), then the route-guards rows; for a proxy, its configuration and the deployment manifests |
 | FA.2 | Does an auth or authorization dependency fail open: any `fastapi.security` scheme with `auto_error=False` (`OAuth2PasswordBearer`, `HTTPBearer`, `APIKeyHeader`, `APIKeyCookie`, `APIKeyQuery`) and no later check, a token-decode error caught and turned into an anonymous user, or a fallback to the widest scope or tenant instead of raising? | CWE-287 | ASVS V6.3 | the dependency named in the rows' `guards` / `scope_guards`, read to its error branches |
 | FA.3 | Are admin and write routes restricted beyond "authenticated": `Security(..., scopes=[...])` with `SecurityScopes` actually checked, or a role check in the dependency? If FA.1 found no authentication, record FA.3 as covered by that finding. | CWE-862 | ASVS V8.3 | rows whose `guards` lack the role or scope family their siblings carry (`guard_family_gaps`; an empty list means nothing when no role family exists); the scope check in the dependency; *judgement* |
-| FA.4 | Does a route that takes an object ID (path or query) check that the caller may act on that object, rather than only that the caller is logged in, and is that ownership or tenant filter taken from the authenticated principal rather than from a header, query or body value the caller sets? | CWE-639 | ASVS V8.2 | the route-guards rows' `ownership` ([Route ownership](#route-ownership-cwe-639)), `caller-blind` and `unchecked` first, then the handler's lookup and the filter on it, and where the filter's value comes from, `file:line`; aiohttp routes are an ownership coverage gap |
+| FA.4 | Does a route that takes an object ID (path or query) check that the caller may act on that object, rather than only that the caller is logged in, and is that ownership or tenant filter taken from the authenticated principal rather than from a header, query or body value the caller sets? | CWE-639 | ASVS V8.2 | the route-guards rows' `ownership` ([Route ownership](#route-ownership-cwe-639)), `caller-blind` and `unchecked` first, then the handler's lookup and the filter on it, and where the filter's value comes from, `file:line`. aiohttp's reader judges but never credits, so its `unknown` rows are read too: they include reads tied to the caller, Postgres row-level security and ownership middleware |
 | FA.5 | Can a route be reached without the guards its siblings get: a router included a second time without `dependencies=`, or a sub-application under `app.mount(...)` (mounted apps don't inherit FastAPI dependencies, only ASGI middleware)? | CWE-288 | ASVS V6.3 | the route-guards rows for the same handler under two patterns; the `mount` call and what the mounted app enforces itself |
 | FA.6 | Do request bodies bind to models that let the caller set fields they shouldn't (`model_config = ConfigDict(extra="allow")`, an `owner_id`, `role` or `is_admin` field on a create or update model), or skip models entirely (`await request.json()`, `dict` / `Any` parameters)? | CWE-915 | ASVS V15.3 | the request models and the handler's write call |
 | FA.7 | Do responses return ORM objects or dicts with fields the caller shouldn't see (password hashes, tokens, internal IDs) because the route has no `response_model` or returns a broader one? | CWE-200 | ASVS V15.3 | the route's `response_model` and what the handler returns |
