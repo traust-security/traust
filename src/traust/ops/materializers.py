@@ -13,7 +13,13 @@ from urllib.parse import urlsplit
 from uuid import UUID
 
 from traust_core.v1.context import Services
-from traust_core.v1.errors import ConfigError, NotFoundError, ServiceError, ValidationError
+from traust_core.v1.errors import (
+    ConfigError,
+    NotFoundError,
+    ServiceError,
+    TraustError,
+    ValidationError,
+)
 from traust_core.v1.models.below_range import BelowRangeStatus
 from traust_core.v1.models.dependencies import FeedName
 from traust_core.v1.models.insight import RenderedView, ViewFilter, ViewName
@@ -283,6 +289,29 @@ class DashboardsMaterializer:
         return JobResult.partly(degraded, tuple(map(str, written))).model_copy(
             update={"reason": OrderReason.SOURCE_UNAVAILABLE if result.failed else None}
         )
+
+
+class InsightBuildsMaterializer:
+    """`insight_builds`: the dashboards lane's fast leg (performance-lane wave (d), foundry#56) —
+    fold the four census views once and store them as the newest build, the artifact
+    ``GET /v1/insights/{name}`` serves between builds instead of folding per request. One
+    GLOBAL build serves every scope; the caller's authorization filters what it serves."""
+
+    asset = "insight_builds"
+
+    def __init__(self, services: Services) -> None:
+        self._insight = services.insight
+
+    def materialize(self, request: AssetRequest) -> JobResult:
+        try:
+            result = self._insight.record_builds()
+        except (ValueError, ConfigError) as e:
+            log.warning("run %s: %s: %s", request.run_id, OrderReason.BAD_REQUEST, e)
+            return JobResult.failed(OrderReason.BAD_REQUEST)
+        except TraustError as e:
+            log.warning("run %s: %s: %s", request.run_id, OrderReason.SOURCE_UNAVAILABLE, e)
+            return JobResult.failed(OrderReason.SOURCE_UNAVAILABLE)
+        return JobResult.succeeded((str(result.artifact_id),))
 
 
 class BelowRangePacketsMaterializer:
