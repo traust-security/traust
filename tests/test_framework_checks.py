@@ -107,12 +107,25 @@ def test_django_and_flask_ownership_rows_get_a_check_and_the_rest_a_gap():
     assert "`django-drf` or `flask` rows" in selecting
     assert "under DF.1" in selecting and "`framework-checks` coverage gap" in selecting
     ownership = text.split("## Route ownership (CWE-639)", 1)[1].split("\n## ", 1)[0]
-    assert "Django/DRF and Flask" in ownership and "DF.1" in ownership
+    assert "Django/DRF, Flask" in ownership and "DF.1" in ownership
     assert "never credit" in ownership  # judge-only readers: `unknown` rows are read too
     rows = {m["id"]: m.string for m in _rows()}
     assert "no ownership reader yet" not in rows["RW.4"]
     skill = (CHECKS.parent / "SKILL.md").read_text(encoding="utf-8")
-    assert "Django/DRF and Flask also carry `ownership`" in skill.replace("\n", " ").replace(
-        "  ", " "
-    )
+    assert "Django/DRF, Flask and aiohttp also carry `ownership`" in skill.replace(
+        "\n", " "
+    ).replace("  ", " ")
     assert "RW.4, RL.3, DF.1" in skill
+
+
+def test_aiohttp_ownership_rows_are_judged_never_a_gap():
+    """aiohttp carries judged ownership (traust-core#424): FA.4 reads its rows, `unknown` ones
+    too, and no longer calls aiohttp routes an ownership coverage gap."""
+    text = CHECKS.read_text(encoding="utf-8")
+    ownership = text.split("## Route ownership (CWE-639)", 1)[1].split("\n## ", 1)[0]
+    flat = " ".join(ownership.split())
+    assert "Django/DRF, Flask and aiohttp today" in flat
+    assert "Django/DRF, Flask and aiohttp readers never credit protection" in flat
+    rows = {m["id"]: m.string for m in _rows()}
+    assert "aiohttp routes are an ownership coverage gap" not in rows["FA.4"]
+    assert "never credits" in rows["FA.4"] and "`unknown` rows are read too" in rows["FA.4"]
