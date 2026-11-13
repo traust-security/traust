@@ -157,5 +157,6 @@ def test_both_skills_name_every_section_the_table_selects():
         body = " ".join((CHECKS.parents[1] / skill / "SKILL.md").read_text().split())
         listed = re.search(r"\((?:[^()]*?table: )?(Kubernetes operators[^)]*)\)", body)
         assert listed, skill
-        for name in names:
-            assert name in listed.group(1), (skill, name)
+        for name in names:  # a whole word or phrase: "Go" must stand alone, not in "Google"
+            word = rf"(?<![\w-]){re.escape(name)}(?![\w-])"
+            assert re.search(word, listed.group(1)), (skill, name)
