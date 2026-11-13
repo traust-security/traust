@@ -23,7 +23,7 @@ def test_every_section_is_present_and_ids_unique():
     ids = [m["id"] for m in rows]
     assert len(ids) == len(set(ids))
     assert {i.split(".")[0] for i in ids} == {
-        "OP", "GR", "FA", "EX", "JV", "RW", "TN", "RL", "SN", "DF"
+        "OP", "GR", "FA", "EX", "JV", "RW", "TN", "RL", "SN", "DF", "GO"
     }  # fmt: skip
     for prefix, floor in (
         ("OP", 10),
@@ -36,6 +36,7 @@ def test_every_section_is_present_and_ids_unique():
         ("RL", 12),
         ("SN", 6),
         ("DF", 1),
+        ("GO", 1),
     ):
         assert sum(i.startswith(f"{prefix}.") for i in ids) >= floor, prefix
 
@@ -93,7 +94,7 @@ def test_the_ownership_checks_start_from_the_matrix_and_cover_query_ids_by_hand(
     assert "path only" in section and "query string or the body" in section
     assert "`coverage_gaps`" in section
     rows = {m["id"]: m.string for m in _rows()}
-    for check in ("FA.4", "EX.4", "JV.5", "RW.4", "RL.3", "DF.1"):
+    for check in ("FA.4", "EX.4", "JV.5", "RW.4", "RL.3", "DF.1", "GO.1"):
         assert "(#route-ownership-cwe-639)" in rows[check], check
     skill = (CHECKS.parent / "SKILL.md").read_text(encoding="utf-8")
     assert "take the object id from the\n   query string or body" in skill
@@ -112,10 +113,10 @@ def test_django_and_flask_ownership_rows_get_a_check_and_the_rest_a_gap():
     rows = {m["id"]: m.string for m in _rows()}
     assert "no ownership reader yet" not in rows["RW.4"]
     skill = (CHECKS.parent / "SKILL.md").read_text(encoding="utf-8")
-    assert "Django/DRF, Flask and aiohttp also carry `ownership`" in skill.replace(
+    assert "Django/DRF, Flask, aiohttp and Go also carry `ownership`" in skill.replace(
         "\n", " "
     ).replace("  ", " ")
-    assert "RW.4, RL.3, DF.1" in skill
+    assert "RW.4, RL.3, DF.1, GO.1" in skill
 
 
 def test_aiohttp_ownership_rows_are_judged_never_a_gap():
@@ -124,8 +125,38 @@ def test_aiohttp_ownership_rows_are_judged_never_a_gap():
     text = CHECKS.read_text(encoding="utf-8")
     ownership = text.split("## Route ownership (CWE-639)", 1)[1].split("\n## ", 1)[0]
     flat = " ".join(ownership.split())
-    assert "Django/DRF, Flask and aiohttp today" in flat
-    assert "Django/DRF, Flask and aiohttp readers never credit protection" in flat
+    assert "Django/DRF, Flask, aiohttp and Go today" in flat
+    assert "Django/DRF, Flask, aiohttp and Go readers never credit protection" in flat
     rows = {m["id"]: m.string for m in _rows()}
     assert "aiohttp routes are an ownership coverage gap" not in rows["FA.4"]
     assert "never credits" in rows["FA.4"] and "`unknown` rows are read too" in rows["FA.4"]
+
+
+def test_go_ownership_rows_get_a_check_and_the_rest_a_gap():
+    """go-http carries judged ownership (traust-core#448): GO.1 reads its rows, `unknown` ones
+    too, and only the rest of a Go web review is a coverage gap."""
+    text = CHECKS.read_text(encoding="utf-8")
+    selecting = text.split("## Selecting sections", 1)[1].split("\n## ", 1)[0]
+    assert "`go-http` rows" in selecting and "under GO.1" in selecting
+    assert "for example `go-http`" not in selecting  # no longer a family no section covers
+    rows = {m["id"]: m.string for m in _rows()}
+    assert "never credits" in rows["GO.1"] and "then `unknown`" in rows["GO.1"]
+    assert "(#route-ownership-cwe-639)" in rows["GO.1"]
+
+
+def test_both_skills_name_every_section_the_table_selects():
+    """The skills' own selection sentences list every section, Go's ownership one included, so
+    a reviewer following the skill rather than the table doesn't skip GO.1."""
+    text = CHECKS.read_text(encoding="utf-8")
+    selecting = text.split("## Selecting sections", 1)[1].split("\n## ", 1)[0]
+    sections = [
+        line.split("|")[1].strip() for line in selecting.splitlines() if line.startswith("| ")
+    ][1:]
+    names = [s.split(":")[0] for s in sections]  # "Go: route ownership" -> "Go"
+    for skill in ("secure-code-audit", "vuln-scan"):
+        body = " ".join((CHECKS.parents[1] / skill / "SKILL.md").read_text().split())
+        listed = re.search(r"\((?:[^()]*?table: )?(Kubernetes operators[^)]*)\)", body)
+        assert listed, skill
+        for name in names:  # a whole word or phrase: "Go" must stand alone, not in "Google"
+            word = rf"(?<![\w-]){re.escape(name)}(?![\w-])"
+            assert re.search(word, listed.group(1)), (skill, name)

@@ -442,7 +442,9 @@ sink (launch/bulk/schedule/copy; REST/websocket/callback), and
 focus area touches, reporting what it examined, and (e) when the target
 selects a section of
 [framework-checks.md](../secure-code-audit/framework-checks.md)
-(Kubernetes operators, gRPC, FastAPI and aiohttp, Express), answer each of
+(Kubernetes operators, gRPC, FastAPI and aiohttp, Express, Spring and
+JAX-RS, axum and actix-web, tonic, Rails and Sinatra, and the route-ownership
+sections for Django, DRF and Flask and for Go), answer each of
 that section's checks in the
 focus areas they belong to, citing the check ID in findings and negatives.
 Record `"framework-checks": "ran: <sections>"` in
