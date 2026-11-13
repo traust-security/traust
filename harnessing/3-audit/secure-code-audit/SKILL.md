@@ -1161,7 +1161,7 @@ source text; `test_path: true` rows sit under a test/example directory.
 Other detected frameworks appear as `coverage_gaps`. Guard recognition
 is name-based and over-inclusive by design — the judge decides
 enforcement. Authenticated id routes of Spring, JAX-RS, FastAPI, Express, Rails,
-axum, actix-web, Django/DRF, Flask and aiohttp also carry `ownership` and
+axum, actix-web, Django/DRF, Flask, aiohttp and Go also carry `ownership` and
 `ownership_evidence`: whether the handler
 ties the object it acts on to the caller (CWE-639). `framework-checks.md`
 "Route ownership" says what each value means. Its judged rows set
@@ -1181,7 +1181,7 @@ Judging protocol — the lane may NOT close with unjudged rows:
    spot-check that at least one guard per family actually enforces
    (returns/aborts on failure) rather than logging and continuing.
 2. **Ownership rows** (`caller-blind`, `unchecked`) are judged under the
-   framework's ownership check (FA.4, EX.4, JV.5, RW.4, RL.3, DF.1):
+   framework's ownership check (FA.4, EX.4, JV.5, RW.4, RL.3, DF.1, GO.1):
    read the lookup and say whether the record is
    tied to the caller. An `unknown` row or an ownership gap's routes get the
    same question by hand, and so do routes that take the object id from the
