@@ -34,31 +34,34 @@ These checks are Traust's own wording. Standards are cited by ID only.
 | tonic | Rust code uses `tonic::` and builds a `Server`, or `traust adapters grpc-guards` reports `tonic` services |
 | Rails and Sinatra | the tree has `<app>/config/routes.rb`, Ruby code requires `sinatra` or subclasses `Sinatra::Base`, or `traust adapters route-guards` reports `rails` or `sinatra` rows |
 | Django, DRF and Flask: route ownership | `traust adapters route-guards` reports `django-drf` or `flask` rows. This section covers route ownership only |
+| Go: route ownership | `traust adapters route-guards` reports `go-http` rows (net/http, gorilla/mux, chi, gin, echo, fiber, PocketBase). This section covers route ownership only |
 
 A checkout can select several. Record which sections ran (see Recording).
-Route-guards rows from a family no section covers (for example `go-http`)
-go in `coverage_gaps` with tool `framework-checks`, so they are not mistaken
-for reviewed. Django, DRF and Flask have an ownership section only: review
-their rows' ownership under DF.1, and record the rest of those frameworks'
-review (authentication, authorization beyond ownership, CSRF, mass
-assignment, debug settings) as a `framework-checks` coverage gap.
+Route-guards rows from a family no section covers go in `coverage_gaps` with
+tool `framework-checks`, so they are not mistaken for reviewed. Django, DRF
+and Flask have an ownership section only: review their rows' ownership
+under DF.1, and record the rest of those frameworks' review (authentication,
+authorization beyond ownership, CSRF, mass assignment, debug settings) as a
+`framework-checks` coverage gap. Go likewise: review `go-http` rows'
+ownership under GO.1 and record the rest of a Go web review as a
+`framework-checks` coverage gap.
 
 ## Route ownership (CWE-639)
 
 `traust adapters route-guards` classifies each authenticated route with an
 object id in its path (Spring, JAX-RS, FastAPI, Express, Rails, axum,
-actix-web, Django/DRF, Flask and aiohttp today) in the row's `ownership`, with the spans it read in `ownership_evidence`
+actix-web, Django/DRF, Flask, aiohttp and Go today) in the row's `ownership`, with the spans it read in `ownership_evidence`
 (`lookup`, `caller`, `check`, `hop`, `record_type`, `owner_field`). The
 values are `scoped`, `checked`, `caller-blind`, `unchecked`, `none`,
 `unknown` and `n/a`. Rows marked `caller-blind` (the handler never sees the
 caller) or `unchecked` (it sees the caller but loads an owner-bearing
 record without tying it to the caller) are judged, so they set
 `judgement_required`. Read them first for the ownership checks below (FA.4,
-EX.4, JV.5, RW.4, RL.3, DF.1). `unknown` means the reader couldn't follow the
+EX.4, JV.5, RW.4, RL.3, DF.1, GO.1). `unknown` means the reader couldn't follow the
 handler: review it by hand. Protection is credited only from an allow-list
 of exact shapes, so a `scoped` or `checked` row is still a claim: spot-check
-one per controller or router. The axum/actix-web, Django/DRF, Flask and
-aiohttp readers never credit protection: their rows are only judged or `unknown`, so
+one per controller or router. The axum/actix-web, Django/DRF, Flask,
+aiohttp and Go readers never credit protection: their rows are only judged or `unknown`, so
 an `unknown` row there includes reads the code does tie to the caller, and a
 judged row includes ones it checks by hand after the read. Read each. A framework or handler the reader doesn't
 classify is a `<family> ownership` coverage gap naming its routes, never a
@@ -85,6 +88,21 @@ review is a `framework-checks` coverage gap until a full section lands (see
 | ID | Check | CWE | Requirement | Evidence |
 |---|---|---|---|---|
 | DF.1 | Does a route that takes an object ID (a URLconf or router path converter, `<int:id>` in a Flask route, `self.kwargs`, `request.view_args`) check that the caller may act on that object, and is the ownership or tenant filter taken from the authenticated principal (`request.user`, flask-login's `current_user`, flask-jwt-extended's identity) rather than a value the caller sets? A DRF object permission (`has_object_permission`) counts only where `get_object()` runs it. | CWE-639 | ASVS V8.2 | the route-guards rows' `ownership` ([Route ownership](#route-ownership-cwe-639); these readers judge but never credit), `caller-blind` and `unchecked` first, then `unknown`; then the ORM read (`get_object_or_404`, `Model.query.get_or_404`, `db.session.get`, a viewset's `get_queryset`) and the filter on it, `file:line` |
+
+## Go: route ownership
+
+`traust adapters route-guards` reads Go routes registered on net/http
+(`http.HandleFunc`, `mux.HandleFunc("GET /x/{id}", ..)`), gorilla/mux, chi,
+gin, echo, fiber and PocketBase routers, through their groups, mounts and the
+places they are served, with each route's guards (credited only where they
+surely run first) and, for authenticated id routes, its `ownership`. This
+section covers route ownership only. The rest of a Go web review is a
+`framework-checks` coverage gap until a full section lands (see
+[Selecting sections](#selecting-sections)).
+
+| ID | Check | CWE | Requirement | Evidence |
+|---|---|---|---|---|
+| GO.1 | Does a route that takes an object ID (`r.PathValue`, `chi.URLParam`, `mux.Vars`, `c.Param`, `c.Params`) check that the caller may act on that object, and is the ownership or tenant filter taken from the authenticated principal (a context value the auth middleware set, JWT claims, the session) rather than a value the caller sets (a query parameter, a header, the body)? | CWE-639 | ASVS V8.2 | the route-guards rows' `ownership` ([Route ownership](#route-ownership-cwe-639); this reader judges but never credits), `caller-blind` and `unchecked` first, then `unknown`; then the read (a gorm, sqlx or database/sql query, a repository or service call, an in-memory map) and the filter on it, `file:line`. A guard is credited only where it surely runs before the route, so an unguarded row there is judged too |
 
 ## Kubernetes operators
 
