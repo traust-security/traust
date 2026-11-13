@@ -66,7 +66,7 @@ RUN CGO_ENABLED=0 GOBIN=/out go install \
 # (gcc/autotools for yara; curl/tar/gzip/unzip for every release asset; python3.11-pip only to
 # populate the pip-audit venv). None of this build toolchain reaches the final image — only the
 # binaries and directories explicitly COPY'd out of this stage do. ---
-FROM registry.access.redhat.com/ubi9/ubi-minimal:9.9-1793829856@sha256:ecb40c7bdfa5b0bb71e978c98c7cf56ce38edf1f8fb3561078acbc4b13698c07 AS tools-builder
+FROM registry.access.redhat.com/ubi9/ubi-minimal:9.9-1794467051@sha256:baafce2d34783a28b4a472779f304e97e00f9d35c99553bc53b068b14344d9a9 AS tools-builder
 
 ARG TARGETARCH
 ARG OPENGREP_VERSION
@@ -183,7 +183,7 @@ RUN python3.11 -m venv /opt/pip-audit-venv \
 # --- Tools image: a FRESH stage, not a trimmed copy of the builder — only the binaries and
 # runtime packages below ever reach it. No gcc/make/autotools/pkgconfig, no curl/tar/gzip/unzip,
 # no python3.11-pip, no build artifacts or source trees. ---
-FROM registry.access.redhat.com/ubi9/ubi-minimal:9.9-1793829856@sha256:ecb40c7bdfa5b0bb71e978c98c7cf56ce38edf1f8fb3561078acbc4b13698c07 AS tools
+FROM registry.access.redhat.com/ubi9/ubi-minimal:9.9-1794467051@sha256:baafce2d34783a28b4a472779f304e97e00f9d35c99553bc53b068b14344d9a9 AS tools
 
 ARG OPENGREP_VERSION
 ARG GITLEAKS_VERSION
