@@ -669,7 +669,9 @@ The mechanical rows of this table — K01 workload configs, K02 RBAC grants, K03
 The table above reviews what an operator ships; [`framework-checks.md`](framework-checks.md)
 reviews what its code, its gRPC servers and its web routes do. Select its
 sections by the technology the checkout uses (its *Selecting sections*
-table: Kubernetes operators, gRPC, FastAPI and aiohttp, Express), and answer
+table: Kubernetes operators, gRPC, FastAPI and aiohttp, Express, Spring and
+JAX-RS, axum and actix-web, tonic, Rails and Sinatra, and the route-ownership
+sections for Django, DRF and Flask and for Go), and answer
 every check in each selected section. Each
 check names its CWE, its ASVS 5.0 section and, for operator checks, the
 K-ID above, plus the evidence that settles it. Record

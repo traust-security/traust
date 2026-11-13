@@ -142,3 +142,20 @@ def test_go_ownership_rows_get_a_check_and_the_rest_a_gap():
     rows = {m["id"]: m.string for m in _rows()}
     assert "never credits" in rows["GO.1"] and "then `unknown`" in rows["GO.1"]
     assert "(#route-ownership-cwe-639)" in rows["GO.1"]
+
+
+def test_both_skills_name_every_section_the_table_selects():
+    """The skills' own selection sentences list every section, Go's ownership one included, so
+    a reviewer following the skill rather than the table doesn't skip GO.1."""
+    text = CHECKS.read_text(encoding="utf-8")
+    selecting = text.split("## Selecting sections", 1)[1].split("\n## ", 1)[0]
+    sections = [
+        line.split("|")[1].strip() for line in selecting.splitlines() if line.startswith("| ")
+    ][1:]
+    names = [s.split(":")[0] for s in sections]  # "Go: route ownership" -> "Go"
+    for skill in ("secure-code-audit", "vuln-scan"):
+        body = " ".join((CHECKS.parents[1] / skill / "SKILL.md").read_text().split())
+        listed = re.search(r"\((?:[^()]*?table: )?(Kubernetes operators[^)]*)\)", body)
+        assert listed, skill
+        for name in names:
+            assert name in listed.group(1), (skill, name)
