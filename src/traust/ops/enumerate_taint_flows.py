@@ -69,7 +69,8 @@ CATALOG: dict[str, dict] = {
             "reflection and DI-injected flows invisible to static analysis",
             "store-then-fetch flows (request value stored in session/"
             "heap state and executed on a later fetch — the H2-console "
-            "shape) are invisible to per-request reachableByFlows",
+            "shape) are invisible to per-request reachableByFlows "
+            "(calibration 2026-07-31)",
         ],
     },
     "c": {

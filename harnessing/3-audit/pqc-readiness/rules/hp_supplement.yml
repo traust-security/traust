@@ -432,7 +432,7 @@
   migration_hint: TLS verification disabled defeats classical AND PQC transport security.
   pattern: 'InsecureSkipVerify\s*:\s*true'
   scope: code
-  description: Go TLS certificate verification disabled.
+  description: Go TLS certificate verification disabled (4/8 pilot repos).
 
 - id: HP_TLS_VERIFY_DISABLED_JS
   kind: regex
@@ -465,7 +465,7 @@
   migration_hint: Re-enable certificate verification before any PQC transport claim.
   pattern: 'ssl_verify\s*[:=]\s*(false|none)|sslverify\s*[:=]\s*(0|false)|insecure-skip-tls-verify\s*[:=]\s*true'
   scope: code
-  description: Config-level TLS verification disabled.
+  description: Config-level TLS verification disabled (ceph/apicast pilot classes).
 
 - id: HP_HASH_UNAUTH_CIPHER_MODE
   kind: regex
@@ -487,7 +487,7 @@
   migration_hint: Embedded signing/session secrets defeat rotation; adjudicate context.
   pattern: 'SECRET_KEY_BASE\s*[:=]\s*[0-9a-fA-F]{16,}|secret_key_base:\s*[0-9a-f]{16,}'
   scope: code
-  description: Embedded session/signing secret (low-confidence, adjudicated).
+  description: Embedded session/signing secret (porta pilot class; low-confidence, adjudicated).
 
 - id: HP_CLI_OPENSSL_ENC_STATIC_KEY
   kind: regex
@@ -498,7 +498,7 @@
   migration_hint: openssl enc with inline key/passphrase; adjudicate key management.
   pattern: 'openssl\s+enc\b[^\n]*(-K\s+[0-9A-Fa-f]+|-pass\s)'
   scope: code
-  description: openssl enc CLI with static key material.
+  description: openssl enc CLI with static key material (recert pilot class).
 
 - id: HP_NET_PLAINTEXT_FETCH
   kind: regex
@@ -520,7 +520,7 @@
   migration_hint: RSA keygen is Shor-vulnerable; plan ML-KEM/ML-DSA via provider.
   pattern: 'rsa\.generate_private_key\s*\('
   scope: code
-  description: Python cryptography RSA key generation.
+  description: Python cryptography RSA key generation (pilot recall gap).
 
 - id: HP_EC_JAVA_KEYFACTORY
   kind: regex
@@ -531,7 +531,7 @@
   migration_hint: EC/DH KeyFactory reconstruction is Shor-vulnerable; JDK 24+ for ML-KEM/ML-DSA.
   pattern: 'KeyFactory\.getInstance\(\s*"(EC|ECDSA|Ed25519|EdDSA|XDH|DH|DiffieHellman)"'
   scope: code
-  description: Java KeyFactory EC/DH usage.
+  description: Java KeyFactory EC/DH usage (infinispan pilot recall gap).
 
 - id: HP_HASH_RUST_LEGACY
   kind: regex
@@ -542,7 +542,7 @@
   migration_hint: SHA-1/MD5 are classically broken in security contexts; adjudicate context.
   pattern: 'use\s+(sha1|md5|md-5)::|\bSha1::new\(|\bMd5::new\('
   scope: code
-  description: Rust SHA-1/MD5 crate usage.
+  description: Rust SHA-1/MD5 crate usage (recert pilot recall gap).
 
 - id: HP_C_OPENSSL_EVP_ASYM_DIGESTSIGN
   kind: regex
@@ -553,7 +553,7 @@
   migration_hint: EVP_DigestSign/Verify with classical keys; provider-agile — migrate keys, not call sites.
   pattern: 'EVP_DigestSign(Init|Update|Final)?\b|EVP_DigestVerify(Init|Update|Final)?\b'
   scope: code
-  description: OpenSSL EVP digest-sign family (agile tier).
+  description: OpenSSL EVP digest-sign family (ceph pilot recall gap; agile tier).
 
 - id: HP_SIGN_MAVEN_GPG
   kind: regex
@@ -564,7 +564,7 @@
   migration_hint: Release artifact GPG signing (classical RSA/EdDSA); HNDL-relevant lifetimes.
   pattern: "maven-gpg-plugin"
   scope: code
-  description: Maven GPG release-signing plugin.
+  description: Maven GPG release-signing plugin (infinispan pilot class).
 
 - id: HP_FW_RUBY_TLS_CLIENT
   kind: dependency
@@ -575,7 +575,7 @@
   migration_hint: Ruby HTTP clients delegate TLS to openssl gem/system; readiness follows base image.
   pattern: "pkg:gem/(faraday|httparty|rest-client|typhoeus|excon)@"
   scope: dependency
-  description: Ruby TLS-client gems (delegated crypto).
+  description: Ruby TLS-client gems (porta pilot class; delegated crypto).
 
 - id: HP_DB_CEPH_MSGR2_CRC
   kind: regex
@@ -586,7 +586,7 @@
   migration_hint: msgr2 crc mode is cleartext on the wire; secure mode prerequisite for any PQC transport.
   pattern: 'ms_(cluster|service|client|mon_cluster|mon_service|mon_client)_mode\s*[:=]\s*crc'
   scope: code
-  description: Ceph messenger v2 cleartext (crc) mode.
+  description: Ceph messenger v2 cleartext (crc) mode (ceph pilot class).
 
 - id: HP_DYN_JWT_HS_SHORT_SECRET
   kind: regex

@@ -254,12 +254,14 @@ any audit are listed separately — silence is not a pass.
 40 6 * * 1  cd $WS && python3 -m traust.cli sweep rule-lane
 ```
 
-Scheduled agent runs can proceed from the lane's delta report through rule
-authoring and the full test-and-calibrate gate: fixture `ruleid:`/`ok:` lines
+**Standing delegation (user, 2026-07-29):** scheduled agent runs of this
+skill proceed from the lane's delta report through rule authoring **and
+the full test-and-calibrate gate** — fixture `ruleid:`/`ok:` lines
 firing/silent, the whole-pack regression suite (`opengrep test
 packs/security/detection/opengrep-rules/<lang>` for every language, and
-`uv run pytest tests/test_default_rule_packs.py`, a default-scan canary), and
-TP-rediscovery calibration against the corpus repos. The mechanical gate is the promotion criterion: a rule that
+`uv run pytest tests/test_default_rule_packs.py`, a default-scan canary), TP-rediscovery
+calibration against the corpus repos — WITHOUT asking for per-run
+approval. The mechanical gate is the promotion criterion: a rule that
 passes all three legs is promoted into the pack; one that does not is
 not, and no amount of session judgment overrides that in either
 direction. Sweep hits and mined candidates still route to **/triage**

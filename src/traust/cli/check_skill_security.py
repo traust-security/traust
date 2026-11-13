@@ -614,7 +614,8 @@ def security_failures(repo: Path = REPO) -> tuple[list[str], list[str]]:
                 f"S10 {rel}: target-build invocation in an execution "
                 "block without safe_exec routing — build systems of "
                 "audited checkouts are hostile code; run them "
-                "through traust-core's safe-exec (`traust util safe-exec`)"
+                "through traust-core's safe-exec (`traust util safe-exec`) "
+                "(sandbox-adoption WS1)"
             )
 
         if (
@@ -626,7 +627,7 @@ def security_failures(repo: Path = REPO) -> tuple[list[str], list[str]]:
                 f"S9 {rel}: launches a headless agent without the "
                 "repo-config isolation doctrine (agent cwd outside "
                 "the checkout; .claude/CLAUDE.md/hooks never loaded "
-                "as config)"
+                "as config) (b-lite-p5 incident 2026-07-26)"
             )
 
     # -- script rules (S3-S7) ---------------------------------------------
@@ -650,7 +651,8 @@ def security_failures(repo: Path = REPO) -> tuple[list[str], list[str]]:
                 if not _exempt("S4", rel, used):
                     fails.append(
                         f"S4 {rel}: shell-execution construct — "
-                        f"{s4hit} (AST leg)"
+                        f"{s4hit} (AST leg; assessment 2026-07-31 "
+                        "rollup-F3)"
                     )
                 break
 
@@ -659,7 +661,7 @@ def security_failures(repo: Path = REPO) -> tuple[list[str], list[str]]:
                 f"S10 {rel}: target-build invocation without "
                 "safe_exec routing — build systems of audited "
                 "checkouts are hostile code; run them through "
-                "traust-core's safe-exec (`traust util safe-exec`)"
+                "traust-core's safe-exec (`traust util safe-exec`) (sandbox-adoption WS1)"
             )
 
         if CURL_AUTH_RX.search(text) and not _exempt("S5", rel, used):
@@ -699,7 +701,7 @@ def security_failures(repo: Path = REPO) -> tuple[list[str], list[str]]:
                 f"S9 {rel}: launches a headless agent without the "
                 "repo-config isolation doctrine (agent cwd outside "
                 "the checkout; .claude/CLAUDE.md/hooks never loaded "
-                "as config)"
+                "as config) (b-lite-p5 incident 2026-07-26)"
             )
 
     return fails, used
@@ -727,8 +729,9 @@ def main(argv=None) -> int:
         for f in fails:
             print(f"    - {f}")
         print(
-            "\nFix the skill or add a reviewed EXEMPTIONS entry with a "
-            "design rationale; see /check-skill-security"
+            "\nFix the skill (or add a reviewed EXEMPTIONS entry citing "
+            "a remediation-plan item) — see /check-skill-security and "
+            "progress-tracker/plans/harness-security-remediation-plan.md"
         )
         return 1
     print(

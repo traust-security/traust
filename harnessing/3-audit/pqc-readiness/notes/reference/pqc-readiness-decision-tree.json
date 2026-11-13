@@ -1,5 +1,6 @@
 {
   "tree_version": "2.0.0",
+  "plan": "progress-tracker/plans/pqc-readiness-campaign-plan.md (v1.3, sections 4.3, 4.5-4.7)",
   "schema": "schema/pqc-decision-tree.schema.json",
   "provenance_tree": {
     "_comment": "Ordered rules; first match wins. Conditions reference fact families and provider-census facts produced and recorded by Core through traust pqc prescan.",
@@ -24,7 +25,7 @@
     "classes": ["xs", "s", "m", "l", "xl"]
   },
   "readiness_buckets": {
-    "_comment": "Evaluate rules in listed order, first match wins, then apply bucket_override. Predicates preserve the original ordered provenance/agility branches, independently of effort size or separately evidenced blocking. Keep the existing dominant-blocking selection and all-clock-items quantifier (including its empty-set behavior); do not introduce new aggregation or fallback rules.",
+    "_comment": "Plan v1.3 section 4.6; thresholds are calibration knob 5. Evaluate rules in listed order, first match wins, then apply bucket_override. Predicates preserve the original ordered provenance/agility branches, independently of effort size or separately evidenced blocking. Keep the existing dominant-blocking selection and all-clock-items quantifier (including its empty-set behavior); do not introduce new aggregation or fallback rules.",
     "score_ready_min": 80,
     "score_partial_min": 50,
     "rules": [

@@ -25,7 +25,7 @@
 # No resolver: this is a pure line rewrite; apply with --pin <40 hex>
 # (value unused by the template) so the applier skips URL resolution.
 id: gha-workflow-permissions
-pattern_ref: "CKV2_GHA_1 — GitHub Actions workflows missing a least-privilege top-level permissions block"
+pattern_ref: "Cloud-config Phase-0 sweep 2026-07: CKV2_GHA_1 — GitHub Actions workflows missing a least-privilege top-level permissions block"
 description: >-
   Inserts a least-privilege top-level GITHUB_TOKEN grant (permissions:
   contents: read) immediately above the top-level `jobs:` key of GitHub

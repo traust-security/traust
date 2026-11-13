@@ -366,7 +366,13 @@ EXEMPTIONS: dict[tuple[str, str], str] = {
     (
         "A9",
         "validate-findings:install-failure.yaml",
-    ): "cross-repo: consumed by deploy-operator in the internal extension repo",
+    ): "cross-repo: consumed by deploy-operator, which moved to the internal "
+    "extension repo 2026-09-07 (its only callers were already there)",
+    (
+        "A9",
+        "validate-findings:validation-priority-list.md",
+    ): "cross-repo: VALIDATION-PRIORITY-LIST.md drives the campaign skills "
+    "in the internal extension repo",
     (
         "A9",
         "validate-findings:*-attack-plan.yaml",
@@ -399,12 +405,15 @@ EXEMPTIONS: dict[tuple[str, str], str] = {
         "validate-findings:attack-plan.yaml",
     ): "execution plan produced AND consumed inside the same validation "
     "run (plan → execute); the slug-prefixed portfolio copy "
-    "(*-attack-plan.yaml) is the artifact validate-operator-live references",
+    "(*-attack-plan.yaml) is the artifact validate-operator-live "
+    "references — surfaced when the terminal-filter shrink removed "
+    "the -plan. auto-exemption (2026-07-31 A9/A10 rework)",
     (
         "A9",
         "remediate-finding:*-remediation.json",
     ): "human-review record of one fix on a private fork; /verify-remediation "
-    "re-checks the fork or MR, not this JSON",
+    "re-checks the fork or MR, not this JSON. Surfaced 2026-09-25 when the "
+    "skill gained its Integrations section",
     (
         "A9",
         "security-audit-phased:phase4-final.json",

@@ -94,7 +94,8 @@ def _step_actions(step: dict) -> tuple[list[Action], str | None]:
             return actions, (
                 "step text carries cluster/credential override flag(s) "
                 f"{', '.join(k.denied_flags)} — PoC-derived commands run "
-                "only against the engagement-pinned context"
+                "only against the engagement-pinned context "
+                "(assessment 2026-07-31 F2)"
             )
         real_verb = k.subcommand or base_action.verb
         if k.all_namespaces:

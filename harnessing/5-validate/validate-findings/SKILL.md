@@ -59,7 +59,7 @@ Take the static outputs of `secure-code-audit`, `threat-model`, and `triage` and
 | `<file>.{md,json}` | A single report file; siblings auto-discovered in the same directory |
 | `<product>/<repo>` | Shorthand resolved to `../analysis-results/findings/<product>/<repo>/` |
 | `<slug>-findings` | Product package from `../progress-tracker/processed-results/<slug>-findings/`. All repos in the package are ingested into a single model; each finding is tagged with its source repo. The bare `<slug>` form (without `-findings`) is also accepted. |
-| `<slug1>,<slug2>,…` | **Multiple packages** merged into one model — useful when a logical product spans several `processed-results` entries. Findings are tagged `<package>:<repo>` and de-duplicated by `(repo, id)` so a repo appearing in two packages contributes once. |
+| `<slug1>,<slug2>,…` | **Multiple packages** merged into one model — used when a logical product spans several `processed-results` entries (see the Deduplication Map in `progress-tracker/VALIDATION-PRIORITY-LIST.md`, e.g. ODF → 12 packages). Findings are tagged `<package>:<repo>` and de-duplicated by `(repo, id)` so a repo appearing in two packages contributes once. |
 | `all-confirmed` | Every triage-confirmed finding across `../analysis-results/findings/**` (use with `--dry-run` first) |
 
 **Refuted findings stay in scope.** Read core's current refuted findings with

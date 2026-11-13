@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Sanitizer micro-probes.
+"""Sanitizer micro-probes (Phase B3 — the narrow, lab-free slice of D4).
 
 Executes repo-local sanitizer/validator functions in an isolated
 subprocess against curated bypass corpora, recording per-payload

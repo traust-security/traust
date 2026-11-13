@@ -31,7 +31,7 @@
 # No resolver: pure line rewrite; apply with --pin <40 hex> (value
 # unused by the template) so the applier skips URL resolution.
 id: tls-verify-enable
-pattern_ref: "CKV_ANSIBLE_1/CKV_ANSIBLE_2 — TLS certificate validation disabled on credential-bearing uri/get_url tasks"
+pattern_ref: "Cloud-config Phase-0 sweep 2026-07: CKV_ANSIBLE_1/CKV_ANSIBLE_2 — TLS certificate validation disabled on credential-bearing uri/get_url tasks"
 description: >-
   Rewrites literal `validate_certs: false|no` lines to
   `validate_certs: true` when a uri:/get_url: module key appears within
