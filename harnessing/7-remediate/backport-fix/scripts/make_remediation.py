@@ -165,6 +165,9 @@ def resolve_schema(explicit: Path | None) -> Path | None:
     if ws is None:
         return None
     for candidate in (
+        # v0.1 layout (traust-contracts #136); the old path stays for older
+        # checkouts.
+        ws / "traust-contracts" / "artifacts_schema" / "v1" / "remediation.schema.json",
         ws / "traust-contracts" / "schemas" / "v1" / "remediation.schema.json",
         ws / "ai-security-contracts" / "schemas" / "remediation.schema.json",
     ):
@@ -174,10 +177,13 @@ def resolve_schema(explicit: Path | None) -> Path | None:
 
 
 def normalize_repo_url(url: str) -> str:
-    url = url.strip().removesuffix(".git")
-    if url.startswith("git@"):
-        return "https://" + url.removeprefix("git@").replace(":", "/", 1)
-    for pre in ("ssh://git@", "ssh://", "git://"):
+    """https URL for a git remote, with any embedded credential removed."""
+    url = _paths.strip_url_credentials(url).removesuffix(".git")
+    scp = re.match(r"^(?P<user>[^/@:]+)@(?P<host>[^/:]+):(?P<path>.+)$", url)
+    if scp:
+        clean = f"https://{scp['host']}/{scp['path']}"
+        return _paths.strip_url_credentials(clean).removesuffix(".git")
+    for pre in ("ssh://", "git://"):
         if url.startswith(pre):
             return "https://" + url.removeprefix(pre)
     return url
@@ -234,7 +240,7 @@ def build(args) -> dict:
     except RuntimeError as e:
         raise SystemExit(f"--fix-commit not resolvable in {args.repo}: {e}")
     if args.repo_url:
-        repo_url = args.repo_url
+        repo_url = _paths.strip_url_credentials(args.repo_url)
     else:
         try:
             repo_url = normalize_repo_url(git(args.repo, "remote", "get-url", "origin"))
@@ -301,7 +307,7 @@ def build(args) -> dict:
         "metadata": metadata,
         "source_findings": [source_finding],
         "fork": {
-            "url": args.fork_url or repo_url,
+            "url": _paths.strip_url_credentials(args.fork_url or repo_url),
             "visibility": args.visibility,
             "base_ref": base_ref,
             "fix_branch": args.fix_branch or f"ex-wing/{args.finding}",

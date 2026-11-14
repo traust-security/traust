@@ -852,3 +852,62 @@ def test_failed_publish_keeps_other_fixes_and_producers(tmp_path, monkeypatch):
     assert (shared / "r-remediation.json").read_text() == '{"other": "producer"}'
     assert {p.name: p.read_text() for p in first.iterdir()} == before
     assert not (shared / "backport-bbbbbbbbbbbb").exists()
+
+
+# ---------------------------------------------------------------------------
+# The remediation generator and config normalizer never store credentials
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("raw", [
+    "https://x-access-token:ghp_SECRET@github.com/o/r.git",
+    "ssh://deploy:ghp_SECRET@github.com/o/r.git",
+    "tok@github.com:o/r",
+    "https://token@github.com/o/r",
+])
+def test_normalize_repo_url_strips_credentials(raw):
+    cleaned = mk.normalize_repo_url(raw)
+    assert cleaned == "https://github.com/o/r"
+    assert "ghp_SECRET" not in cleaned and "token@" not in cleaned
+
+
+def test_norm_repo_url_strips_credentials_for_matching():
+    gen = _load("generate_backport_configs.py")
+    assert gen._norm_repo_url("https://user:ghp_SECRET@github.com/o/r.git") == "github.com/o/r"
+    assert gen._norm_repo_url("tok@github.com:o/r") == "github.com/o/r"
+    assert gen._norm_repo_url("repo:https://github.com/o/r") == "github.com/o/r"
+
+
+def test_make_remediation_writes_no_credential(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    (repo / "x").write_text("x\n")
+    subprocess.run(["git", "-C", str(repo), "add", "x"], check=True)
+    subprocess.run(
+        ["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t",
+         "commit", "-qm", "fix"],
+        check=True,
+    )
+    triage = tmp_path / "triage.json"
+    triage.write_text(json.dumps({"findings": [{
+        "id": "f001", "title": "t", "file": "x", "line": 1,
+        "severity": "high", "cwes": ["CWE-79"],
+    }]}))
+    out = tmp_path / "rem.json"
+    secret = "https://x-access-token:ghp_SECRET@github.com/o/r"
+    proc = subprocess.run(
+        [sys.executable, str(_SKILL / "make_remediation.py"),
+         "--triage", str(triage), "--finding", "f001", "--repo", str(repo),
+         "--fix-commit", "HEAD", "--repo-url", secret,
+         "--fork-url", f"{secret}.git", "--build-cmd", "true",
+         "--cwe", "CWE-79", "--out", str(out), "--no-validate"],
+        capture_output=True, text=True,
+    )
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    text = out.read_text()
+    assert "ghp_SECRET" not in text and "x-access-token" not in text
+    data = json.loads(text)
+    assert data["metadata"]["repository"] == "https://github.com/o/r"
+    assert data["fork"]["url"] == "https://github.com/o/r.git"
+    assert data["fork"]["upstream_remote"] == "https://github.com/o/r"
