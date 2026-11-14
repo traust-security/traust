@@ -30,6 +30,22 @@ _VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
 _SHA_RE = re.compile(r"^[0-9a-f]{7,40}$")
 
 
+_URL_USERINFO_RE = re.compile(r"(?P<scheme>[A-Za-z][A-Za-z0-9+.-]*://)(?P<userinfo>[^/?#]*@)")
+
+
+def strip_url_credentials(url: str) -> str:
+    """Drop `user:token@` from a URL's authority.
+
+    Origins, `--repo-url` and `--fork-url` values are written into published
+    artifacts and printed to terminals; a remote rewritten as
+    `https://x-access-token:ghp_...@github.com/o/r` must never travel with the
+    token attached. Only the authority is touched, so an `@` in a path or
+    query survives. scp-like `user@host:path` forms are handled by the callers
+    that convert them to https.
+    """
+    return _URL_USERINFO_RE.sub(r"\g<scheme>", str(url or "").strip())
+
+
 def repo_root() -> Path:
     """This checkout's root, found by marker rather than by counting parents."""
     here = Path(__file__).resolve().parent

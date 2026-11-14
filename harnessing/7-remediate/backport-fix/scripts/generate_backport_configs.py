@@ -455,12 +455,17 @@ def scan_branches_subprocess(
 # ---------------------------------------------------------------------------
 
 def _norm_repo_url(u: str) -> str:
-    """Normalize a repo identifier (graph id, git URL) for matching."""
-    u = u.strip().lower().removeprefix("repo:")
+    """Normalize a repo identifier (graph id, git URL) for matching.
+
+    Credentials in the authority are dropped first: the normalized value is
+    also used to derive the repo slug written into configs and issue ids.
+    """
+    u = _paths.strip_url_credentials(u).strip().lower().removeprefix("repo:")
     for pre in ("https://", "http://", "ssh://", "git://"):
         u = u.removeprefix(pre)
-    if u.startswith("git@"):
-        u = u.removeprefix("git@").replace(":", "/", 1)
+    scp = re.match(r"^(?:[^/@:]+)@(?P<host>[^/:]+):(?P<path>.+)$", u)
+    if scp:
+        u = f"{scp['host']}/{scp['path']}"
     return u.rstrip("/").removesuffix(".git")
 
 
