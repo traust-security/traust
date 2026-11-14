@@ -44,7 +44,7 @@ validate_json() {
   else
     python3 -c "
 import json, jsonschema, sys, os
-sp = '${schema_path:-$WORKSPACE/traust-contracts/schemas/v1/backport-report.schema.json}'
+sp = '${schema_path:-$WORKSPACE/traust-contracts/artifacts_schema/v1/backport-report.schema.json}'
 if not os.path.isfile(sp):
     print('ALL PASSED (schema not local — skipped)')
     sys.exit(0)
