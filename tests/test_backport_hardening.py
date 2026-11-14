@@ -393,3 +393,79 @@ def test_container_never_forwards_github_credentials(tmp_path):
     )
     assert "GH_TOKEN" not in plan
     assert "GITHUB_TOKEN" not in plan
+
+
+def _fallback_fixture(tmp_path, *, engine_exit):
+    """A succeeded run whose worktree carries repo-selected diff drivers."""
+    results = tmp_path / "results"
+    workdir = tmp_path / "workdir"
+    wt = workdir / "wt"
+    wt.mkdir(parents=True)
+    _git(wt, "init", "-q", "-b", "main")
+    (wt / "a.txt").write_text("v1\n")
+    _git(wt, "add", "a.txt")
+    _git(wt, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "base")
+    _git(wt, "branch", "origin/release-a")
+    (wt / "a.txt").write_text("v2\n")
+    _git(wt, "add", "a.txt")
+    _git(wt, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "head")
+
+    marker = tmp_path / "driver-ran"
+    driver = tmp_path / "diff-driver.sh"
+    _exec(driver, f"#!/bin/sh\ntouch '{marker}'\ncat \"$1\"\n")
+    (wt / ".gitattributes").write_text("*.txt diff=evil\n")
+    _git(wt, "config", "diff.evil.textconv", str(driver))
+
+    configs = tmp_path / "configs"
+    configs.mkdir()
+    (configs / "release-a.yaml").write_text(
+        "issue_id: backport-x\nbug_description: t\n"
+        f"repository:\n  source_path: {wt}\n  workdir: {workdir}\n"
+        "branches:\n  source: origin/main\n  target: origin/release-a\n"
+        f"fix:\n  commit: {_git(wt, 'rev-parse', 'HEAD')}\n"
+        "build:\n  command: ''\n  test_command: ''\n")
+
+    pkg = tmp_path / "engine" / "auto_bug_fix"
+    pkg.mkdir(parents=True)
+    (pkg / "__init__.py").write_text("")
+    branch_dir = results / "release-a"
+    (pkg / "run_bug_fix.py").write_text(
+        "import json, pathlib, sys\n"
+        f"d = pathlib.Path({str(branch_dir)!r})\n"
+        "d.mkdir(parents=True, exist_ok=True)\n"
+        "(d / 'summary.json').write_text(json.dumps({'targets': [{\n"
+        "    'outcome': 'success', 'issue_id': 'backport-x',\n"
+        "    'target_branch': 'origin/release-a'}]}))\n"
+        f"sys.exit({engine_exit})\n"
+    )
+
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(tmp_path / "engine")
+    # Adversarial: a hostile parent process could export this too.
+    env["GIT_EXTERNAL_DIFF"] = str(driver)
+    proc = subprocess.run(
+        ["bash", str(RUNNER), "--config-dir", str(configs),
+         "--output-dir", str(results)],
+        capture_output=True, text=True, env=env, cwd=str(tmp_path),
+    )
+    return proc, branch_dir, marker
+
+
+def test_patch_fallback_never_runs_repo_diff_drivers(tmp_path):
+    # The worktree is pipeline-controlled: textconv/ext-diff/fsmonitor from
+    # the checkout, or GIT_EXTERNAL_DIFF from the environment, must not run.
+    proc, branch_dir, marker = _fallback_fixture(tmp_path, engine_exit=0)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert not marker.exists(), "a repo-selected diff driver ran on the host"
+    patch = branch_dir / "candidate.patch"
+    assert patch.is_file(), proc.stdout + proc.stderr
+    assert "+v2" in patch.read_text()
+
+
+def test_patch_fallback_is_skipped_when_the_verdict_failed(tmp_path):
+    # A failed run's worktree is not a patch source: collect nothing rather
+    # than diff untrusted state.
+    proc, branch_dir, marker = _fallback_fixture(tmp_path, engine_exit=1)
+    assert proc.returncode != 0
+    assert not marker.exists()
+    assert not (branch_dir / "candidate.patch").exists()
