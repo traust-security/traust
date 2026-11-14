@@ -74,13 +74,13 @@ def read_remediation_metadata(path: Path) -> dict:
     return {
         "seam": "remediation",
         "audit_report_path": audit_report_path,
-        "repository": metadata.get("repository", ""),
+        "repository": _strip_url_credentials(metadata.get("repository", "")),
         "logical_product": metadata.get("logical_product", ""),
         "language": metadata.get("language", ""),
         "fix_commit": fork.get("fix_commit", ""),
         "fix_branch_name": fork.get("fix_branch", ""),
         "base_ref": fork.get("base_ref", ""),
-        "fork_url": fork.get("url", ""),
+        "fork_url": _strip_url_credentials(fork.get("url", "")),
         "cwes": cwes,
         "finding_refs": finding_refs,
         "remediation_path": str(path),
@@ -363,7 +363,7 @@ def read_impact_metadata(path: Path, impact_repo: str | None) -> dict:
     return {
         "seam": "impact",
         "audit_report_path": "",
-        "repository": f"https://{raw}" if raw else "",
+        "repository": _strip_url_credentials(f"https://{raw}" if raw else ""),
         "logical_product": products[0] if products else "",
         "language": "",
         "fix_commit": "",
@@ -377,14 +377,32 @@ def read_impact_metadata(path: Path, impact_repo: str | None) -> dict:
     }
 
 
+_URL_USERINFO_RE = re.compile(r"(?P<scheme>[A-Za-z][A-Za-z0-9+.-]*://)(?P<userinfo>[^/?#]*@)")
+
+
+def _strip_url_credentials(url: str) -> str:
+    """Drop `user:token@` from a URL's authority.
+
+    Repository and fork URLs arrive from an input artifact, a CLI flag or the
+    source clone's origin, and any of them can carry credentials (an https
+    origin rewritten as `x-access-token:ghp_...`, for instance). The report is
+    published and shared, and the emitter's logs get pasted into issues, so
+    userinfo is removed before a URL is validated, logged or recorded. Only
+    the authority is touched: an `@` in a path or query is not userinfo.
+    """
+    return _URL_USERINFO_RE.sub(r"\g<scheme>", str(url or "").strip())
+
+
 def _to_https(url: str) -> str:
     """Normalise a git remote URL to https form (provenance readability)."""
-    u = url.strip()
-    if u.startswith("git@"):
-        host, _, path = u[len("git@"):].partition(":")
-        return f"https://{host}/{path}"
+    u = _strip_url_credentials(url)
+    # scp-like `user@host:path` (git@github.com:o/r is the common one): the
+    # user may be a token, so it never survives the conversion.
+    scp = re.match(r"^(?P<user>[^/@:]+)@(?P<host>[^/:]+):(?P<path>.+)$", u)
+    if scp:
+        return _strip_url_credentials(f"https://{scp['host']}/{scp['path']}")
     if u.startswith(("http://", "ssh://", "git://")):
-        return "https://" + u.split("://", 1)[1]
+        return _strip_url_credentials("https://" + u.split("://", 1)[1])
     return u
 
 
@@ -400,7 +418,7 @@ def read_run_metadata(
     never emit a report.
     """
     cfg_meta = resolve_from_configs(results_dir)  # also rejects mixed runs
-    repo = repository
+    repo = _strip_url_credentials(repository)
     if not repo:
         for entry in sorted(results_dir.iterdir()):
             src = _source_repo(entry)
@@ -640,7 +658,7 @@ def build_report(
             artifact_branch, cfg_meta["source_branch"],
         )
 
-    repository = str(rem_meta["repository"] or "").strip()
+    repository = _strip_url_credentials(rem_meta.get("repository", ""))
     if not re.match(r"^(https://|ssh://)", repository):
         log.error(
             "metadata.repository must be an https:// or ssh:// clone URL, got %r "
@@ -662,8 +680,9 @@ def build_report(
         "commit": fix_commit,
         "branch": _safe_ref(source_branch),
     }
-    if str(rem_meta.get("fork_url") or "").startswith(("https://", "ssh://")):
-        source_fix["fork_url"] = rem_meta["fork_url"]
+    fork_url = _strip_url_credentials(rem_meta.get("fork_url") or "")
+    if fork_url.startswith(("https://", "ssh://")):
+        source_fix["fork_url"] = fork_url
     rel_rem = _workspace_relative(rem_meta.get("remediation_path", ""))
     if rel_rem:
         source_fix["remediation_path"] = rel_rem
@@ -1061,7 +1080,7 @@ def main():
     print("=" * 60)
     print("  BACKPORT REPORT")
     print("=" * 60)
-    print(f"  Repository: {rem_meta['repository']}")
+    print(f"  Repository: {report['metadata']['repository']}")
     print(f"  Fix commit: {rem_meta['fix_commit']}")
     print(f"  Branches:   {report['summary']['total']}")
     print(f"  Succeeded:  {report['summary']['succeeded']}")
