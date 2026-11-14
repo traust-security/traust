@@ -448,7 +448,11 @@ cmd_run() {
 cmd_claim() {
     source_env
     while true; do
-        engine claim || true
+        # --label llm: the rig is the one claim host that carries the agent harness
+        # (claude under the config home's claude-runner), so its claim loop is also
+        # the skill lanes' executor — the deployed claim workers have no harness and
+        # leave llm-labeled assets to the runner pools.
+        engine claim --label llm || true
         sleep 5
     done
 }
@@ -654,7 +658,7 @@ cmd_smoke() {
         echo "smoke: claiming until the queue drains"
         idle=0
         for _ in $(seq 1 40); do
-            if engine claim | grep -q '"claimed": null'; then
+            if engine claim --label llm | grep -q '"claimed": null'; then
                 idle=$((idle + 1))
                 [ "$idle" -ge 2 ] && break
             else
