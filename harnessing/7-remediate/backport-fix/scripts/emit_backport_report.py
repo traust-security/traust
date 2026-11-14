@@ -24,6 +24,7 @@ import argparse
 import hashlib
 import json
 import logging
+import math
 import os
 import re
 import shutil
@@ -33,6 +34,7 @@ import sys
 import tempfile
 from datetime import date
 from pathlib import Path
+from typing import Any
 
 import yaml
 
@@ -85,6 +87,31 @@ def read_remediation_metadata(path: Path) -> dict:
         "finding_refs": finding_refs,
         "remediation_path": str(path),
     }
+
+
+def _summary_number(value: Any, field: str) -> float:
+    """A finite, non-negative number taken from a pipeline summary.
+
+    summary.json is pipeline-written: a string, null or NaN here used to reach
+    `sum()` in build_report and abort the whole report before validation.
+    Raising ValueError makes it this branch's malformed-summary failure — the
+    row is reported as an error instead of taking every other branch down.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{field} must be a number, got {type(value).__name__}")
+    if not math.isfinite(value):
+        raise ValueError(f"{field} must be finite, got {value!r}")
+    if value < 0:
+        raise ValueError(f"{field} must be non-negative, got {value!r}")
+    return float(value)
+
+
+def _summary_int(value: Any, field: str) -> int:
+    """A non-negative integer from a pipeline summary (see _summary_number)."""
+    number = _summary_number(value, field)
+    if not number.is_integer():
+        raise ValueError(f"{field} must be an integer, got {value!r}")
+    return int(number)
 
 
 def _branch_head(repo_path: Path, branch: str) -> str:
@@ -180,8 +207,14 @@ def read_branch_result(branch_dir: Path, repo_path: Path | None = None) -> dict:
                     raise ValueError("targets[0] must be a JSON object")
                 outcome = target.get("outcome", "unknown")
                 result["status"] = "success" if outcome == "success" else outcome
-                result["cost_usd"] = target.get("cost_usd", summary.get("total_cost_usd", 0.0))
-                result["duration_seconds"] = target.get("duration_s", summary.get("total_duration_s", 0))
+                result["cost_usd"] = _summary_number(
+                    target.get("cost_usd", summary.get("total_cost_usd", 0.0)),
+                    "cost_usd",
+                )
+                result["duration_seconds"] = _summary_number(
+                    target.get("duration_s", summary.get("total_duration_s", 0)),
+                    "duration_seconds",
+                )
                 result["error"] = target.get("error", "")
                 # A successful pipeline does not imply the build and the tests
                 # ran (the loader allows empty commands), and the summary
@@ -204,9 +237,15 @@ def read_branch_result(branch_dir: Path, repo_path: Path | None = None) -> dict:
                 for key in ("build_passed", "test_passed"):
                     if isinstance(summary.get(key), bool):
                         result[key] = summary[key]
-                result["cost_usd"] = summary.get("cost_usd", 0.0)
-                result["duration_seconds"] = summary.get("duration_seconds", 0)
-                result["tokens_used"] = summary.get("tokens_used", 0)
+                result["cost_usd"] = _summary_number(
+                    summary.get("cost_usd", 0.0), "cost_usd"
+                )
+                result["duration_seconds"] = _summary_number(
+                    summary.get("duration_seconds", 0), "duration_seconds"
+                )
+                result["tokens_used"] = _summary_int(
+                    summary.get("tokens_used", 0), "tokens_used"
+                )
                 result["error"] = summary.get("error", "")
         except (OSError, json.JSONDecodeError, ValueError, KeyError,
                 AttributeError, TypeError) as e:

@@ -631,3 +631,62 @@ def test_cli_output_and_report_never_contain_repository_credentials(tmp_path):
     assert _SECRET not in proc.stderr
     assert _SECRET not in out.read_text()
     assert "https://github.com/o/r" in out.read_text()
+
+
+# ---------------------------------------------------------------------------
+# Numeric summary fields are validated before they reach aggregation
+# ---------------------------------------------------------------------------
+
+_NUM_REM = {
+    "seam": "remediation", "audit_report_path": "",
+    "repository": "https://github.com/o/r", "logical_product": "p",
+    "language": "", "fix_commit": "c" * 40, "fix_branch_name": "",
+    "base_ref": "main", "fork_url": "", "cwes": [], "finding_refs": [],
+    "remediation_path": "",
+}
+
+
+@pytest.mark.parametrize("summary", [
+    {"targets": [{"outcome": "success", "cost_usd": "1.25"}]},
+    {"targets": [{"outcome": "success", "duration_s": None}]},
+    {"targets": [{"outcome": "success", "cost_usd": -1}]},
+    {"targets": [{"outcome": "success", "cost_usd": True}]},
+    {"status": "success", "cost_usd": "nope"},
+    {"status": "success", "duration_seconds": [1]},
+    {"status": "success", "tokens_used": "12"},
+    {"status": "success", "tokens_used": 1.5},
+])
+def test_malformed_numeric_summary_field_is_a_branch_error(tmp_path, summary):
+    # A string/null/NaN cost or duration used to reach sum() in build_report
+    # and abort the whole report before validation.
+    results = tmp_path / "results"
+    branch = results / "release-a"
+    _write_branch(branch)
+    (branch / "summary.json").write_text(json.dumps(summary))
+
+    row = emit.read_branch_result(branch, emit._source_repo(branch))
+    assert row["status"] == "error"
+    assert "Malformed summary.json" in row["error"]
+
+    report = emit.build_report(results, _NUM_REM)
+    emitted = report["target_branches"][0]
+    assert emitted["status"] == "failed"
+    assert emitted["stop_reason"] == "error"
+
+
+@pytest.mark.parametrize("summary,cost,duration", [
+    ({"targets": [{"outcome": "success", "cost_usd": 1.25, "duration_s": 120}]},
+     1.25, 120.0),
+    ({"status": "success", "cost_usd": 0.5, "duration_seconds": 30,
+      "tokens_used": 7}, 0.5, 30.0),
+])
+def test_valid_numeric_summary_fields_are_kept(tmp_path, summary, cost, duration):
+    results = tmp_path / "results"
+    branch = results / "release-a"
+    _write_branch(branch)
+    (branch / "summary.json").write_text(json.dumps(summary))
+
+    row = emit.read_branch_result(branch, emit._source_repo(branch))
+    assert row["status"] != "error"
+    assert row["cost_usd"] == cost
+    assert row["duration_seconds"] == duration
