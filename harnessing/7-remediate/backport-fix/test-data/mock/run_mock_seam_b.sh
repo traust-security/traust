@@ -157,8 +157,8 @@ python3 harnessing/7-remediate/backport-fix/scripts/emit_backport_report.py \
   --results-dir "$RESULTS" --remediation "$REM" \
   --output "$WORK/cri-o-backport-report.json" --publish-root "$FAKE_AR" 2>&1 \
   | grep "validates against schema" >/dev/null || fail "report failed schema validation"
-D="$FAKE_AR/remediations/cri-o/cri-o"
-[[ -f "$D/cri-o-backport-report.json" && -f "$D/cri-o-backport-release-a.patch" ]] \
+D="$(ls -d "$FAKE_AR"/remediations/cri-o/cri-o/backport-* 2>/dev/null | head -1 || true)"
+[[ -n "$D" && -f "$D/cri-o-backport-report.json" && -f "$D/cri-o-backport-release-a.patch" ]] \
   || fail "published tree incomplete: $(ls "$D" 2>/dev/null)"
 python3 -c "
 import json

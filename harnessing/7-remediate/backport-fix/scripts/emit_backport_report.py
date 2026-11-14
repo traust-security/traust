@@ -881,12 +881,14 @@ def publish_results(
     # *-remediation.json here and other fixes for the same repo publish here
     # too. Each fix owns one namespace, and only that namespace is replaced,
     # so unrelated artifacts survive both a success and a failure.
-    fix_short = str(rem_meta.get("fix_commit") or "")[:12]
+    fix_commit = str((report.get("source_fix") or {}).get("commit")
+                     or rem_meta.get("fix_commit") or "")
+    fix_short = fix_commit[:12]
     if not _PATH_TOKEN_RE.match(fix_short):
         log.error(
             "Cannot derive a publish namespace from fix commit %r — refusing "
             "to publish into the shared repository directory",
-            rem_meta.get("fix_commit"),
+            fix_commit or rem_meta.get("fix_commit"),
         )
         return None
     dest = publish_root / "remediations" / logical / repo_short / f"backport-{fix_short}"
