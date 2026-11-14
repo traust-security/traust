@@ -5,10 +5,7 @@ argument-hint: "[bootstrap|admit|run|score] [--sample N] [--release]"
 metadata:
   harness.tier: "secondary"
 allowed-tools:
-  # Scoped grants (assessment 2026-07-31 scan-C1: the previous bare
-  # Bash(python3:*) rode an A11 exemption whose own preamble excludes
-  # target-facing skills — this skill checks out and audits third-party
-  # repos, so it IS target-facing and gets anchored grants like triage).
+  # Target-facing skills use anchored grants rather than a bare interpreter.
   - Bash(python3 -m traust.cli sweep build-canaries:*)
   - Bash(python3 -m traust.cli sweep bootstrap-benchmark:*)
   - Bash(python3 -m traust.cli sweep benchmark-targets:*)
@@ -39,9 +36,7 @@ allowed-tools:
 
 Ground truth for the auditor itself: of known-real vulnerabilities, what
 fraction does a fresh audit find? Recall (strict, per class), stability, and
-the held-out release score — the numbers that make methodology changes
-measurable (capability C1 of the roadmap;
-`progress-tracker/plans/capability-roadmap-plan.md`).
+the held-out release score — the numbers that make methodology changes measurable.
 
 ## Two rules that are never waived
 

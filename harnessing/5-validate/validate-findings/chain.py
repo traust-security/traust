@@ -92,9 +92,7 @@ CAP_IMPLIES = {
 # validates every ID against the pinned table at import — a revoked or
 # deprecated technique fails here, not silently in a report.
 # harnessing/<stage>/<skill>/chain.py -> harnessing/attack-coverage/scripts.
-# Three parents, not two: the 2026-08-26 restructure put every workflow
-# skill under a stage directory, and this hop was not repointed — it
-# resolved to <stage>/attack-coverage and made the module unimportable.
+# Three parents reach the shared attack-coverage scripts from this stage.
 sys.path.insert(
     0, str(Path(__file__).resolve().parent.parent.parent / "attack-coverage" / "scripts")
 )

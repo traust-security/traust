@@ -667,7 +667,7 @@ smoke run exercises the deterministic assets without spend. `make ops-smoke`
 (what the `ops-smoke` workflow runs on demand) asserts the cycle end to
 end over two engine passes: orders drain, `feeds_cache`, `repo_state` and
 `manifest_sbom` complete (degraded on a failing feed source is a pass),
-nothing left running or queued. **The smoke is not CI** (2026-11-04): the
+nothing left running or queued. **The smoke is not CI**: the
 engine runs and collects real data, so it never runs on push or pull_request
 — the workflow is a manual full-rig check (workflow_dispatch), and the rig
 on a laptop is the integration test.

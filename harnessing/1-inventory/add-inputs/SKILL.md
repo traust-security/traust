@@ -15,8 +15,6 @@ allowed-tools:
   - Bash(traust portfolio owner-hints:*)
   - Bash(traust portfolio import-owners:*)
   - Bash(traust products list:*)
-  # Confined 2026-09-07 when the skill returned upstream: the S1/S2 grandfather
-  # exemptions it carried are retired in favour of this allowlist.
 ---
 
 # Add Inputs — Register Repositories in the Inventory

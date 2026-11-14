@@ -3,12 +3,8 @@
 
 Executes repo-local sanitizer/validator functions in an isolated
 subprocess against curated bypass corpora, recording per-payload
-transcripts. The measured motivation:
-sanitizer-bypass findings are execution-shaped — reading `sanitize_jinja`
-tells a reviewer little about whether `{{'{{'}}` survives it, and the
-bt-awx-001 residual #3 is exactly such a miss (deep-fn-technique-plan
-§1.3). Fourteen of the fuzz campaign's bugs were execution-only for the
-same reason.
+transcripts. Sanitizer-bypass findings are execution-shaped: reading a
+sanitizer alone may not reveal whether a dangerous token survives it.
 
 Two steps, deliberately separated:
 
@@ -40,8 +36,8 @@ behind a real encoder, or the probe's call convention may not match
 production use. Judging protocol: secure-code-audit SKILL.md (sanitizer
 micro-probe section).
 
-Python-only in v1 (the acceptance target, awx sanitize_jinja, is Python;
-Go/JS probing needs a build step — that is create-fuzzing territory).
+Python-only in v1; Go/JS probing needs a build step and is handled by
+create-fuzzing.
 
 Usage:
     python3 probe_sanitizers.py <repo-path> --run --candidates <file>

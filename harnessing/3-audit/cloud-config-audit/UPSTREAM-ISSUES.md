@@ -1,11 +1,8 @@
 # DRAFTS — filing upstream is a human decision
 
-Draft issue text for Checkov engine gaps observed during the
-81-target Phase-0 /cloud-config-audit sweep (2026-07, reports under
-`analysis-results/cloud-config/`). **Nothing here is filed
-automatically**: an agent never opens an upstream issue; a maintainer
-reviews each draft, re-verifies the repro against the then-current
-Checkov release, strips any internal references, and files by hand.
+Draft issue text for Checkov engine gaps observed during cloud-config audits.
+**Nothing here is filed automatically**: a maintainer reviews each draft,
+re-verifies the repro against the then-current Checkov release, and files by hand.
 All observations are against the pinned engine, **Checkov 3.3.6**
 (`CHECKOV_VERSION` in traust-core's `models/cloud_config.py`), running under the
 skill's standard contract: **declared-configuration evidence only**
@@ -33,9 +30,6 @@ not unblocking us.
   Podman/Buildah builds.
 - **Expected:** `Containerfile` and `Containerfile.*` matched by the
   dockerfile framework (or at minimum a skipped-file notice).
-- **Our evidence:** rhoim-bootc-images `vllm-bootc/Containerfile`
-  silently unassessed —
-  `analysis-results/cloud-config/rhoim-bootc-images/`.
 - **Our mitigation:** traust-engine's `CheckovProvider` materializes Dockerfile-named
   alias symlinks in a temp scan tree and maps fact paths back
   (`containerfile_alias_workaround`).
@@ -53,9 +47,6 @@ not unblocking us.
   empty tree. A "0 applicable policies for N parsed resources"
   summary line (or per-provider policy count) would make the
   non-coverage visible.
-- **Our evidence:** `analysis-results/cloud-config/
-  terraform-provider-rhoas/`, `er-cloudflare-account/`,
-  `er-cloudflare-zone/`, `ibmc-workspace-vlans/`.
 - **Our mitigation:** mechanical `IacInventory.gaps()` in
   traust-core's `models/cloud_config.py` emits a NOT-ASSESSED gap whenever `.tf` files exist
   but the terraform framework evaluated zero checks.
@@ -68,14 +59,10 @@ not unblocking us.
 - **Repro sketch:** run `checkov -d . --framework bicep -o json` on a
   substantial production Bicep codebase (modules, user-defined types,
   loops, nested deployments); a large fraction of files land in
-  `summary.parsing_errors`. On Azure/ARO-HCP we measured **82 of 188
-  Bicep files (44%) failing to parse**, so most of the declared
-  surface is silently unassessed.
-- **Our evidence:** `analysis-results/cloud-config/ARO-HCP/` facts
-  (`parsing_errors` count and gaps entries).
+  `summary.parsing_errors`, leaving declared configuration unassessed.
 - **Our mitigation:** parse failures and zero-check bicep trees are
-  loud `gaps[]` entries; transpile-based workarounds deliberately not
-  adopted (dependency intake gate — see SKILL.md known limitations).
+  loud `gaps[]` entries; the runner retries parse failures via the pinned
+  Bicep CLI as described in SKILL.md.
 
 ## 4. CKV_AWS_27 does not credit SQS-managed SSE (`SqsManagedSseEnabled`)
 
@@ -88,10 +75,7 @@ not unblocking us.
   mode since 2021); only `kms_master_key_id` is credited.
 - **Expected:** either encryption mode passes the check (or a distinct
   check differentiates KMS vs SSE-SQS).
-- **Our evidence:** recurring engine-FP class across the Phase-0
-  sweep's AWS terraform targets (`analysis-results/cloud-config/`,
-  er-aws-* series); suppressed per SKILL.md with per-queue attribute
-  citations.
+- **Our mitigation:** suppress only with per-queue attribute citations.
 
 ## 5. CKV2_GCP_18 only credits classic firewall rules, not network firewall policies
 
@@ -105,9 +89,7 @@ not unblocking us.
   `..._rule` (Google's recommended successor to classic rules) →
   CKV2_GCP_18 still FAILED; only classic `google_compute_firewall`
   resources satisfy the YAML graph query.
-- **Our evidence:** engine-FP class from the Phase-0 sweep's GCP
-  terraform targets (`analysis-results/cloud-config/`); suppressed per
-  SKILL.md citing the policy association resources.
+- **Our mitigation:** suppress only with policy association citations.
 
 ## 6. Non-Dockerfile `Dockerfile.<x>.<y>` files misparse as Dockerfiles
 
@@ -121,9 +103,7 @@ not unblocking us.
   meaningless CKV_DOCKER facts against non-Dockerfile content. A
   cheap content sniff (first instruction must be a Dockerfile keyword
   such as FROM/ARG/# syntax) would avoid the class.
-- **Our evidence:** engine-FP class from the Phase-0 sweep
-  (`analysis-results/cloud-config/`); suppressed per SKILL.md citing
-  the file's actual format.
+- **Our mitigation:** suppress only with evidence of the file's actual format.
 
 ## 7. CKV2_AWS_19 misses EIP association via ENI
 
@@ -134,9 +114,7 @@ not unblocking us.
   `network_interface_id` (or `aws_eip.network_interface`) instead of
   `instance` → CKV2_AWS_19 FAILED although the EIP is in use; the
   graph query only follows the instance-attachment edge.
-- **Our evidence:** engine-FP class from the Phase-0 sweep's AWS
-  terraform targets (`analysis-results/cloud-config/`); suppressed per
-  SKILL.md citing the association resource.
+- **Our mitigation:** suppress only with association resource citations.
 
 ## 8. No framework assesses OpenShift Template / Tekton PipelineRun objects
 
@@ -148,8 +126,5 @@ not unblocking us.
   framework evaluates nothing inside `objects:` (parameterized
   manifests are not unwrapped); `.tekton/` PipelineRun files likewise
   match no framework. Both silently contribute zero checks.
-- **Our evidence:** Phase-0 sweep targets carrying OpenShift Templates
-  and Pipelines-as-Code `.tekton/` trees
-  (`analysis-results/cloud-config/`).
 - **Our mitigation:** mechanical NOT-ASSESSED gaps for both classes in
   traust-core's `IacInventory.gaps()` (template unwrapping deliberately not attempted).

@@ -153,9 +153,8 @@ progress-tracker/metrics/team-reports/<slug>-findings/
 ```
 
 The progress-tracker repo carries rollups, dashboards, and summaries — never
-copies of findings reports or evidence artifacts (owner directive,
-2026-07-21: duplicating findings there widens access to embargoed material
-and bloats the metrics repo). Both summary files must link to the
+copies of findings reports or evidence artifacts, which would widen access to
+embargoed material and bloat the metrics repo. Both summary files must link to the
 `analysis-results/` source paths for the detailed reports (e.g.
 `analysis-results/findings/<product>/<component>/` or the engagement tree
 such as `analysis-results/<engagement>-findings/<repo>/`), including
@@ -212,7 +211,7 @@ find <slug>-findings -name '.DS_Store' -delete
 
 ### Step 5 — Generate Executive Summary HTML
 
-**Escaping is mandatory (CWE-79; assessment 2026-07-31 F12).** Every
+**Escaping is mandatory (CWE-79).** Every
 value that originates in a finding — titles, impact text, action
 descriptions, component names, theme labels — is attacker-influencable
 (a hostile repo controls what its audit findings quote) and lands in an
@@ -242,7 +241,7 @@ renderer. Sections 1–4 below now say what the door renders and what you add.
 
 | Section | Rendered by | Content |
 |---------|-------------|---------|
-| **Banner** | you | `RED HAT INTERNAL — EMBARGOED.` warning |
+| **Banner** | you | Appropriate confidentiality or embargo warning for the engagement |
 | **Header** | door (title, date); you (tracking reference) | Product name(s), date, the tracking reference from `traust.yaml` (`campaign.tracking_reference`, omitted when unset) |
 | **KPI tiles** | door (Summary) | open by severity, execution-proven, unverified; false positives, resolved, risk accepted, hardening |
 | **By product / By repository** | door | Component/product × severity tables |
@@ -286,7 +285,7 @@ is the same executive summary in a paste-into-Slack/doc format, and the pair
 must sort and share together). (`traust dashboard team-report` writes both.)
 
 Include:
-- `RED HAT INTERNAL — EMBARGOED` classification (you add)
+- Appropriate confidentiality or embargo classification for the engagement (you add)
 - Date and the tracking reference from `campaign.tracking_reference` in `$TRAUST_CONFIG_HOME/traust.yaml` (omit the line when unset) (the door writes the date; you add the reference)
 - Summary table: Component × Severity (Critical/High/Medium/Low/Info/Total) (the door)
 - Folder structure tree (abbreviated) (you add, bundled mode)

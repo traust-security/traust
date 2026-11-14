@@ -39,9 +39,8 @@ invoiced actual. Two limits must appear in anything you hand to a human:
 
 1. **At least one rate is unverified.** `config/model-registry.yaml`
    flags some models as not on the published rate card (a trailing
-   `price unverified` comment), and as of 2026-08 the affected
-   opus-class model carries most campaign spend. Never hardcode which
-   one — the spend view reads the current set from the
+   `price unverified` comment). Never hardcode which models are affected —
+   the spend view reads the current set from the
    registry and prints it. Do not strip that line when summarising.
 2. **Business-unit coverage is partial.** Spend carries no BU tag
    anywhere, so it is bridged from the run order it was recorded against
@@ -103,7 +102,7 @@ The spend view carries the split. The BU comes from the corpus registry's
 which is sourced from corpus intake — the metrics-accounting taxonomy. That is
 exactly what it is for; note that the same tags are explicitly **not** a
 risk signal and play no role in routing or ceilings
-(docs/continuous-operations.md, operator directive 2026-07-27).
+(`docs/continuous-operations.md`).
 
 **Reading the output correctly:** the BU table and the per-lane table
 partition the *same* total along *different* axes. An order can carry a
@@ -122,7 +121,7 @@ is supplied, say plainly that nothing has been checked against billing.
 
 ## Budget posture — what is and is not enforced
 
-Do not imply spend is being controlled. As of 2026-08-06:
+Do not imply spend is being controlled:
 
 - `budgets` in `$TRAUST_CONFIG_HOME/traust.yaml` run `enforcement: observe` — every planned
   order gets a budget verdict, recorded in its run manifest, and **withholds
@@ -171,6 +170,4 @@ consume. The per-lane numbers it reads are the same ones
 the program view (`dashboard view program`) renders, so the two cannot disagree.
 
 **Related:** `/refresh-dashboards` (*retired:* its spend-dashboard stage; the spend view replaces it);
-`/drift-watch` flags stale spend data; the budget-guard phases are
-tracked in
-`progress-tracker/plans/budget-guard-widening-plan.md`.
+`/drift-watch` flags stale spend data.

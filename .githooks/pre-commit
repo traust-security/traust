@@ -19,11 +19,8 @@ checker="$repo_root/src/traust/cli/check_skill_alignment.py"
 # outside the hook so tests and plain tree checks are unaffected.
 export HARNESS_PRE_COMMIT=1
 
-# FAIL-CLOSED (P1 gate rework 2026-07-31, assessment root-cause 2): a
-# missing interpreter or a deleted/renamed checker used to SKIP the
-# gates silently — deleting scripts/check_*.py was a one-commit gate
-# bypass. A broken gate now blocks the commit; the deliberate escape
-# hatch stays `git commit --no-verify`.
+# FAIL-CLOSED: a missing interpreter or checker blocks the commit.
+# The deliberate escape hatch is `git commit --no-verify`.
 if ! command -v python3 >/dev/null 2>&1; then
   echo "pre-commit: python3 not found — the alignment/security gates" >&2
   echo "            CANNOT run, so the commit is blocked (fail-closed)." >&2

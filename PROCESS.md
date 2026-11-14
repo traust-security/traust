@@ -9,9 +9,7 @@ For a map of all documentation organised by audience, see **[docs/README.md](doc
 
 The stage numbering here is **the** campaign numbering — README.md's
 pipeline diagram, docs/skills.md's Stage column, and this page all use
-the same ①–⑨ (the 2026-07-31 docs-verification found three
-incompatible schemes; this page was the worst offender, documenting
-the retired pre-ledger campaign). Current campaign numbers are never
+the same ①–⑨. Current campaign numbers are never
 quoted here — they live in the dashboards
 (`/census` for the population authority,
 `progress-tracker/metrics/dashboards/` for the rest).
@@ -56,9 +54,8 @@ Component ownership is documented in [docs/components.md](docs/components.md).
 
 **Skill:** ``inventory-repositories`` (internal extension repo) (automated discovery) · [`add-inputs`](.claude/skills/add-inputs/SKILL.md) (ad-hoc registration)
 
-Discover every source code repository belonging to each product segment
-in the Hybrid Platforms portfolio: OpenShift release payloads, OLM
-operator bundles, and managed services.
+Discover every source code repository belonging to each configured product
+segment, including release payloads, operator bundles, and managed services.
 
 For repos or whole orgs outside those discovery paths, `add-inputs`
 registers them in traust-core under a product (`traust portfolio onboard`). When the addition is a new scan engagement,
@@ -244,7 +241,7 @@ initial routing go through
 which re-verifies via LDAP, re-resolves registry context, maintains the
 `Escalation` column, and updates Drive permissions. Escalation contacts
 receive the findings folder as commenters unless LDAP marks them
-contingent (2026-07-30 decision), and never hold an owner slot.
+contingent, and never hold an owner slot.
 
 ---
 
@@ -319,12 +316,11 @@ Dashboards rebuild on cadence via
 
 ## Metrics & Reporting Layer (cross-stage)
 
-Every campaign number flows through one consistency spine
-(`progress-tracker/plans/metrics-improvement-plan.md`):
+Every campaign number flows through one consistency spine:
 
 - **traust-core's corpus registry** (was `corpus-config.yaml`) registers every output tree with an
-  ownership tag — `owned` (`findings/`, Hybrid Platforms), `upstream`
-  (`oss-findings/`, community code HP depends on; reported adjacent,
+  ownership tag — `owned` (`findings/`, organization-owned code), `upstream`
+  (`oss-findings/`, community code the organization depends on; reported adjacent,
   never folded into the owned headline), `external-bu` (scan engagements
   for other business units; work-performed only). `/corpus-intake`
   writes traust-core's corpus registry instead; `/census` reads it once ported.

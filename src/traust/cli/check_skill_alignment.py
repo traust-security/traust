@@ -79,7 +79,7 @@ Rules:
                       the default layout resolved through `locations:` in
                       `traust.yaml` in $TRAUST_CONFIG_HOME — a reader outside this
                       deployment cannot otherwise tell a default from a
-                      hardcode (52/56 docs named them, 2026-09-07).
+                      hardcode.
   A16 layer-writes    Ledger layers are written through the SDK, never by
                       _write_layer_file or a direct write_text — a direct
                       write bypasses the Backend.mutate lock that keeps
@@ -98,9 +98,8 @@ Rules:
                       landing: a ratchet, not a cleanup.
   A13 skills-doc-sync A staged harnessing/*/SKILL.md change must be
                       accompanied by a regenerated docs/skills.md, so
-                      the skills reference cannot silently lag the skill
-                      (the 2026-07-25 docs sweep found ~25% of entries
-                      lagging). Active only under the pre-commit hook
+                      the skills reference cannot silently lag the skill.
+                      Active only under the pre-commit hook
                       (HARNESS_PRE_COMMIT=1); a genuinely doc-irrelevant
                       change (typo, comment) is waived with
                       SKILLS_DOC_WAIVER=<reason> on the commit command.
@@ -113,13 +112,7 @@ Rules:
                       disposition ledger's core tenet (events, not state
                       — docs/disposition-ledger.md §2.2) and bypasses the
                       rescan router's authority over when a new baseline
-                      is cut. Found 2026-08-17: findings had been
-                      appended into baselines by three non-audit
-                      producers, undetected because the write was named
-                      "the sanctioned-append flow" in code while the docs
-                      called the baseline immutable — and no gate checked
-                      it. Burn-down tracked in
-                      progress-tracker/plans/baseline-immutability-plan.md.
+                      is cut.
 
 The U-series comes from the skill-usability reorganization plan
 (progress-tracker/plans/skill-usability-reorganization-plan.md §8), whose
@@ -187,16 +180,12 @@ BASELINE_WRITE_PY_RE = re.compile(
 )
 # Prose instructing or describing a baseline mutation.
 #
-# Widened 2026-08-18 by the B9 audit, which found SEVEN non-owner skills carrying
-# baseline-write prose that this gate passed clean. Every miss was a phrasing
-# detail, not a new idea:
+# Match variations of baseline-write prose, including:
 #   * verb inflection — "appends" (only append/appended were covered)
 #   * interposed words — "append **it** to the baseline"
 #   * "to the baseline" as well as "into the baseline"
 #   * adjectival forms — "the **amended** *-security-audit.json finding"
 #   * possessives — "routes every regression into the **repo's** baseline"
-# A15 passing while the rule was broken in seven places is how B7's
-# baseline-written findings accumulated: the gate checked a phrasing, not a claim.
 _BASELINE_VERB = (
     r"(?:amend|append|add|writ|merg|rout|fold|insert|inject|updat)"
     r"(?:e|es|ed|ing|en|s)?"
@@ -265,11 +254,8 @@ ARTIFACT_SKIP_RE = re.compile(
 )
 # human-terminal artifacts (dashboards, rollups, exec summaries) need no
 # machine consumer
-# Shrunk 2026-07-31 (wiring F1): `-plan\.`, `queue`, `owners`,
-# `-repos\.` and `manifest` auto-exempted real pipeline artifacts
-# (attack-plan.yaml, owners.csv, *-repos.csv,
-# findings.db) that all HAVE consumers — they must prove their
-# wiring like everything else.
+# Pipeline artifacts such as attack plans, owners, repo lists and manifests
+# have consumers and must prove their wiring.
 ARTIFACT_TERMINAL_RE = re.compile(
     r"dashboard|rollup|summary|one-pager|navigator-layer|drift-report|"
     r"census|trends|-stats|tracker|worklist|metrics|-analysis\.md",
@@ -310,11 +296,7 @@ def _keys_match(a: str, b: str) -> bool:
 
 # Structured declaration lines inside an Integrations section. When a
 # skill carries these, they are AUTHORITATIVE: heuristic verb/arrow
-# production detection is suppressed for that skill (P1 of the A9/A10
-# rework, docs-verification 2026-07-31 wiring F1 — arrows in
-# track-findings' verdict-mapping table credited it as producer of five
-# artifacts it consumes, while secure-code-audit's real emission under
-# "### Report File Name" was never recorded).
+# production detection is suppressed for that skill.
 _EMITS_LINE_RE = re.compile(r"^\*\*Emits\b[^:]*:?\*\*|^\*\*Emits\b[^:]*:", re.IGNORECASE)
 _CONSUMES_LINE_RE = re.compile(r"^\*\*Consumes\b[^:]*:?\*\*", re.IGNORECASE)
 
@@ -374,14 +356,8 @@ def _skill_artifacts(text: str) -> tuple[set, set]:
 
 
 EXEMPTIONS: dict[tuple[str, str], str] = {
-    # --- cross-repo consumers (open-source-upstream-plan.md Phase 4) -------
-    # These artifacts DO have consumers; the consumers are the campaign skills
-    # that live in the internal extension repo, not in this one. Surfaced when
-    # validate-core-ocp and validate-operator-live moved out — the plan
-    # anticipated needing this category and called it an "explicit cross-repo
-    # exemption". Reinstate as normal wiring if a skill here starts consuming
-    # them, and delete these entries when the extension repo is real so an
-    # unused exemption cannot hide a genuinely orphaned output.
+    # Cross-repository consumers: remove an exception when ordinary in-repo
+    # wiring supersedes it or its artifact is no longer produced.
     (
         "A1",
         "harnessing/5-validate/validate-findings/SKILL.md",
@@ -472,17 +448,6 @@ EXEMPTIONS: dict[tuple[str, str], str] = {
         "harnessing/check-licensing/SKILL.md",
     ): "mentions run_opengrep.py only as the swappable-input example in "
     "the never-vendor constraint; runs no scan and writes no report",
-    # (A11 grandfather set RETIRED 2026-07-31 P1-W4: census,
-    # corpus-intake, insecure-patterns and repo-graph now carry
-    # per-script anchored grants.)
-    # (recall-benchmark entry REMOVED 2026-07-31: it was misclassified —
-    #  the skill clones third-party repos, i.e. target-facing, which this
-    #  block's preamble explicitly excludes. Grants now anchored per
-    #  script; assessment 2026-07-31 scan-C1.)
-    # (A11 git-grant migration queue RETIRED 2026-07-31 P1-W4: all 8
-    # holders migrated to subcommand-scoped grants; -C-shaped skills
-    # keep a documented Bash(git -C:*) residual pending command-shape
-    # rework — see sandbox-adoption-plan.)
     # --- A14 anchor burn-down (P1-W4): `python3 *<name>.py` patterns
     # predate the rule. Anchoring to *traust/… breaks
     # invocations that cd into the harness first, so each skill's
@@ -590,7 +555,7 @@ EXEMPTIONS: dict[tuple[str, str], str] = {
 }
 
 
-# A11 structural leg (P1 gate rework 2026-07-31): binaries whose
+# A11 structural leg: binaries whose
 # UNSCOPED grant is arbitrary code execution or unbounded reach.
 # Version-suffixed and path-prefixed spellings normalize to these
 # (python3.11, /usr/bin/python3) — the old regex missed both, plus
@@ -850,14 +815,10 @@ _A17_MARK = "`traust.yaml`"
 def a17_locations_note_failures(repo: Path = REPO, used: list | None = None) -> list[str]:
     """A17 locations-note — a SKILL.md that names a workspace tree says so.
 
-    52 of 56 skill docs write `analysis-results/…` or `progress-tracker/…`
-    literally (measured 2026-09-07). The code underneath resolves those roots
-    through `locations:` in `traust.yaml`, so the literals are the
-    documented DEFAULT layout — but a reader outside this deployment cannot
-    tell a default from a hardcode. Any skill doc that names either tree must
-    carry the one-paragraph note saying the paths resolve through
-    `traust.yaml`. Publish-time pass for the open-source split; this rule
-    is the ratchet that keeps the next skill honest.
+    Skill docs may name `analysis-results/…` or `progress-tracker/…`
+    literally, but code resolves those roots through `locations:` in
+    `traust.yaml`. A skill doc that names either tree must explain that
+    these paths describe the default layout.
     """
     used = used if used is not None else []
     failures: list[str] = []
@@ -886,17 +847,9 @@ def a17_locations_note_failures(repo: Path = REPO, used: list | None = None) -> 
 def a16_layer_write_boundary_failures(repo: Path = REPO, used: list | None = None) -> list[str]:
     """A16 — ledger layers are written through the SDK, never directly.
 
-    `traust-engine` 0.9.6 collapsed four write mechanisms into one: every layer
-    mutation goes through `LedgerClient`, where mutate + stamp + sign happen inside a
-    single `Backend.mutate` lock. A direct write bypasses that lock, skips
-    finalization, and reintroduces the split that left **112 signed corpus layers
-    unsigned on 2026-08-31** while every one of them was reported as written and
-    successful (progress-tracker `traust-ledger-code-fitness-plan.md`).
-
-    The count is zero as of harness 0.331.7 — Shaun's Phase 2 removed the last
-    caller. This rule is a ratchet, not a cleanup: it exists so the next one fails
-    the commit instead of being found by accident, which is how this defect was
-    found three times.
+    Every layer mutation goes through `LedgerClient`, where mutate + stamp +
+    sign happen inside a single `Backend.mutate` lock. A direct write bypasses
+    that lock and skips finalization.
 
     Scoped to writes that look like they touch a layer (`LAYER_PATH_HINT_RE` on the
     same line), so ordinary `write_text` on reports and dashboards is unaffected.
@@ -1220,7 +1173,6 @@ def alignment_failures(repo: Path = REPO, exemptions_used: list | None = None) -
             elif tracked is not None and wiring not in tracked:
                 # `.crush/.gitignore` is `*`: a link created on disk but never
                 # `git add -f`ed passes here and is absent from every clone.
-                # Found by the 2026-09-08 export dry-run (two skills).
                 failures.append(
                     f"A7 {rel}: wiring `{wiring}` exists but is untracked — `git add -f` it"
                 )

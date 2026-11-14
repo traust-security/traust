@@ -158,7 +158,6 @@ recording for the supported kinds above; it does not stamp the report file.
 An empty report can legitimately prepare no items, and an empty batch is not
 proof that the repository is clean. A re-audit finding that names an already
 recorded finding under another identity is held for a person's rebaseline review.
-Plan 15's decision 5 may change whether `secure_code` recording admits findings.
 
 `reporting record` and `cloud-config record` take `--run-id <order-uuid>` (default:
 `$TRAUST_RUN_ID`, which `traust session run` sets for the agent it starts, along with

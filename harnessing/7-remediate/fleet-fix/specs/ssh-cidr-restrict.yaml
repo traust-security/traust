@@ -1,6 +1,6 @@
 # Fleet-fix: close world-open SSH ingress in Terraform security groups.
 #
-# Pattern: 2026-07 cloud-config Phase-0 sweep, CKV_AWS_24 class —
+# Pattern: CKV_AWS_24 class —
 # security-group ingress on port 22 from 0.0.0.0/0 (CWE-284 exposure).
 # Confirmed in 7 repos:
 #   - RHEcosystemAppEng/amq-cob                CCA-amq-cob-001 (critical)

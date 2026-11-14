@@ -84,7 +84,7 @@ python3 -m traust.cli dashboard view threat-register \
 *Retired* (scope is product or team: `--product`, `--team-id`): The md/html outputs embed the standard population block (roots, unit,
 filters, denominator) for cross-dashboard reconciliation, and include an
 Ownership cuts table splitting models/threats/open/open-critical
-between owned (`findings/`, Hybrid Platforms) and upstream (`oss-findings/`)
+between owned (`findings/`, organization-owned code) and upstream (`oss-findings/`)
 — upstream is never folded into the owned cut.
 
 **Ranking.** Threats are ranked by their **OWASP Risk Rating Methodology**

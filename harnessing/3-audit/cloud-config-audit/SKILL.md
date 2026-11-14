@@ -17,10 +17,7 @@ allowed-tools:
   - Bash(python3 *traust* -m traust.cli reporting validate:*)
   - Bash(python3 *traust* -m traust_engine.reporting.render:*)
   - Bash(python3 *traust* -m traust.cli cloud-config record:*)
-  # Confinement added 2026-07-31 (P1 gate rework — the
-  # widened S1 privilege tokens made this skill's missing
-  # allowlist visible; assessment root-cause 3). Never
-  # widen to a bare interpreter — scope scripts individually.
+  # Never widen to a bare interpreter — scope scripts individually.
 ---
 
 # Cloud Config Audit — Checkov-Backed IaC Assessment (Declared Layer)
@@ -136,8 +133,8 @@ never add, remove, or reword facts.
    disagreement ⇒ `needs_review`.
 
    **Known engine false-positive classes (checkov 3.3.6).** These
-   policy-logic gaps recur across the portfolio (Phase-0 sweep,
-   2026-07; upstream drafts in [UPSTREAM-ISSUES.md](UPSTREAM-ISSUES.md)).
+   policy-logic gaps recur across the portfolio (upstream drafts in
+   [UPSTREAM-ISSUES.md](UPSTREAM-ISSUES.md)).
    Each is still suppress-with-evidence: cite the exact file/attribute
    that proves the secure configuration in the suppression rationale,
    never suppress on class membership alone.
@@ -246,11 +243,9 @@ never add, remove, or reword facts.
 
 ## Known limitations
 
-- **Weak Bicep parsing (checkov 3.3.6) — transpile fallback
-  (intake-complete 2026-07-29).** The bicep framework's parser fails
-  on a large share of real-world Bicep (observed: 82/188 Bicep files
-  on ARO-HCP, Phase-0 sweep 2026-07). The runner now recovers these
-  automatically: parse-failed `.bicep` files are transpiled with the
+- **Weak Bicep parsing (checkov 3.3.6) — transpile fallback.** The bicep
+  framework's parser fails on a large share of real-world Bicep. The runner
+  recovers parse-failed `.bicep` files automatically by transpiling with the
   **pinned `bicep` CLI** (`BICEP_VERSION` in traust-engine's
   `adapters/cloud_config.py`;
   MIT, intake row in `docs/external-dependencies.md`) using
@@ -258,8 +253,7 @@ never add, remove, or reword facts.
   modules are never fetched, and a file that needs them stays a gap —
   then re-scanned through the arm framework. Fact paths cite the
   source `.bicep`; **line ranges refer to the generated ARM
-  template** (recorded in `notes.bicep_transpile_fallback`). Live
-  validation: 71/75 ARO-HCP parse failures recovered. When the pinned
+  template** (recorded in `notes.bicep_transpile_fallback`). When the pinned
   CLI is absent the fallback is skipped with a note and the files
   stay loud NOT-ASSESSED gaps (install: docs/requirements.md).
   Upstream parser draft: [UPSTREAM-ISSUES.md](UPSTREAM-ISSUES.md).
@@ -288,8 +282,7 @@ never add, remove, or reword facts.
 
 After this skill's report/artifact is written, declare the run's spend
 against the target so `estimate_scan` can calibrate per-skill cost
-models (contract: docs/model-routing.md; analysis:
-progress-tracker/metrics/estimate-calibration-analysis.md §F5):
+models (contract: docs/model-routing.md):
 
 ```bash
 python3 -m traust.cli registry models spend --skill cloud-config-audit \

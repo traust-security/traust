@@ -1,6 +1,5 @@
-# Hybrid Platforms PQC supplement rule pack (v1)
+# PQC supplement rule pack (v1)
 # Complements the vendored pqc-scan default rules (pinned be5c760a).
-# Design + rationale: progress-tracker/plans/pqc-readiness-campaign-plan.md Section 4.1.
 # Core's native prescan combines the source scanner with its provider/toolchain/
 # policy census and material checks; this pack supplies source + config regex.
 
@@ -361,11 +360,11 @@
   scope: dependency
   description: Django framework present — implicit crypto consumer.
 
-# ---- First-party TLS listener census (2026-08-06) ---------------------------
+# ---- First-party TLS listener census ----------------------------------------
 # Ownership anchors for the who-sets-tls walk: a repo that terminates TLS
 # in-process owns that decision point. Without these facts a first-party TLS
 # server with no vulnerable tokens is invisible and the walk falls through to
-# language_defaults (file-integrity-operator miss, memory pqc-tls-listener-gap).
+# language_defaults.
 
 - id: HP_TLS_LISTENER_GO
   kind: regex
@@ -422,7 +421,7 @@
   scope: code
   description: Rust TLS listener/acceptor — the app terminates TLS in-process (native-tls, openssl, or rustls backend).
 
-# ---- Calibration additions (pilot 2026-07-18; plan v1.3) --------------------
+# ---- Additional security patterns -------------------------------------------
 
 - id: HP_TLS_VERIFY_DISABLED_GO
   kind: regex
@@ -600,10 +599,7 @@
   scope: code
   description: JWT HS-family signing with short inline secret (low-confidence, adjudicated).
 
-# ---- Calibration v2 (2026-07-19): sweep-proven scanner gaps -----------------
-# Provenance: mapt (pulumi-tls, batch 20), rhc-playbook-verifier +
-# insights-playbooks (GPG, batches 21/23), git-partition-sync-consumer
-# (age, batch 25), compliance-trestle (python Ed25519, batch 30).
+# ---- Additional key and signing patterns -----------------------------------
 
 - id: HP_KEYGEN_PULUMI_TLS
   kind: regex

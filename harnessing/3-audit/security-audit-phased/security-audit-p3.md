@@ -11,8 +11,7 @@ Read the following files from the current working directory before starting:
 The source code and prior vulnerability reports are in this conversation.
 
 **Beyond the taxonomy — enforcement-asymmetry hunt (mandatory, runs
-alongside the CWE walk; calibrated by the 2026-07-21 AWX false-negative
-probe):** the highest-yield misses of checklist-driven review are not a
+alongside the CWE walk):** the highest-yield misses of checklist-driven review are not a
 CWE class. Additionally do the following:
 - Read the codebase's authorization/enforcement layer end-to-end; for
   every guarded reference to an asset class, enumerate sibling
@@ -33,7 +32,7 @@ A vulnerability is the ability of a lower-trust context to influence a higher-tr
 
 **Delegated-control check:** When a security control (signature verification, access check, input validation) is performed by a component that already has equal or greater capabilities than what bypassing the control would grant, that control is internal consistency — not a trust boundary. If component A loads and runs component B, and A's own code verifies B, then a compromised A already has code execution and does not need to subvert its own verification. The real trust boundary is whoever verified A. Do not report "A verifies B using A's own code" as a finding when A already controls B's lifecycle.
 
-**Do-not-report classes** (ported from `/vuln-scan` and the 2026-07 error-correction refutation corpus — `analysis-results/scan-testing/sxs-2026-07/phase2-refutation-rules.md`; record as one-line negative results, never as findings):
+**Do-not-report classes** (shared with `/vuln-scan`; record as one-line negative results, never as findings):
 
 - volumetric DoS / rate-limiting / resource-exhaustion — BUT unbounded recursion, algorithmic-complexity blowup, or ReDoS driven by untrusted input ARE reportable
 - memory-safety findings in memory-safe languages outside unsafe/FFI

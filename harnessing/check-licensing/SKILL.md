@@ -8,10 +8,7 @@ allowed-tools:
   - Glob
   - Grep
   - Bash(python3 *traust* -m traust.cli.check_content_licenses:*)
-  # Confinement added 2026-07-31 (P1 gate rework — the
-  # widened S1 privilege tokens made this skill's missing
-  # allowlist visible; assessment root-cause 3). Never
-  # widen to a bare interpreter — scope scripts individually.
+  # Never widen to a bare interpreter — scope scripts individually.
 ---
 
 # Check Licensing

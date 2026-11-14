@@ -112,7 +112,7 @@ class ContainerAdapter(AdapterBase):
             verdict=verdict,
             expected=expected,
             # container output carries env dumps / mounted-secret reads —
-            # same redaction as the k8s adapter (assessment 2026-07-31 F16)
+            # same redaction as the k8s adapter.
             observed=redact_credentials(observed)[:4000],
             evidence=evidence,
             finding_ref=(

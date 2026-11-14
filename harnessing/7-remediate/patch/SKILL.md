@@ -941,8 +941,7 @@ ported into this harness at v0.23.0 and modified per `CHANGELOG.md`.
 
 After this skill's report/artifact is written, declare the run's spend
 against the target so `estimate_scan` can calibrate per-skill cost
-models (contract: docs/model-routing.md; analysis:
-progress-tracker/metrics/estimate-calibration-analysis.md §F5):
+models (contract: docs/model-routing.md):
 
 ```bash
 python3 -m traust.cli registry models spend --skill patch \
@@ -970,8 +969,7 @@ Core's `traust pqc prescan`, exported unchanged for `/pqc-readiness`'s Layer 2.
 **Emits (terminal by design):** `./PATCHES/bug_NN/{patch.diff,
 patch_result.json}`, `PATCHES.md`, `PATCHES.json` are a
 **human-review packet, not a pipeline artifact** — no skill or script
-consumes them (verified repo-wide, docs-verification 2026-07-31
-wiring F4), and that is deliberate: this skill produces inert
+consumes them, and that is deliberate: this skill produces inert
 candidate diffs for a human to review and apply out-of-band, with no
 `--apply` flag anywhere. Applying a reviewed diff and verifying it is
 the `/remediate-finding` → `/verify-remediation` fork flow; a patch

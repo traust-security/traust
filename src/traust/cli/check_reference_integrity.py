@@ -116,10 +116,7 @@ def scripts_path_failures(repo: Path = REPO) -> list[str]:
                     continue
                 # "Stale" means the reference points at something that is no
                 # longer there. A repo-root script that EXISTS is a live
-                # reference, not a stale one: the 2026-08 toolchain work added
-                # scripts/install-toolchain.sh and scripts/build-toolchain-image.sh
-                # at the root by design, and flagging them made this check fail
-                # on correct documentation. Resolve before judging.
+                # reference, not a stale one. Resolve before judging.
                 if (repo / m.group(0)).is_file():
                     continue
                 failures.append(f"{rel}:{i}: stale scripts/ path -> {m.group(0)}")

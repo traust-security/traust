@@ -184,14 +184,11 @@ licenses table below, and rule 6 of the content guard).
 
 | Plugin | Used by | Version at intake | License | Evidence | Risk |
 |---|---|---|---|---|---|
-| review-walkthrough (marketplace `trailofbits`) | patch, remediate-finding — optional aid for the human-review step; renders a branch diff as a standalone HTML walkthrough | 1.2.2 installed 2026-09-16 (sha a6d1b234198d) | CC-BY-SA-4.0 | [LICENSE](https://github.com/trailofbits/skills/blob/main/LICENSE) · [plugin](https://github.com/trailofbits/skills/tree/main/plugins/review-walkthrough) | **Low while used, not adapted** — invoking it creates no obligation; it reads a git range and writes its own HTML, consuming no harness artifact and writing none |
-| mutation-testing (marketplace `trailofbits`) | *no skill consumes it* — operator-facing aid for configuring a campaign and reading survivors interactively. The automated lane depends on the `mewt` binary, not on this plugin | 1.9.1 installed 2026-09-16 (sha a6d1b234198d) | CC-BY-SA-4.0 | [LICENSE](https://github.com/trailofbits/skills/blob/main/LICENSE) · [plugin](https://github.com/trailofbits/skills/tree/main/plugins/mutation-testing) | **Low while used, not adapted** — the skill is a router over `mewt`/`muton`, so the value and the risk both sit in the engine, not the prose |
+| review-walkthrough (marketplace `trailofbits`) | patch, remediate-finding — optional aid for the human-review step; renders a branch diff as a standalone HTML walkthrough | 1.2.2 (sha a6d1b234198d) | CC-BY-SA-4.0 | [LICENSE](https://github.com/trailofbits/skills/blob/main/LICENSE) · [plugin](https://github.com/trailofbits/skills/tree/main/plugins/review-walkthrough) | **Low while used, not adapted** — invoking it creates no obligation; it reads a git range and writes its own HTML, consuming no harness artifact and writing none |
+| mutation-testing (marketplace `trailofbits`) | *no skill consumes it* — operator-facing aid for configuring a campaign and reading survivors interactively. The automated lane depends on the `mewt` binary, not on this plugin | 1.9.1 (sha a6d1b234198d) | CC-BY-SA-4.0 | [LICENSE](https://github.com/trailofbits/skills/blob/main/LICENSE) · [plugin](https://github.com/trailofbits/skills/tree/main/plugins/mutation-testing) | **Low while used, not adapted** — the skill is a router over `mewt`/`muton`, so the value and the risk both sit in the engine, not the prose |
 
-**Observed drift, 2026-09-16.** Both plugins moved within a day of intake
-(1.2.1 -> 1.2.2, 1.9.0 -> 1.9.1). That is the moving-target problem this
-section describes, caught by the watcher rather than by chance, and the reason
-the versions above are recorded as *installed* with a commit sha rather than
-as a pin.
+Plugin versions are recorded as installed with a commit sha rather than as a
+pin, because upstream plugins can change between intakes.
 
 **Freshness.** Plugins have no binary and no `--version`, so
 traust-core's shipped `external-tools.yaml` cannot describe them. The roster at

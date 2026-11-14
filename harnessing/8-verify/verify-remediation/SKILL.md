@@ -37,8 +37,7 @@ allowed-tools:
   - Bash(python3 *traust* -m traust.cli triage intake:*)
   - Bash(python3 *traust* -m traust.cli findings baseline:*)
   - Bash(python3 *traust* -m traust.cli findings find:*)
-  # Confinement added 2026-07-31 (P1-W4): S1 exemption retired. Never
-  # widen to a bare interpreter — scope scripts individually.
+  # Never widen to a bare interpreter — scope scripts individually.
 ---
 
 # Verify Remediation
@@ -1519,8 +1518,7 @@ Emitted artifacts:
 
 After this skill's report/artifact is written, declare the run's spend
 against the target so `estimate_scan` can calibrate per-skill cost
-models (contract: docs/model-routing.md; analysis:
-progress-tracker/metrics/estimate-calibration-analysis.md §F5):
+models (contract: docs/model-routing.md):
 
 ```bash
 python3 -m traust.cli registry models spend --skill verify-remediation \

@@ -113,13 +113,9 @@ misleading in both directions and is worth stating precisely:
 - **They do rewrite it** — a re-audit cuts a fresh baseline at a new commit, and
   `rebaseline()` re-points the layer at it. What is fixed is the claim set *for a
   given commit*, which is what `metadata.claim_hashes` pins.
-- **It was not honoured until 2026-08-17.** Three producers
-  (`impact-analysis`, `verify-remediation`, `vuln-scan`) had appended findings
-  directly into baselines — mutating the claim set with no event
-  recording it, which breaks tenet 2 and bypasses the rescan router's authority
-  over when a new baseline is cut. It went unnoticed because the code called the
-  write "the sanctioned-append flow" while this document called the baseline
-  immutable, and no gate checked either claim.
+- **Other producers must not append findings directly into baselines.** Doing so
+  mutates the claim set without an event and bypasses the rescan router's
+  authority over when a new baseline is cut.
 
 A finding discovered *between* audits therefore rides on its event
 (`event.finding`, §10c), and `build_cumulative` unions it back at replay. See
@@ -509,7 +505,7 @@ confirmed findings are worth?** Tenancy-load-bearing categories
 (isolation, network exposure, workload configuration, authentication,
 authorization) sit at or near 1.0; observability gaps sit at the floor,
 which is also the `default` for any unlisted category. The last values
-(version 1, 2026-07-11):
+(version 1):
 
 | Category | λ | Category | λ |
 |---|---|---|---|

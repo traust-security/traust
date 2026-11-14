@@ -31,17 +31,14 @@ workspace/
 
 # Security-data feed cache — third-party licensed data (CC-BY/CC0),
 # rebuildable by re-fetching, and a different provenance class from
-# anything we author. Never commit: ~6 MB reached this repo's history
-# via analysis-results/feeds/ before the cache moved out (2026-08-25).
+# anything we author. Never commit the cache.
 # Location is config-driven — FEEDS_CACHE_DIR, default
 # <workspace>/progress-tracker/feeds.
 /analysis-results/feeds/
 /progress-tracker/
 
-# Orphaned working tree from the 2026-08-26 skill restructure: 9.6 GB of target
-# clones (embedded git repos) and 394 MB of Java batch logs. Never repo content;
-# 'make clone' recreates the clones. Retired per
-# progress-tracker/plans/fuzz-artifact-relocation-plan.md step 5.
+# Generated target clones and Java batch logs are not repository content;
+# 'make clone' recreates the clones.
 harnessing/pqc-readiness/bin/
 harnessing/pqc-readiness/scripts/
 

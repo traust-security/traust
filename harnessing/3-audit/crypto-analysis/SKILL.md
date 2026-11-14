@@ -15,10 +15,7 @@ allowed-tools:
   - Bash(python3 *traust* -m traust.cli reporting validate:*)
   - Bash(jq:*)
   - Bash(ls:*)
-  # Confinement added 2026-07-31 (P1 gate rework — the
-  # widened S1 privilege tokens made this skill's missing
-  # allowlist visible; assessment root-cause 3). Never
-  # widen to a bare interpreter — scope scripts individually.
+  # Never widen to a bare interpreter — scope scripts individually.
 ---
 
 # Crypto Analysis
@@ -369,8 +366,7 @@ probes but does not own probe execution.
 
 After this skill's report/artifact is written, declare the run's spend
 against the target so `estimate_scan` can calibrate per-skill cost
-models (contract: docs/model-routing.md; analysis:
-progress-tracker/metrics/estimate-calibration-analysis.md §F5):
+models (contract: docs/model-routing.md):
 
 ```bash
 python3 -m traust.cli registry models spend --skill crypto-analysis \

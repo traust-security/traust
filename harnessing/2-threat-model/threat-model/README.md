@@ -190,11 +190,8 @@ python3 -m traust.cli reporting lint analysis-results/findings/<product>/.
 
 ## Design decisions (deliberately not adopted)
 
-Evaluated against the ProdSec threat-modeling-guild module (2026-07; the
-comparison drove the v0.33.0 additions — validator gate, review/update/pr
-modes, attack scenarios + executive summary, `--context` ingestion, actor
-landscape, data-classification columns, conditional LINDDUN overlay), three
-guild ideas were rejected on purpose. Do not reintroduce them casually:
+The following approaches were deliberately not adopted. Do not reintroduce
+them casually:
 
 - **Per-threat `file:line` code references** — conflict with the
   threat-vs-vulnerability litmus test; citations pull threats to patch
