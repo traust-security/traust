@@ -690,15 +690,15 @@ def build_report(
         fix_commit = cfg_meta["fix_commit"]
     fix_commit = fix_commit or cfg_meta["fix_commit"]
     if not fix_commit:
-        if rem_meta.get("seam") == "impact":
-            log.error(
-                "No fix commit resolvable from the results dir's config copies "
-                "(re-run run_backport.sh, which writes them) — refusing to emit "
-                "a report with fabricated provenance."
-            )
-            sys.exit(1)
-        log.warning("Could not resolve fix_commit — report may fail schema validation.")
-        fix_commit = "0000000"
+        # Never fabricate a placeholder: "0000000" passes the contract's
+        # full_commit_sha pattern, so the published report would assert a fix
+        # commit that does not exist. Every seam refuses here.
+        log.error(
+            "No fix commit resolvable from the input artifact or the results "
+            "dir's config copies (re-run run_backport.sh, which writes them) — "
+            "refusing to emit a report with fabricated provenance."
+        )
+        sys.exit(1)
 
     source_branch = (
         cfg_meta["source_branch"]
