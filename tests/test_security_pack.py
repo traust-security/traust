@@ -141,3 +141,23 @@ def test_every_lane_is_taken_by_an_asset_unqueued_or_event_only() -> None:
     assert not taken & (UNQUEUED | EVENT_ONLY_LANES)
     planned = {a for names in RescanEventIntakeMaterializer._assets.values() for a in names}
     assert planned <= set(assets)
+
+
+def test_every_dashboards_lane_command_parses() -> None:
+    """The pack's dashboards-lane commands must be accepted by this CLI. The claim image runs
+    them from its pinned copy of the pack, and a flag the parser rejects schedules jobs that can
+    only fail — found live on sci#335: `--census` at the pinned runtime 139e2fc, exit 2. `--list`
+    exits after parsing, before any load or fold, so the probe is parse-only."""
+    import subprocess
+    import sys
+
+    for name in ("dashboards", "insight_builds"):
+        run = _assets()[name]["run"]
+        assert run[:4] == ["python3", "-m", "traust.cli", "dashboard"], name
+        done = subprocess.run(
+            [sys.executable, "-m", "traust.cli", *run[3:], "--list"],
+            capture_output=True,
+            text=True,
+        )
+        assert done.returncode == 0, (name, done.stderr)
+        assert "views" in done.stdout, (name, done.stdout)

@@ -296,6 +296,33 @@ assets:
     freshness: {warn: 4d, fail: 7d}
     runner: {labels: [deterministic]}
 
+  insight_builds:  # the dashboards lane's fast leg (performance-lane wave (d), foundry#56):
+    # InsightService.record_builds through traust.ops.materializers — the four census view
+    # models (findings-rollup, coverage, remediation-index, findings-trend) folded once and
+    # stored as one GLOBAL build, the artifact GET /v1/insights/{name} serves between builds
+    # instead of folding per request (the 72-134s cold path the audit measured). One build
+    # serves every scope: SCI's per-request authorization filters what it serves; no
+    # permission data rides the artifact. The census can be one cadence stale — a person's
+    # judgement postdating the build is never served stale, and a build older than the route's
+    # serving bound folds on demand until this asset runs again.
+    run: [python3, -m, traust.cli, dashboard, refresh, --run-id, "{run_id}", --census]
+    trigger: {every: 10m}
+    # Priority 15, not the portfolio lanes' 60 (the concurrent-user lane's p0
+    # starvation fix; the SCI component's copy carries the same change). Claims
+    # drain the lowest number first, and the observation flood sets the floor: a
+    # 24h repo_state sweep over a 3,700-repository estate queues ~3,000 orders at
+    # p20-30, so a p60 order waits ~14 hours behind them — every dashboard viewer
+    # folded the census on demand meanwhile, which is the cold path this asset
+    # exists to remove. A 10-minute asset whose serving bound is 20m/1h cannot
+    # share a queue position with day-scale ones: 15 sits above the observation
+    # lanes (20, 25, 30) and below the single daily feed refresh (10), so one
+    # census fold per 10 minutes is claimed ahead of the flood however deep it
+    # is. The cost is bounded: this is the only order at this priority, and it
+    # runs once per interval, not once per repository.
+    priority: 15
+    freshness: {warn: 20m, fail: 1h}
+    runner: {labels: [deterministic]}
+
   validation_benchmark:  # the monthly half; the release-cut half has no trigger form yet
     run: [python3, -m, traust.cli, sweep, benchmark, plan]
     trigger: {every: 30d}

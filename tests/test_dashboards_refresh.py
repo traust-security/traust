@@ -12,10 +12,11 @@ from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
+from uuid import uuid4
 
 import pytest
 from traust_core.v1.context import Context
-from traust_core.v1.errors import ConfigError, ValidationError
+from traust_core.v1.errors import ConfigError, NotFoundError, ValidationError
 from traust_core.v1.models.insight import (
     FindingsRollup,
     FindingTally,
@@ -25,9 +26,13 @@ from traust_core.v1.models.insight import (
     ViewName,
 )
 from traust_core.v1.models.operations import AssetRequest, JobResult, OrderReason, Outcome
+from traust_core.v1.services.artifact_publishing import PublishResult
 
 from traust.cli import refresh_dashboards
-from traust.ops.materializers import DashboardsMaterializer, write_view
+from traust.ops.materializers import DashboardsMaterializer, InsightBuildsMaterializer, write_view
+
+UUID_ = uuid4()
+
 
 ROLLUP = RenderedView(
     view=ViewName.FINDINGS_ROLLUP,
@@ -178,3 +183,64 @@ def test_the_views_stage_builds_the_sla_view_on_the_packs_default_policy(
     assert rc == 0 and seen == [(None, "fedramp-rev5-ra-5")]
     names = [name for name, _, _ in refresh_dashboards.build_stages(tmp_path, tmp_path, False)]
     assert "sla" not in names
+
+
+class Recording:
+    """The `insight_builds` materializer's core door, stubbed."""
+
+    def __init__(self, result: Any) -> None:
+        self.result = result
+        self.calls = 0
+
+    def record_builds(self) -> Any:
+        self.calls += 1
+        if isinstance(self.result, Exception):
+            raise self.result
+        return self.result
+
+
+def materialize_builds(insight: Any) -> JobResult:
+    materializer = InsightBuildsMaterializer(SimpleNamespace(insight=insight))  # type: ignore[arg-type]
+    return materializer.materialize(
+        AssetRequest(asset="insight_builds", run_id="manual", partition=None)
+    )
+
+
+def test_the_census_leg_publishes_the_builds_artifact() -> None:
+    insight = Recording(PublishResult(artifact="insight-builds", written=(), artifact_id=UUID_))
+    result = materialize_builds(insight)
+    assert result == JobResult.succeeded((str(UUID_),))
+    assert insight.calls == 1
+
+
+@pytest.mark.parametrize(
+    ("raised", "reason"),
+    [
+        (ConfigError("no artifact store wired"), OrderReason.BAD_REQUEST),
+        (ValidationError("view 'findings-trend' is not built"), OrderReason.BAD_REQUEST),
+        (NotFoundError("no rating config"), OrderReason.SOURCE_UNAVAILABLE),
+    ],
+)
+def test_a_failed_census_build_maps_its_reason(raised: Exception, reason: OrderReason) -> None:
+    result = materialize_builds(Recording(raised))
+    assert result.outcome == Outcome.FAILED and result.reason == reason
+
+
+def test_the_census_flag_runs_only_the_stored_build_leg(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    insight = Recording(PublishResult(artifact="insight-builds", written=(), artifact_id=UUID_))
+    monkeypatch.setattr(Context, "services", lambda self: SimpleNamespace(insight=insight))
+    rc, out = run("--census")
+    assert rc == 0 and insight.calls == 1
+    job = JobResult.model_validate_json(out.strip().splitlines()[-1])
+    assert job.outcome == Outcome.SUCCEEDED and job.written == (str(UUID_),)
+
+
+def test_a_failed_census_leg_exits_with_its_outcome(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        Context, "services", lambda self: SimpleNamespace(insight=Recording(ConfigError("x")))
+    )
+    rc, out = run("--census")
+    job = JobResult.model_validate_json(out.strip().splitlines()[-1])
+    assert (rc, job.outcome, job.reason) == (1, Outcome.FAILED, OrderReason.BAD_REQUEST)

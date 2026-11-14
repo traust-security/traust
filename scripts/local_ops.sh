@@ -111,6 +111,24 @@ traust_cli() {
     TRAUST_CONFIG_HOME="$CONFIG_HOME" uv run --no-sync python -m traust.cli "$@"
 }
 
+# The claim's label opt-in, one probe per command: `--label llm` on an engine
+# that knows the runner-label vocabulary, nothing on one that does not. The
+# label is an include, not a filter — with it the claim still leases every
+# deterministic asset and adds the llm-labeled skill sessions, which the rig
+# (the one claim host that carries the agent harness, claude under the config
+# home's claude-runner) is also the executor of; the deployed claim workers
+# claim without it and leave those orders to the runner pools. The engine pin
+# can trail the vocabulary's engine PR, and a pre-vocabulary engine rejects
+# the flag outright (argparse exit 2, nothing leased — the smoke's drain
+# would never idle), while its plain claim already takes every asset, labels
+# or none. Probing --help keeps the rig draining both classes on either
+# engine; when the pin passes the vocabulary, the probe simply always wins.
+claim_label_args() {
+    if engine claim --help 2>&1 | grep -q -- '--label'; then
+        printf '%s\n' --label llm
+    fi
+}
+
 source_env() {
     # shellcheck disable=SC1090
     [ -f "$REPO_ROOT/$OPS_DIR/env" ] && . "$REPO_ROOT/$OPS_DIR/env" || true
@@ -447,8 +465,15 @@ cmd_run() {
 
 cmd_claim() {
     source_env
+    # The rig claims both executor classes: it is the one claim host that
+    # carries the agent harness (claude under the config home's claude-runner),
+    # so its claim loop is also the skill lanes' executor — the deployed claim
+    # workers have no harness and leave llm-labeled assets to the runner pools.
+    # claim_label_args probes the installed engine for the label opt-in.
+    local -a labels=()
+    mapfile -t labels < <(claim_label_args)
     while true; do
-        engine claim || true
+        engine claim "${labels[@]}" || true
         sleep 5
     done
 }
@@ -647,6 +672,8 @@ cmd_smoke() {
     traust_cli portfolio onboard --product local-rig --label "Local rig" --repo "$repo" >/dev/null
     # Two passes: the first observes the repository, the second plans what depends on it
     # (manifest_sbom waits on repo_state).
+    local -a labels=()
+    mapfile -t labels < <(claim_label_args)
     local pass idle _
     for pass in 1 2; do
         echo "smoke: engine pass $pass (applies the schema, plans what is due)"
@@ -654,7 +681,7 @@ cmd_smoke() {
         echo "smoke: claiming until the queue drains"
         idle=0
         for _ in $(seq 1 40); do
-            if engine claim | grep -q '"claimed": null'; then
+            if engine claim "${labels[@]}" | grep -q '"claimed": null'; then
                 idle=$((idle + 1))
                 [ "$idle" -ge 2 ] && break
             else
