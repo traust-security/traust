@@ -352,3 +352,36 @@ def test_bump_accepts_the_root_commit(monkeypatch):
         "c1~1": _fixed("v1.50.0"),
     }, has_parent=False)
     assert result == ("found", "c1")
+
+
+def test_long_branch_slug_is_capped_and_deterministic():
+    # Branch names are attacker-controlled and legally long; the slug lands in
+    # filenames, workdirs and ref components, all capped at 255 bytes.
+    long_a = "release-" + "a" * 240
+    long_b = "release-" + "a" * 239 + "b"
+    slug_a = gen.safe_slug(long_a)
+    slug_b = gen.safe_slug(long_b)
+    assert len(slug_a) <= gen._SLUG_MAX
+    assert slug_a == gen.safe_slug(long_a)      # deterministic
+    assert slug_a != slug_b                    # differs only past the cap
+
+
+def test_long_branch_fits_every_downstream_component(tmp_path):
+    long_branch = "release-" + "c" * 240
+    slug = gen.safe_slug(long_branch)
+    cfg = gen.make_config_yaml(
+        repo_path=tmp_path,
+        fix_commit="a" * 40,
+        target_branch=long_branch,
+        source_branch="main",
+        bug_description="t",
+        finding_refs=["triage.json#f001"],
+        repo_slug="cri-o",
+        safe_branch=slug,
+    )
+    assert len(f"{slug}.yaml".encode()) <= 255
+    assert len(pathlib.Path(cfg["repository"]["workdir"]).name.encode()) <= 255
+    assert len(cfg["issue_id"].encode()) <= 255
+    assert len(f"refs/heads/amalgamator/{cfg['issue_id']}".encode()) <= 255
+    assert gen.slug_issue_id(["triage.json#f001"], "cri-o", slug,
+                             "deadbeef").encode() == cfg["issue_id"].encode()

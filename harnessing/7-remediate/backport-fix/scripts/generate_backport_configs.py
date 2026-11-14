@@ -892,6 +892,19 @@ def slug_issue_id(
 
 _SLUG_BAD_RE = re.compile(r"[^A-Za-z0-9._-]+")
 
+#: One slug feeds a config filename, a workdir path component, the issue_id and
+#: the amalgamator/<issue_id> ref component. Every one of those caps a single
+#: component at 255 bytes, so keep the branch-derived part well below that and
+#: disambiguate long names with a hash instead of truncating to a collision.
+_SLUG_MAX = 64
+
+
+def _cap_slug(slug: str, branch: str) -> str:
+    """Fit a long slug into _SLUG_MAX, keeping a hash of the full branch name."""
+    digest = hashlib.sha256(branch.encode()).hexdigest()[:8]
+    keep = _SLUG_MAX - len(digest) - 1
+    return f"{slug[:keep].rstrip('.-_') or 'branch'}-{digest}"
+
 
 def safe_slug(branch: str, used: set[str] | None = None) -> str:
     """An allowlisted, collision-safe directory/file slug for a branch name.
@@ -903,6 +916,8 @@ def safe_slug(branch: str, used: set[str] | None = None) -> str:
     hash suffix instead of silently overwriting another branch's config.
     """
     slug = _SLUG_BAD_RE.sub("-", branch).strip(".-_") or "branch"
+    if len(slug) > _SLUG_MAX:
+        slug = _cap_slug(slug, branch)
     if used is None:
         return slug
     if slug in used:
