@@ -772,3 +772,22 @@ def test_run_summary_cli_keeps_a_hostile_branch_name_as_data(tmp_path):
     data = json.loads((results / "run_summary.json").read_text())
     assert data["branches"] == [{"branch": name, "status": "failed"}]
     assert data["failed"] == 1
+
+
+# ---------------------------------------------------------------------------
+# No fabricated fix commit: every seam refuses rather than emitting 0000000
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("seam", ["run", "remediation"])
+def test_report_refuses_without_a_fix_commit(tmp_path, seam):
+    results = tmp_path / "results"
+    branch = results / "release-a"
+    _write_branch(branch)
+    (branch / "config.yaml").write_text(
+        "repository:\n  source_path: /nonexistent\n"
+        "branches:\n  source: origin/main\n  target: origin/release-4.16\n"
+    )
+    rem = {**_NUM_REM, "seam": seam, "fix_commit": ""}
+    with pytest.raises(SystemExit):
+        emit.build_report(results, rem)
