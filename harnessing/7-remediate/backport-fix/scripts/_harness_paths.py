@@ -142,6 +142,9 @@ def contracts_schema_path(name: str) -> Path | None:
     ws = workspace_root()
     if ws is not None:
         for candidate in (
+            # v0.1 layout (traust-contracts #136): artifacts_schema/v1
+            ws / "traust-contracts" / "artifacts_schema" / "v1" / name,
+            # pre-0.1 layout, kept for older checkouts
             ws / "traust-contracts" / "schemas" / "v1" / name,
             ws / "ai-security-contracts" / "schemas" / name,
         ):

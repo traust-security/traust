@@ -49,7 +49,7 @@ validate_json() {
     python3 -c "
 import json, jsonschema, sys, os
 from referencing import Registry, Resource
-sp = os.path.realpath('${schema_path:-$WORKSPACE/traust-contracts/schemas/v1/backport-report.schema.json}')
+sp = os.path.realpath('${schema_path:-$WORKSPACE/traust-contracts/artifacts_schema/v1/backport-report.schema.json}')
 if not os.path.isfile(sp):
     print('ALL PASSED (schema not local — skipped)')
     sys.exit(0)
