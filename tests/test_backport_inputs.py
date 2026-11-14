@@ -690,3 +690,27 @@ def test_valid_numeric_summary_fields_are_kept(tmp_path, summary, cost, duration
     assert row["status"] != "error"
     assert row["cost_usd"] == cost
     assert row["duration_seconds"] == duration
+
+
+def test_two_directories_for_one_branch_are_refused(tmp_path, caplog):
+    # Directory names are slugs; both of these resolve to release-4.16, so
+    # emitting both would double-count the branch in the summary.
+    results = tmp_path / "results"
+    _write_branch(results / "release-a", target="origin/release-4.16")
+    _write_branch(results / "release-4-16", target="origin/release-4.16",
+                  outcome="failed")
+    with pytest.raises(SystemExit):
+        emit.build_report(results, _NUM_REM)
+    assert "both resolve to target branch 'release-4.16'" in caplog.text
+    assert "release-a" in caplog.text and "release-4-16" in caplog.text
+
+
+def test_two_distinct_branches_are_kept(tmp_path):
+    results = tmp_path / "results"
+    _write_branch(results / "release-a", target="origin/release-4.16")
+    _write_branch(results / "release-b", target="origin/release-4.17")
+    report = emit.build_report(results, _NUM_REM)
+    assert [r["branch"] for r in report["target_branches"]] == [
+        "release-4.16", "release-4.17"
+    ]
+    assert report["summary"]["total"] == 2
