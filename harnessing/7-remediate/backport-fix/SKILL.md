@@ -468,7 +468,8 @@ input artifact supplies a commit.
 **Publishing into analysis-results happens by default** — the report,
 the per-branch candidate patches, and the delivery record (if delivery
 ran) land under
-`analysis-results/remediations/<logical_product>/<repo>/`, the same
+`analysis-results/remediations/<logical_product>/<repo>/backport-<fix12>/`
+(one namespace per fix commit), the same
 lane `remediate-finding` writes to, so the work product outlives the
 scratch results dir and downstream consumers can walk it. The root
 resolves from `AUDIT_RESULTS_ROOT` (see `.env.example`) or the
@@ -498,7 +499,7 @@ See that overlay for the delivery gates and the human approval step.
 | `summary.json` per branch | — | Amalgamator run metrics (cost, duration, tokens) |
 | `result.json` per branch | — | Collection-time provenance **and canonical verdict**: issue_id, target branch, outcome, `summary_outcome`, `engine_exit_code`, preserved head SHA. Report and delivery read this, not `summary.json` |
 | `delivery.json` | — | Produced by the deployment's delivery seam (not this repository) |
-| `analysis-results/remediations/<logical_product>/<repo>/` | — | Published copies (report, per-branch patches, delivery record) via `--publish-root`; tokenless |
+| `analysis-results/remediations/<logical_product>/<repo>/backport-<fix12>/` | — | Published copies (report, per-branch patches, delivery record) via `--publish-root`; tokenless. One namespace per fix; siblings are preserved |
 
 ---
 

@@ -877,7 +877,19 @@ def publish_results(
             log.error("Unsafe or empty path component for publish: %r", v)
             return None
 
-    dest = publish_root / "remediations" / logical / repo_short
+    # The repository directory is shared: remediate-finding writes its
+    # *-remediation.json here and other fixes for the same repo publish here
+    # too. Each fix owns one namespace, and only that namespace is replaced,
+    # so unrelated artifacts survive both a success and a failure.
+    fix_short = str(rem_meta.get("fix_commit") or "")[:12]
+    if not _PATH_TOKEN_RE.match(fix_short):
+        log.error(
+            "Cannot derive a publish namespace from fix commit %r — refusing "
+            "to publish into the shared repository directory",
+            rem_meta.get("fix_commit"),
+        )
+        return None
+    dest = publish_root / "remediations" / logical / repo_short / f"backport-{fix_short}"
 
     # The results dir is pipeline-writable: a planted symlink/hardlink named
     # candidate.patch or delivery.json would copy arbitrary host files into
@@ -1016,7 +1028,8 @@ def main():
              "or the ../analysis-results sibling). Publishing is ON by "
              "default: the report, per-branch candidate patches, and the "
              "delivery record land under remediations/<logical_product>/"
-             "<repo>/ (no token needed)"
+             "<repo>/backport-<fix12>/ (no token needed; only that namespace "
+             "is replaced)"
     )
     parser.add_argument(
         "--no-publish", action="store_true",

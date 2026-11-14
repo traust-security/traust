@@ -315,8 +315,10 @@ def test_publish_rewrites_patch_paths_to_the_published_files(tmp_path, monkeypat
         {"branch": "release-a", "status": "success",
          "patch_path": str(d / "candidate.patch")},
     ]}
-    rem = {"repository": "https://github.com/o/r", "logical_product": "p"}
+    rem = {"repository": "https://github.com/o/r", "logical_product": "p",
+           "fix_commit": "c" * 40}
     dest = emit.publish_results(tmp_path / "pub", results, report, rem)
+    assert dest.name == "backport-cccccccccccc"      # one namespace per fix
     assert dest is not None
     published = json.loads((dest / "r-backport-report.json").read_text())
     path = published["target_branches"][0]["patch_path"]
@@ -436,7 +438,8 @@ def test_publish_failure_keeps_the_previous_publication(tmp_path, monkeypatch):
     results = tmp_path / "results"
     for b in ("release-a", "release-b"):
         _write_branch(results / b, target=f"origin/{b}")
-    rem = {"repository": "https://github.com/o/r", "logical_product": "p"}
+    rem = {"repository": "https://github.com/o/r", "logical_product": "p",
+           "fix_commit": "c" * 40}
     dest = emit.publish_results(tmp_path / "pub", results,
                                 {"target_branches": []}, rem)
     assert dest is not None
@@ -791,3 +794,61 @@ def test_report_refuses_without_a_fix_commit(tmp_path, seam):
     rem = {**_NUM_REM, "seam": seam, "fix_commit": ""}
     with pytest.raises(SystemExit):
         emit.build_report(results, rem)
+
+
+def test_publishing_two_fixes_preserves_the_shared_directory(tmp_path, monkeypatch):
+    # remediations/<product>/<repo>/ is shared with other producers and with
+    # other fixes for the same repo. Publishing must replace only its own
+    # namespace, never the whole directory.
+    monkeypatch.setattr(emit, "workspace_root", lambda: tmp_path)
+    results = tmp_path / "results"
+    _write_branch(results / "release-a")
+    report = {"target_branches": [
+        {"branch": "release-a", "status": "succeeded",
+         "patch_path": str(results / "release-a" / "candidate.patch")},
+    ]}
+    rem = {"repository": "https://github.com/o/r", "logical_product": "p"}
+
+    shared = tmp_path / "pub" / "remediations" / "p" / "r"
+    shared.mkdir(parents=True)
+    (shared / "r-remediation.json").write_text('{"other": "producer"}')
+
+    first = emit.publish_results(tmp_path / "pub", results, report,
+                                 {**rem, "fix_commit": "a" * 40})
+    second = emit.publish_results(tmp_path / "pub", results, report,
+                                  {**rem, "fix_commit": "b" * 40})
+    assert first is not None and second is not None and first != second
+    assert (shared / "r-remediation.json").read_text() == '{"other": "producer"}'
+    assert (first / "r-backport-report.json").is_file()
+    assert (second / "r-backport-report.json").is_file()
+
+
+def test_failed_publish_keeps_other_fixes_and_producers(tmp_path, monkeypatch):
+    monkeypatch.setattr(emit, "workspace_root", lambda: tmp_path)
+    results = tmp_path / "results"
+    for branch in ("release-a", "release-b"):
+        _write_branch(results / branch, target=f"origin/{branch}")
+    report = {"target_branches": []}
+    rem = {"repository": "https://github.com/o/r", "logical_product": "p"}
+
+    shared = tmp_path / "pub" / "remediations" / "p" / "r"
+    shared.mkdir(parents=True)
+    (shared / "r-remediation.json").write_text('{"other": "producer"}')
+    first = emit.publish_results(tmp_path / "pub", results, report,
+                                 {**rem, "fix_commit": "a" * 40})
+    assert first is not None
+    before = {p.name: p.read_text() for p in first.iterdir()}
+
+    real = emit._copy_untrusted_file
+    calls = {"n": 0}
+
+    def flaky(src, dst):
+        calls["n"] += 1
+        return False if calls["n"] == 1 else real(src, dst)
+
+    monkeypatch.setattr(emit, "_copy_untrusted_file", flaky)
+    assert emit.publish_results(tmp_path / "pub", results, report,
+                                {**rem, "fix_commit": "b" * 40}) is None
+    assert (shared / "r-remediation.json").read_text() == '{"other": "producer"}'
+    assert {p.name: p.read_text() for p in first.iterdir()} == before
+    assert not (shared / "backport-bbbbbbbbbbbb").exists()
