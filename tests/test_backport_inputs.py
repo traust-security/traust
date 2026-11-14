@@ -4,6 +4,8 @@ import importlib.util
 import json
 import pathlib
 import re
+import subprocess
+import sys
 
 import pytest
 
@@ -526,3 +528,106 @@ def test_malformed_summary_is_a_branch_error(tmp_path, payload):
     branch = report["target_branches"][0]
     assert branch["status"] == "failed"
     assert branch["stop_reason"] == "error"
+
+
+# ---------------------------------------------------------------------------
+# Repository/fork URLs: embedded credentials never reach output or logs
+# ---------------------------------------------------------------------------
+
+_SECRET = "ghp_doNotLeak0123456789"
+
+
+def _credential_rem(**overrides):
+    rem = {
+        "seam": "remediation", "audit_report_path": "",
+        "repository": "https://github.com/o/r", "logical_product": "p",
+        "language": "", "fix_commit": "c" * 40, "fix_branch_name": "",
+        "base_ref": "main", "fork_url": "", "cwes": [], "finding_refs": [],
+        "remediation_path": "",
+    }
+    rem.update(overrides)
+    return rem
+
+
+def test_repository_userinfo_never_reaches_the_report(tmp_path):
+    results = tmp_path / "results"
+    _write_branch(results / "release-a")
+    rem = _credential_rem(
+        repository=f"https://x-access-token:{_SECRET}@github.com/o/r"
+    )
+    report = emit.build_report(results, rem)
+    assert report["metadata"]["repository"] == "https://github.com/o/r"
+    assert report["title"] == "Backport Report: r"
+    assert report["verification_hint"]["repository"] == "https://github.com/o/r"
+    assert _SECRET not in json.dumps(report)
+
+
+def test_fork_url_userinfo_never_reaches_the_report(tmp_path):
+    results = tmp_path / "results"
+    _write_branch(results / "release-a")
+    rem = _credential_rem(fork_url=f"https://user:{_SECRET}@github.com/o/r")
+    report = emit.build_report(results, rem)
+    assert report["source_fix"]["fork_url"] == "https://github.com/o/r"
+    assert _SECRET not in json.dumps(report)
+
+
+def test_credential_bearing_origin_is_stripped_for_a_run_only_report(tmp_path):
+    clone = tmp_path / "clone"
+    subprocess.run(["git", "init", "-q", str(clone)], check=True)
+    subprocess.run(
+        ["git", "-C", str(clone), "remote", "add", "origin",
+         f"https://x-access-token:{_SECRET}@github.com/o/r"],
+        check=True,
+    )
+    results = tmp_path / "results"
+    branch = results / "release-a"
+    branch.mkdir(parents=True)
+    (branch / "config.yaml").write_text(
+        f"repository:\n  source_path: {clone}\n"
+        f"fix:\n  commit: {'c' * 40}\n"
+        "branches:\n  source: origin/main\n  target: origin/release-4.16\n"
+    )
+    meta = emit.read_run_metadata(results)
+    assert meta["repository"] == "https://github.com/o/r"
+    assert _SECRET not in json.dumps(meta)
+
+
+def test_impact_artifact_userinfo_is_stripped(tmp_path):
+    impact = tmp_path / "x-impact-analysis.json"
+    impact.write_text(json.dumps({
+        "metadata": {"cve": "CVE-2026-1234"},
+        "repos": [{
+            "repo": f"repo:https://x-access-token:{_SECRET}@github.com/o/r",
+            "products": ["p"],
+        }],
+    }))
+    meta = emit.read_impact_metadata(impact, None)
+    assert meta["repository"] == "https://github.com/o/r"
+    assert _SECRET not in json.dumps(meta)
+
+
+def test_rejected_repository_url_logs_no_credentials(tmp_path, caplog):
+    results = tmp_path / "results"
+    _write_branch(results / "release-a")
+    rem = _credential_rem(repository=f"ftp://user:{_SECRET}@github.com/o/r")
+    with pytest.raises(SystemExit):
+        emit.build_report(results, rem)
+    assert _SECRET not in caplog.text
+
+
+def test_cli_output_and_report_never_contain_repository_credentials(tmp_path):
+    results = tmp_path / "results"
+    _write_branch(results / "release-a")
+    out = tmp_path / "report.json"
+    proc = subprocess.run(
+        [sys.executable, str(_SKILL / "emit_backport_report.py"),
+         "--results-dir", str(results), "--output", str(out),
+         "--repository", f"https://x-access-token:{_SECRET}@github.com/o/r",
+         "--no-schema", "--no-publish"],
+        capture_output=True, text=True,
+    )
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert _SECRET not in proc.stdout
+    assert _SECRET not in proc.stderr
+    assert _SECRET not in out.read_text()
+    assert "https://github.com/o/r" in out.read_text()
