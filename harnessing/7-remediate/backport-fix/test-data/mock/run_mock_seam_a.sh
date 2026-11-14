@@ -148,8 +148,8 @@ python3 harnessing/7-remediate/backport-fix/scripts/emit_backport_report.py \
   --impact "$WORK/seamA-impact.json" \
   --output "$WORK/myrepo-backport-report.json" --publish-root "$FAKE_AR" 2>&1 \
   | grep "validates against schema" >/dev/null || fail "report failed schema validation"
-D="$FAKE_AR/remediations/example-product/myrepo"
-[[ -f "$D/myrepo-backport-report.json" && -f "$D/myrepo-backport-release-1.patch" ]] \
+D="$(ls -d "$FAKE_AR"/remediations/example-product/myrepo/backport-* 2>/dev/null | head -1 || true)"
+[[ -n "$D" && -f "$D/myrepo-backport-report.json" && -f "$D/myrepo-backport-release-1.patch" ]] \
   || fail "published tree incomplete: $(ls "$D" 2>/dev/null)"
 python3 -c "
 import json, yaml
