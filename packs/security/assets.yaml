@@ -307,7 +307,19 @@ assets:
     # serving bound folds on demand until this asset runs again.
     run: [python3, -m, traust.cli, dashboard, refresh, --run-id, "{run_id}", --census]
     trigger: {every: 10m}
-    priority: 60
+    # Priority 15, not the portfolio lanes' 60 (the concurrent-user lane's p0
+    # starvation fix; the SCI component's copy carries the same change). Claims
+    # drain the lowest number first, and the observation flood sets the floor: a
+    # 24h repo_state sweep over a 3,700-repository estate queues ~3,000 orders at
+    # p20-30, so a p60 order waits ~14 hours behind them — every dashboard viewer
+    # folded the census on demand meanwhile, which is the cold path this asset
+    # exists to remove. A 10-minute asset whose serving bound is 20m/1h cannot
+    # share a queue position with day-scale ones: 15 sits above the observation
+    # lanes (20, 25, 30) and below the single daily feed refresh (10), so one
+    # census fold per 10 minutes is claimed ahead of the flood however deep it
+    # is. The cost is bounded: this is the only order at this priority, and it
+    # runs once per interval, not once per repository.
+    priority: 15
     freshness: {warn: 20m, fail: 1h}
     runner: {labels: [deterministic]}
 
