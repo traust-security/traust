@@ -593,9 +593,25 @@ def build_report(
 ) -> dict:
     """Build the full backport report from collected results."""
     branch_results = []
+    branch_sources: dict[str, str] = {}
     for entry in sorted(results_dir.iterdir()):
         if entry.is_dir() and entry.name != "__pycache__":
-            branch_results.append(read_branch_result(entry, _source_repo(entry)))
+            row = read_branch_result(entry, _source_repo(entry))
+            # Directory names are sanitized slugs; the real target comes from
+            # result.json or the config copy. Two directories can therefore
+            # resolve to one branch (release-a and release-4-16), which would
+            # emit two rows and double-count it in the summary.
+            previous = branch_sources.get(row["branch"])
+            if previous is not None:
+                log.error(
+                    "Results directories %r and %r both resolve to target "
+                    "branch %r — refusing to emit two rows for one branch; "
+                    "use a fresh --output-dir per backport run",
+                    previous, entry.name, row["branch"],
+                )
+                sys.exit(1)
+            branch_sources[row["branch"]] = entry.name
+            branch_results.append(row)
 
     # A successful row must carry a commit. If result.json, the tracker and
     # the preserved branch all failed to yield one, the only "provenance"
