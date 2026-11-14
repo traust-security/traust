@@ -714,3 +714,61 @@ def test_two_distinct_branches_are_kept(tmp_path):
         "release-4.16", "release-4.17"
     ]
     assert report["summary"]["total"] == 2
+
+
+# ---------------------------------------------------------------------------
+# run_summary.json is built from canonical verdicts, not the engine summary
+# ---------------------------------------------------------------------------
+
+
+def test_run_summary_uses_the_canonical_verdict(tmp_path):
+    wrs = _load("write_run_summary.py")
+    results = tmp_path / "results"
+    branch = results / "release-a"
+    _write_branch(branch)                      # success-shaped summary.json
+    (branch / "result.json").write_text(json.dumps({
+        "outcome": "failed", "summary_outcome": "success", "engine_exit_code": 1,
+    }))
+    summary = wrs.build(results, ["release-a"], "img:1")
+    assert summary["branches"] == [{"branch": "release-a", "status": "failed"}]
+    assert (summary["total"], summary["passed"], summary["failed"],
+            summary["skipped"]) == (1, 0, 1, 0)
+    assert summary["container_image"] == "img:1"
+
+
+@pytest.mark.parametrize("payload", [
+    None,                # no record at all
+    "{not json",         # unreadable
+    "[]",                # not an object
+    '{"outcome": 5}',    # wrong type
+    '{"outcome": ""}',   # empty
+])
+def test_run_summary_falls_back_to_unknown(tmp_path, payload):
+    wrs = _load("write_run_summary.py")
+    results = tmp_path / "results"
+    branch = results / "release-a"
+    branch.mkdir(parents=True)
+    if payload is not None:
+        (branch / "result.json").write_text(payload)
+    summary = wrs.build(results, ["release-a"], None)
+    assert summary["branches"][0]["status"] == "unknown"
+    assert summary["failed"] == 1 and summary["passed"] == 0
+
+
+def test_run_summary_cli_keeps_a_hostile_branch_name_as_data(tmp_path):
+    # Branch names come from config filenames; splicing them into JSON let a
+    # crafted name forge or corrupt the document.
+    results = tmp_path / "results"
+    name = 'release-", "status": "passed'
+    (results / name).mkdir(parents=True)
+    (results / name / "result.json").write_text('{"outcome": "failed"}')
+    proc = subprocess.run(
+        [sys.executable, str(_SKILL / "write_run_summary.py"),
+         "--output-dir", str(results), "--branch", name],
+        capture_output=True, text=True,
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert proc.stdout.split() == ["1", "0", "1", "0"]
+    data = json.loads((results / "run_summary.json").read_text())
+    assert data["branches"] == [{"branch": name, "status": "failed"}]
+    assert data["failed"] == 1

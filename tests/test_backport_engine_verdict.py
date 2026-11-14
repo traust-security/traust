@@ -77,6 +77,14 @@ def test_nonzero_engine_exit_overrides_success_shaped_artifacts(tmp_path):
     assert rec["engine_exit_code"] == 1
     assert rec["summary_outcome"] == "success"
 
+    # The batch summary must agree with that verdict, not with the engine's
+    # success-shaped summary, or CI reads the run as successful.
+    batch = json.loads((results / "run_summary.json").read_text())
+    assert [row["branch"] for row in batch["branches"]] == ["release-a"]
+    assert batch["branches"][0]["status"] == "failed"
+    assert (batch["total"], batch["passed"], batch["failed"],
+            batch["skipped"]) == (1, 0, 1, 0)
+
     report_path = work / "report.json"
     subprocess.run(
         [sys.executable, str(SKILL / "scripts" / "emit_backport_report.py"),

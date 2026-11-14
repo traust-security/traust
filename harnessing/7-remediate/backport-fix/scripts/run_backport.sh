@@ -704,6 +704,29 @@ print(c.get("branches", {}).get("target", ""))
   echo
 done
 
+# Machine-readable summary, then the human block from the same counts.
+# Statuses come from each branch's persisted result.json (the canonical
+# verdict), never from the engine's summary, which can stay success-shaped
+# after a nonzero exit. A missing or malformed record is an explicit
+# "unknown", counted as failed, so the file cannot disagree with the exit
+# code or the emitted report. Built in one python3 call: branch names come
+# from config filenames and are pipeline-controlled, so quoting them into JSON
+# by hand let a crafted name corrupt or forge the document.
+summary_args=(--output-dir "$OUTPUT_DIR")
+if [[ -n "${CONTAINER_IMAGE:-}" ]]; then
+  summary_args+=(--container-image "$CONTAINER_IMAGE")
+fi
+for config in "${CONFIGS[@]}"; do
+  bn=$(basename "$config" .yaml)
+  bn=$(basename "$bn" .yml)
+  summary_args+=(--branch "$bn")
+done
+summary_counts="$(python3 "$HERE/write_run_summary.py" "${summary_args[@]}")" || {
+  echo "[run_backport] ERROR: could not write run_summary.json" >&2
+  exit 2
+}
+read -r TOTAL PASSED FAILED SKIPPED <<< "$summary_counts"
+
 echo "============================================================"
 echo "  BACKPORT SUMMARY"
 echo "============================================================"
@@ -712,37 +735,6 @@ echo "  Passed:  $PASSED"
 echo "  Failed:  $FAILED"
 echo "  Skipped: $SKIPPED"
 echo "============================================================"
-
-# Write a machine-readable summary
-cat > "$OUTPUT_DIR/run_summary.json" <<EOF
-{
-  "total": $TOTAL,
-  "passed": $PASSED,
-  "failed": $FAILED,
-  "skipped": $SKIPPED,
-  "container_image": "${CONTAINER_IMAGE:-null}",
-  "branches": [
-$(for config in "${CONFIGS[@]}"; do
-  bn=$(basename "$config" .yaml)
-  bn=$(basename "$bn" .yml)
-  status="unknown"
-  if [[ -f "$OUTPUT_DIR/$bn/summary.json" ]]; then
-    status=$(python3 -c '
-import json, sys
-with open(sys.argv[1]) as f:
-    s = json.load(f)
-if "targets" in s:
-    t = s["targets"][0] if s.get("targets") else {}
-    print(t.get("outcome", "unknown"))
-else:
-    print(s.get("status", "unknown"))
-' "$OUTPUT_DIR/$bn/summary.json" 2>/dev/null || echo "unknown")
-  fi
-  echo "    {\"branch\": \"$bn\", \"status\": \"$status\"},"
-done | sed '$ s/,$//')
-  ]
-}
-EOF
 
 echo
 echo "  Results:  $OUTPUT_DIR/"
