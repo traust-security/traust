@@ -667,9 +667,19 @@ PY
 
 
   # Collect candidate.patch — workdir-diff fallback, only when the run-dir
-  # collection above produced nothing. Diffs write to a temp file so a
-  # failed diff can never truncate an already-collected patch.
-  if [[ ! -s "$branch_dir/candidate.patch" && -d "$workdir" ]]; then
+  # collection produced nothing AND the canonical verdict says the pipeline
+  # succeeded. The worktree is pipeline-controlled (untrusted build code ran
+  # in it), so git runs with an empty environment and every repo-selected
+  # diff driver disabled: a planted .gitattributes/textconv, a repo
+  # diff.<driver>.command, GIT_EXTERNAL_DIFF or an fsmonitor program would
+  # otherwise execute on the host, outside the env -i boundary the pipeline
+  # itself ran under. Diffs write to a temp file so a failed diff can never
+  # truncate an already-collected patch.
+  patch_fallback=false
+  case "$canonical" in
+    success | passed | partial_success) patch_fallback=true ;;
+  esac
+  if [[ "$patch_fallback" == true && ! -s "$branch_dir/candidate.patch" && -d "$workdir" ]]; then
     target_branch=$(python3 -c '
 import sys, yaml
 with open(sys.argv[1]) as f:
@@ -682,13 +692,19 @@ print(c.get("branches", {}).get("target", ""))
       # Look for the worktree subdirectory that Amalgamator creates
       for wt_dir in "$workdir"/*; do
         if [[ -d "$wt_dir/.git" || -f "$wt_dir/.git" ]]; then
-          (cd "$wt_dir" && git diff "$target_branch"..HEAD > "$patch_tmp" 2>/dev/null) || true
+          (cd "$wt_dir" && env -i PATH="$PATH" HOME="${HOME:-/tmp}" \
+             git -c core.hooksPath=/dev/null -c core.fsmonitor= \
+                 -c diff.external= diff --no-ext-diff --no-textconv \
+                 "$target_branch"..HEAD > "$patch_tmp" 2>/dev/null) || true
           break
         fi
       done
       # Fallback: try workdir itself
       if [[ ! -s "$patch_tmp" && -d "$workdir/.git" ]]; then
-        (cd "$workdir" && git diff "$target_branch"..HEAD > "$patch_tmp" 2>/dev/null) || true
+        (cd "$workdir" && env -i PATH="$PATH" HOME="${HOME:-/tmp}" \
+           git -c core.hooksPath=/dev/null -c core.fsmonitor= \
+               -c diff.external= diff --no-ext-diff --no-textconv \
+               "$target_branch"..HEAD > "$patch_tmp" 2>/dev/null) || true
       fi
       if [[ -s "$patch_tmp" ]]; then
         mv "$patch_tmp" "$branch_dir/candidate.patch"
