@@ -159,6 +159,31 @@ assets:
     admission: {approval: operators}
     runner: {labels: [llm]}
 
+  # The scan family's judgment stage: /triage over one repository's recorded
+  # audit findings (true_positive/false_positive verdicts), the stage SCI's
+  # recording lane also serves (its deployed security-pack copy runs the
+  # worker entrypoint instead of this CLI session; the lane's name and
+  # intent stay coherent across the two packs). The model role is the
+  # registry's triage-verifier, a validity-writing judging role. The
+  # trigger follows the scan: deps gates the triage on a materialized
+  # full_audit for the very repository (a lanes-triggered dependency's
+  # freshness window is unbounded, so "the scan completed" — ever — is
+  # what unlocks the triage), and the 24h cadence paces one triage per
+  # repository per day. Priority 47: after the scan family's follow-up
+  # reviews (below_range_review's 46), before the remediation lanes —
+  # the triage's verdicts are what remediation schedules against. The 7d
+  # freshness backstop is the legacy weekly session's own cadence
+  # ("triage new findings").
+  sci_triage:  # skill session: /triage over the repository's recorded audit findings
+    model: {role: triage-verifier}
+    run: [python3, -m, traust.cli, session, run, --skill, triage, --role, "{role}", --repo, "{repo_url}", --run-id, "{run_id}"]
+    partitions: dynamic:repo
+    deps: [full_audit]
+    trigger: {every: 24h}
+    priority: 47
+    freshness: {fail: 7d}
+    runner: {labels: [llm]}
+
   # NEED(release-passthrough): the lane's taker refuses until traust-core has a release feed
   # (core.feeds.register) whose observations plan the container and RPM audits (ops.plan).
   release_passthrough:
