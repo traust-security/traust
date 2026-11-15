@@ -258,6 +258,30 @@ consumers query the API and do not run air-gapped: the fleet sweep
 fetches (`traust impact find` / `symbols` / `document`, the CVE-replay
 monitor) report their lookups as failed.
 
+### NVD: an optional API key
+
+NVD's CVE API answers about 5 requests per 30 seconds without a key and about 50 with
+one. A key is optional: without it, traust queries NVD keyless, and nothing warns. To use
+one, [request an NVD API key](https://nvd.nist.gov/developers/request-an-api-key). Then
+name the environment variable that holds it in `traust.yaml`:
+
+```yaml
+feeds:
+  api_keys:
+    nvd: NVD_API_KEY       # the variable's name; the key itself never goes in this file
+```
+
+and set that variable from your secret store: for example, a secret synced into the
+worker's environment, or `export NVD_API_KEY=…` in a local shell.
+- **Unset:** once `feeds.api_keys` names a variable, an unset or empty one is a
+  configuration error, so a deployment that relies on the key can't silently run without
+  it.
+- **Where it's sent:** only to NVD, in its `apiKey` header. It is never carried onto a
+  redirect, and never appears in a URL, log line or error.
+
+The shipped feeds registry declares which sources take a key; see traust-core's
+`docs/configuration.md`, "Feed API keys".
+
 ### Container images (CI, platform worker, air gap)
 
 For CI pipelines, platform worker pods, or air-gapped environments, use the
