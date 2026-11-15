@@ -61,6 +61,10 @@
 
 feeds:
   osv_access: api               # or air-gapped: an adopter-provided osv-scanner and offline DB
+  # api_keys:                   # optional: feed source -> the env var holding its API key
+  #   nvd: NVD_API_KEY          # NVD: ~50 requests/30 s with a key, ~5 without. Unset here:
+  #                             # keyless, no warnings. Named here: the variable must be set
+  #                             # (from your secret store), or traust refuses to start feeds.
 
 execution:
   sandbox: none                 # how a target's own build and test code runs:

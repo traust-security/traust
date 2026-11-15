@@ -20,6 +20,7 @@ The schemas below (from the installed `traust-contracts` package) are the comple
 | `traust-contracts/artifacts_schema/v1/cve-replay.schema.json` | Original-audit-bound advisory checks and human presence evidence; consumed by Core's replay queue/trends, never automatic benchmark truth |
 | `traust-contracts/artifacts_schema/v1/finding-claim.schema.json` | Retained reviewed claim proposals, original identity/occurrence snapshots and accepted historical claim content |
 | `traust-contracts/artifacts_schema/v1/finding-intake.schema.json` | Authoritative original native scanner label/fingerprint bindings for the recorded repository and commit |
+| `traust-contracts/artifacts_schema/v1/insight-builds.schema.json` | One global stored census build, stamped `built_at` by its cadence producer; the artifact row's `created_at` is its publication time |
 | `schemas/v1/validation.schema.json` | JSON Schema for live-validation reports |
 | `schemas/v1/remediation.schema.json` | JSON Schema for remediation patches |
 | `schemas/v1/verification.schema.json` | JSON Schema for remediation-verification reports |
