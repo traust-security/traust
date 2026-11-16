@@ -154,3 +154,14 @@ def test_the_product_registry_is_pointed_at_its_own_command(home: Path, hosts: d
     with pytest.raises(SystemExit) as exit_:
         feeds_fetch.main(["--config-home", str(home), "--feed", "product-definitions"])
     assert exit_.value.code == 2 and hosts["asked"] == []
+
+
+def test_an_unset_feed_key_variable_is_a_refusal_not_a_traceback(
+    home: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.delenv("TEST_NVD_KEY", raising=False)
+    document = yaml.safe_load((home / "traust.yaml").read_text())
+    document["feeds"] = {"api_keys": {"nvd": "TEST_NVD_KEY"}}
+    (home / "traust.yaml").write_text(yaml.safe_dump(document))
+    assert feeds_fetch.main(["--config-home", str(home)]) == 2
+    assert "feeds.api_keys.nvd names unset variable TEST_NVD_KEY" in capsys.readouterr().err

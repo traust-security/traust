@@ -376,3 +376,20 @@ def test_resolution_is_reported(tmp_path, monkeypatch, capsys):
     err = capsys.readouterr().err
     assert "deps.dev resolved 3 manifest(s)" in err
     assert "still unresolved" in err
+
+
+def test_an_unset_feed_key_variable_is_an_error_exit_2(tmp_path, monkeypatch, capsys):
+    import shutil
+
+    import yaml
+
+    home = tmp_path / "home"
+    shutil.copytree(FIXTURE_HOME, home)
+    (home / "traust.yaml").write_text(
+        yaml.safe_dump(
+            {"home": str(tmp_path / "store"), "feeds": {"api_keys": {"nvd": "TEST_NVD_KEY"}}}
+        )
+    )
+    monkeypatch.delenv("TEST_NVD_KEY", raising=False)
+    assert adapters.call_osv(_args(tmp_path, tmp_path / "o.json", config_home=home)) == 2
+    assert "names unset variable TEST_NVD_KEY" in capsys.readouterr().err
