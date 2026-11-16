@@ -168,6 +168,22 @@ def test_a_required_gap_is_a_fail_row_and_a_nonzero_exit(
     ]
 
 
+def test_an_unset_feed_key_variable_is_a_fail_row_not_a_crash(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, gitleaks_on_path: None
+) -> None:
+    monkeypatch.delenv("TEST_NVD_KEY", raising=False)
+    home = tmp_path / "config"
+    home.mkdir()
+    _fill(home, tmp_path)
+    document = yaml.safe_load((home / "traust.yaml").read_text())
+    document["feeds"] = {"api_keys": {"nvd": "TEST_NVD_KEY"}}
+    (home / "traust.yaml").write_text(yaml.safe_dump(document))
+    rc, rows = _doctor(home, monkeypatch)
+    assert rc == 1
+    feeds = [(r["status"], r["check"]) for r in rows if r["check"].startswith("feeds: ")]
+    assert feeds == [("FAIL", "feeds: feeds.api_keys.nvd names unset variable TEST_NVD_KEY")]
+
+
 def _pack_requires(path: Path) -> list[Requirement]:
     """The pack fixture's requirements, parsed the way the engine's start gate does: the
     `requires:` blocks of every enabled asset (the pack file is the shared fixture)."""

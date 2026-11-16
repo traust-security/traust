@@ -40,7 +40,7 @@ from traust_core.v1.context.config import CONFIG_FILE
 from traust_core.v1.context.home import TRAUST_CONFIG_HOME_ENV
 from traust_core.v1.context.preflight import preflight_findings
 from traust_core.v1.context.tools import bicep_candidates
-from traust_core.v1.errors import DeploymentConfigMissing, TraustError
+from traust_core.v1.errors import ConfigError, DeploymentConfigMissing, TraustError
 from traust_core.v1.models.common import PageRequest
 from traust_core.v1.models.operations import Requirement
 
@@ -139,8 +139,14 @@ def pack_requirements(path: Path | None = None) -> list[Requirement]:
 
 def check_preflight(results, core) -> None:
     """`Context.preflight` on the pack's enabled assets: the same findings the engine's start
-    gate refuses on. Every gap names its fix and is FAIL, never WARN."""
-    core.register_feeds()
+    gate refuses on. Every gap names its fix and is FAIL, never WARN. A feeds configuration
+    traust-core refuses (an unset `feeds.api_keys` variable, a bad registry) is a FAIL row
+    too: doctor reports it, it never crashes on it."""
+    try:
+        core.register_feeds()
+    except ConfigError as e:
+        results.append((FAIL, f"feeds: {e}"))
+        return
     findings = preflight_findings(core, pack_requirements())
     for finding in findings:
         results.append((FAIL, finding))
