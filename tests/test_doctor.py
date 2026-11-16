@@ -474,3 +474,22 @@ def test_an_invalid_traust_yaml_fails_the_config_row(tmp_path: Path) -> None:
     doctor.check_config(results, tmp_path)
     assert [s for s, _ in results] == [doctor.FAIL]
     assert "traust.yaml not loadable" in results[0][1]
+
+
+def test_a_feeds_error_never_hides_another_preflight_gap(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("TEST_NVD_KEY", raising=False)
+    monkeypatch.setenv("PATH", str(tmp_path / "no-tools"))  # gitleaks isn't on PATH
+    home = tmp_path / "config"
+    home.mkdir()
+    _fill(home, tmp_path)
+    document = yaml.safe_load((home / "traust.yaml").read_text())
+    document["feeds"] = {"api_keys": {"nvd": "TEST_NVD_KEY"}}
+    (home / "traust.yaml").write_text(yaml.safe_dump(document))
+    rc, rows = _doctor(home, monkeypatch)
+    failed = [r["check"] for r in rows if r["status"] == "FAIL"]
+    assert rc == 1
+    assert "feeds: feeds.api_keys.nvd names unset variable TEST_NVD_KEY" in failed
+    assert [f for f in failed if "gitleaks" in f]  # the other gap is still reported
+    assert not [f for f in failed if "is not an enabled source" in f]  # nor repeated per feed

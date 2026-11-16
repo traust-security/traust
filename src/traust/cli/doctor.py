@@ -141,13 +141,19 @@ def check_preflight(results, core) -> None:
     """`Context.preflight` on the pack's enabled assets: the same findings the engine's start
     gate refuses on. Every gap names its fix and is FAIL, never WARN. A feeds configuration
     traust-core refuses (an unset `feeds.api_keys` variable, a bad registry) is a FAIL row
-    too: doctor reports it, it never crashes on it."""
+    too, and the rest of preflight still runs: doctor lists every gap at once, never crashing
+    on one and never hiding another behind it."""
+    feeds_refused = False
     try:
         core.register_feeds()
     except ConfigError as e:
         results.append((FAIL, f"feeds: {e}"))
-        return
+        feeds_refused = True
     findings = preflight_findings(core, pack_requirements())
+    if feeds_refused:
+        # with no feeds registered every required feed reads "not an enabled source": the row
+        # above is their one cause, so they'd only repeat it
+        findings = [f for f in findings if not f.startswith("feeds: ")]
     for finding in findings:
         results.append((FAIL, finding))
     if not findings:

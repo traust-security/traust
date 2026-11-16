@@ -20,7 +20,7 @@ from traust_core.v1.context.tool_reports import (
     osv_sbom_report,
     yara_report,
 )
-from traust_core.v1.errors import ConfigError, IntegrityError, ValidationError
+from traust_core.v1.errors import ConfigError, IntegrityError, TraustError, ValidationError
 
 from traust.cli.groups._registry import OpSpec, passthrough_op
 from traust.context import load
@@ -336,7 +336,11 @@ def call_osv(args) -> int:
     if not repo.is_dir():
         print(f"not a directory: {repo}", file=sys.stderr)
         return 2
-    core, scanner, timeout = _osv_core(args, source)
+    try:
+        core, scanner, timeout = _osv_core(args, source)
+    except TraustError as e:  # an unset feeds.api_keys variable: a refusal, never a traceback
+        print(f"ERROR: {e}", file=sys.stderr)
+        return 2
     if scanner is None:
         _note_unresolved_manifests()
     body = osv_report(core, repo, scanner=scanner, timeout=timeout, freeze=not args.no_freeze)
@@ -366,7 +370,11 @@ def _call_osv_sbom(args, source: str) -> int:
         except (OSError, json.JSONDecodeError) as e:
             print(f"ERROR: cannot read --grype {args.grype}: {e}", file=sys.stderr)
             return 2
-    core, scanner, timeout = _osv_core(args, source)
+    try:
+        core, scanner, timeout = _osv_core(args, source)
+    except TraustError as e:
+        print(f"ERROR: {e}", file=sys.stderr)
+        return 2
     try:
         body = osv_sbom_report(core, args.sbom, scanner=scanner, timeout=timeout, grype=grype)
     except ValueError as e:  # not syft JSON
