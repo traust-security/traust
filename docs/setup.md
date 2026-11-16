@@ -297,6 +297,70 @@ podman run --rm -v "$PWD":/workspace:Z traust-runtime:latest \
   admin toolchain doctor --profile secure-code-audit
 ```
 
+
+### NVD: an optional API key
+
+NVD's CVE API answers about 5 requests per 30 seconds without a key and about 50 with
+one. A key is optional: without it, traust queries NVD keyless, and nothing warns. To use
+one, [request an NVD API key](https://nvd.nist.gov/developers/request-an-api-key). Then
+name the environment variable that holds it in `traust.yaml`:
+
+```yaml
+feeds:
+  api_keys:
+    nvd: NVD_API_KEY       # the variable's name; the key itself never goes in this file
+```
+
+and set that variable from your secret store: for example, a secret synced into the
+worker's environment, or `export NVD_API_KEY=…` in a local shell.
+- **Unset:** once `feeds.api_keys` names a variable, an unset or empty one is a
+  configuration error, so a deployment that relies on the key can't silently run without
+  it.
+- **Where it's sent:** only to NVD, in its `apiKey` header. It is never carried onto a
+  redirect, and never appears in a URL, log line or error.
+
+The shipped feeds registry declares which sources take a key; see traust-core's
+`docs/configuration.md`, "Feed API keys".
+
+### Container images (CI, platform worker, air gap)
+
+For CI pipelines, platform worker pods, or air-gapped environments, use the
+container images instead of the install script. External tooling and the
+traust Python stack are **two separate images**, so a pin advance (weekly at
+most) never forces a rebuild of the Python layer, and vice versa:
+
+| Image | Contains | Tag |
+|---|---|---|
+| `traust-toolchain` | Pinned scanner binaries only (traust-core's shipped `external-tools.yaml`): opengrep, gitleaks, syft, grype, cosign, govulncheck, skopeo, yara, pip-audit (in its own isolated Python environment). No traust Python stack, no vulnerability databases. | `toolchain-<pin-set hash>` (`scripts/containerfile-build-args.py --pin-hash`) |
+| `traust-runtime` | `FROM traust-toolchain` by digest, plus traust-core/traust at the Git SHAs pinned in `pyproject.toml`/`uv.lock` and traust-engine as a separate tool install (`TRAUST_ENGINE_SHA` in `Containerfile.runtime`), and the harness skill data (`harnessing/`, `config/`, `docs/`). | the commit, plus the toolchain hash it was built on (labels `traust.commit`, `traust.toolchain-hash`) |
+
+**No vulnerability database ships in either image.** For offline scans, mount
+databases kept current by the deployment, for example under
+`/feeds/tool-dbs/<tool>/`. Set `GRYPE_DB_CACHE_DIR=/feeds/tool-dbs/grype` and
+`GRYPE_DB_AUTO_UPDATE=false` for grype; direct govulncheck invocations take
+`-db file:///feeds/tool-dbs/govulncheck`. The core-based scanner registration
+does not automatically wire `locations.feeds_cache` or `FEEDS_CACHE_DIR` into
+these tools. The caller must configure the database and verify it is usable
+before scanning: grype fails on an empty database, but govulncheck can silently
+report zero findings against an empty local database. osv-scanner
+is installed in neither image: an air-gapped deployment
+extends `traust-toolchain` with osv-scanner and its offline database
+([Air-gapped OSV scanning](#air-gapped-osv-scanning)).
+
+The runtime build fetches Python packages at the commit SHAs in
+`pyproject.toml`/`uv.lock`; sibling repositories are not required. Scanner
+versions and the pin-set hash come from traust-core's shipped `external-tools.yaml`.
+
+```bash
+./scripts/build-toolchain-image.sh                      # both images, tagged by pin hash / commit
+./scripts/build-toolchain-image.sh --tools-only          # traust-toolchain only, e.g. to publish a pin advance
+./scripts/build-toolchain-image.sh --tag <registry>/traust-runtime:<tag>
+./scripts/build-toolchain-image.sh --tools-tag <registry>/traust-toolchain:<tag>
+
+podman run --rm -v "$PWD":/workspace:Z traust-runtime:latest \
+  admin toolchain doctor --profile secure-code-audit
+```
+
 `traust-runtime` is the **runtime base** a platform worker extends or mounts
 from; it is separate from the data-only `Containerfile`, which ships skills
 and templates as a mountable OCI artifact. Deployment configuration is

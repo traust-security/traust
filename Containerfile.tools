@@ -34,7 +34,7 @@
 #     1.26.9-builder builds both govulncheck and skopeo cleanly.
 # Bump this digest (staying on a stream both tools build under, and a -builder variant) when a
 # future pin needs it.
-FROM registry.access.redhat.com/hi/go:1.26.9-builder@sha256:c62803d6a744c045f1087cefe8b2b046d09048bdc499dcf090eaa623f3b9452d AS go-builder
+FROM registry.access.redhat.com/hi/go:1.26.10-builder@sha256:8534a929a08031ad051058a3573ebd9f2e7c187314e406dc2815070c64c445a2 AS go-builder
 USER 0
 RUN mkdir -p /out
 ARG SKOPEO_VERSION
@@ -66,7 +66,7 @@ RUN CGO_ENABLED=0 GOBIN=/out go install \
 # (gcc/autotools for yara; curl/tar/gzip/unzip for every release asset; python3.11-pip only to
 # populate the pip-audit venv). None of this build toolchain reaches the final image — only the
 # binaries and directories explicitly COPY'd out of this stage do. ---
-FROM registry.access.redhat.com/ubi9/ubi-minimal:9.8-1793050346@sha256:6f3a78179e0b30b930a186e7f68a4af52e51bb82406c9653be10bddd624e40f5 AS tools-builder
+FROM registry.access.redhat.com/ubi9/ubi-minimal:9.9-1794467051@sha256:baafce2d34783a28b4a472779f304e97e00f9d35c99553bc53b068b14344d9a9 AS tools-builder
 
 ARG TARGETARCH
 ARG OPENGREP_VERSION
@@ -183,7 +183,7 @@ RUN python3.11 -m venv /opt/pip-audit-venv \
 # --- Tools image: a FRESH stage, not a trimmed copy of the builder — only the binaries and
 # runtime packages below ever reach it. No gcc/make/autotools/pkgconfig, no curl/tar/gzip/unzip,
 # no python3.11-pip, no build artifacts or source trees. ---
-FROM registry.access.redhat.com/ubi9/ubi-minimal:9.8-1793050346@sha256:6f3a78179e0b30b930a186e7f68a4af52e51bb82406c9653be10bddd624e40f5 AS tools
+FROM registry.access.redhat.com/ubi9/ubi-minimal:9.9-1794467051@sha256:baafce2d34783a28b4a472779f304e97e00f9d35c99553bc53b068b14344d9a9 AS tools
 
 ARG OPENGREP_VERSION
 ARG GITLEAKS_VERSION

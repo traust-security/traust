@@ -9,8 +9,8 @@ traust admin doctor               # every effective value and its source: file, 
 
 An adopter sets **one file, `traust.yaml`**, in the directory named by
 `TRAUST_CONFIG_HOME` (default `~/.traust/config`): the database, identity, the ledger
-key, budgets, forge hosts, locations, and four small adopter fields (`feeds.osv_access`,
-`execution.sandbox`, `remediation`, `campaign`). Secrets come from the environment: the
+key, budgets, forge hosts, locations, and five small adopter fields (`feeds.osv_access`,
+`feeds.api_keys`, `execution.sandbox`, `remediation`, `campaign`). Secrets come from the environment: the
 `*_env` keys name the variable. No `traust.yaml` at all is the zero-config local install
 (SQLite and artifacts under `~/.traust`). The schema is traust-contracts' `traust`
 (`config/v1/traust.schema.json`); unknown keys are refused. A deployment such as SCI sets
