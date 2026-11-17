@@ -89,6 +89,20 @@ def read_remediation_metadata(path: Path) -> dict:
     }
 
 
+def _summary_text(value: Any, field: str) -> str:
+    """A string from a pipeline summary, or "" (None is simply absent).
+
+    summary.json is pipeline-written: an object in `error` used to reach the
+    report row, where the schema requires a string and rejected the WHOLE
+    report instead of the branch that wrote it.
+    """
+    if value is None:
+        return ""
+    if not isinstance(value, str):
+        raise ValueError(f"{field} must be a string, got {type(value).__name__}")
+    return value
+
+
 def _summary_number(value: Any, field: str) -> float:
     """A finite, non-negative number taken from a pipeline summary.
 
@@ -205,7 +219,7 @@ def read_branch_result(branch_dir: Path, repo_path: Path | None = None) -> dict:
                 target = targets[0] if targets else {}
                 if not isinstance(target, dict):
                     raise ValueError("targets[0] must be a JSON object")
-                outcome = target.get("outcome", "unknown")
+                outcome = _summary_text(target.get("outcome", "unknown"), "outcome")
                 result["status"] = "success" if outcome == "success" else outcome
                 result["cost_usd"] = _summary_number(
                     target.get("cost_usd", summary.get("total_cost_usd", 0.0)),
@@ -215,7 +229,7 @@ def read_branch_result(branch_dir: Path, repo_path: Path | None = None) -> dict:
                     target.get("duration_s", summary.get("total_duration_s", 0)),
                     "duration_seconds",
                 )
-                result["error"] = target.get("error", "")
+                result["error"] = _summary_text(target.get("error"), "error")
                 # A successful pipeline does not imply the build and the tests
                 # ran (the loader allows empty commands), and the summary
                 # carries no per-check verdict. Report only what is known;
@@ -232,8 +246,10 @@ def read_branch_result(branch_dir: Path, repo_path: Path | None = None) -> dict:
             elif targets is not None:
                 raise ValueError("targets must be a JSON array")
             else:
-                result["status"] = summary.get("status", "unknown")
-                result["phase_reached"] = summary.get("phase_reached", "")
+                result["status"] = _summary_text(summary.get("status", "unknown"), "status")
+                result["phase_reached"] = _summary_text(
+                    summary.get("phase_reached"), "phase_reached"
+                )
                 for key in ("build_passed", "test_passed"):
                     if isinstance(summary.get(key), bool):
                         result[key] = summary[key]
@@ -246,7 +262,7 @@ def read_branch_result(branch_dir: Path, repo_path: Path | None = None) -> dict:
                 result["tokens_used"] = _summary_int(
                     summary.get("tokens_used", 0), "tokens_used"
                 )
-                result["error"] = summary.get("error", "")
+                result["error"] = _summary_text(summary.get("error"), "error")
         except (OSError, json.JSONDecodeError, ValueError, KeyError,
                 AttributeError, TypeError) as e:
             # Pipeline-written JSON can be structurally wrong but still parse.
@@ -1151,7 +1167,7 @@ def main():
     print("  BACKPORT REPORT")
     print("=" * 60)
     print(f"  Repository: {report['metadata']['repository']}")
-    print(f"  Fix commit: {rem_meta['fix_commit']}")
+    print(f"  Fix commit: {report['source_fix']['commit']}")
     print(f"  Branches:   {report['summary']['total']}")
     print(f"  Succeeded:  {report['summary']['succeeded']}")
     print(f"  Failed:     {report['summary']['failed']}")

@@ -911,3 +911,81 @@ def test_make_remediation_writes_no_credential(tmp_path):
     assert data["metadata"]["repository"] == "https://github.com/o/r"
     assert data["fork"]["url"] == "https://github.com/o/r.git"
     assert data["fork"]["upstream_remote"] == "https://github.com/o/r"
+
+
+# ---------------------------------------------------------------------------
+# Qodo findings: run-summary labels, pipeline field types, banner commit
+# ---------------------------------------------------------------------------
+
+
+def test_run_summary_names_the_real_target_branch(tmp_path):
+    # run_backport.sh names the directory with a slug; result.json records the
+    # real ref, and the report uses that ref.
+    wrs = _load("write_run_summary.py")
+    results = tmp_path / "results"
+    branch = results / "release-4-16"
+    branch.mkdir(parents=True)
+    (branch / "result.json").write_text(json.dumps({
+        "outcome": "success", "target_branch": "release-4.16"}))
+    summary = wrs.build(results, ["release-4-16"], None)
+    assert summary["branches"] == [{"branch": "release-4.16", "status": "success"}]
+
+    missing = wrs.build(results, ["not-a-run"], None)
+    assert missing["branches"] == [{"branch": "not-a-run", "status": "unknown"}]
+
+
+@pytest.mark.parametrize("summary", [
+    {"targets": [{"outcome": "success", "error": {"message": "x"}}]},
+    {"targets": [{"outcome": "success", "error": ["x"]}]},
+    {"status": "success", "error": {"message": "x"}},
+    {"status": "success", "phase_reached": ["Phase 4"]},
+    {"targets": [{"outcome": {"message": "x"}}]},
+    {"status": {"weird": True}},
+])
+def test_non_string_pipeline_field_is_a_branch_error(tmp_path, summary):
+    # A non-string error/outcome would fail the schema for the WHOLE report;
+    # classify it as the branch that wrote it.
+    results = tmp_path / "results"
+    branch = results / "release-a"
+    _write_branch(branch)
+    (branch / "summary.json").write_text(json.dumps(summary))
+
+    row = emit.read_branch_result(branch, emit._source_repo(branch))
+    assert row["status"] == "error"
+    assert "Malformed summary.json" in row["error"]
+
+    report = emit.build_report(results, _NUM_REM)
+    assert report["target_branches"][0]["status"] == "failed"
+
+
+def test_absent_error_field_stays_absent(tmp_path):
+    results = tmp_path / "results"
+    branch = results / "release-a"
+    _write_branch(branch)
+    (branch / "summary.json").write_text(json.dumps({
+        "targets": [{"outcome": "success", "error": None, "phase_reached": None}],
+    }))
+    row = emit.read_branch_result(branch, emit._source_repo(branch))
+    assert row["status"] != "error"
+
+
+def test_banner_names_the_run_commit_not_the_artifact(tmp_path):
+    results = tmp_path / "results"
+    _write_branch(results / "release-a")          # config/result carry c*40
+    remediation = tmp_path / "rem.json"
+    remediation.write_text(json.dumps({
+        "metadata": {"repository": "https://github.com/o/r",
+                     "logical_product": "p"},
+        "fork": {"fix_commit": "a" * 40},          # stale artifact value
+        "source_findings": [],
+    }))
+    out = tmp_path / "report.json"
+    proc = subprocess.run(
+        [sys.executable, str(_SKILL / "emit_backport_report.py"),
+         "--results-dir", str(results), "--remediation", str(remediation),
+         "--output", str(out), "--no-schema", "--no-publish"],
+        capture_output=True, text=True,
+    )
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert f"Fix commit: {'c' * 40}" in proc.stdout
+    assert f"Fix commit: {'a' * 40}" not in proc.stdout
