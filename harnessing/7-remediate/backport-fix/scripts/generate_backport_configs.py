@@ -517,13 +517,14 @@ def read_impact(path: Path, repo_path: Path, impact_repo: str | None) -> dict:
         log.error(
             "No repos[] entry in %s matches this clone (origin=%s). "
             "Pass --impact-repo with the entry's repo id.",
-            path, origin or "<unknown>",
+            path, _paths.strip_url_credentials(origin) or "<unknown>",
         )
         sys.exit(1)
 
     log.info(
         "Impact entry: %s  classification=%s  version=%s",
-        entry.get("repo", ""), entry.get("classification", ""),
+        _paths.strip_url_credentials(str(entry.get("repo", ""))),
+        entry.get("classification", ""),
         entry.get("version", ""),
     )
     # Classification describes the analyzed commit, not the branches — the
@@ -539,7 +540,9 @@ def read_impact(path: Path, repo_path: Path, impact_repo: str | None) -> dict:
         "module": module,
         "fixed_version": fixed_version,
         "classification": entry.get("classification", ""),
-        "repo_id": entry.get("repo", ""),
+        "repo_id": _paths.strip_url_credentials(
+            str(entry.get("repo", ""))
+        ).removeprefix("repo:"),
     }
 
 
@@ -721,11 +724,28 @@ def module_version_at(repo_path: Path, ref: str, module: str):
     return ("absent", None)
 
 
+def _dedupe_branches(branches: list[str] | None) -> list[str]:
+    """Unique, order-preserving branch names.
+
+    A repeated entry (same release named twice on --branches) would generate
+    two configs with different slugs but one target ref, running the same
+    backport twice.
+    """
+    seen: set[str] = set()
+    unique: list[str] = []
+    for raw in branches or []:
+        name = str(raw).strip()
+        if name and name not in seen:
+            seen.add(name)
+            unique.append(name)
+    return unique
+
+
 def list_release_branches(
     repo_path: Path, branch_pattern: str | None, branches: list[str] | None
 ) -> list[str]:
     if branches:
-        return list(branches)
+        return _dedupe_branches(branches)
     pattern = branch_pattern or "release-*"
     try:
         r = subprocess.run(
@@ -1029,7 +1049,7 @@ def setup_from_remediation(args) -> dict:
 
     log.info("Fix commit: %s", rem["fix_commit"])
     log.info("Source branch: %s", rem["base_ref"])
-    log.info("Repository: %s", rem["repo_url"])
+    log.info("Repository: %s", _paths.strip_url_credentials(rem["repo_url"]))
 
     triage_info = {}
     if args.triage and args.triage.exists():
@@ -1322,6 +1342,11 @@ def main():
 
     # --- Determine target branches ---
     branch_pattern = args.branch_pattern
+    if args.branches:
+        # Deduplicate once, so scanning, --skip-scan generation and the totals
+        # all see the same unique list.
+        args.branches = _dedupe_branches(args.branches)
+
     if args.skip_scan and args.branches:
         # Trust the user: skip scanning, treat all explicit branches as NEEDS_FIX
         log.info("--skip-scan: treating %d explicit branch(es) as NEEDS_FIX", len(args.branches))

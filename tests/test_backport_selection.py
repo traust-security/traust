@@ -385,3 +385,58 @@ def test_long_branch_fits_every_downstream_component(tmp_path):
     assert len(f"refs/heads/amalgamator/{cfg['issue_id']}".encode()) <= 255
     assert gen.slug_issue_id(["triage.json#f001"], "cri-o", slug,
                              "deadbeef").encode() == cfg["issue_id"].encode()
+
+
+# ---------------------------------------------------------------------------
+# Qodo findings: duplicate --branches entries and credential-bearing logs
+# ---------------------------------------------------------------------------
+
+
+def test_duplicate_branches_are_deduplicated():
+    # A repeated entry generated two configs with different slugs but one
+    # target ref, running the same release twice.
+    assert gen._dedupe_branches(
+        ["release-a", "release-a", " release-b ", ""]
+    ) == ["release-a", "release-b"]
+    assert gen.list_release_branches(
+        pathlib.Path("/nonexistent"), None, ["release-a", "release-a"]
+    ) == ["release-a"]
+
+
+def _credential_origin_repo(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    _subprocess.run(
+        ["git", "-C", str(repo), "remote", "add", "origin",
+         "https://x-access-token:ghp_SECRET@github.com/o/r"],
+        check=True,
+    )
+    return repo
+
+
+def _impact(tmp_path, entry_repo):
+    path = tmp_path / "impact.json"
+    path.write_text(_json.dumps({
+        "metadata": {"cve": "CVE-2026-1", "module": "m", "fixed_version": "1.2.3"},
+        "repos": [{"repo": entry_repo, "classification": "version_not_in_range",
+                   "version": "v1.0.0"}],
+    }))
+    return path
+
+
+def test_impact_match_logs_and_records_no_credentials(tmp_path, caplog):
+    repo = _credential_origin_repo(tmp_path)
+    path = _impact(tmp_path, "repo:https://x-access-token:ghp_SECRET2@github.com/o/r")
+    meta = gen.read_impact(path, repo, None)
+    assert "ghp_SECRET" not in caplog.text and "ghp_SECRET2" not in caplog.text
+    assert "ghp_SECRET" not in _json.dumps(meta)
+    assert meta["repo_id"] == "https://github.com/o/r"
+
+
+def test_impact_mismatch_logs_no_credentials(tmp_path, caplog):
+    repo = _credential_origin_repo(tmp_path)
+    path = _impact(tmp_path, "repo:https://github.com/other/x")
+    with pytest.raises(SystemExit):
+        gen.read_impact(path, repo, None)
+    assert "ghp_SECRET" not in caplog.text
