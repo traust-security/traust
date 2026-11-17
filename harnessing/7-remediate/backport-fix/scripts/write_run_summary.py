@@ -37,8 +37,25 @@ def verdict(branch_dir: Path) -> str:
     return outcome if isinstance(outcome, str) and outcome else "unknown"
 
 
+def label(output_dir: Path, name: str) -> str:
+    """The real target branch for a result directory.
+
+    run_backport.sh names the directory with a sanitized slug (release-4-16
+    for release-4.16) and records the real ref in result.json; the report uses
+    that ref, so the batch summary must too or the two outputs disagree.
+    """
+    path = output_dir / name / "result.json"
+    try:
+        record = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return name
+    target = record.get("target_branch") if isinstance(record, dict) else None
+    return target if isinstance(target, str) and target else name
+
+
 def build(output_dir: Path, branches: list[str], image: str | None) -> dict:
-    rows = [{"branch": name, "status": verdict(output_dir / name)}
+    rows = [{"branch": label(output_dir, name),
+             "status": verdict(output_dir / name)}
             for name in branches]
     counts = {"total": len(rows), "passed": 0, "failed": 0, "skipped": 0}
     for row in rows:
