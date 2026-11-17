@@ -489,9 +489,8 @@ posture and compounds co-located vulnerabilities, so each event records
 a category-aware weight λ (tenancy-load-bearing categories near 1.0 on
 multi-tenant products), resolved from a versioned weight table at
 emission time. (λ is per-event context only, never a headline index;
-the headline trend metrics are
-`owasp_high_plus_pct` and `mean_cvss_open`, per
-docs/risk-rating-methodology.md.) Dashboards
+the headline trend metric is the risk index until the per-finding OWASP
+rating, in development, replaces it; see docs/risk-rating-methodology.md.) Dashboards
 also flag the **unhardened blast radius** — components where open
 confirmed vulnerabilities co-locate with open hardening gaps — because
 that co-location is exactly where a "medium" is effectively worse than
@@ -551,9 +550,8 @@ Because state is derived, one event stream yields several products:
   "how sure are we?"
 - **Trends** (`findings-trends`) — replaying the same events against
   monthly boundaries gives burndown, velocity, MTTR, FP rates, and the
-  headline risk signals (`owasp_high_plus_pct`, `mean_cvss_open`; the
-  retired λ-CVSS composite survives only as legacy history) with no
-  stored snapshots to drift.
+  risk index (the per-finding OWASP risk signals are in development) with
+  no stored snapshots to drift.
 - **Assurance views** — replaying with progressively stronger evidence
   admitted gives three portfolio pictures: **claimed** (audit only),
   **verified** (plus static triage/human events), **proven** (plus
