@@ -40,6 +40,8 @@ re-estimation, fully reproducible from the report JSON plus (when the
 exploitation-evidence factor below applies) the pinned threat-intel
 feeds-cache snapshot:
 
+An advisory-backed finding (a dependency, image or SBOM finding tied to a CVE or GitHub advisory) takes its CVSS from the vulnerability feeds instead, ranked NIST > GitHub > CNA > ADP > Red Hat > scanner: see [vulnerability-feeds.md](vulnerability-feeds.md) for the precedence, how a score is resolved, and what is live today.
+
 **Likelihood** = mean of the exploitability metrics present in the vector:
 
 | CVSS metric | OWASP factor it evidences | scores |

@@ -1,6 +1,6 @@
 # Docs
 
-A reader's map to the 34 documents in this directory. Three audiences — **operators** setting up and running the workflow engine, **analysts** reading and acting on its output, and **contributors** changing the workflow engine — are grouped separately below. Reference material shared across all three follows.
+A reader's map to the 35 documents in this directory. Three audiences — **operators** setting up and running the workflow engine, **analysts** reading and acting on its output, and **contributors** changing the workflow engine — are grouped separately below. Reference material shared across all three follows.
 
 ---
 
@@ -43,6 +43,7 @@ For security engineers triaging findings, verifying exploitability, and tracking
 | [validation-process.md](validation-process.md) | What a verdict must survive before it enters the ledger (trust gates, fail-closed stack) |
 | [error-model.md](error-model.md) | Type I / Type II error policy — how the workflow engine handles false positives and negatives |
 | [risk-rating-methodology.md](risk-rating-methodology.md) | How per-finding scores become portfolio risk metrics |
+| [vulnerability-feeds.md](vulnerability-feeds.md) | Which feed's CVSS a finding shows: the source precedence (NIST > GitHub > CNA > ADP > Red Hat > scanner) and how a score is resolved |
 | [reachability.md](reachability.md) | Reachability engines, what each may conclude, and per-language coverage |
 | [adversarial-content-doctrine.md](adversarial-content-doctrine.md) | The standing rule for any agent reading content it did not write (prompt-injection defence) |
 
