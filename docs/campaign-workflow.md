@@ -21,7 +21,7 @@ These skills are specific to the scanning campaign. They consume the full `*-res
 | `executive-summary-findings` | — | Cross-portfolio leadership roll-up dashboard (traust-core view) | haiku-class (`render-narrate` floor) |
 | `loc-dashboard` | — | Lines-of-code coverage dashboard (also reads the inputs inventory) | haiku-class (`render-narrate` floor) |
 | `insecure-patterns` | — | Cross-portfolio insecure-coding-pattern roll-up (CWE → OWASP ASVS taxonomy) | mythos-class |
-| `findings-trends` | — | Up/down trend dashboard by ledger replay: burndown, headline risk signals (`owasp_high_plus_pct`, `mean_cvss_open`), velocity, MTTR, accepted-risk register | haiku-class (`render-narrate` floor) |
+| `findings-trends` | — | Up/down trend dashboard by ledger replay: burndown, the risk index (the OWASP risk signals are in development), velocity, MTTR, accepted-risk register | haiku-class (`render-narrate` floor) |
 | `validation-fuzz-dashboard` | — | Combined live-validation + fuzzing results dashboard | opus-class |
 | `threat-register` | — | Fleet-wide threat roll-up from every threat-model file: open-threat exposure by product, stable `<slug>:<Tn>` keys, class-closing quick wins | opus-class |
 | `isolation-review` | — | Service-level tenant-isolation review (PEACH cited by reference only): interface inventory from interface signals + existing findings, per-interface complexity, five hardening dimensions with cited evidence, posture + prioritized gaps | mythos-class |

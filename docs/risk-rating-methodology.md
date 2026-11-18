@@ -5,6 +5,16 @@ why. Implemented in traust-core's `RatingPolicy`
 (`traust_core.v1.services.findings.rating`); surfaced by `/findings-trends`
 (`traust dashboard view findings-trend`) and `/traust-metrics`.
 
+> **Status (2026-11-17).** The **threat-model** rating ([Threats](#threats)) is
+> live. The **per-finding** rating is **in development**: the factor
+> derivation, the exploitation-evidence (EPSS/KEV) factor and the portfolio
+> OWASP roll-up below. `RatingPolicy` implements the derivation, but no finding
+> read calls it, and the findings-trend view reports no OWASP bands. Findings
+> are ranked today by severity (a person's re-rating, else the scanner's), by
+> the SLA due date, and by the [risk index](#risk-index-the-current-headline).
+> The scoring is still under review before it rates findings, so the tables
+> below may change.
+
 ## Machine-readable definition
 
 The factor mappings, bucket thresholds, 3×3 matrix, and fallbacks below
@@ -29,7 +39,7 @@ overall band:
 | **likelihood MEDIUM** | Low | Medium | High |
 | **likelihood HIGH** | Medium | High | Critical |
 
-## Deriving the factors from finding data
+## Deriving the factors from finding data (in development)
 
 OWASP's worksheet factors (threat-agent skill, opportunity, ease of
 discovery/exploit, technical impact, …) are estimated per finding. Our
@@ -40,6 +50,8 @@ re-estimation, fully reproducible from the report JSON plus (when the
 exploitation-evidence factor below applies) the pinned threat-intel
 feeds-cache snapshot:
 
+An advisory-backed finding (a dependency, image or SBOM finding tied to a CVE or GitHub advisory) takes its CVSS from the vulnerability feeds instead, ranked NIST > GitHub > CNA > ADP > Red Hat > scanner: see [vulnerability-feeds.md](vulnerability-feeds.md) for the precedence, how a score is resolved, and what is live today.
+
 **Likelihood** = mean of the exploitability metrics present in the vector:
 
 | CVSS metric | OWASP factor it evidences | scores |
@@ -49,18 +61,17 @@ feeds-cache snapshot:
 | Privileges Required (PR) | skill / access required | N=9, L=5, H=2 |
 | User Interaction (UI) | victim interaction needed | N=9, R=4 |
 
-**Exploitation-evidence factor** (methodology v1.1.0): when a finding
-carries a CVE id and the threat-intel feeds cache is present
-(`<results-root>/feeds/`, FIRST EPSS + CISA KEV), `threat_intel_score()`
-(`RatingPolicy`) appends one more score to the likelihood mean
-alongside the CVSS exploitability metrics: KEV membership scores 9;
-otherwise the highest EPSS score across the finding's CVEs maps through
-the `threat_intel_factor.epss_bands` in the methodology JSON
-(≥ 0.5 → 9, ≥ 0.1 → 7, ≥ 0.01 → 5, else 2). No CVE id or no feeds
-cache means the factor is simply absent and likelihood uses the CVSS
-factors only (the engine warns on stderr when the feeds are
-unavailable). Because the feeds change over time, reproducing a rating
-that used this factor requires the same feeds-cache snapshot.
+**Exploitation-evidence factor** (in development): `RatingPolicy`
+appends one more score to the likelihood mean alongside the CVSS
+exploitability metrics. KEV membership scores 9; otherwise the highest EPSS
+score across the finding's CVEs maps to a band (≥ 0.5 → 9, ≥ 0.1 → 7,
+≥ 0.01 → 5, else 2). No CVE, or no EPSS/KEV snapshot, means the factor is
+absent and likelihood uses the CVSS factors only. Nothing supplies the
+factor yet. EPSS and KEV are fetched daily (`traust feeds fetch`) and will
+first be shown per CVE on a finding's detail and in its report, as
+exploitability. Until the per-finding rating is settled they change no
+severity, due date, risk index or rating. Because the feeds change over time,
+reproducing a rating that used this factor will require the same snapshot.
 
 **Impact** = mean of the technical-impact metrics (per C, I, A):
 H=9, L=4, N=0.
@@ -77,29 +88,30 @@ not assessable from source code and are deliberately out of scope; per
 OWASP, technical impact is the correct basis when business context is
 unavailable.
 
-## Portfolio roll-up
+## Portfolio roll-up (in development)
 
-Per time bucket (ledger replay, open findings only):
+Planned, per time bucket (ledger replay, open findings only). The
+findings-trend view does not report these yet:
 
 - `owasp_open` — count of open findings per band
   (critical/high/medium/low/note): the headline distribution.
 - `owasp_high_plus_pct` — % of open findings rated High or Critical: the
-  single ratio-scale trend number (0–100, lower is better), charted on
-  the executive dashboard as "OWASP High+Critical share of open (%)".
+  single ratio-scale trend number (0–100, lower is better), to be
+  charted on the executive dashboard as "OWASP High+Critical share of open (%)".
 
-## Retired series
+## Risk index: the current headline
 
-The earlier headline was a "risk index" (`risk_index`,
-`risk_index_combined`): raw sums of effective CVSS scores over open
-findings (plus a λ-weighted hardening term). It was retired as a headline
-because a sum of severity scores is unnormalized — it scales with corpus
-size, has no bounded scale, and CVSS v4.0 explicitly states scores measure
-severity, not risk, with no basis for summing. `mean_cvss_open` (the interim
-replacement) is likewise demoted: it is a severity intensity, not a risk
-measure. The engine still computes both into every trend snapshot, and the
-trends dashboard still shows them as legacy columns beside the OWASP bands,
-so historical series stay comparable; they are no longer the headline and
-are never revised in the append-only metrics ledger.
+Until the OWASP roll-up is live, the findings-trend view's headline is the
+**risk index** (`risk_index`): the sum of open findings' CVSS scores, with a
+finding that has no CVSS counting its severity band's midpoint (critical 9.5,
+high 8.0, medium 5.5, low 2.0, informational 0). The **accepted risk index**
+(`accepted_risk_index`) is the same sum over risk-accepted findings.
+
+It is meant to be replaced, because a sum of severity scores is unnormalized:
+it scales with corpus size, has no bounded scale, and CVSS v4.0 explicitly
+states that scores measure severity, not risk, with no basis for summing. Once
+the OWASP roll-up is live, the risk index stays as a legacy series, so
+historical trends stay comparable.
 
 ## Threats
 
@@ -109,7 +121,7 @@ factors and the four technical (and, when the owner supplies them, four
 business) impact factors directly. The factor guide is the threat-model
 skill's [Scoring guide](../harnessing/2-threat-model/threat-model/schema.md#scoring-guide);
 the arithmetic is `traust_contracts.v1.risk_rating`, and the rendering and
-lint rules are `traust_engine.reporting.threat_rating`. The threat register
+lint rules are `traust_core.v1.services.reporting.threat_rating`. The threat register
 ranks threats by the resulting severity. Models written before the method
 carry legacy labels until their next update, and are ordered meanwhile by a
 labelled crosswalk that is never reported as a rating.

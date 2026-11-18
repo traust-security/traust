@@ -61,11 +61,12 @@ Outputs `<stem>.{json,md,html}` into `--out` (core renders them, stores nothing)
   findings without CVSS use their severity band midpoint (critical 9.5,
   high 8.0, medium 5.5, low 2.0, informational 0). Custom weighting is
   a deliberate non-goal for now. (The view computes it.)
-- **OWASP headline uses evidence, not severity.** Complete recorded CVSS v3
-  vectors supply likelihood and impact; canonical CVE aliases join the EPSS/KEV
-  snapshots retrieved by each bucket's end. The series includes the OWASP band
-  distribution and High/Critical share of open findings. Missing vectors stay
-  unrated; the percentage is unknown if any open finding is unrated.
+- **OWASP headline: in development.** The view does not report OWASP bands
+  for findings yet; the risk index above is the headline. When the per-finding
+  rating lands, complete CVSS v3 vectors will supply likelihood and impact, and
+  each finding's CVEs (canonical id and aliases) will join the EPSS/KEV
+  snapshots. Missing vectors will stay unrated. See
+  `docs/risk-rating-methodology.md`.
 - **Coverage cohorts remain visible.** Recorded occurrence refs split repositories
   by corpus ownership and recorded default line (HEAD), named non-default
   branch, or unknown. Coverage requires a decision bound to that ref/line, not
@@ -88,36 +89,28 @@ Outputs `<stem>.{json,md,html}` into `--out` (core renders them, stores nothing)
 
 | Metric | Good direction |
 |---|---|
-| Open findings, risk index, OWASP High/Critical %, new findings, MTTR, FP rate, regressions, accepted risk index | ↓ |
+| Open findings, risk index, new findings, MTTR, FP rate, regressions, accepted risk index | ↓ |
 | Remediation velocity, ledger coverage | ↑ |
 
 Direction = last bucket vs the mean of up to three prior buckets, with a
 ±10% dead band rendered as → flat. Worsening metrics carry a ⚠ flag.
 (The view computes the directions, FP rate and velocity.)
-OWASP and risk-index directions with unknown measurements are omitted, not treated as zero.
+Risk-index directions with unknown measurements are omitted, not treated as zero.
 
 ## Procedure
 
-1. **Refresh the exploitation feeds** when online. The builder only reads
-   recorded snapshots, uses each bucket's last available evidence, and falls
-   back to CVSS-only likelihood when no snapshot existed:
-
-   ```bash
-   python3 -m traust.cli feeds fetch   # EPSS + CISA KEV, 24h freshness
-   ```
-
-2. Resolve arguments; run the command (above). It replays each
-   repository's recorded findings and decisions in scope. Findings with canonical
-   advisory/CVE links gain an **exploitation-evidence likelihood factor** from
-   recorded KEV membership or their maximum EPSS band. Feed evidence never
-   supplies a verdict or an assurance level.
-3. Read `findings-trend.md` back to the user. Lead with the direction
+1. Resolve arguments; run the command (above). It replays each
+   repository's recorded findings and decisions in scope. The view does not
+   read EPSS or KEV yet: the exploitation-evidence factor is in development
+   (`docs/risk-rating-methodology.md`), and feed evidence will never supply a
+   verdict or an assurance level.
+2. Read `findings-trend.md` back to the user. Lead with the direction
    table, then call out:
    - any **worsening ⚠** metric, with the driving repos where identifiable
    - the **Accepted Risk Register** headcount and its highest-CVSS entries
    - the **ledger coverage** figure and its trend — if coverage is low,
      say explicitly that the open count is dominated by untracked repos
-4. Offer the HTML dashboard path for sharing.
+3. Offer the HTML dashboard path for sharing.
 
 ## Gotchas
 

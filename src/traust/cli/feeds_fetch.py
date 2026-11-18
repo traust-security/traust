@@ -4,6 +4,9 @@ outcome is the exit code."""
 
 from __future__ import annotations
 
+import sys
+
+from traust_core.v1.errors import TraustError
 from traust_core.v1.models.operations import AssetRequest
 
 from traust.cli._doors import answer, parser
@@ -23,8 +26,12 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
     if args.feed == PRODUCT_DEFINITIONS:
         ap.error("product-definitions isn't a security feed: `traust feeds fetch-products`")
-    core = load(args.config_home)
-    core.register_feeds()  # NEED(core: feeds registered lazily)
+    try:
+        core = load(args.config_home)
+        core.register_feeds()  # NEED(core: feeds registered lazily)
+    except TraustError as e:  # an unset feeds.api_keys variable: a refusal, never a traceback
+        print(f"ERROR: {e}", file=sys.stderr)
+        return 2
     materializer = FeedsCacheMaterializer(core.services())
     return answer(
         materializer.materialize(
