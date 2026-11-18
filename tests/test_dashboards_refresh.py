@@ -12,11 +12,12 @@ from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from traust_core.v1.context import Context
 from traust_core.v1.errors import ConfigError, NotFoundError, ValidationError
+from traust_core.v1.models.artifacts import InsightBuildsArtifact
 from traust_core.v1.models.insight import (
     FindingsRollup,
     FindingTally,
@@ -28,6 +29,7 @@ from traust_core.v1.models.insight import (
 from traust_core.v1.models.operations import AssetRequest, JobResult, OrderReason, Outcome
 from traust_core.v1.services.artifact_publishing import PublishResult
 
+from traust import context as app_context
 from traust.cli import refresh_dashboards
 from traust.ops.materializers import DashboardsMaterializer, InsightBuildsMaterializer, write_view
 
@@ -235,6 +237,41 @@ def test_the_census_flag_runs_only_the_stored_build_leg(
     assert rc == 0 and insight.calls == 1
     job = JobResult.model_validate_json(out.strip().splitlines()[-1])
     assert job.outcome == Outcome.SUCCEEDED and job.written == (str(UUID_),)
+
+
+@pytest.mark.parametrize("contents", [None, "policy_name: [", "policy_name: incomplete\n"])
+def test_census_publishes_real_builds_without_a_usable_sla_default(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, contents: str | None
+) -> None:
+    policy = tmp_path / "sla-policy.yaml"
+    if contents is not None:
+        policy.write_text(contents)
+    monkeypatch.setattr(app_context, "SLA_POLICY", policy)
+    home = tmp_path / "config"
+    home.mkdir()
+    (home / "traust.yaml").write_text(json.dumps({"home": str(tmp_path / "store")}))
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
+
+    rc, out = run("--config-home", str(home), "--census")
+
+    job = JobResult.model_validate_json(out.strip().splitlines()[-1])
+    assert rc == 0 and job.outcome == Outcome.SUCCEEDED
+    services = app_context.load(home).services()
+    artifact = services.artifacts.get(UUID(job.written[0]))
+    assert isinstance(artifact, InsightBuildsArtifact)
+    assert set(json.loads(artifact.payload)["views"]) == {
+        "findings-rollup",
+        "coverage",
+        "remediation-index",
+        "findings-trend",
+    }
+    for view in (
+        ViewName.FINDINGS_ROLLUP,
+        ViewName.COVERAGE,
+        ViewName.REMEDIATION_INDEX,
+        ViewName.FINDINGS_TREND,
+    ):
+        assert services.insight.serve(view, ViewFilter()).built_at is not None
 
 
 def test_a_failed_census_leg_exits_with_its_outcome(monkeypatch: pytest.MonkeyPatch) -> None:

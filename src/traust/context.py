@@ -146,7 +146,7 @@ def load(
         core.config = core.config.model_copy(update={"locations": effective})
     _guarded("ATT&CK catalog", lambda: core.register_attack_catalog(*ATTACK_TABLES))
     _guarded("ATLAS catalog", lambda: core.register_atlas_catalog(ATLAS_TABLE))
-    _guarded("SLA policy", lambda: core.register_default_sla_policy(SLA_POLICY))
+    core.register_default_sla_policy(SLA_POLICY)
     if sla_policy is not None:
         _guarded("SLA policy", lambda: core.register_sla_policy(sla_policy))
     if home is not None and (home / MODEL_REGISTRY).is_file():

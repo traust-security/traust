@@ -11,6 +11,11 @@ file). Record yours with `traust dashboard sla-policy <file>`: the newest record
 the view's from then on, and `traust dashboard view sla --sla-policy <file>` uses another for
 one run. Schema: `artifacts_schema/v1/sla-policy.schema.json` in traust-contracts.
 
+The default is loaded only when SLA output needs it. A missing or malformed default policy
+does not stop unrelated commands, including `traust dashboard refresh --census`. A recorded
+policy also works without the pack's default file. If SLA output needs an unusable default,
+it reports an error; explicitly supplied `--sla-policy` files are still validated immediately.
+
 ## Why an artifact and not a config file
 
 A config file would be simpler, and wrong for three reasons:
