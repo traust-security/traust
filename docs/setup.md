@@ -298,12 +298,15 @@ podman run --rm -v "$PWD":/workspace:Z traust-runtime:latest \
 ```
 
 
-### NVD: an optional API key
+### NVD: an API key (free; set it for continuous operations)
 
 NVD's CVE API answers about 5 requests per 30 seconds without a key and about 50 with
-one. A key is optional: without it, traust queries NVD keyless, and nothing warns. To use
-one, [request an NVD API key](https://nvd.nist.gov/developers/request-an-api-key). Then
-name the environment variable that holds it in `traust.yaml`:
+one. A key is optional: without it, traust queries NVD keyless, and nothing warns.
+
+**Set one for continuous operations.** The daily `feeds_cache` run asks NVD for every CVE
+that any finding names, so a keyless deployment with a few thousand linked CVEs spends
+hours on NVD alone. Keys are free: [request an NVD API key](https://nvd.nist.gov/developers/request-an-api-key).
+Then name the environment variable that holds it in `traust.yaml`:
 
 ```yaml
 feeds:

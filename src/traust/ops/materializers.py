@@ -186,8 +186,13 @@ def _order_id(run_id: str) -> UUID | None:
     return None if run_id == MANUAL else UUID(run_id)
 
 
+# The partition that refreshes only the advisory documents (no whole-file feed).
+ADVISORY_DOCUMENTS = "advisory-documents"
+
+
 class FeedsCacheMaterializer:
-    """`feeds_cache`: snapshot every security feed (or the one in ``partition``)."""
+    """`feeds_cache`: snapshot every security feed, then keep every linked advisory's documents
+    (CVE List, NVD, GHSA, Red Hat); ``partition`` narrows it to one feed, or to the documents."""
 
     asset = "feeds_cache"
 
@@ -202,20 +207,41 @@ class FeedsCacheMaterializer:
                 "run %s: %s: run id is not an order id", request.run_id, OrderReason.BAD_REQUEST
             )
             return JobResult.failed(OrderReason.BAD_REQUEST)
+        documents_only = request.partition == ADVISORY_DOCUMENTS
         feeds = None if request.partition is None else [FeedName(request.partition)]
         try:
-            statuses = self._exposure.refresh_feeds(feeds, order)
+            statuses = [] if documents_only else self._exposure.refresh_feeds(feeds, order)
         except ConfigError as e:
             log.warning("run %s: %s: %s", request.run_id, OrderReason.BAD_REQUEST, e)
             return JobResult.failed(OrderReason.BAD_REQUEST)
         failed = [s for s in statuses if s.last_error]
         for status in failed:
             log.warning("run %s feed %s: %s", request.run_id, status.name, status.last_error)
+        degraded = {s.name: 1 for s in failed}
+        if request.partition is None or documents_only:
+            # before the snapshot check: a feed that never snapshotted doesn't stop the documents
+            degraded |= self._documents(request.run_id, order)
         if any(s.fetched_at is None for s in failed):
-            return JobResult.failed(OrderReason.SNAPSHOT_UNAVAILABLE)
-        return JobResult.partly({s.name: 1 for s in failed}).model_copy(
-            update={"reason": OrderReason.SOURCE_UNAVAILABLE if failed else None}
+            # failed, still naming every source that didn't answer (the documents' included)
+            return JobResult.failed(OrderReason.SNAPSHOT_UNAVAILABLE).model_copy(
+                update={"degraded": degraded}
+            )
+        return JobResult.partly(degraded).model_copy(
+            update={"reason": OrderReason.SOURCE_UNAVAILABLE if degraded else None}
         )
+
+    def _documents(self, run_id: str, order: UUID | None) -> dict[str, int]:
+        """The advisory documents' refresh. A failed source counts as `error` (the contracts'
+        degraded-key vocabulary: a document source is no registered feed); each one is logged."""
+        try:
+            outcomes = self._exposure.refresh_advisory_documents(order)
+        except ServiceError as e:  # every source asked failed: an outage, still only degraded
+            log.warning("run %s advisory documents: %s", run_id, e)
+            return {DegradedKey.ERROR.value: 1}
+        failed = [o for o in outcomes if not o.ok]
+        for outcome in failed:
+            log.warning("run %s %s documents: %s", run_id, outcome.source, outcome.error)
+        return {DegradedKey.ERROR.value: len(failed)} if failed else {}
 
 
 class LedgerAuditMaterializer:

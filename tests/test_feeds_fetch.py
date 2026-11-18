@@ -15,8 +15,16 @@ from typing import Any
 import pytest
 import yaml
 from traust_core.v1.errors import ServiceError
-from traust_core.v1.models.dependencies import FeedName
-from traust_core.v1.models.operations import JobResult, OrderReason, OrderState, RunOrder
+from traust_core.v1.models.dependencies import Advisory, AdvisoryMatch, FeedName
+from traust_core.v1.models.findings import Finding
+from traust_core.v1.models.inventory import Repository
+from traust_core.v1.models.operations import (
+    DegradedKey,
+    JobResult,
+    OrderReason,
+    OrderState,
+    RunOrder,
+)
 from traust_core.v1.providers.http import HttpFetcher
 from traust_core.v1.repositories.contract import SqlTraustUnitOfWork
 
@@ -50,7 +58,7 @@ def hosts(monkeypatch: pytest.MonkeyPatch) -> dict[str, bytes | Exception]:
     replies: dict[str, bytes | Exception] = dict(HOSTS)
     asked: list[str] = []
 
-    def get(self: HttpFetcher, url: str) -> bytes:
+    def get(self: HttpFetcher, url: str, *args: object, **kw: object) -> bytes:
         asked.append(url)
         reply = next(r for prefix, r in replies.items() if url.startswith(prefix))
         if isinstance(reply, Exception):
@@ -67,6 +75,60 @@ def fetch(home: Path, *argv: str) -> tuple[int, dict[str, Any]]:
     with contextlib.redirect_stdout(out):
         rc = feeds_fetch.main(["--config-home", str(home), *argv])
     return rc, json.loads(out.getvalue())
+
+
+# The per-advisory document hosts, matched before the whole-file feeds' broader prefixes.
+DOCUMENT_HOSTS = {
+    "https://cveawg.mitre.org/api/cve/": b'{"cveMetadata": {"state": "PUBLISHED"}}',
+    "https://services.nvd.nist.gov/": b'{"vulnerabilities": []}',
+    "https://api.osv.dev/v1/vulns/": b'{"id": "GHSA-jfh8-c2jp-5v3q"}',
+    "https://access.redhat.com/hydra/rest/securitydata/cve/": b'{"name": "CVE-2021-44228"}',
+}
+
+
+def link_advisory(home: Path) -> None:
+    """A finding whose advisory core kept GHSA-first, its CVE only an alias."""
+    core = load(home)
+    with SqlTraustUnitOfWork(core.database) as uow:
+        ghsa = uow.advisories.add(Advisory(identifier="GHSA-jfh8-c2jp-5v3q"))
+        uow.advisories.add(Advisory(identifier="CVE-2021-44228", alias_of_id=ghsa.id))
+        repo = uow.repositories.add(Repository(url="https://github.com/example/app", public=True))
+        assert repo.id is not None
+        uow.findings.add(
+            Finding(
+                repository_id=repo.id,
+                fingerprint_algo="v3",
+                fingerprint="fp-1",
+                title="log4j-core vulnerable",
+                advisory_id=ghsa.id,
+                advisory_match=AdvisoryMatch.CONFIRMED,
+            )
+        )
+        uow.commit()
+
+
+@pytest.fixture
+def documents(hosts: dict) -> dict:
+    replies = {**DOCUMENT_HOSTS, **hosts}  # the documents' prefixes first
+    hosts.clear()
+    hosts.update(replies)
+    return hosts
+
+
+def assert_registered(home: Path, result: dict[str, Any]) -> None:
+    """Every degraded key passes core's completion rule (the contracts' degraded-key vocabulary,
+    or a registered feed), so the engine records the run instead of refusing its completion."""
+    core = load(home)
+    core.register_feeds()
+    allowed = {*core.feeds.names(), *(k.value for k in DegradedKey)}
+    assert set(result["degraded"]) <= allowed, set(result["degraded"]) - allowed
+
+
+def stored(home: Path, source: str, identifier: str) -> bytes | None:
+    core = load(home)
+    core.register_feeds()
+    doc = core.services().exposure.stored_document(source, identifier)
+    return None if doc is None else doc.data
 
 
 def payload(home: Path, feed: str) -> bytes | None:
@@ -165,3 +227,84 @@ def test_an_unset_feed_key_variable_is_a_refusal_not_a_traceback(
     (home / "traust.yaml").write_text(yaml.safe_dump(document))
     assert feeds_fetch.main(["--config-home", str(home)]) == 2
     assert "feeds.api_keys.nvd names unset variable TEST_NVD_KEY" in capsys.readouterr().err
+
+
+def test_a_full_run_also_keeps_every_linked_advisorys_documents(
+    home: Path, documents: dict
+) -> None:
+    link_advisory(home)
+    assert fetch(home) == (0, JobResult.succeeded().model_dump(mode="json"))
+    cve, ghsa = "CVE-2021-44228", "GHSA-jfh8-c2jp-5v3q"
+    assert stored(home, "cve-list", cve) == DOCUMENT_HOSTS["https://cveawg.mitre.org/api/cve/"]
+    assert stored(home, "nvd", cve) == DOCUMENT_HOSTS["https://services.nvd.nist.gov/"]
+    assert stored(home, "ghsa", ghsa) == DOCUMENT_HOSTS["https://api.osv.dev/v1/vulns/"]
+    assert stored(home, "rh-cve", cve) is not None
+    assert stored(home, "nvd", ghsa) is None  # the canonical GHSA id never reaches a CVE source
+
+
+def test_the_documents_partition_refreshes_only_the_documents(home: Path, documents: dict) -> None:
+    link_advisory(home)
+    assert fetch(home, "--feed", "advisory-documents")[0] == 0
+    assert payload(home, "kev") is None and payload(home, "epss") is None
+    assert stored(home, "nvd", "CVE-2021-44228") is not None
+
+
+def test_one_feed_by_name_leaves_the_documents_alone(home: Path, documents: dict) -> None:
+    link_advisory(home)
+    fetch(home, "--feed", "kev")
+    assert not any("nvd.nist.gov" in url for url in documents["asked"])
+
+
+def test_a_document_source_that_fails_degrades_the_run_and_the_feeds_still_snapshot(
+    home: Path, documents: dict, caplog: pytest.LogCaptureFixture
+) -> None:
+    link_advisory(home)
+    documents["https://services.nvd.nist.gov/"] = ServiceError("HTTP 503")
+    rc, result = fetch(home)
+    assert (rc, result["outcome"], result["degraded"]) == (4, "degraded", {"error": 1})
+    assert_registered(home, result)
+    assert result["reason"] == OrderReason.SOURCE_UNAVAILABLE
+    assert payload(home, "kev") is not None and "nvd documents" in caplog.text
+
+
+def test_when_every_document_source_fails_the_run_is_degraded_not_failed(
+    home: Path, documents: dict
+) -> None:
+    link_advisory(home)
+    for prefix in DOCUMENT_HOSTS:
+        documents[prefix] = ServiceError("HTTP 503")
+    rc, result = fetch(home)
+    assert (rc, result["outcome"], result["degraded"]) == (4, "degraded", {"error": 1})
+    assert_registered(home, result)
+    assert payload(home, "epss") is not None
+
+
+def test_with_no_linked_advisory_no_document_is_asked_for(home: Path, documents: dict) -> None:
+    assert fetch(home)[0] == 0
+    assert not any(url.startswith(tuple(DOCUMENT_HOSTS)) for url in documents["asked"])
+
+
+def test_a_feed_with_no_snapshot_fails_the_run_but_the_documents_still_refresh(
+    home: Path, documents: dict
+) -> None:
+    link_advisory(home)
+    documents["https://epss.cyentia.com/"] = b"not a gzip payload"
+    rc, result = fetch(home)
+    assert (rc, result["outcome"], result["reason"]) == (
+        1,
+        "failed",
+        OrderReason.SNAPSHOT_UNAVAILABLE,
+    )
+    assert stored(home, "nvd", "CVE-2021-44228") is not None
+
+
+def test_a_failed_run_still_names_the_document_sources_that_failed(
+    home: Path, documents: dict
+) -> None:
+    link_advisory(home)
+    documents["https://epss.cyentia.com/"] = b"not a gzip payload"
+    documents["https://services.nvd.nist.gov/"] = ServiceError("HTTP 503")
+    rc, result = fetch(home)
+    assert (rc, result["outcome"]) == (1, "failed")
+    assert result["degraded"] == {"epss": 1, "error": 1}
+    assert_registered(home, result)

@@ -26,8 +26,8 @@ from traust_core.v1.models.inventory import RefName
 from traust_core.v1.models.operations import OrderRequest, WorkerId
 from traust_core.v1.models.values import GitSha, HttpsRepoUrl
 from traust_core.v1.models.vocabulary import ActorKind
-from traust_core.v1.repositories import apply_schema, create_database_engine
-from traust_core.v1.repositories.sql import Dialect
+from traust_core.v1.repositories import apply_schema, create_database_engine, on_driver_connection
+from traust_core.v1.repositories.sql import Dialect, contract_dialect
 
 from traust.cli import cloud_config
 from traust.cli.__main__ import main
@@ -65,6 +65,10 @@ def _postgres() -> Iterator[str]:
     url = sa.make_url(PG_URL).set(database=name)
     engine = create_database_engine(url)
     apply_schema(engine, contracts.database_ddl(Dialect.of(engine)))
+    # stamped as core's channel expects of a deployment's database (as traust-core's tests do)
+    on_driver_connection(
+        engine, lambda dbapi: contracts.run_db_upgrades(dbapi, contract_dialect(engine))
+    )
     engine.dispose()
     try:
         yield url.render_as_string(hide_password=False)
