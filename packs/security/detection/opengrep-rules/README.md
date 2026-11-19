@@ -47,10 +47,11 @@ native error or incomplete result fails closed; validation cannot be skipped.
 Direct native commands are useful for diagnosis but do not replace the shared
 gate's per-rule coverage and receipt checks.
 
-`opengrep test` evaluates every fixture whose name extends the rule file's
-basename (`data-exposure.nocred.sh` pairs with `data-exposure.yaml`) but
-**ignores** `paths:` filters — path exclusions are exercised at scan time
-only. File-level co-occurrence constraints (`pattern-inside: pattern-regex:`
+Coverage counts only fixture paths present in each rule's native `check.matches`.
+Do not assume extra basename-suffixed files were exercised. Expected autofix
+outputs such as `policy.fixed.py` do not provide negative matching coverage.
+`opengrep test` **ignores** `paths:` filters — path exclusions are exercised at
+scan time only. File-level co-occurrence constraints (`pattern-inside: pattern-regex:`
 with an anchored lookahead) scan comments too; fixtures must not name the
 lexicon words they test.
 

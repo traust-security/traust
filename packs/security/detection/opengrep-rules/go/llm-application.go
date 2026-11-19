@@ -94,6 +94,11 @@ func llmServeSSE(s any) {
 	_ = sse
 }
 
+func llmServeStdio(s *server.MCPServer) error {
+	// ok: traust-go-llm-application-mcp-http-without-auth
+	return server.ServeStdio(s)
+}
+
 func llmResearch(ctx context.Context, question string) (string, error) {
 	// ruleid: traust-go-llm-application-unbounded-agent-loop
 	for {
