@@ -201,6 +201,8 @@ spec:
             cd "$source_dir"
             git -c core.hooksPath=/dev/null fetch --depth=1 "$SOURCE_URL" "$SOURCE_REVISION"
             git -c core.hooksPath=/dev/null checkout --detach FETCH_HEAD
+            # uv clones pinned dependencies from its own local Git cache.
+            export GIT_ALLOW_PROTOCOL=https:file
             uv sync --frozen
             uv run python -m traust.cli admin toolchain setup --tool opengrep
             uv run python -m traust.cli sweep check-rules packs/security/detection/opengrep-rules
