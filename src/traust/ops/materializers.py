@@ -242,7 +242,11 @@ class FeedsCacheMaterializer:
             return {DegradedKey.ERROR.value: 1}
         except (NotFoundError, IntegrityError, RepositoryError) as e:
             # the store behind the names read failed: the feeds already snapshotted still count
-            log.error("run %s advisory documents error_type=%s", run_id, type(e).__name__)
+            cause = type(e.__cause__).__name__ if e.__cause__ is not None else None
+            log.error(
+                "run %s advisory documents error_type=%s operation=%s cause=%s: %s",
+                run_id, type(e).__name__, getattr(e, "operation", None), cause, e,
+            )  # fmt: skip
             return {DegradedKey.ERROR.value: 1}
         failed = [o for o in outcomes if not o.ok]
         for outcome in failed:

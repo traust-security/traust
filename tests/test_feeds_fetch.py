@@ -320,11 +320,19 @@ def test_a_store_failure_reading_the_names_degrades_the_run_and_the_feeds_still_
     link_advisory(home)
 
     def unreadable(self: ExposureService, run_order_id: object = None) -> object:
-        raise RepositoryError("the store is unreachable", operation="linked advisories")
+        try:
+            raise TimeoutError("socket closed")
+        except TimeoutError as cause:
+            raise RepositoryError(
+                "the store is unreachable", operation="linked advisories"
+            ) from cause
 
     monkeypatch.setattr(ExposureService, "refresh_advisory_documents", unreadable)
     rc, result = fetch(home)
     assert (rc, result["outcome"], result["degraded"]) == (4, "degraded", {"error": 1})
     assert_registered(home, result)
     assert payload(home, "kev") is not None
-    assert "advisory documents error_type=RepositoryError" in caplog.text
+    assert (
+        "advisory documents error_type=RepositoryError operation=linked advisories "
+        "cause=TimeoutError: the store is unreachable"
+    ) in caplog.text
