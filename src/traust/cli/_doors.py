@@ -15,11 +15,11 @@ from pydantic import ValidationError as ModelValidationError
 from traust_core.v1.errors import NotFoundError, TraustError, ValidationError
 from traust_core.v1.models.common import Provenance
 from traust_core.v1.models.inventory import Product, RefName, RepositoryRef
-from traust_core.v1.models.operations import JobResult, Outcome
+from traust_core.v1.models.operations import JobResult, Outcome, RecordKind, RunOrder
 from traust_core.v1.models.values import GitSha, ProductSlug
 from traust_core.v1.models.vocabulary import Ecosystem, RefKind, SourceType
 
-from traust.context import add_config_home_arg
+from traust.context import Context, add_config_home_arg, load_recorder
 
 
 def parser(group: str, op: str, about: str) -> argparse.ArgumentParser:
@@ -40,6 +40,7 @@ def add_branch_arg(ap: argparse.ArgumentParser) -> None:
 # `traust session run` sets this for the agent it starts, so a record door the skill calls
 # binds what it records to the order that ran it.
 RUN_ORDER_ENV = "TRAUST_RUN_ID"
+ORDER_STARTED_ENV = "TRAUST_ORDER_STARTED_AT"
 
 
 def add_run_order_arg(ap: argparse.ArgumentParser) -> None:
@@ -49,6 +50,75 @@ def add_run_order_arg(ap: argparse.ArgumentParser) -> None:
         default=os.environ.get(RUN_ORDER_ENV) or None,
         help=f"the leased order this records for (default: ${RUN_ORDER_ENV}, set by session run)",
     )
+
+
+def add_order_started_arg(ap: argparse.ArgumentParser) -> None:
+    ap.add_argument(
+        "--order-started-at",
+        default=os.environ.get(ORDER_STARTED_ENV),
+        help=f"start of the original claim (default: ${ORDER_STARTED_ENV})",
+    )
+
+
+def order_started_at(raw: str | None = None) -> datetime:
+    inherited = os.environ.get(ORDER_STARTED_ENV)
+    if inherited is not None:
+        if raw not in (None, inherited):
+            raise ValidationError("--order-started-at conflicts with the original claim")
+        raw = inherited
+    try:
+        at = datetime.fromisoformat(raw) if raw else None
+    except ValueError:
+        at = None
+    if at is None or at.tzinfo is None:
+        raise ValidationError("a bound record requires the original claim's zoned start time")
+    return at
+
+
+def recording_order_id(explicit: uuid.UUID | None) -> uuid.UUID | None:
+    """A scheduled writer may not drop or replace the order inherited from the runner."""
+    if RUN_ORDER_ENV not in os.environ:
+        if explicit is None and ORDER_STARTED_ENV in os.environ:
+            raise ValidationError("claim timestamp without a scheduled run order id")
+        return explicit
+    try:
+        inherited = uuid.UUID(os.environ[RUN_ORDER_ENV])
+    except ValueError as error:
+        raise ValidationError("invalid scheduled run order id") from error
+    if explicit not in (None, inherited):
+        raise ValidationError("--run-id conflicts with the scheduled run order")
+    return inherited
+
+
+def report_provenance(order_id: uuid.UUID | None, source: SourceType) -> Provenance:
+    order_id = recording_order_id(order_id)
+    return Provenance(
+        run_id=order_id or uuid.uuid4(),
+        source=source,
+        occurred_at=order_started_at() if order_id is not None else datetime.now(UTC),
+    )
+
+
+def scoped_recording_order(
+    core: Context, order_id: uuid.UUID, kind: RecordKind, source: SourceType
+) -> RunOrder:
+    """Preflight a session before launching it; its writer rechecks under the lease lock."""
+    services = core.services()
+    order = services.ops.get(order_id)
+    if order.repository_id is None or order.started_at is None:
+        raise ValidationError("recording needs a leased repository order")
+    origin = report_provenance(order_id, source)
+    order = services.ops.check_recording(
+        order_id,
+        load_recorder(core),
+        kind,
+        order.repository_id,
+        origin,
+    )
+    if origin.occurred_at != order.started_at:
+        raise ValidationError("recording belongs to a different lease attempt")
+    services.findings.decisions.require_order_ledger(signed=kind is RecordKind.TRIAGE)
+    return order
 
 
 def register_commit(

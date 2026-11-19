@@ -72,13 +72,15 @@ from traust.cli._doors import (
     add_run_order_arg,
     parser,
     products,
+    recording_order_id,
     register_commit,
+    report_provenance,
     run,
 )
 from traust.cli._doors import package_id as find_package_id
 from traust.cli.findings import _repository
 from traust.cli.impact import harness_version
-from traust.context import load, load_caller
+from traust.context import load, load_caller, load_recorder
 
 
 def _parser(op: str, about: str) -> argparse.ArgumentParser:
@@ -661,21 +663,19 @@ def verify_differential(argv: list[str] | None = None) -> int:
 def verify_record(argv: list[str] | None = None) -> int:
     ap = _parser("verify-record", "Record a validated verification report.")
     ap.add_argument("report", type=Path, help="the verification report JSON")
+    add_run_order_arg(ap)
     args = ap.parse_args(argv)
 
     def call() -> dict:
         doc = VerificationArtifact.parse(args.report.read_bytes())
-        when = datetime.now(UTC)
-        made = (
-            load(args.config_home)
-            .services()
-            .verification.record(
-                doc,
-                Provenance(
-                    run_id=uuid.uuid4(), source=SourceType.VERIFICATION_REPORT, occurred_at=when
-                ),
-            )
-        )
+        order_id = recording_order_id(args.run_id)
+        core = load(args.config_home)
+        verification = core.services().verification
+        provenance = report_provenance(order_id, SourceType.VERIFICATION_REPORT)
+        if order_id is None:
+            made = verification.record(doc, provenance)
+        else:
+            made = verification.record_order(doc, provenance, order_id, load_recorder(core))
         return made.model_dump(mode="json")
 
     return run(call)

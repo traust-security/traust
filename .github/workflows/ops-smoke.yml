@@ -1,18 +1,8 @@
 name: ops-smoke
 
-# The local continuous-ops rig, end to end: make ops-smoke stands up an
-# ephemeral Postgres, onboards one repository, runs one engine pass, claims
-# until the queue drains and asserts the orders completed (see
-# docs/continuous-operations.md, "The local rig"). Manual only: routed lanes
-# queue for approval and are never claimed here, so the run spends nothing.
-#
-# NOT CI (decided 2026-11-04): the engine runs and collects real data — it
-# never runs on push or pull_request, and this workflow stays
-# workflow_dispatch-only as a manual full-rig check. The rig on a laptop is
-# the integration test; CI unit-tests and integration-tests the pieces.
-# GitHub registers a workflow only when it exists on the default branch, so
-# dispatch may 404 until this file reaches main — run the same check locally
-# with make ops-smoke.
+# Manual integrity gate, not push/PR CI. Checkout and tool provisioning may
+# need network; every workload input is local. Never pass a forge/model token
+# to the smoke. Pin disagreement or incomplete replay evidence is a failure.
 
 on:
   workflow_dispatch:
@@ -20,21 +10,42 @@ on:
 jobs:
   smoke:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: traust
+    env:
+      UV_LOCKED: "1"
+      OPS_ENGINE_CHECKOUT: ../traust-engine
+      OPS_SDK_CHECKOUT: ../traust-sdk
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          path: traust
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: traust-security/traust-engine
+          persist-credentials: false
+          # Retain the existing pin until the aligned engine/core/contracts set is approved.
           ref: 779471df5b9473bbf31cf0ad78d213f88bda9153
           path: traust-engine
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: traust-security/traust-sdk
+          ref: 3b59f49ac21a5adc7612e82389758f4946ef9e1d
+          path: traust-sdk
+          persist-credentials: false
       - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
-      - name: Install pinned Syft for manifest SBOM smoke
+      - name: Reject dirty, skewed or unpublished candidates before provisioning
+        run: python3 scripts/check_ops_pins.py --preflight
+      - name: Install pinned smoke tools
         run: |
-          uv sync --quiet
+          uv sync --locked --quiet
           HARNESS_BIN_DIR="$RUNNER_TEMP/bin" bash scripts/install-toolchain.sh local-ops
+          HARNESS_BIN_DIR="$RUNNER_TEMP/bin" bash scripts/install-toolchain.sh ledger-signing
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
-      - run: make ops-smoke
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          OPS_ENGINE_SRC: ${{ github.workspace }}/traust-engine
-          OPS_TEARDOWN: "1"
+      - name: Require installed pins, SDK/Core recording proofs and signed rig replay
+        run: make ops-smoke

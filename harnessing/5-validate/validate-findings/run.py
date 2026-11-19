@@ -19,9 +19,7 @@ import datetime as dt
 import json
 import sys
 from pathlib import Path
-from uuid import uuid4
 
-from traust_core.v1.models.common import Provenance
 from traust_core.v1.models.validation import (
     TargetAttestation,
     ValidationRecordingPolicy,
@@ -29,6 +27,7 @@ from traust_core.v1.models.validation import (
 )
 from traust_core.v1.models.vocabulary import SourceType
 
+from traust.cli._doors import report_provenance
 from traust.cli.validation import record_report
 from traust.context import add_config_home_arg
 
@@ -73,9 +72,7 @@ def main(argv: list[str]) -> int:
     bindings = ValidationRecordInput.model_validate_json(args.record_bindings.read_bytes())
     if bindings.policy != ValidationRecordingPolicy.CURRENT:
         ap.error("new runs require current recording policy")
-    provenance = Provenance(
-        run_id=uuid4(), source=SourceType.VALIDATION_REPORT, occurred_at=dt.datetime.now(dt.UTC)
-    )
+    provenance = report_provenance(None, SourceType.VALIDATION_REPORT)
     finding_assessments = (
         json.loads(args.finding_assessments.read_bytes()) if args.finding_assessments else None
     )

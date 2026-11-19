@@ -421,6 +421,25 @@ def test_an_ordered_audit_succeeds_only_if_this_attempt_recorded_its_kind_for_th
     assert processes.agent_call()[1]["env"]["TRAUST_RUN_ID"] == ORDER
 
 
+@pytest.mark.parametrize(
+    ("assessments", "outcome"), [([], "failed"), ([("t-1", "triage")], "succeeded")]
+)
+def test_scheduled_triage_requires_its_bound_assessment(
+    processes: Processes,
+    monkeypatch: pytest.MonkeyPatch,
+    assessments: list[tuple[str, str]],
+    outcome: str,
+) -> None:
+    monkeypatch.setattr(session, "order_assessments", Recorded([], assessments))
+    monkeypatch.setattr(session, "_triage_source", lambda *_: UUID(ORDER))
+    _, result = run(
+        "--skill", "triage", "--role", "triage-verifier", "--repo", REPO, "--run-id", ORDER
+    )
+    assert result["outcome"] == outcome
+    assert result["written"] == [aid for aid, _ in assessments]
+    assert processes.agent_call()[0][-1] == f"/triage {ORDER} --auto"
+
+
 def test_a_failed_lookup_after_the_session_still_carries_what_it_spent(
     processes: Processes, monkeypatch: pytest.MonkeyPatch
 ) -> None:

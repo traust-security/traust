@@ -65,8 +65,10 @@ assets:
   external_report_validation:
     model: {role: validation-planner}
     run: [python3, -m, traust.cli, portfolio, event-validate, --role, "{role}", --run-id, "{run_id}"]
+    partitions: dynamic:repo
     deps: [external_report_audit]
     admission: {approval: operators}
+    requires: {config: [identity, ledger, review]}
     runner: {labels: [llm]}
 
 
@@ -130,6 +132,7 @@ assets:
     deps: [repo_state]
     trigger: {lanes: [iac-lane, iac-baseline]}
     admission: {approval: operators, estimate_usd: "10.00"}
+    requires: {config: [identity, ledger, review]}
     runner: {labels: [llm]}
 
   threat_model_quarterly:  # skill session: /threat-model review <clone> --auto --apply-ratings;
@@ -182,6 +185,8 @@ assets:
     trigger: {every: 24h}
     priority: 47
     freshness: {fail: 7d}
+    # This config bundle requires working verification, ledger signing and the audit-valve salt.
+    requires: {config: [identity, ledger, review]}
     runner: {labels: [llm]}
 
   # NEED(release-passthrough): the lane's taker refuses until traust-core has a release feed
@@ -219,6 +224,7 @@ assets:
     trigger: {every: 24h}
     priority: 25
     freshness: {fail: 72h}
+    requires: {tools: [syft]}
     admission: {quota: {key: "forge:{host}", per_hour: 1000}, pacing: {per_tick: 30}}
     runner: {labels: [deterministic]}
 
@@ -288,14 +294,17 @@ assets:
     model: {role: remediation}
     run: [python3, -m, traust.cli, session, run, --skill, remediate-finding, --role, "{role}", --run-id, "{run_id}", --worker, "{worker}"]
     priority: 45
+    requires: {config: [identity, ledger, review]}
     runner: {labels: [llm]}
 
-  verify_remediation:  # skill session: traust remediation verify-sweep → /verify-remediation full-sweep
+  verify_remediation:  # Weekly per-repository leases; the scoped sweep skips ineligible repos.
     model: {role: verification-verdict}
-    run: [python3, -m, traust.cli, session, run, --skill, verify-remediation, --role, "{role}", --run-id, "{run_id}", --, full-sweep]
+    run: [python3, -m, traust.cli, session, run, --skill, verify-remediation, --role, "{role}", --repo, "{repo_url}", --run-id, "{run_id}"]
+    partitions: dynamic:repo
     trigger: {every: 7d}
     priority: 50
     freshness: {fail: 14d}
+    requires: {config: [identity, ledger, review]}
     runner: {labels: [llm]}
 
   spend_capture:  # skill session: /financial-tracking capture; lossy when late
@@ -332,18 +341,10 @@ assets:
     # serving bound folds on demand until this asset runs again.
     run: [python3, -m, traust.cli, dashboard, refresh, --run-id, "{run_id}", --census]
     trigger: {every: 10m}
-    # Priority 15, not the portfolio lanes' 60 (the concurrent-user lane's p0
-    # starvation fix; the SCI component's copy carries the same change). Claims
-    # drain the lowest number first, and the observation flood sets the floor: a
-    # 24h repo_state sweep over a 3,700-repository estate queues ~3,000 orders at
-    # p20-30, so a p60 order waits ~14 hours behind them — every dashboard viewer
-    # folded the census on demand meanwhile, which is the cold path this asset
-    # exists to remove. A 10-minute asset whose serving bound is 20m/1h cannot
-    # share a queue position with day-scale ones: 15 sits above the observation
-    # lanes (20, 25, 30) and below the single daily feed refresh (10), so one
-    # census fold per 10 minutes is claimed ahead of the flood however deep it
-    # is. The cost is bounded: this is the only order at this priority, and it
-    # runs once per interval, not once per repository.
+    # Claim the census ahead of per-repository observations (20, 25, 30) but
+    # after the daily feed refresh (10). Otherwise a large observation batch
+    # can delay the census past its serving bound, forcing on-demand folds.
+    # This asset queues one fold per interval, independent of repository count.
     priority: 15
     freshness: {warn: 20m, fail: 1h}
     runner: {labels: [deterministic]}

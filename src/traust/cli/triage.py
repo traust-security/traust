@@ -19,8 +19,17 @@ from traust_core.v1.models.findings import CandidateFormat
 from traust_core.v1.models.values import HttpsRepoUrl
 from traust_core.v1.models.vocabulary import SourceType
 
-from traust.cli._doors import add_branch_arg, parser, register_commit, run
-from traust.context import load
+from traust.cli._doors import (
+    add_branch_arg,
+    add_order_started_arg,
+    add_run_order_arg,
+    order_started_at,
+    parser,
+    recording_order_id,
+    register_commit,
+    run,
+)
+from traust.context import load, load_recorder
 
 
 def _parser(op: str, about: str) -> argparse.ArgumentParser:
@@ -87,21 +96,35 @@ def record(argv: list[str] | None = None) -> int:
     ap.add_argument("assessment_id", type=uuid.UUID)
     ap.add_argument("triage", type=Path, help="the validated triage JSON")
     ap.add_argument("--repo", type=Path, required=True, help="target repo checkout (read-only)")
+    add_run_order_arg(ap)
+    add_order_started_arg(ap)
     args = ap.parse_args(argv)
 
     def call() -> dict:
         doc = TriageArtifact.parse(args.triage.read_bytes())
-        when = datetime.now(UTC)
-        made = (
-            load(args.config_home)
-            .services()
-            .findings.decisions.record(
+        core = load(args.config_home)
+        decisions = core.services().findings.decisions
+        order_id = recording_order_id(args.run_id)
+        recorder = load_recorder(core) if order_id is not None else None
+        provenance = Provenance(
+            run_id=order_id or uuid.uuid4(),
+            source=SourceType.TRIAGE_REPORT,
+            occurred_at=(
+                order_started_at(args.order_started_at) if order_id else datetime.now(UTC)
+            ),
+        )
+        if order_id is None:
+            made = decisions.record(args.assessment_id, doc, provenance, args.repo)
+        else:
+            assert recorder is not None
+            made = decisions.record_triage(
                 args.assessment_id,
                 doc,
-                Provenance(run_id=uuid.uuid4(), source=SourceType.TRIAGE_REPORT, occurred_at=when),
-                args.repo,
-            )
-        )
+                provenance,
+                run_order_id=order_id,
+                principal=recorder,
+                checkout=args.repo,
+            ).decisions
         return {
             "decisions": len(made),
             "awaiting_countersign": sum(

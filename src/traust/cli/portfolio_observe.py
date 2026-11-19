@@ -6,10 +6,12 @@ import logging
 from pathlib import Path
 from uuid import UUID
 
-from traust_core.v1.errors import ConfigError, NotFoundError, ValidationError
-from traust_core.v1.models.operations import AssetRequest, JobResult, OrderReason
+from traust_core.v1.errors import ConfigError, NotFoundError, TraustError, ValidationError
+from traust_core.v1.models.assessment import AssessmentKind
+from traust_core.v1.models.operations import AssetRequest, JobResult, OrderReason, RecordKind
+from traust_core.v1.models.vocabulary import SourceType
 
-from traust.cli._doors import answer, parser
+from traust.cli._doors import answer, parser, scoped_recording_order
 from traust.context import findings_tree_dir, inputs_dir, load, load_caller
 from traust.inventory import repository_inventory
 from traust.ops.intake import (
@@ -91,14 +93,26 @@ def event_validate(argv: list[str] | None = None) -> int:
     core = load(args.config_home)
     try:
         order_id = UUID(args.run_id)
-        order = core.services().ops.get(order_id)
+        order = scoped_recording_order(
+            core, order_id, RecordKind.VALIDATION, SourceType.VALIDATION_REPORT
+        )
         if order.asset != "external_report_validation" or order.event_source != "external-report":
             raise ValidationError("run order is not external report validation")
         validation = external_validation_input(core.services().ops.manifest(order_id))
-    except (ValueError, ValidationError):
+        written = tuple(
+            str(row.id)
+            for row in core.services().assessment.list_for_order(order_id)
+            if row.kind == AssessmentKind.VALIDATION
+        )
+        if written:
+            return answer(JobResult.succeeded(written=written))
+    except ValueError:
         return answer(JobResult.failed(OrderReason.BAD_REQUEST))
     except NotFoundError:
         return answer(JobResult.refused(OrderReason.NOT_FOUND))
+    except (TraustError, OSError) as error:
+        log.warning("validation order refused: %s", type(error).__name__)
+        return answer(JobResult.failed(OrderReason.BAD_REQUEST))
     from traust.cli.session import run
 
     command = [
