@@ -205,6 +205,27 @@ def test_operator_ledger_and_keys_own_signing_even_with_broken_unused_rig_pair(
     assert "cosign" not in rig.events.read_text(encoding="utf-8").splitlines()
 
 
+def test_existing_rig_pair_becomes_required_without_rotation(rig: LocalOpsRig) -> None:
+    faulting_cosign(rig, private=b"original-private", public=b"original-public")
+    setup = rig.run("up")
+    assert setup.returncode == 0, setup.stderr
+    old = config(rig)
+    key, pub = (Path(old["ledger"][name]) for name in ("key_path", "public_key_path"))
+    del old["ledger"]["required"]
+    del old["recording"]
+    save_config(rig, old)
+    login = rig.root / ".local-ops/run/home/credentials.json"
+    human = login.read_bytes()
+    faulting_cosign(rig, status=23)
+
+    upgraded = rig.run("up")
+    assert upgraded.returncode == 0, upgraded.stderr
+    assert config(rig)["ledger"] == {**old["ledger"], "required": True}
+    assert config(rig)["recording"]["triage"] == ["sci_triage"]
+    assert (key.read_bytes(), pub.read_bytes()) == (b"original-private", b"original-public")
+    assert login.read_bytes() == human
+
+
 def test_no_cosign_deliberately_configures_unsigned_and_continues(rig: LocalOpsRig) -> None:
     result = rig.run("up")
 
@@ -230,3 +251,48 @@ def test_failed_upgrade_keeps_existing_unsigned_placeholder(rig: LocalOpsRig) ->
     assert not {"database", "auth"}.intersection(
         rig.events.read_text(encoding="utf-8").splitlines()
     )
+
+
+def test_tick_loop_can_resolve_the_persisted_review_salt(rig: LocalOpsRig) -> None:
+    rig.env.pop("TRAUST_OPS_VALVE_SALT", None)
+    setup = rig.run("up")
+    assert setup.returncode == 0, setup.stderr
+    salt = rig.root / ".local-ops/run/review-salt"
+    engine = rig.bin_dir / "traust-engine"
+    engine.write_text(
+        f"#!{sys.executable}\n"
+        "from pathlib import Path\n"
+        "import os, sys\n"
+        "from traust_core.v1.context import Config\n"
+        "config = Path(sys.argv[sys.argv.index('--core') + 1])\n"
+        f"expected = Path({str(salt)!r}).read_text()\n"
+        "assert expected and Config.from_file(config).valve_salt() == expected\n"
+    )
+    engine.chmod(0o755)
+    tick = rig.make("ops-run")
+    assert tick.returncode == 0, tick.stderr
+    assert salt.read_text() not in tick.stdout + tick.stderr
+
+
+@pytest.mark.parametrize(
+    ("use_rig_key", "configured_password", "expected"),
+    [(True, None, ""), (True, "from-env", "from-env"), (False, None, None)],
+)
+def test_normal_rig_commands_supply_only_the_rig_keys_default_password(
+    rig: LocalOpsRig, use_rig_key: bool, configured_password: str | None, expected: str | None
+) -> None:
+    # A stale dev-key path can coexist with an operator-owned ledger config.
+    dev_key = rig.root / ".local-ops/run/ledger/dev-key.key"
+    dev_key.parent.mkdir(parents=True)
+    dev_key.touch()
+    rig.config_home.mkdir()
+    save_config(rig, {"ledger": {"key_path": str(dev_key if use_rig_key else "/operator.key")}})
+    if configured_password is not None:
+        (rig.root / ".local-ops/env").write_text(f"export COSIGN_PASSWORD={configured_password}\n")
+    shell = rig.bin_dir / "check-env"
+    shell.write_text(
+        f"#!{sys.executable}\nimport os\nassert os.environ.get('COSIGN_PASSWORD') == {expected!r}\n"
+    )
+    shell.chmod(0o755)
+    result = rig.run("sh", env={"SHELL": str(shell)})
+    assert result.returncode == 0, result.stderr

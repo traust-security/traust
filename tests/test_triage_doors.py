@@ -125,7 +125,9 @@ def test_suppressed_sarif_intake_requires_explicit_review_override(
     assert paths == ({"entry.c", "suppressed.c"} if include_suppressed else {"entry.c"})
 
 
-def test_scanner_output_triaged_and_recorded(home: Path, tmp_path: Path) -> None:
+def test_scanner_output_triaged_and_recorded(
+    home: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: Any
+) -> None:
     assessment = intake(home, tmp_path)
 
     rc, out = run(triage.prepare, home, assessment)
@@ -171,6 +173,13 @@ def test_scanner_output_triaged_and_recorded(home: Path, tmp_path: Path) -> None
     }
     path = tmp_path / "canary-triage.json"
     path.write_text(json.dumps(report))
+
+    # A scheduled record cannot silently use the manual import when the runner has no identity.
+    with monkeypatch.context() as patch:
+        patch.setenv("TRAUST_RUN_ID", str(uuid4()))
+        rc, _ = run(triage.record, home, assessment, str(path), "--repo", str(CANARY))
+    assert rc == 2 and "identity" in capsys.readouterr().err
+    assert not load(home).services().findings.history(finding["id"])
 
     rc, out = run(triage.record, home, assessment, str(path), "--repo", str(CANARY))
     assert rc == 0, out

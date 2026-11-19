@@ -11,7 +11,7 @@ description: Triage a batch of raw security findings. Verify each is real,
   or "review the backlog". Runs interactively by default; pass --auto to
   skip the interview. Scanner source attribution comes from the recorded Core
   assessment, not a caller-supplied origin flag.
-argument-hint: "<findings-path> [--prepared-input] [--auto] [--votes N] [--repo PATH] [--fp-rules FILE] [--fresh]"
+argument-hint: "<assessment-id|findings-path> [--prepared-input] [--auto] [--votes N] [--repo PATH] [--fp-rules FILE] [--fresh]"
 user-invocable: true
 metadata:
   harness.tier: "primary"
@@ -60,13 +60,17 @@ Adversarial triage of raw security-scanner output. Does four jobs:
 claimed severity, and **route** each to a component owner. Output is a
 short, ranked, owned list instead of a raw dump.
 
-Invoke with `/triage <findings-path> [--prepared-input] [--auto] [--votes N] [--repo PATH] [--fp-rules FILE]`.
+Invoke with `/triage <assessment-id|findings-path> [--prepared-input] [--auto] [--votes N] [--repo PATH] [--fp-rules FILE]`.
+The scheduled rig supplies the recorded assessment ID (input A) and `--auto`.
+Leave its run ID and original claim start inherited when calling `triage record`;
+never substitute the timestamp or credentials of a later attempt.
 
 **Arguments** (parse from `$ARGUMENTS`; positional `$1`/`$2` expansion is
 not stable across runtimes):
-- findings path (first positional, required): a JSON file, a directory of
-  JSON files, a `*-vuln-findings.json` / legacy `VULN-FINDINGS.json`, a pipeline `results/<target>/<ts>/`
-  directory, or a markdown report.
+- assessment ID or findings path (first positional, required): an existing Core
+  assessment (input A), a JSON file, a directory of JSON files, a
+  `*-vuln-findings.json` / legacy `VULN-FINDINGS.json`, a pipeline
+  `results/<target>/<ts>/` directory, or a markdown report.
 - `--prepared-input`: the positional path is a read-only JSON serialization
   of Core's native `TriageInput`, staged by the trusted caller. Use input (D)
   below, never generic scanner parsing. Do not call `triage intake`,

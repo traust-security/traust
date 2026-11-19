@@ -2,10 +2,10 @@
 .PHONY: skillsaw-lint skillsaw-fix skillsaw-badge
 .PHONY: check-rules
 .PHONY: ops-up ops-down ops-reset ops-run ops-claim ops-approve ops-approve-all ops-sh ops-scan ops-smoke ops-doctor
+.PHONY: ops-check-pins ops-smoke-probe
 
 PROFILE    ?= secure-code-audit
 CLI        := uv run python -m traust.cli.toolchain
-PYTHON     ?= python3
 SKILLSAW_VERSION := 0.20.0
 # ops-approve's selector travels through the environment (never interpolated
 # into the recipe text): a value carrying quotes or semicolons reaches the
@@ -72,8 +72,30 @@ ops-sh: ## Shell with the rig's environment (TRAUST_CONFIG_HOME, .local-ops/env)
 	bash scripts/local_ops.sh sh
 ops-scan: ## Walk the workflow by hand: onboard + observe + one scan (REPO=https://...)
 	bash scripts/local_ops.sh scan $(REPO)
-ops-smoke: ## One bounded engine cycle with asserts (the CI entry)
-	bash scripts/local_ops.sh smoke
+ops-check-pins: ## Compare candidate build inputs with the installed, single-interpreter rig
+	uv run --no-sync python scripts/check_ops_pins.py
+ops-smoke: ## Require clean pins, disposable smoke, named rollback/reclaim and SDK recording
+	@set -eu; : "$${OPS_ENGINE_CHECKOUT:?set OPS_ENGINE_CHECKOUT}" "$${OPS_SDK_CHECKOUT:?set OPS_SDK_CHECKOUT}"; \
+	if [ -n "$${PYTHONPATH:-}$${PYTHONHOME:-}" ]; then echo 'strict smoke: unset PYTHONPATH/PYTHONHOME' >&2; exit 1; fi; \
+	engine=$$(cd "$$OPS_ENGINE_CHECKOUT" && pwd -P); sdk=$$(cd "$$OPS_SDK_CHECKOUT" && pwd -P); \
+	engine_sha=$$(git -C "$$engine" rev-parse 'HEAD^{commit}'); \
+	sdk_sha=$$(git -C "$$sdk" rev-parse 'HEAD^{commit}'); \
+	dirty=$$(git status --porcelain -uall); \
+	if [ -n "$$dirty" ]; then printf 'CLI differs from candidate commit:\n%s\n' "$$dirty" >&2; exit 1; fi; \
+	cli_sha=$$(git rev-parse 'HEAD^{commit}'); \
+	tmp=$$(mktemp -d); trap 'rm -rf -- "$$tmp"' EXIT; \
+	git init -q --template= "$$tmp/cli"; \
+	git -C "$$tmp/cli" fetch -q --no-tags --depth=1 "$$PWD" "$$cli_sha"; \
+	git -C "$$tmp/cli" checkout -q --detach "$$cli_sha"; \
+	mkdir "$$tmp/home"; cd "$$tmp/cli"; \
+	env -i PATH="$${HARNESS_BIN_DIR:-$$HOME/.local/bin}:$$PATH" HOME="$$tmp/home" \
+	    XDG_RUNTIME_DIR="$${XDG_RUNTIME_DIR:-}" OPS_PORT="$${OPS_PORT:-5433}" \
+	    GIT_CONFIG_NOSYSTEM=1 GIT_TERMINAL_PROMPT=0 GIT_ALLOW_PROTOCOL=https \
+	    OPS_ENGINE_CHECKOUT="$$engine" OPS_SDK_CHECKOUT="$$sdk" OPS_SDK_REV="$$sdk_sha" OPS_ACCEPTANCE=1 \
+	    OPS_ENGINE_SRC="git+https://github.com/traust-security/traust-engine.git@$$engine_sha" \
+	    bash scripts/local_ops.sh smoke
+ops-smoke-probe: ## Run diagnostic integrity probes; never acceptance evidence
+	OPS_ACCEPTANCE=0 bash scripts/local_ops.sh smoke
 ops-doctor: ## Check the rig: container, engine, config home, tokens
 	bash scripts/local_ops.sh doctor
 

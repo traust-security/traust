@@ -46,13 +46,21 @@ from traust_core.v1.models.operations import (
     ModelUsage,
     OrderReason,
     ProviderName,
+    RecordKind,
     SessionResult,
     SkillName,
     WorkerId,
 )
 from traust_core.v1.models.values import GitSha, HttpsRepoUrl
+from traust_core.v1.models.vocabulary import SourceType
 
-from traust.cli._doors import RUN_ORDER_ENV, answer, parser
+from traust.cli._doors import (
+    ORDER_STARTED_ENV,
+    RUN_ORDER_ENV,
+    answer,
+    parser,
+    scoped_recording_order,
+)
 from traust.cli._doors import run as door
 from traust.cli.assessments import REFUSED
 from traust.context import MODEL_REGISTRY, TRAUST_CONFIG_HOME_DEFAULT, load, resolve_config_home
@@ -75,6 +83,9 @@ RECORDING_SKILLS = {
     "secure-code-audit": AssessmentKind.SECURE_CODE_CANONICAL,
     "vuln-scan": AssessmentKind.VULN_SCAN_CANONICAL,
     "cloud-config-audit": AssessmentKind.CLOUD_CONFIG_CANONICAL,
+    "triage": AssessmentKind.TRIAGE,
+    "validate-findings": AssessmentKind.VALIDATION,
+    "verify-remediation": AssessmentKind.VERIFICATION,
 }
 # Skills whose ordered session must leave a report on the work item its order names.
 REPORTING_SKILLS = frozenset({"remediate-finding"})
@@ -295,6 +306,37 @@ def run(argv: list[str] | None = None) -> int:
         order_id = _order_id(args.run_id)
         # what the order had before this attempt, to prefer this attempt's own below
         before = set() if order_id is None or kind is None else _recorded(order_id, kind, args)
+        if order_id is not None and args.skill == "triage":
+            if args.checkout or mode or extra:
+                raise ValidationError("scheduled triage input comes from its repository order")
+            args.repo = str(_triage_source(order_id, args))
+            extra = ["--auto"]
+        if order_id is not None and args.skill == "verify-remediation":
+            core = load(args.config_home)
+            order = scoped_recording_order(
+                core, order_id, RecordKind.VERIFICATION, SourceType.VERIFICATION_REPORT
+            )
+            if order.asset != "verify_remediation" or args.checkout or mode or extra:
+                raise ValidationError("verification inputs must come from the repository order")
+            services = core.services()
+            assert order.repository_id is not None
+            repository = services.portfolio.get_repository(order.repository_id)
+            if args.repo != repository.url:
+                raise ValidationError("verification repository differs from the leased order")
+            if before:
+                return answer(JobResult.succeeded(written=tuple(sorted(before))))
+            if order.work_item_id is not None:
+                prepared = services.verification.prepare(order.work_item_id)
+                item = prepared.work_item
+                if prepared.subject.repository_id != order.repository_id or not (
+                    item.fork and item.fix_commit
+                ):
+                    raise ValidationError("verification order has no bound patched work item")
+                mode, args.repo = [str(order.work_item_id)], f"{item.fork.url}@{item.fix_commit}"
+            elif services.verification.sweep([order.repository_id]).queued:
+                mode = ["full-sweep", "--repo-url"]
+            else:
+                return answer(JobResult.succeeded())
     except ValueError:
         print(f"run {args.run_id}: {OrderReason.BAD_REQUEST}: not a run order id", file=sys.stderr)
         return answer(JobResult.failed(OrderReason.BAD_REQUEST))
@@ -323,6 +365,8 @@ def run(argv: list[str] | None = None) -> int:
     env.pop(RUN_ORDER_ENV, None)
     if order_id is not None:
         env[RUN_ORDER_ENV] = str(order_id)
+    else:
+        env.pop(ORDER_STARTED_ENV, None)
     if args.config_home is not None:
         env[TRAUST_CONFIG_HOME_ENV] = str(args.config_home)
     usage: tuple[ModelUsage, ...] = ()
@@ -399,6 +443,22 @@ def run(argv: list[str] | None = None) -> int:
 def order_assessments(order_id: UUID, config_home: Path | None) -> list[Assessment]:
     """What the order recorded, as its record doors bound it (`--run-id`)."""
     return load(config_home).services().assessment.list_for_order(order_id)
+
+
+def _triage_source(order_id: UUID, args: argparse.Namespace) -> UUID:
+    core = load(args.config_home)
+    order = scoped_recording_order(core, order_id, RecordKind.TRIAGE, SourceType.TRIAGE_REPORT)
+    assert order.repository_id is not None
+    services = core.services()
+    repository = services.portfolio.get_repository(order.repository_id)
+    if args.repo != repository.url:
+        raise ValidationError("triage repository differs from the leased order")
+    audit = services.assessment.latest_on_default_line(
+        order.repository_id, AssessmentKind.SECURE_CODE_CANONICAL
+    )
+    if audit is None or audit.id is None:
+        raise NotFoundError("no completed secure-code assessment on the repository's default line")
+    return audit.id
 
 
 def _recorded(order_id: UUID, kind: AssessmentKind, args: argparse.Namespace) -> set[str]:
