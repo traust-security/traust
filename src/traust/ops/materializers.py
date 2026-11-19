@@ -15,7 +15,9 @@ from uuid import UUID
 from traust_core.v1.context import Services
 from traust_core.v1.errors import (
     ConfigError,
+    IntegrityError,
     NotFoundError,
+    RepositoryError,
     ServiceError,
     TraustError,
     ValidationError,
@@ -237,6 +239,10 @@ class FeedsCacheMaterializer:
             outcomes = self._exposure.refresh_advisory_documents(order)
         except ServiceError as e:  # every source asked failed: an outage, still only degraded
             log.warning("run %s advisory documents: %s", run_id, e)
+            return {DegradedKey.ERROR.value: 1}
+        except (NotFoundError, IntegrityError, RepositoryError) as e:
+            # the store behind the names read failed: the feeds already snapshotted still count
+            log.error("run %s advisory documents error_type=%s", run_id, type(e).__name__)
             return {DegradedKey.ERROR.value: 1}
         failed = [o for o in outcomes if not o.ok]
         for outcome in failed:
