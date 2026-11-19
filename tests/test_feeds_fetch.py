@@ -308,3 +308,31 @@ def test_a_failed_run_still_names_the_document_sources_that_failed(
     assert (rc, result["outcome"]) == (1, "failed")
     assert result["degraded"] == {"epss": 1, "error": 1}
     assert_registered(home, result)
+
+
+def test_a_store_failure_reading_the_names_degrades_the_run_and_the_feeds_still_count(
+    home: Path, documents: dict, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Never a crash: the whole-file feeds already snapshotted, so the order is degraded."""
+    from traust_core.v1.errors import RepositoryError
+    from traust_core.v1.services.exposure import ExposureService
+
+    link_advisory(home)
+
+    def unreadable(self: ExposureService, run_order_id: object = None) -> object:
+        try:
+            raise TimeoutError("socket closed")
+        except TimeoutError as cause:
+            raise RepositoryError(
+                "the store is unreachable", operation="linked advisories"
+            ) from cause
+
+    monkeypatch.setattr(ExposureService, "refresh_advisory_documents", unreadable)
+    rc, result = fetch(home)
+    assert (rc, result["outcome"], result["degraded"]) == (4, "degraded", {"error": 1})
+    assert_registered(home, result)
+    assert payload(home, "kev") is not None
+    assert (
+        "advisory documents error_type=RepositoryError operation=linked advisories "
+        "cause=TimeoutError: the store is unreachable"
+    ) in caplog.text
