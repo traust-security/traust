@@ -32,7 +32,7 @@ def add_opengrep_args(ap) -> None:
         "--rules",
         action="append",
         default=[],
-        help="Rules source (path | git URL[@SHA] | p/<pack>). Repeatable.",
+        help="Rules source with paired fixtures (local path | HTTPS git URL@SHA). Repeatable.",
     )
     ap.add_argument("--out", help="Output file (default: <target-basename>-opengrep.json).")
     ap.add_argument(
@@ -86,8 +86,8 @@ def call_opengrep(args) -> int:
     except TimeoutError:
         print(f"opengrep timed out after {args.timeout}s", file=sys.stderr)
         return 1
-    except RuntimeError:
-        print("opengrep produced no JSON", file=sys.stderr)
+    except RuntimeError as error:
+        print(str(error), file=sys.stderr)
         return 1
 
     facts = report["facts"]

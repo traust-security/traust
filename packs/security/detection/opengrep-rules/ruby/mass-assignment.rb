@@ -53,6 +53,12 @@ class AccountsController < ApplicationController
     { params: params.to_unsafe_h, actor: current_user }
   end
 
+  def fixed_account_params
+    # Restrict the same account payload before returning it to model writes.
+    # ok: traust-ruby-mass-assignment-permit-all
+    params.require(:account).permit(:label)
+  end
+
   def account_params
     # ruleid: traust-ruby-mass-assignment-permit-all
     params.require(:account).permit!

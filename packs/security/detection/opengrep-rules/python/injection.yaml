@@ -29,16 +29,18 @@ rules:
     languages: [python]
     severity: ERROR
     message: >-
-      Request-derived value reaches a shell/subprocess call — the caller
-      controls command content. Validate strictly and pass an argument
-      vector. CWE-78.
+      Request-derived data reaches a process call. Check whether it controls
+      the executable, shell syntax, or dangerous command options before
+      treating this as command injection. An argument vector with a fixed
+      executable avoids shell interpretation, but may still allow option
+      injection. Validate values for the invoked tool. CWE-78.
     metadata:
       cwe: ["CWE-78"]
       category: injection
       asvs: ["V1"]
-      confidence: HIGH
+      confidence: MEDIUM
       references:
-        - "CWE-78 OS command injection — shell=True with dynamic command"
+        - "CWE-78 review point — request-derived data passed to process execution"
     mode: taint
     pattern-sources:
       - pattern-either:

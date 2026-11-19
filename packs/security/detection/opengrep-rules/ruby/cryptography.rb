@@ -8,6 +8,12 @@ class Client
     conn = Faraday.new(url: host, ssl: { verify: false })
     # ok: traust-ruby-cryptography-tls-verify-none
     safe = Faraday.new(url: host, ssl: { verify: true })
+    # ok: traust-ruby-cryptography-tls-verify-none
+    http.verify_mode = OpenSSL::SSL::VERIFY_PEER
+    # ok: traust-ruby-cryptography-tls-verify-none
+    HTTParty.get(host, verify: true)
+    # ok: traust-ruby-cryptography-tls-verify-none
+    RestClient.get(host, verify_ssl: true)
   end
 
   def codes(password, blob)
@@ -21,5 +27,11 @@ class Client
     digest = Digest::MD5.hexdigest(password)
     # ok: traust-ruby-cryptography-weak-hash
     strong = Digest::SHA256.hexdigest(blob)
+    # SHA-256 above is for blob integrity, not password storage.
+    # ok: traust-ruby-cryptography-weak-hash
+    password_hash = BCrypt::Password.create(password)
+    # CSPRNG choice alone does not provide token expiry or attempt limits.
+    # ok: traust-ruby-cryptography-weak-random-secret
+    session_token = SecureRandom.hex(32)
   end
 end

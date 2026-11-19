@@ -18,7 +18,8 @@ rules:
     pattern-either:
       - pattern: $A.requestMatchers(EndpointRequest.toAnyEndpoint()).permitAll()
       - pattern: $A.requestMatchers(EndpointRequest.toAnyEndpoint(...)).permitAll()
-      - pattern: $A.requestMatcher(EndpointRequest.toAnyEndpoint()).$AUTH(...)
+      # Selecting the actuator chain alone does not grant anonymous access.
+      - pattern: $A.requestMatcher(EndpointRequest.toAnyEndpoint()).authorizeRequests().anyRequest().permitAll()
       - pattern: $A.requestMatchers("/actuator/**").permitAll()
       - pattern: $A.antMatchers("/actuator/**").permitAll()
       - pattern: $A.mvcMatchers("/actuator/**").permitAll()

@@ -76,6 +76,10 @@ class InjectionTests {
         Object c = Ognl.getValue(rule, root);
         // ok: traust-java-injection-expression-language
         Object d = parser.parseExpression("price * quantity").getValue(context);
+        // Keep script text fixed and bind external data separately.
+        engine.put("userValue", rule);
+        // ok: traust-java-injection-expression-language
+        Object e = engine.eval("userValue.length()");
         return a;
     }
 }

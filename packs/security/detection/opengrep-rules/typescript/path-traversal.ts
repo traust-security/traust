@@ -36,3 +36,15 @@ export function serve(req: any, res: any): void {
   // ok: traust-ts-path-traversal-fs-taint
   fs.readFileSync(path.join(__dirname, "template.html"), "utf8");
 }
+
+function sanitize(value: string): string {
+  // Generic whitespace cleanup does not remove traversal segments.
+  return value.trim();
+}
+
+export async function readCleanedName(req: { params: { id: string } }): Promise<void> {
+  // ruleid: traust-ts-path-traversal-fs-taint
+  await fsp.readFile(path.join(LOGS_DIR, sanitize(req.params.id)), "utf8");
+  // ok: traust-ts-path-traversal-fs-taint
+  await fsp.readFile(path.join(LOGS_DIR, path.basename(sanitize(req.params.id))), "utf8");
+}

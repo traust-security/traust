@@ -10,6 +10,8 @@ class DownloadsController < ApplicationController
   end
 
   def safe
+    # Assumes a trusted reports directory without attacker-writable symlinks;
+    # basename is not an authorization check for the remaining filename.
     # ok: traust-ruby-path-traversal-params-taint
     send_file File.join(Rails.root, "reports", File.basename(params[:name]))
   end
@@ -17,5 +19,11 @@ class DownloadsController < ApplicationController
   def fixed
     # ok: traust-ruby-path-traversal-params-taint
     send_file Rails.root.join("reports", "summary.pdf")
+  end
+
+  def numbered
+    # Integer conversion removes path syntax; ownership checks remain separate.
+    # ok: traust-ruby-path-traversal-params-taint
+    send_file File.join(Rails.root, "reports", "#{params[:id].to_i}.pdf")
   end
 end

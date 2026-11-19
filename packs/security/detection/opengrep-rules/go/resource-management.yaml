@@ -91,11 +91,12 @@ rules:
     languages: [go]
     severity: WARNING
     message: >-
-      Request body read into memory without a size bound — a client can
-      stream an arbitrarily large body and exhaust process memory. Wrap
-      the body with http.MaxBytesReader (or io.LimitReader) before
-      reading. Judge who can reach the handler and whether an upstream
-      proxy already bounds bodies. CWE-400/CWE-770.
+      A request body reaches an unbounded read or copy operation.
+      In-memory destinations can exhaust memory; streaming destinations
+      may instead consume storage, bandwidth or handler time. Confirm the
+      destination, upstream limits and caller reachability, then bound
+      consumption with MaxBytesReader or LimitReader as appropriate.
+      CWE-400/CWE-770.
     metadata:
       cwe: ["CWE-400", "CWE-770"]
       category: resource-management

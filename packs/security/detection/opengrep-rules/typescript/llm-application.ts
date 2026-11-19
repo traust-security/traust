@@ -35,6 +35,23 @@ export async function evaluate(question: string) {
   return eval(expression);
 }
 
+export async function parseFormulaOperands(question: string) {
+  const msg = await claude.messages.create({
+    model: "m",
+    max_tokens: 100,
+    messages: [{ role: "user", content: question }],
+  });
+  const expression = msg.content[0].text;
+  // Parse model output as data, then enforce the small arithmetic schema.
+  // ok: traust-ts-llm-application-output-to-code-exec-taint
+  const operands: unknown = JSON.parse(expression);
+  if (!Array.isArray(operands) || operands.length !== 2 ||
+      !operands.every((value: unknown): value is number => typeof value === "number" && Number.isSafeInteger(value))) {
+    throw new Error("expected two integers");
+  }
+  return operands[0] + operands[1];
+}
+
 export async function askDatabase(question: string) {
   const reply = await client.chat.completions.create({
     model: "m",

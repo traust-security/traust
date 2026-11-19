@@ -3,11 +3,11 @@ rules:
     languages: [rust]
     severity: ERROR
     message: >-
-      A request value (a gRPC message field, or an axum / actix-web Path or
-      Query extractor) reaches a filesystem path that is opened, read,
-      written, copied or removed — '../' segments and absolute paths escape
-      the intended directory. Canonicalize the joined path and check it
-      starts_with the canonical base, or keep only file_name(). CWE-22.
+      A request/extractor-shaped value reaches a filesystem path argument.
+      Confirm the operation, intended root, authorization and any existing
+      guard before concluding that traversal is exploitable. Canonical
+      containment and symlink handling matter; file_name() or filename
+      sanitization alone is not a complete filesystem policy. CWE-22.
     metadata:
       cwe: ["CWE-22"]
       category: path-traversal
@@ -38,11 +38,13 @@ rules:
           - pattern: $X.file_name()
           - pattern: sanitize_filename::sanitize(...)
     pattern-sinks:
-      - pattern-either:
-          - pattern: File::open($P)
-          - pattern: File::create($P)
-          - pattern: std::fs::File::open($P)
-          - pattern: NamedFile::open($P)
-          - pattern: fs::$OP($P, ...)
-          - pattern: std::fs::$OP($P, ...)
-          - pattern: tokio::fs::$OP($P, ...)
+      - patterns:
+          - pattern-either:
+              - pattern: File::open($P)
+              - pattern: File::create($P)
+              - pattern: std::fs::File::open($P)
+              - pattern: NamedFile::open($P)
+              - pattern: fs::$OP($P, ...)
+              - pattern: std::fs::$OP($P, ...)
+              - pattern: tokio::fs::$OP($P, ...)
+          - focus-metavariable: $P

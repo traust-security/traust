@@ -1,6 +1,6 @@
 ---
 name: mine-ledger
-description: Use when the user asks to mine the disposition ledger for confirmed true positives, build or refresh the rule-calibration corpus, find rule-pack coverage gaps, check per-rule precision, or produce the opengrep rule-authoring backlog — e.g. "mine the ledger", "what TP clusters have no rule", "how precise are the traust rules", "refresh the rule-mining report". Runs out-of-band from audits; audits themselves feed it via structured scanner_correlation entries.
+description: Use when the user asks to mine the disposition ledger for confirmed true positives, build or refresh the rule-calibration corpus, find rule-pack coverage gaps, check per-rule precision, or produce the opengrep rule-authoring backlog — e.g. "mine the ledger", "what TP clusters have no rule", "how precise are the traust rules", "refresh the rule-mining report". Runs out-of-band from audits; audits themselves feed it via structured scanner_correlation entries. Authored rules require the shared native validation and strict fixture gate plus semantic review before promotion.
 metadata:
   harness.tier: "secondary"
 allowed-tools:
@@ -127,15 +127,14 @@ python3 -m traust.cli sweep regression-drafts [--cwe CWE-494] [--limit 6]
 python3 -m traust.cli sweep verify-draft <rule-drafts>/<draft> \
     [--rule <rule-drafts>/<draft>/rule.skeleton.yaml]
 # passes (before/ fires, after/ silent)
-# 3. promote: move the rule into the matching CATEGORY file of YOUR
-#    deployment's own rule pack, in the location your config home sets
-#    (Red Hat: traust-internal/config) — never into traust's baseline pack
-#    (packs/security/detection/opengrep-rules/, the default stack every
-#    adopter starts from; adopter packs: PENDING, plan "Rule mining as an
-#    app feature"), never a regression.yaml dump — with ruleid:/ok: fixture lines,
-#    keep the regression_of metadata (fingerprint + fix commit — that is
-#    what links a future firing back to the original resolved finding),
-#    then delete the draft dir.
+# 3. merge the authored rule into the matching CATEGORY file of YOUR
+#    deployment's own rule pack, with paired ruleid:/ok: fixtures.
+#    Keep regression_of (fingerprint + fix commit); it links later hits
+#    to the resolved source finding. Never copy deployment-specific
+#    rules into traust's public baseline or a regression.yaml dump.
+python3 -m traust.cli sweep check-rules <adopter-rule-directory>
+# 4. after semantic review and calibration, select explicit rule IDs in
+#    the existing overrides.rule_pack_allowlist, then delete the draft dir.
 ```
 
 Not every fix is rule-expressible: additive-coverage fixes (a filter
@@ -143,6 +142,16 @@ gained patterns) and cross-file behavioral fixes have no matchable
 pre-shape — reject those drafts with a note rather than authoring a
 noisy rule. First promoted regression rule:
 `traust-bash-regression-codecov-uploader-latest` (bash/supply-chain).
+
+Draft skeletons and before/after snapshots are authoring material, not an active
+pack and not evidence of passing native checks. Adopter packs are supported
+through the existing allowlist: `source` may be a local rule directory relative
+to that allowlist file, or an HTTPS Git source pinned to a 40-hex commit SHA
+(the repository's existing `rules/` subtree convention). Enabled packs need
+explicit unique rule IDs and paired native fixtures. The entire source pack,
+not only selected IDs, must pass `traust sweep check-rules <path>`.
+Unreachable or invalid enabled supplements fail rather than being skipped;
+there is no validation bypass.
 
 ## Class-generalization sweeps (plan §6, Phase 4)
 
@@ -186,9 +195,12 @@ disposition ledger like any other candidate batch.
 
 **Proposing a rule for an uncovered shape.** When an audit or a
 coverage gap shows a code shape no pack rule covers, you may propose a
-rule for it. Write one rule and an example file in the target language
-with `ruleid:` lines it must match and `ok:` lines it must not. Submit
-both through the deterministic gate, never into `rule-drafts/` by hand:
+rule for it. Write one rule and meaningful vulnerable and equivalent safe,
+fixed, sanitized or guarded examples in the target language, with `ruleid:`
+and `ok:` assertions for every rule. Preserve valid positives and test the
+actual guard boundary, not an unrelated no-op. Run
+`traust sweep check-rules <path>`, then submit through the admission gate,
+never into `rule-drafts/` by hand:
 
 ```bash
 python3 -m traust.cli sweep propose-rule --rule <rule.yaml> --example <example.py> \
@@ -200,15 +212,26 @@ The gate admits it only if all of these pass:
 - no pattern is a catch-all;
 - no path glob leaves the tree or selects every file;
 - no regex has a backreference, lookbehind or nested quantifier;
-- the examples fire exactly;
-- its hits on the checkout stay under the cap.
+- native `opengrep validate` and `opengrep test --json --strict` succeed;
+- every rule has positive and negative assertions with exact expected matches,
+  including no unannotated extra matches and no missing, unknown or skipped
+  check receipts;
+- the checkout scan completes without engine errors or unknown coverage, and
+  its hits stay under the cap; partial error-bearing scans refuse admission.
 
-A rule that fails a static check never runs. Exit 0 means it was staged
-as an authored draft. Exit 1 lists each failing check: fix it or drop
-the proposal, and never loosen the example to pass. An admitted draft
-then follows steps 3–4 like any other: calibrate, `sweep sweep`,
-`sweep emit`. Its hits are triage candidates, never findings, and
-promotion into the shipped pack stays a human point.
+A rule that fails a static check never runs. Native validation and strict
+tests are mandatory before admission and cannot be skipped. Exit 0 means it
+was staged as an authored draft, not promoted or proved exploitable. Exit 1
+lists failing checks: fix it or drop the proposal, never loosen the examples
+to pass. An admitted draft then follows steps 3–4: calibrate, `sweep sweep`,
+`sweep emit`. Its hits are triage candidates, never findings.
+
+Before promotion, a reviewer must check whether the matching shape really
+supports the claimed security/business logic: input control, framework/version
+behavior, effective guards, authorization and deployment boundaries. Native
+fixtures establish matching correctness only. File-level words, name-based
+heuristics and sanitizer call shapes do not establish real-world safety or
+exploitability. Promotion remains a human point.
 
 Sweep output lands at
 `analysis-results/scan-testing/sweeps/<rule-id>/sweep-candidates.json`
@@ -263,18 +286,19 @@ any audit are listed separately — silence is not a pass.
 ```
 
 **Standing delegation (user, 2026-07-29):** scheduled agent runs of this
-skill proceed from the lane's delta report through rule authoring **and
-the full test-and-calibrate gate** — fixture `ruleid:`/`ok:` lines
-firing/silent, the whole-pack regression suite (`opengrep test
-packs/security/detection/opengrep-rules/<lang>` for every language, and
-`uv run pytest tests/test_default_rule_packs.py`, a default-scan canary), TP-rediscovery
-calibration against the corpus repos — WITHOUT asking for per-run
-approval. The mechanical gate is the promotion criterion: a rule that
-passes all three legs is promoted into the pack; one that does not is
-not, and no amount of session judgment overrides that in either
-direction. Sweep hits and mined candidates still route to **/triage**
-like any other candidate batch — the lane never auto-files findings,
-never writes to ledgers, and never touches Jira.
+skill proceed from the lane's delta report through semantic review, rule
+authoring and **the full test-and-calibrate gate** without per-run approval:
+(1) `traust sweep check-rules <complete-pack-directory>` requires native
+`opengrep validate`, `opengrep test --json --strict`, exact expected matches
+and positive/negative coverage for every rule, with no missing/unknown/skipped
+receipts; (2) the default-scan canary
+(`uv run pytest tests/test_default_rule_packs.py`); and (3) TP-rediscovery
+calibration against recorded corpus scans. Direct native commands are useful
+diagnostics, not substitutes for the shared gate. No judgment waives a failed
+leg, and passing matching tests never substitutes for semantic review.
+Sweep hits and mined candidates still route to **/triage** like any other
+candidate batch — the lane never auto-files findings, writes to ledgers or
+touches Jira.
 
 ## Constraints
 

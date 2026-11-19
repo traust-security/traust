@@ -14,4 +14,16 @@ class Previews {
         // ok: traust-java-ssrf-request-taint
         return restTemplate.getForObject("https://status.example.com/health", String.class);
     }
+
+    @GetMapping("/preview/safe")
+    String selected(@RequestParam String service) {
+        // Input selects a complete configured URL, never a host or URL fragment.
+        // These trusted endpoints must not redirect to attacker-selected destinations.
+        if ("status".equals(service)) {
+            // ok: traust-java-ssrf-request-taint
+            return restTemplate.getForObject("https://status.example.com/health", String.class);
+        }
+        // ok: traust-java-ssrf-request-taint
+        return restTemplate.getForObject("https://docs.example.com/health", String.class);
+    }
 }

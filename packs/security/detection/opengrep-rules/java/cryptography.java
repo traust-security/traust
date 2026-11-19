@@ -29,6 +29,8 @@ class CryptographyTests {
         Cipher.getInstance("AES/GCM/NoPadding");
         // ok: traust-java-cryptography-weak-algorithm
         MessageDigest.getInstance("SHA-256");
+        // ok: traust-java-cryptography-weak-algorithm
+        Mac.getInstance("HmacSHA256");
     }
 
     void weakRandom() {
@@ -43,6 +45,9 @@ class CryptographyTests {
 
         // ok: traust-java-cryptography-weak-random
         SecureRandom sr = new SecureRandom();
+        byte[] token = new byte[32];
+        // ok: traust-java-cryptography-weak-random
+        sr.nextBytes(token);
     }
 
     static class TrustAll implements X509TrustManager {
@@ -59,7 +64,30 @@ class CryptographyTests {
         // ruleid: traust-java-cryptography-trust-all-tls
         HttpsURLConnection.setDefaultHostnameVerifier((hostname, session) -> true);
 
+        // A hostname string comparison alone does not verify the peer certificate.
+        // Use the certificate-aware verifier rather than accepting a known hostname.
         // ok: traust-java-cryptography-trust-all-tls
-        conn.setHostnameVerifier((hostname, session) -> hostname.equals("api.example.com"));
+        conn.setHostnameVerifier(org.apache.http.conn.ssl.SSLConnectionSocketFactory.getDefaultHostnameVerifier());
+    }
+
+    static class DelegatingTrust implements X509TrustManager {
+        private final X509TrustManager platform;
+
+        DelegatingTrust(X509TrustManager platform) {
+            this.platform = platform;
+        }
+
+        // The delegate must come from the platform trust store, not a trust-all manager.
+        // ok: traust-java-cryptography-trust-all-tls
+        public void checkServerTrusted(X509Certificate[] chain, String authType) throws java.security.cert.CertificateException {
+            platform.checkServerTrusted(chain, authType);
+        }
+
+        // ok: traust-java-cryptography-trust-all-tls
+        public void checkClientTrusted(X509Certificate[] chain, String authType) throws java.security.cert.CertificateException {
+            platform.checkClientTrusted(chain, authType);
+        }
+
+        public X509Certificate[] getAcceptedIssuers() { return platform.getAcceptedIssuers(); }
     }
 }

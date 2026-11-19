@@ -1,5 +1,7 @@
 package rules
 
+import "net/url"
+
 // The fixture only needs to parse — `prometheus.Labels{...}` and the
 // metric calls are matched by shape, not by import resolution.
 
@@ -31,11 +33,19 @@ func urlLabels(h urlShim, level levelShim, statusCode string) {
 	// ruleid: traust-go-secrets-management-credential-in-metric-label
 	counter.WithLabelValues(h.String(), statusCode)
 
-	// fixed shape: Redacted() masks the password — no longer matches
+	// Matching boundary only: Redacted() masks a userinfo password, not
+	// usernames or tokens carried in query parameters.
 	// ok: traust-go-secrets-management-credential-in-metric-label
 	counter.WithLabelValues(h.Redacted(), statusCode)
 
 	// non-URL Stringer receivers are out of the name-constrained shape
 	// ok: traust-go-secrets-management-credential-in-metric-label
 	gauge.WithLabelValues(level.String())
+}
+
+func hostLabels(h *url.URL, statusCode string) {
+	// A hostname-only label drops userinfo, path and query credential material.
+	// The hostname itself must still be appropriate for metrics publication.
+	// ok: traust-go-secrets-management-credential-in-metric-label
+	counter.WithLabelValues(h.Hostname(), statusCode)
 }

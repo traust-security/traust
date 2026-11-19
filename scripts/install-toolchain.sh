@@ -6,6 +6,7 @@
 #   ./scripts/install-toolchain.sh secure-container-audit
 #   ./scripts/install-toolchain.sh local-ops
 #   ./scripts/install-toolchain.sh --all
+#   ./scripts/install-toolchain.sh --tool opengrep
 #
 # This script installs the actual binaries. It is the "one command" the
 # opinionated toolchain stance promises. After running, `toolchain doctor`
@@ -16,6 +17,7 @@
 # source of truth — the same pins Containerfile.tools consumes). No third-party
 # package manager or package index sits in between. Where upstream publishes
 # a checksum file, the download is verified against it before install.
+# Opengrep uses pinned SHA-256 values from official release-asset metadata.
 #
 # Requires: bash, curl, tar. Uses brew (macOS) or dnf/apt (Linux) only for
 # the tools upstream does not ship as a standalone binary (skopeo, yara,
@@ -102,6 +104,7 @@ fail()  { echo -e "  ${RED}✗${NC} $1"; }
 usage() {
   echo "Usage: $0 <profile> [--dry-run]"
   echo "       $0 --all [--dry-run]"
+  echo "       $0 --tool opengrep [--dry-run]"
   echo ""
   echo "Profiles: $(profile_names)"
   exit 1
@@ -182,21 +185,47 @@ install_bin() {
 # --- Installers per tool (direct upstream downloads) ---
 
 install_opengrep() {
-  if command -v opengrep &>/dev/null; then ok "opengrep already installed"; return; fi
-  local v asset tmp
+  local v asset expected actual tmp
   v="$(pin_for opengrep)"
+  # Official release-asset `digest` metadata, pinned with the asset/version:
+  # https://api.github.com/repos/opengrep/opengrep/releases/tags/v1.25.0
+  # A version bump must record new official digests before it can install.
+  case "$v/$OS/$ARCH" in
+    1.25.0/darwin/arm64)
+      asset="opengrep_osx_arm64"
+      expected="3543fcabae9db2ae5bc974a3b75426353f0a3e369181b2157ef27f46867996c8" ;;
+    1.25.0/darwin/amd64)
+      asset="opengrep_osx_x86"
+      expected="fa2487b75527be1cc9ae4f9b0cb09a340454e7973c76785568285cbbcd977cb4" ;;
+    1.25.0/linux/arm64)
+      asset="opengrep_manylinux_aarch64"
+      expected="fd40124272d006082a5594b19aecee07b01dd50933d8add7a4fd5c557d2be5f6" ;;
+    1.25.0/linux/amd64)
+      asset="opengrep_manylinux_x86"
+      expected="9ac4aebb47ba3f7b0d8fc641ac8749cb6c2f253f616131a67d9631e00d4bea33" ;;
+    *)
+      echo "FATAL: no verified opengrep asset for v$v on $OS/$ARCH" >&2
+      return 1 ;;
+  esac
+  if [[ -x "$BIN_DIR/opengrep" ]] && [[ "$(sha256_of "$BIN_DIR/opengrep")" == "$expected" ]]; then
+    ok "opengrep v$v already installed and checksum verified"
+    return
+  fi
   info "Installing opengrep v$v..."
   if [[ "$DRY_RUN" == "true" ]]; then warn "dry-run: would install opengrep v$v"; return; fi
-  case "$OS/$ARCH" in
-    darwin/arm64) asset="opengrep_osx_arm64" ;;
-    darwin/amd64) asset="opengrep_osx_x86" ;;
-    linux/arm64)  asset="opengrep_manylinux_aarch64" ;;
-    linux/amd64)  asset="opengrep_manylinux_x86" ;;
-  esac
   tmp="$(mktemp)"
-  # Upstream publishes no checksum file for opengrep; the pinned version and
-  # TLS-only fetch from the release URL are the guarantee here.
-  fetch "https://github.com/opengrep/opengrep/releases/download/v${v}/${asset}" "$tmp"
+  if ! fetch "https://github.com/opengrep/opengrep/releases/download/v${v}/${asset}" "$tmp"; then
+    rm -f "$tmp"
+    return 1
+  fi
+  actual="$(sha256_of "$tmp")"
+  if [[ "$actual" != "$expected" ]]; then
+    rm -f "$tmp"
+    echo "FATAL: checksum mismatch for $asset" >&2
+    echo "  expected $expected" >&2
+    echo "  got      $actual" >&2
+    return 1
+  fi
   install_bin "$tmp" opengrep
   rm -f "$tmp"
   ok "opengrep installed to $BIN_DIR"
@@ -377,18 +406,26 @@ populate_dbs() {
 
 DRY_RUN="false"
 PROFILE=""
+TOOL=""
 
-for arg in "$@"; do
-  case "$arg" in
+while [[ $# -gt 0 ]]; do
+  case "$1" in
     --dry-run) DRY_RUN="true" ;;
     --all)     PROFILE="__all__" ;;
+    --tool)
+      [[ $# -ge 2 ]] || { echo "Missing value for --tool" >&2; usage; }
+      TOOL="$2"
+      [[ "$TOOL" == "opengrep" ]] || { echo "Unsupported --tool: $TOOL" >&2; usage; }
+      shift ;;
     --help|-h) usage ;;
-    -*)        echo "Unknown flag: $arg"; usage ;;
-    *)         PROFILE="$arg" ;;
+    -*)        echo "Unknown flag: $1"; usage ;;
+    *)         PROFILE="$1" ;;
   esac
+  shift
 done
 
-[[ -z "$PROFILE" ]] && usage
+[[ -n "$PROFILE" || -n "$TOOL" ]] || usage
+[[ -z "$PROFILE" || -z "$TOOL" ]] || { echo "--tool cannot be combined with a profile" >&2; usage; }
 
 detect_platform
 echo ""
@@ -398,7 +435,10 @@ echo -e "Pins:     $TOOLS_YAML"
 echo -e "Bin dir:  $BIN_DIR"
 echo ""
 
-if [[ "$PROFILE" == "__all__" ]]; then
+if [[ -n "$TOOL" ]]; then
+  tools="$TOOL"
+  info "Tool: $TOOL"
+elif [[ "$PROFILE" == "__all__" ]]; then
   # Deduplicate across all profiles
   all_tools=""
   for p in $(profile_names); do

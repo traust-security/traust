@@ -35,6 +35,13 @@ class BadgeForm(ModelForm):
         fields = "__all__"
 
 
+class RestrictedBadgeForm(ModelForm):
+    class Meta:
+        model = object
+        # ok: traust-python-mass-assignment-model-all-fields
+        fields = ["label"]
+
+
 class BadgeSerializer(serializers.ModelSerializer):
     class Meta:
         model = object

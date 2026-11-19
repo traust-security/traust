@@ -3,10 +3,10 @@ rules:
     languages: [go]
     severity: ERROR
     message: >-
-      Request-derived value reaches a filesystem operation — "../" sequences
-      in the parameter walk outside the intended directory. Canonicalize and
-      containment-check (or use filepath.Base / securejoin) before opening.
-      CWE-22.
+      A request-derived value reaches a filesystem path argument.
+      Confirm whether traversal escapes an intended root and whether a
+      guard, symlink policy or authorization check applies. Basename
+      extraction alone does not establish those properties. CWE-22.
     metadata:
       cwe: ["CWE-22"]
       category: path-traversal
@@ -27,22 +27,25 @@ rules:
       - pattern: filepath.Base(...)
       - pattern: securejoin.SecureJoin(...)
     pattern-sinks:
-      - pattern-either:
-          - pattern: os.Open(...)
-          - pattern: os.ReadFile(...)
-          - pattern: os.Create(...)
-          - pattern: os.WriteFile(...)
-          - pattern: os.Remove(...)
-          - pattern: http.ServeFile($W, $R, ...)
+      - patterns:
+          - pattern-either:
+              - pattern: os.Open($P)
+              - pattern: os.ReadFile($P)
+              - pattern: os.Create($P)
+              - pattern: os.WriteFile($P, ...)
+              - pattern: os.Remove($P)
+              - pattern: http.ServeFile($W, $R, $P)
+          - focus-metavariable: $P
 
   - id: traust-go-path-traversal-tar-slip
     languages: [go]
     severity: WARNING
     message: >-
-      Archive entry name joined into a destination path — a crafted archive
-      with "../" entry names writes outside the extraction directory
-      ("zip/tar slip"). Containment-check the joined path against the
-      destination root before writing. CWE-22.
+      An archive-entry-shaped Name field is joined to a destination.
+      The rule does not establish archive provenance, a subsequent write
+      or a sound containment guard; a strings.HasPrefix exclusion is only
+      syntactic. Verify a separator-bounded root check and symlink policy
+      before extracting untrusted archives. CWE-22.
     metadata:
       cwe: ["CWE-22"]
       category: path-traversal

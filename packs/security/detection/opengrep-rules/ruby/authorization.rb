@@ -9,6 +9,8 @@ class NotebooksController < ApplicationController
   end
 
   def edit
+    # Keep the same user-owned relation as index; foreign IDs cannot resolve.
+    # ok: traust-ruby-authorization-unscoped-find-beside-scoped
     @notebook = current_user.notebooks.find(params[:id])
   end
 
@@ -46,6 +48,7 @@ class MembersController < ApplicationController
 end
 
 class TagsController < ApplicationController
+  # Scope boundary only: no scoped sibling is not proof this lookup is authorized.
   def show
     # ok: traust-ruby-authorization-unscoped-find-beside-scoped
     @tag = Tag.find(params[:id])

@@ -3,11 +3,10 @@ rules:
     languages: [go]
     severity: WARNING
     message: >-
-      The request body is decoded straight into a database model and saved
-      (Create, Save or Updates), so a caller can set any field the model has
-      (ids, owner, role, flags), not just the ones the endpoint means to
-      change. Bind to a request struct and copy the allowed fields.
-      CWE-915.
+      A request-bound object is passed to a persistence-shaped call.
+      Inspect its writable fields, model hooks and authorization before
+      concluding that callers control protected attributes. Bind to a
+      restricted request struct and copy only allowed fields. CWE-915.
     metadata:
       cwe: ["CWE-915"]
       category: mass-assignment

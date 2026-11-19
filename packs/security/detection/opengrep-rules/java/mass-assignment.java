@@ -29,6 +29,7 @@ class InvoiceController {
 
     @PatchMapping("/invoices/{ref}")
     Invoice rename(@PathVariable Long ref, @RequestBody RenameRequest body) {
+        // Authorization for this invoice is a separate requirement.
         Invoice found = invoices.findById(ref).orElseThrow();
         found.label = body.label;
         // ok: traust-java-mass-assignment-request-body-entity
@@ -37,7 +38,10 @@ class InvoiceController {
 
     @PostMapping("/drafts")
     Invoice draft(@RequestBody InvoiceDto body) {
+        // Explicitly select writable fields instead of relying on an opaque mapper.
+        Invoice draft = new Invoice();
+        draft.label = body.label;
         // ok: traust-java-mass-assignment-request-body-entity
-        return invoices.save(body.toEntity());
+        return invoices.save(draft);
     }
 }

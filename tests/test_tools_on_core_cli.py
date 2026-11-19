@@ -63,15 +63,20 @@ def test_opengrep_refusals_keep_their_exit_codes(
     assert message in capsys.readouterr().err
 
 
-def test_opengrep_without_json_or_in_time_is_exit_1(tmp_path: Path, bindir: Path, capsys) -> None:
+@pytest.mark.parametrize("failure", [RuntimeError("invalid scanner output"), TimeoutError()])
+def test_opengrep_engine_failures_exit_1_without_writing_a_report(
+    tmp_path: Path, bindir: Path, monkeypatch: pytest.MonkeyPatch, failure: Exception
+) -> None:
     target = tmp_path / "repo"
     target.mkdir()
-    fake(bindir, "opengrep", "print('not json')")
-    assert adapters.call_opengrep(opengrep_args(target, rules=[str(target)])) == 1
-    assert "opengrep produced no JSON" in capsys.readouterr().err
-    fake(bindir, "opengrep", "import time; time.sleep(5)")
-    assert adapters.call_opengrep(opengrep_args(target, rules=[str(target)], timeout=1)) == 1
-    assert "opengrep timed out after 1s" in capsys.readouterr().err
+    fake(bindir, "opengrep", "raise AssertionError('the Core boundary is replaced')")
+
+    def fail(*args, **kwargs):
+        raise failure
+
+    monkeypatch.setattr(adapters, "opengrep_report", fail)
+    assert adapters.call_opengrep(opengrep_args(target, timeout=1)) == 1
+    assert not (tmp_path / "og.json").exists()
 
 
 def yara_args(target: Path, **kw) -> SimpleNamespace:
@@ -239,3 +244,53 @@ def test_the_doctor_checks_each_profile_tool_on_the_core_toolchain(
     assert "issue(s) found" in out
     assert toolchain.main(["doctor", "--profile", "nope"]) == 1
     assert "Available profiles:" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("dry_run", [False, True])
+def test_setup_one_tool_delegates_only_that_tool_to_the_installer(
+    tmp_path: Path, monkeypatch, dry_run: bool
+) -> None:
+    installer = tmp_path / "install-toolchain.sh"
+    installer.write_text("#!/bin/sh\nexit 0\n")
+    calls = []
+
+    def run(command):
+        calls.append(command)
+        return SimpleNamespace(returncode=17)
+
+    monkeypatch.setattr(toolchain, "INSTALL_SCRIPT", installer)
+    monkeypatch.setattr(toolchain.subprocess, "run", run)
+    args = ["setup", "--tool", "opengrep"]
+    if dry_run:
+        args.append("--dry-run")
+    assert toolchain.main(args) == 17
+    expected = ["bash", str(installer), "--tool", "opengrep"]
+    if dry_run:
+        expected.append("--dry-run")
+    assert calls == [expected]
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        ["setup"],
+        ["setup", "--tool", "unknown"],
+        ["setup", "--tool", "opengrep", "--profile", "vuln-scan"],
+    ],
+)
+def test_setup_rejects_missing_unknown_or_ambiguous_selection(monkeypatch, args) -> None:
+    def unexpected_load(*_args):
+        pytest.fail("invalid selection must fail before loading deployment context")
+
+    monkeypatch.setattr(toolchain, "load", unexpected_load)
+    with pytest.raises(SystemExit) as error:
+        toolchain.main(args)
+    assert error.value.code == 2
+
+
+def test_setup_one_tool_fails_when_the_verified_installer_is_missing(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    monkeypatch.setattr(toolchain, "INSTALL_SCRIPT", tmp_path / "missing")
+    assert toolchain.main(["setup", "--tool", "opengrep"]) == 1
+    assert "installer is missing" in capsys.readouterr().err

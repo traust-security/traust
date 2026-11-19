@@ -12,6 +12,13 @@ install_tools() {
 
   # ok: traust-bash-supply-chain-curl-pipe-shell
   curl -s https://api.example.com/status | jq .state
+
+  # Fixed download/verify/execute flow. The digest must be independently
+  # trusted; downloading an untrusted checksum alongside the script is not enough.
+  # ok: traust-bash-supply-chain-curl-pipe-shell
+  curl -sSfL -o "$INSTALLER" "https://get.example.io/v1.2.3/install.sh" &&
+    printf '%s  %s\n' "$PINNED_INSTALLER_SHA256" "$INSTALLER" | sha256sum -c - &&
+    sh "$INSTALLER"
 }
 
 # --- traust-bash-regression-codecov-uploader-latest ---

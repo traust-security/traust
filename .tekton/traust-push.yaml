@@ -164,6 +164,46 @@ spec:
       workspaces:
       - name: basic-auth
         workspace: git-auth
+    # Mandatory source-quality gate: deliberately independent of skip-checks.
+    # Fetch the exact commit resolved by the trusted clone task, never a branch.
+    - name: opengrep-quality
+      params:
+      - name: SOURCE_URL
+        value: $(tasks.clone-repository.results.url)
+      - name: SOURCE_REVISION
+        value: $(tasks.clone-repository.results.commit)
+      runAfter:
+      - clone-repository
+      taskSpec:
+        params:
+        - name: SOURCE_URL
+          type: string
+        - name: SOURCE_REVISION
+          type: string
+        steps:
+        - name: check-rules
+          image: ghcr.io/astral-sh/uv:0.9.5-python3.12-bookworm@sha256:19a8c92b461bbc32e8bd30c15132cec1d16c49c61f4359c9225262938485f513
+          env:
+          - name: SOURCE_URL
+            value: $(params.SOURCE_URL)
+          - name: SOURCE_REVISION
+            value: $(params.SOURCE_REVISION)
+          script: |
+            #!/usr/bin/env bash
+            set -euo pipefail
+            [[ "$SOURCE_URL" =~ ^https:// ]]
+            [[ "$SOURCE_REVISION" =~ ^[0-9a-f]{40}$ ]]
+            export GIT_ALLOW_PROTOCOL=https
+            export UV_CACHE_DIR=/tmp/uv-cache
+            export PATH="$HOME/.local/bin:$PATH"
+            source_dir="$(mktemp -d)"
+            git -c core.hooksPath=/dev/null init "$source_dir"
+            cd "$source_dir"
+            git -c core.hooksPath=/dev/null fetch --depth=1 "$SOURCE_URL" "$SOURCE_REVISION"
+            git -c core.hooksPath=/dev/null checkout --detach FETCH_HEAD
+            uv sync --frozen
+            uv run python -m traust.cli admin toolchain setup --tool opengrep
+            uv run python -m traust.cli sweep check-rules packs/security/detection/opengrep-rules
     - name: prefetch-dependencies
       params:
       - name: input
@@ -236,6 +276,7 @@ spec:
         value: $(tasks.prefetch-dependencies.results.PREFETCH_ARTIFACT)
       runAfter:
       - prefetch-dependencies
+      - opengrep-quality
       taskRef:
         params:
         - name: name

@@ -27,4 +27,17 @@ class OpsChains {
             .requestMatchers(EndpointRequest.toAnyEndpoint()).hasRole("OPS"));
         return http.build();
     }
+
+    SecurityFilterChain legacyOpen(HttpSecurity http) throws Exception {
+        // ruleid: traust-java-data-exposure-actuator-permit-all
+        http.requestMatcher(EndpointRequest.toAnyEndpoint()).authorizeRequests().anyRequest().permitAll();
+        return http.build();
+    }
+
+    SecurityFilterChain legacyProtected(HttpSecurity http) throws Exception {
+        // Matching the same endpoints is safe when authorization requires an operator.
+        // ok: traust-java-data-exposure-actuator-permit-all
+        http.requestMatcher(EndpointRequest.toAnyEndpoint()).authorizeRequests().anyRequest().hasRole("OPS");
+        return http.build();
+    }
 }

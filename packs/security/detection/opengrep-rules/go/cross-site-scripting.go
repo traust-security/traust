@@ -31,3 +31,9 @@ func render(note Note) template.HTML {
 	// ok: traust-go-xss-template-trusted-type
 	return template.HTML(markdown.Render(note.Body))
 }
+
+func escapedPreview(w http.ResponseWriter, r *http.Request) {
+	// The same untrusted snippet stays ordinary data for contextual escaping.
+	// ok: traust-go-xss-template-trusted-type
+	page.Execute(w, map[string]any{"Snippet": r.FormValue("snippet")})
+}

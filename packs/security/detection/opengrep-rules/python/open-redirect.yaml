@@ -27,14 +27,22 @@ rules:
           - pattern: request.POST.get(...)
           - pattern: $REQ.query_params.get(...)
           - pattern: $REQ.query_params[...]
-    # query-string building keeps the value in the query, so the host stays fixed
+    # Boolean validators sanitize the target only in their successful branch.
+    # Calling a validator and ignoring its result does not validate the URL.
     pattern-sanitizers:
+      - patterns:
+          - pattern-inside: |
+              if url_has_allowed_host_and_scheme($URL, allowed_hosts=$HOSTS, ...):
+                  ...
+          - pattern: $URL
+      - patterns:
+          - pattern-inside: |
+              if is_safe_url($URL, allowed_hosts=$HOSTS, ...):
+                  ...
+          - pattern: $URL
       - pattern-either:
-          - pattern: url_has_allowed_host_and_scheme(...)
-          - pattern: is_safe_url(...)
           - pattern: url_for(...)
           - pattern: urlencode(...)
-          - pattern: quote(...)
           - pattern: quote_plus(...)
           - patterns:
               - pattern: $FMT % $X

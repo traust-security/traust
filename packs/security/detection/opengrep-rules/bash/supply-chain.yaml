@@ -29,11 +29,11 @@ rules:
     languages: [bash]
     severity: ERROR
     message: >-
-      Codecov uploader fetched from the mutable "latest" channel with no
-      digest verification — the 2021 uploader compromise was exactly this
-      shape: whoever controls the channel runs code in CI with the repo's
-      secrets. Pin a released version and verify the published SHASUM, or
-      use the codecov GitHub Action. CWE-494.
+      A Codecov uploader "latest" URL occurs in this file. This mutable
+      channel is a supply-chain review signal, not proof that the download
+      is executed or lacks a separately enforced digest check. Pin a
+      released version and verify an independently trusted digest before
+      execution. CWE-494.
     metadata:
       cwe: ["CWE-494"]
       category: supply-chain

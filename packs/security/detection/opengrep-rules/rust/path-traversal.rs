@@ -31,3 +31,18 @@ fn load_default() -> Vec<u8> {
     // ok: traust-rust-path-traversal-request-taint
     std::fs::read("/etc/collector/defaults.toml").unwrap_or_default()
 }
+
+fn save_content(req: &StoreFileRequest) -> Result<()> {
+    // Request-controlled content is not a request-controlled destination.
+    // ok: traust-rust-path-traversal-request-taint
+    fs::write("/srv/uploads/current.bin", &req.content)?;
+    Ok(())
+}
+
+async fn sanitized_upload(Path(name): Path<String>) -> Vec<u8> {
+    let only = sanitize_filename::sanitize(&name);
+    // Assumes a trusted upload directory; sanitizer matching does not prove
+    // authorization, symlink safety, or freedom from overwrite collisions.
+    // ok: traust-rust-path-traversal-request-taint
+    std::fs::read(PathBuf::from(UPLOADS).join(only)).unwrap_or_default()
+}

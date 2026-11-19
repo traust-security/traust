@@ -1,4 +1,5 @@
 from flask import redirect, request
+from urllib.parse import quote
 
 
 @app.route("/login/done")
@@ -28,7 +29,7 @@ def safe_done(request):
     nxt = request.GET.get("next")
     if url_has_allowed_host_and_scheme(nxt, allowed_hosts={request.get_host()}):
         # ok: traust-python-open-redirect-taint
-        return HttpResponseRedirect("/home")
+        return HttpResponseRedirect(nxt)
 
 
 def legacy_search(request):
@@ -38,3 +39,15 @@ def legacy_search(request):
     # ok: traust-python-open-redirect-taint
     return redirect(search_url)
 
+
+def unchecked_done(request):
+    nxt = request.GET.get("next")
+    url_has_allowed_host_and_scheme(nxt, allowed_hosts={request.get_host()})
+    # ruleid: traust-python-open-redirect-taint
+    return HttpResponseRedirect(nxt)
+
+
+def quoted_done(request):
+    # quote() preserves slashes by default: //other.example remains external.
+    # ruleid: traust-python-open-redirect-taint
+    return redirect(quote(request.GET.get("next")))

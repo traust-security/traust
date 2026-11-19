@@ -25,15 +25,27 @@ opengrep-rules/
 YAML-language rules use `.test.yaml` fixture files because the rule files
 themselves are `.yaml`.
 
-## Running tests
+## Required rule-quality gate
 
-From the traust repo root, with [opengrep](https://github.com/opengrep/opengrep) on `PATH`:
+Before proposing or enabling a rule, run the shared gate with the pinned
+[opengrep](https://github.com/opengrep/opengrep) available on `PATH`:
 
 ```bash
-opengrep test packs/security/detection/opengrep-rules/<lang>
+traust sweep check-rules packs/security/detection/opengrep-rules
 ```
 
-Run every language directory, or target one (`go`, `python`, `yaml`, …).
+For iteration, pass a language directory or your adopter's rule directory.
+Promotion requires checking the complete pack, not just its changed rule or
+the subset selected for scanning.
+
+The gate requires native `opengrep validate` and
+`opengrep test --json --strict` to succeed. Every rule ID must have both
+positive `ruleid:` and negative `ok:` fixture assertions, and actual matches
+must equal the expected matches: unexpected, unannotated matches are failures.
+Missing, unknown or skipped check receipts are not passes. A missing executable,
+native error or incomplete result fails closed; validation cannot be skipped.
+Direct native commands are useful for diagnosis but do not replace the shared
+gate's per-rule coverage and receipt checks.
 
 `opengrep test` evaluates every fixture whose name extends the rule file's
 basename (`data-exposure.nocred.sh` pairs with `data-exposure.yaml`) but
@@ -42,8 +54,19 @@ only. File-level co-occurrence constraints (`pattern-inside: pattern-regex:`
 with an anchored lookahead) scan comments too; fixtures must not name the
 lexicon words they test.
 
-traust's pytest suite also exercises the pack end-to-end when opengrep
-is available:
+Fixtures must represent a vulnerable matching shape and equivalent safe, fixed,
+sanitized or guarded cases. Keep the same relevant input and operation where
+possible; an unrelated no-op is not evidence that a guard works. Never loosen
+annotations or remove valid positives merely to pass.
+
+These checks establish matching behavior, not application exploitability or
+business/security requirements. A reviewer must inspect framework/version
+semantics, input control, guard strength, authorization, deployment settings and
+the consequences of a match. File-level text co-occurrence and name-based
+heuristics do not prove those properties.
+
+Traust's pytest suite also exercises the pack end-to-end when opengrep is
+available; it supplements, rather than replaces, the mandatory shared gate:
 
 ```bash
 pytest tests/test_default_rule_packs.py -q
@@ -60,7 +83,8 @@ traust impact calibrate-rule-pack traust --scan <assessment-uuid> --scan <assess
 
 Fixture-sanity and live checkout rescans (`--fixtures`, `--rules`, `--limit`)
 are not available: traust-core's detection-quality door scores recorded scans
-only. Keep running `opengrep test` above for the `ruleid:`/`ok:` assertion gate.
+only. Use `traust sweep check-rules <pack-directory>` for the mandatory native
+validation, exact fixture assertions and per-rule positive/negative coverage.
 
 ## Rule conventions
 
@@ -77,6 +101,39 @@ only. Keep running `opengrep test` above for the `ruleid:`/`ok:` assertion gate.
   rules should carry an honest `confidence` tier.
 - **messages:** original wording; framework and standard citations by ID only
   (e.g. SEI CERT rule IDs in `metadata.cert` for Java rules).
+- **semantic scope:** describe what matching establishes and the review still
+  needed; a passing fixture suite is not proof of exploitation or business logic.
+
+## Proposals and adopter supplements
+
+Submit a proposed rule and its annotated examples through the admission door:
+
+```bash
+traust sweep propose-rule --rule <rule.yaml> --example <example.py> \
+  --shape "<uncovered matching shape>" --checkout <source-checkout>
+```
+
+Native validation and strict fixture tests run before admission. Static checks,
+exact expected matches and checkout hit limits must also pass. Engine errors,
+partial scans, unknown coverage, missing/skipped check receipts and unannotated
+extra matches refuse admission; a partial result is not a clean scan.
+Staging is not promotion or a finding verdict. Unauthored skeletons and their
+before/after material are drafts, not an active or validated pack.
+
+Adopters keep deployment-specific rules in their own pack and reuse
+`overrides.rule_pack_allowlist` in `traust.yaml`; there is no separate extension
+setting. See [`rule-pack-allowlist.example.yaml`](../../../../config/rule-pack-allowlist.example.yaml).
+Each enabled pack declares an explicit list of unique rule IDs. Its `source`
+is either a local rule directory (relative paths resolve from the allowlist
+file), with paired native fixtures, or an HTTPS Git repository pinned with
+`@<40-hex-commit-SHA>` using the existing repository `rules/` subtree convention.
+
+Every enabled supplement must pass the same full-pack quality gate, even when
+only some IDs are allowlisted. Unreachable sources, invalid packs, unknown IDs
+or failed validation/tests fail the run rather than silently dropping the
+supplement. To disable a pack, explicitly set its existing `enabled` field to
+`false`; there is no validation bypass.
+
 
 ## Companion gitleaks pack
 

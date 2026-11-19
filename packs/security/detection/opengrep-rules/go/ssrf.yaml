@@ -3,10 +3,11 @@ rules:
     languages: [go]
     severity: ERROR
     message: >-
-      Request-derived value reaches an outbound HTTP call as the URL — the
-      caller can steer server-side requests at internal endpoints (cloud
-      metadata, kubelet, cluster services). Validate against an allowlist
-      before fetching. CWE-918.
+      A request-derived value reaches an outbound-URL argument. Confirm
+      destination control, redirect behavior and network reachability
+      before concluding that internal services are accessible. This
+      raw-string rule excludes parsed URLs; parsing alone is not a security
+      check. Validate destinations and enforce egress policy. CWE-918.
     metadata:
       cwe: ["CWE-918"]
       category: ssrf
@@ -28,19 +29,20 @@ rules:
           # exclusion below instead
           - pattern: $C.Param(...)
           - pattern: $C.Query(...)
-    # values that went through structured URL parsing follow the
-    # parse-then-validate-host idiom; the remaining raw-string flow into
-    # an HTTP sink is the high-precision core of this rule
+    # Deliberate matching boundary, not proof of safety: structured parsing
+    # suppresses this raw-string rule even when no host check follows.
     pattern-sanitizers:
       - pattern: url.Parse(...)
       - pattern: url.ParseRequestURI(...)
     pattern-sinks:
-      - pattern-either:
-          - pattern: http.Get(...)
-          - pattern: http.Post(...)
-          - pattern: http.Head(...)
-          - pattern: http.NewRequest($M, ...)
-          - pattern: http.NewRequestWithContext($CTX, $M, ...)
+      - patterns:
+          - pattern-either:
+              - pattern: http.Get($U)
+              - pattern: http.Post($U, ...)
+              - pattern: http.Head($U)
+              - pattern: http.NewRequest($M, $U, ...)
+              - pattern: http.NewRequestWithContext($CTX, $M, $U, ...)
+          - focus-metavariable: $U
     paths:
       exclude:
         - "*.gen.go"

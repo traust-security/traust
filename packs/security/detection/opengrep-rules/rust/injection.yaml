@@ -3,10 +3,10 @@ rules:
     languages: [rust]
     severity: ERROR
     message: >-
-      SQL text built with format! (inline, or bound to a local first) and
-      run through sqlx, diesel, rusqlite or the postgres client — any
-      interpolated value becomes SQL syntax. Bind values with the driver's
-      placeholders (`$1` / `?`) or the query! macros. CWE-89.
+      SQL text built with format! reaches a database-driver-shaped call.
+      Interpolation becomes SQL syntax if an untrusted value can affect it;
+      the match does not establish input provenance or escaping. Bind values
+      with the driver's placeholders (`$1` / `?`) instead. CWE-89.
     metadata:
       cwe: ["CWE-89"]
       category: injection
@@ -50,10 +50,10 @@ rules:
     languages: [rust]
     severity: ERROR
     message: >-
-      A shell (`sh -c`, `bash -c`, `cmd /C`) runs a command string built
-      with format! — interpolated values become shell syntax. Run the
-      program directly with Command::new(program).arg(value) for each
-      argument. CWE-78.
+      A shell-shaped Command invocation takes a format!-built string.
+      Untrusted, unescaped interpolation can become shell syntax; confirm
+      the executable's flag semantics and input provenance. Prefer running
+      the program directly with separate arguments. CWE-78.
     metadata:
       cwe: ["CWE-78"]
       category: injection

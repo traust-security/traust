@@ -51,7 +51,6 @@ rules:
           - pattern: path.basename(...)
           - pattern: basename(...)
           - pattern: sanitizeFilename(...)
-          - pattern: sanitize(...)
     pattern-sinks:
       - patterns:
           - pattern-either:

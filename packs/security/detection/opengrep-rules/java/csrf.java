@@ -41,6 +41,9 @@ class WebChains {
 
     @Bean
     SecurityFilterChain kept(HttpSecurity http) throws Exception {
+        // Keep the default CSRF protection on the session-authenticated chain.
+        // ok: traust-java-csrf-disabled-with-session-login
+        http.csrf(c -> {});
         http.formLogin(f -> {});
         return http.build();
     }

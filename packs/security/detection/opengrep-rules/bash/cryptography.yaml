@@ -3,13 +3,12 @@ rules:
     languages: [bash]
     severity: INFO
     message: >-
-      cosign artifact signing in a release/CI path — sigstore signatures
-      are ECDSA-based (classical, Shor-vulnerable) and release artifacts
-      carry multi-year verification lifetimes, which makes this
-      harvest-now/verify-later relevant under the NIST IR 8547 2035
-      transition. Not a defect today: inventory it, tag the finding
-      pqc_classification=shor-signature, and track the sigstore PQC
-      roadmap. CWE-327.
+      A cosign signing, attestation or key-generation command occurs.
+      Inventory the actual key algorithm and artifact verification
+      lifetime for the post-quantum transition; the command alone does
+      not establish an ECDSA key, CI/release use, or a multi-year lifetime.
+      This inventory signal is not a present-day defect. Tag applicable
+      classical signatures pqc_classification=shor-signature. CWE-327.
     metadata:
       cwe: ["CWE-327"]
       category: cryptography

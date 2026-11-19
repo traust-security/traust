@@ -3,9 +3,10 @@ rules:
     languages: [go]
     severity: ERROR
     message: >-
-      TLS certificate verification disabled — every connection through this
-      config accepts any certificate, so an on-path attacker can read or
-      rewrite the traffic. Pin the expected CA instead. CWE-295.
+      Go's built-in TLS certificate checks are disabled. Inspect any
+      VerifyConnection or VerifyPeerCertificate callback before concluding
+      that arbitrary certificates are accepted. Prefer normal verification
+      with the expected CA configured. CWE-295.
     metadata:
       cwe: ["CWE-295"]
       category: cryptography
@@ -67,12 +68,12 @@ rules:
     languages: [go]
     severity: INFO
     message: >-
-      sigstore/cosign signing library imported — signatures are ECDSA-based
-      (classical, Shor-vulnerable) and artifact signatures carry multi-year
-      verification lifetimes (NIST IR 8547: classical PK disallowed after
-      2035). Not a defect today: inventory it, tag the finding
-      pqc_classification=shor-signature, and track the sigstore PQC
-      roadmap. CWE-327.
+      A quoted sigstore/cosign package path occurs, including possible
+      comments. Confirm the actual import, signing use, key algorithm and
+      artifact verification lifetime before assigning post-quantum risk.
+      This inventory signal is not a present-day defect. Tag applicable
+      classical signatures pqc_classification=shor-signature and track
+      the ecosystem's transition. CWE-327.
     metadata:
       cwe: ["CWE-327"]
       category: cryptography
@@ -113,12 +114,11 @@ rules:
     languages: [go]
     severity: WARNING
     message: >-
-      Secret material (a token, password, digest, signature, MAC or API
-      key) is compared with == / != / bytes.Equal — the comparison returns
-      at the first differing byte, so timing reveals how much of a guessed
-      value was correct. Use subtle.ConstantTimeCompare or hmac.Equal.
-      Confirm the operand really is secret: names are a heuristic.
-      CWE-208.
+      A secret-shaped name is compared with == / != / bytes.Equal.
+      These operations do not promise constant-time secret comparison;
+      the match does not establish operand secrecy or an observable timing
+      attack. Confirm the values and use subtle.ConstantTimeCompare or
+      hmac.Equal for secret material. CWE-208.
     metadata:
       cwe: ["CWE-208"]
       category: cryptography

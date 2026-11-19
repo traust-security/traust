@@ -2,6 +2,7 @@ package rules
 
 import (
 	"crypto/md5"
+	cryptorand "crypto/rand"
 	"crypto/sha1"
 	"crypto/sha256"
 	"crypto/tls"
@@ -40,6 +41,13 @@ func randomness() {
 	// ok: traust-go-cryptography-math-rand-secret
 	jitterMillis := rand.Intn(500)
 	_ = jitterMillis
+}
+
+func secureToken() ([]byte, error) {
+	sessionToken := make([]byte, 32)
+	// ok: traust-go-cryptography-math-rand-secret
+	_, err := cryptorand.Read(sessionToken)
+	return sessionToken, err
 }
 
 func dsn() {

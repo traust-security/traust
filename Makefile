@@ -1,5 +1,6 @@
 .PHONY: help install test doctor setup update-vuln-dbs build-image build-tools-image lint lint-fix hooks sync
 .PHONY: skillsaw-lint skillsaw-fix skillsaw-badge
+.PHONY: check-rules
 .PHONY: ops-up ops-down ops-reset ops-run ops-claim ops-approve ops-approve-all ops-sh ops-scan ops-smoke ops-doctor
 
 PROFILE    ?= secure-code-audit
@@ -23,6 +24,9 @@ sync: ## Install/sync dependencies (uv)
 
 test: sync ## Run unit tests (parallel via pytest-xdist)
 	uv run pytest tests/ -n auto
+
+check-rules: ## Validate/test authored Opengrep rules (requires pinned opengrep on PATH)
+	uv run python -m traust.cli sweep check-rules packs/security/detection/opengrep-rules
 
 install: ## Set up TRAUST_CONFIG_HOME (scripts/install_traust; pass ARGS="--yes …" for CI)
 	bash scripts/install_traust $(ARGS)

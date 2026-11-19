@@ -135,3 +135,14 @@ func llmDrain(ch chan string) {
 		_ = item
 	}
 }
+
+func llmAllowedAction(resp *llmResponse) *exec.Cmd {
+	switch strings.TrimSpace(resp.Choices[0].Message.Content) {
+	case "uptime":
+		// Model output selects an allow-listed action, never process syntax.
+		// ok: traust-go-llm-application-output-to-exec-taint
+		return exec.Command("uptime")
+	default:
+		return nil
+	}
+}

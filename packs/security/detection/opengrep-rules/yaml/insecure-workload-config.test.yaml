@@ -14,6 +14,11 @@ toggles:
   allowAnonymous: "yes"
   # ok: traust-yaml-insecure-workload-config-auth-disabled
   disableAuth2: false
+  secured:
+    # ok: traust-yaml-insecure-workload-config-auth-disabled
+    disableAuth: false
+    # ok: traust-yaml-insecure-workload-config-auth-disabled
+    allowAnonymous: false
 
 nested:
   # ruleid: traust-yaml-insecure-workload-config-auth-disabled
@@ -22,6 +27,10 @@ nested:
   metrics:
     # ok: traust-yaml-insecure-workload-config-auth-disabled
     enabled: false
+  secured:
+    # ok: traust-yaml-insecure-workload-config-auth-disabled
+    auth:
+      enabled: true
 
 compose_environment:
   # ruleid: traust-yaml-insecure-workload-config-auth-disabled

@@ -6,11 +6,13 @@ One command to get a working toolchain for any profile:
     python3 -m traust.cli.toolchain setup --profile code-audit
     python3 -m traust.cli.toolchain doctor --profile code-audit
     python3 -m traust.cli.toolchain fetch-dbs --profile code-audit
+    python3 -m traust.cli.toolchain setup --tool opengrep
 
 Subcommands:
 
   setup     Install the profile's tools (direct upstream downloads at the
-            pins traust-core ships in external-tools.yaml), then populate DBs.
+            pins traust-core ships in external-tools.yaml), then populate DBs;
+            --tool opengrep installs only its checksum-verified pinned binary.
   doctor    Check every tool: installed? right version? DB present?
             Fail-closed: exits 1 if anything is wrong.
   fetch-dbs Populate vulnerability databases for the given profile.
@@ -67,6 +69,15 @@ def _print_header(text: str) -> None:
 
 
 def cmd_setup(args: argparse.Namespace, core: Context) -> int:
+    tool = getattr(args, "tool", None)
+    if tool is not None:
+        if not INSTALL_SCRIPT.is_file():
+            print(f"ERROR: installer is missing: {INSTALL_SCRIPT}", file=sys.stderr)
+            return 1
+        cmd = ["bash", str(INSTALL_SCRIPT), "--tool", tool]
+        if args.dry_run:
+            cmd.append("--dry-run")
+        return subprocess.run(cmd).returncode
     profile_tools = _profile_tools(args.profile, core)
     if not profile_tools:
         print(f"ERROR: no tools found for profile '{args.profile}'", file=sys.stderr)
@@ -246,9 +257,11 @@ def main(argv=None) -> int:
     # setup
     sp_setup = sub.add_parser(
         "setup",
-        help="Install tools + populate DBs for a profile",
+        help="Install tools + populate DBs for a profile, or install one pinned tool",
     )
-    sp_setup.add_argument("--profile", required=True, help="e.g. secure-code-audit")
+    selection = sp_setup.add_mutually_exclusive_group(required=True)
+    selection.add_argument("--profile", help="e.g. secure-code-audit")
+    selection.add_argument("--tool", choices=["opengrep"], help="install only this pinned tool")
     sp_setup.add_argument("--dry-run", action="store_true", help="show what would be done")
 
     # doctor

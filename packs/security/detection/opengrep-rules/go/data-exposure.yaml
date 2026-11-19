@@ -36,9 +36,10 @@ rules:
     languages: [go]
     severity: WARNING
     message: >-
-      Credential passed as a command-line argument — argv is visible to
-      every process on the node (/proc, ps) and often lands in audit logs.
-      Pass secrets via stdin, a file, or the environment. CWE-214.
+      A credential-shaped flag is passed to a process invocation.
+      Confirm the tool's flag semantics and whether the value is secret;
+      process inspection or audit logging may expose argv. Prefer the
+      tool's stdin or protected credential-file mechanism. CWE-214.
     metadata:
       cwe: ["CWE-214"]
       category: data-exposure

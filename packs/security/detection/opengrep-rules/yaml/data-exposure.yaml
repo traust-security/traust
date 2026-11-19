@@ -4,12 +4,11 @@ rules:
     languages: [yaml]
     severity: WARNING
     message: >-
-      The Spring Boot configuration exposes every actuator endpoint over
-      HTTP, or a sensitive one by name (env, heapdump, threaddump,
-      configprops, beans, mappings, loggers, shutdown, jolokia). They show
-      configuration and secrets, memory contents, or change state. Expose
-      health and info, and anything else only behind an operator role.
-      CWE-200.
+      Spring Boot configuration includes all actuator endpoints or a
+      sensitive endpoint by name. This setting alone does not establish
+      endpoint enablement, effective exclusions, network reachability or
+      authorization. Check the deployed filter chain and expose sensitive
+      endpoints only behind an operator role. CWE-200.
     metadata:
       cwe: ["CWE-200"]
       category: data-exposure
@@ -41,10 +40,10 @@ rules:
     languages: [yaml]
     severity: WARNING
     message: >-
-      Spring Boot error responses always include the stack trace, which
-      shows callers the code paths, library versions and sometimes the data
-      behind a failure. Leave include-stacktrace at never in deployed
-      configuration. CWE-209.
+      Spring Boot configuration requests stack traces in error responses.
+      If effective for a reachable error handler, callers may learn code
+      paths, versions or failure data. Confirm profile/override handling
+      and use include-stacktrace: never in deployed configuration. CWE-209.
     metadata:
       cwe: ["CWE-209"]
       category: data-exposure

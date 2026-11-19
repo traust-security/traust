@@ -71,6 +71,19 @@ def evaluate_formula(question):
     return eval(expression)
 
 
+def parse_formula_operands(question):
+    import json
+
+    msg = claude.messages.create(model="m", max_tokens=100, messages=[{"role": "user", "content": question}])
+    expression = msg.content[0].text
+    # Parse model output as data, then enforce the small arithmetic schema.
+    # ok: traust-python-llm-application-output-to-code-exec-taint
+    operands = json.loads(expression)
+    if not isinstance(operands, list) or len(operands) != 2 or any(type(x) is not int for x in operands):
+        raise ValueError("expected two integers")
+    return operands[0] + operands[1]
+
+
 def ask_database(conn, question):
     reply = client.chat.completions.create(model="m", messages=[{"role": "user", "content": question}])
     sql = reply.choices[0].message.content

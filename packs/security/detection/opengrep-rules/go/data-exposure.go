@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"os/exec"
+	"strings"
 )
 
 // stand-in for k8s.io/klog/v2 so the fixture stays stdlib-only; the rules
@@ -65,4 +66,18 @@ func argv(password string) {
 
 	// ok: traust-go-data-exposure-cred-in-argv
 	exec.Command("psql", "--host", "db.internal")
+}
+
+func argvStdin(password string) *exec.Cmd {
+	// The secret is passed to the tool's documented stdin mechanism, not argv.
+	// ok: traust-go-data-exposure-cred-in-argv
+	cmd := exec.Command("docker", "login", "--username", "bot", "--password-stdin")
+	cmd.Stdin = strings.NewReader(password)
+	return cmd
+}
+
+func redactedLog(apiToken string) {
+	// The event is retained without credential contents.
+	// ok: traust-go-data-exposure-secret-in-log
+	log.Print("authentication completed; credential redacted")
 }
