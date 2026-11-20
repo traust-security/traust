@@ -3,6 +3,7 @@ tool doors: exit codes, the safe-exec bypass and the doctor."""
 
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import stat
@@ -15,7 +16,7 @@ from types import SimpleNamespace
 import pytest
 
 from traust.cli import toolchain
-from traust.cli.groups import adapters, util
+from traust.cli.groups import adapters, sweep, util
 
 
 @pytest.fixture
@@ -37,6 +38,7 @@ def opengrep_args(target: Path, **kw) -> SimpleNamespace:
         "config_home": None,
         "target": str(target),
         "rules": [],
+        "add_rules": [],
         "out": str(target.parent / "og.json"),
         "timeout": 60,
         "rule_allow": None,
@@ -62,6 +64,55 @@ def test_opengrep_refusals_keep_their_exit_codes(
     target.mkdir()
     assert adapters.call_opengrep(opengrep_args(target, **kw)) == code
     assert message in capsys.readouterr().err
+
+
+def test_opengrep_reports_additive_refusals_without_losing_completed_output(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    parser = argparse.ArgumentParser()
+    adapters.add_opengrep_args(parser)
+    args = parser.parse_args([str(tmp_path), "--add-rules", "one", "--add-rules", "two"])
+    assert args.add_rules == ["one", "two"]
+    with pytest.raises(SystemExit):
+        parser.parse_args([str(tmp_path), "--rules", "replace", "--add-rules", "one"])
+    monkeypatch.setattr(adapters.shutil, "which", lambda _: "/test/opengrep")
+    monkeypatch.setattr(adapters, "load", lambda _: object())
+
+    def report(_ctx, _target, _rules, **options):
+        assert options["add_rules"] == ["one", "two"]
+        return {
+            "facts": [{"severity_hint": "low", "rule_id": "baseline"}],
+            "errors": [],
+            "stats": {"files_scanned": 1, "skipped_rules": 0},
+            "rules": [{"source": "baseline"}],
+            "outcome": "degraded",
+            "additive_rules": {"refused": [{"source": "two"}]},
+        }
+
+    monkeypatch.setattr(adapters, "opengrep_report", report)
+    out = tmp_path / "scan.json"
+    assert adapters.call_opengrep(opengrep_args(tmp_path, add_rules=args.add_rules, out=out)) == 0
+    assert "WARNING: degraded" in capsys.readouterr().err
+    assert json.loads(out.read_text())["facts"][0]["rule_id"] == "baseline"
+
+
+def test_intake_emits_receipts_and_fails_when_any_rule_is_refused(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    parser = argparse.ArgumentParser()
+    sweep.add_intake_rules_args(parser)
+    args = parser.parse_args(["adopter"])
+    args.config_home = None
+    monkeypatch.setattr(sweep, "load", lambda _: object())
+    receipts = {"applied": [], "refused": [{"rule_id": "a-rule", "check": "test"}]}
+
+    def report(_ctx, sources, **_options):
+        assert sources == ["adopter"]
+        return receipts
+
+    monkeypatch.setattr(sweep, "opengrep_intake_report", report)
+    assert sweep.call_intake_rules(args) == 1
+    assert json.loads(capsys.readouterr().out) == receipts
 
 
 @pytest.mark.parametrize(
@@ -101,13 +152,14 @@ printf 'PRIVATE_ENGINE_DETAIL' >&2
 """
     behavior = {
         "invalid-output": "printf 'PRIVATE_ENGINE_DETAIL not JSON\\n'",
-        "timeout": "exec sleep 10",
+        "timeout": "exec sleep 30",
         "abnormal-exit": "exit 2",
     }[failure]
     scanner = bindir / "opengrep"
     scanner.write_text(native_receipts + behavior + "\n")
     scanner.chmod(0o755)
-    assert adapters.call_opengrep(opengrep_args(target, rules=[str(rule)], timeout=2)) == 1
+    # Give the real fixture subprocesses time to start; only the scan is meant to time out.
+    assert adapters.call_opengrep(opengrep_args(target, rules=[str(rule)], timeout=10)) == 1
     diagnostic = capsys.readouterr().err
     assert diagnostic.startswith(category + ": ")
     assert diagnostic.partition(": ")[2].strip()

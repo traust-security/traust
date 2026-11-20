@@ -34,11 +34,18 @@ from traust.context import load
 
 def add_opengrep_args(ap) -> None:
     ap.add_argument("target", help="Checkout directory to scan.")
-    ap.add_argument(
+    sources = ap.add_mutually_exclusive_group()
+    sources.add_argument(
         "--rules",
         action="append",
         default=[],
-        help="Rules source with paired fixtures (local path | HTTPS git URL@SHA). Repeatable.",
+        help="Replace the default rules (local path | HTTPS git URL@SHA). Repeatable.",
+    )
+    sources.add_argument(
+        "--add-rules",
+        action="append",
+        default=[],
+        help="Vet and add a rules source (local path | HTTPS git URL@SHA). Repeatable.",
     )
     ap.add_argument("--out", help="Output file (default: <target-basename>-opengrep.json).")
     ap.add_argument(
@@ -80,6 +87,7 @@ def call_opengrep(args) -> int:
             args.rules,
             pack=args.rule_pack,
             rule_allow=args.rule_allow,
+            add_rules=args.add_rules,
             timeout=args.timeout,
             binary=args.opengrep,
         )
@@ -107,6 +115,12 @@ def call_opengrep(args) -> int:
         f"{report['stats']['skipped_rules']} skipped rule(s)"
     )
     print(f"  rules: {', '.join(r['source'] for r in report['rules'])}")
+    if refused := report["additive_rules"]["refused"]:
+        print(
+            f"WARNING: degraded — {len(refused)} additive rule "
+            "refusal(s); see additive_rules.refused in the report",
+            file=sys.stderr,
+        )
     print(f"  report: {out}")
     return 0
 

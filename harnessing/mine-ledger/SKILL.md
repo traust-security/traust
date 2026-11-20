@@ -1,6 +1,6 @@
 ---
 name: mine-ledger
-description: Use when the user asks to mine the disposition ledger for confirmed true positives, build or refresh the rule-calibration corpus, find rule-pack coverage gaps, check per-rule precision, or produce the opengrep rule-authoring backlog — e.g. "mine the ledger", "what TP clusters have no rule", "how precise are the traust rules", "refresh the rule-mining report". Runs out-of-band from audits; audits themselves feed it via structured scanner_correlation entries. Authored rules require the shared native validation and strict fixture gate plus semantic review before promotion. Portfolio/ledger mining remains available; adopter-authored rules are an additional source, not its replacement.
+description: Use when the user asks to mine the disposition ledger for confirmed true positives, build or refresh the rule-calibration corpus, find rule-pack coverage gaps, check per-rule precision, or vet proposed additive OpenGrep rules. Runs out-of-band from audits; audits feed it via structured scanner_correlation entries. Use sweep intake-rules to vet adopter proposals without activating them. Promotion still requires strict native fixtures, semantic review and calibration. Adopter rules do not replace portfolio mining.
 metadata:
   harness.tier: "secondary"
 allowed-tools:
@@ -36,9 +36,9 @@ Adopter-authored rules are an additional input, not a replacement for portfolio/
 Continue `traust sweep mine`, `regression-drafts` and `rule-lane` for the existing
 finding-driven workflow. Portfolio graph/database pre-queries can scope the work; the
 authoritative mining corpus remains Core's recorded findings and confirmed dispositions.
-Adopters can also supply local or pinned-Git rule packs through
-`overrides.rule_pack_allowlist`. Both origins must pass the same native quality gate
-before scanning; configuring an adopter pack does not disable the mining lane.
+Adopters can propose local or pinned-Git rules through [Adopter rule intake](#adopter-rule-intake).
+Configured supplements under `overrides.rule_pack_allowlist` still use their existing
+strict full-pack gate. Neither layer disables the mining lane.
 
 This skill is the out-of-band half of a loop the audits feed by default:
 `/secure-code-audit`'s pre-scan records every promote/dismiss decision as a
@@ -162,6 +162,22 @@ explicit unique rule IDs and paired native fixtures. The entire source pack,
 not only selected IDs, must pass `traust sweep check-rules <path>`.
 Unreachable or invalid enabled supplements fail rather than being skipped;
 there is no validation bypass.
+
+## Adopter rule intake
+
+Run `traust sweep intake-rules <rule-file-or-pack>` on the submitted rules and their
+paired fixtures. Inspect both `applied` and `refused` in the JSON output; the command
+exits 1 if any rule was refused. Intake uses the same static checks, ID collision checks,
+and native validation/strict fixture tests as runtime additions, without scanning
+a target or activating any rules.
+
+Review the rule’s semantics and calibration evidence before promoting it. Put only
+reviewed rules and fixtures in the deployment’s `locations.opengrep_adopter_rules`
+directory. Never point it at the draft staging directory. A caller can also request
+an additive scan with `traust adapters opengrep <checkout> --add-rules <source>`.
+Each run checks the actual rule bytes again. Refused rules (including language
+mismatches) do not run; the report is degraded and keeps baseline and supplement
+facts. Neither an intake receipt nor a match is a finding verdict.
 
 ## Class-generalization sweeps (plan §6, Phase 4)
 

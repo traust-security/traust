@@ -127,3 +127,44 @@ def test_invalid_enabled_adopter_pack_refuses_the_scan_instead_of_losing_coverag
     result = run_cli(env, "adapters", "opengrep", str(target), "--out", str(output))
     assert result.returncode != 0
     assert not output.exists()
+
+
+def test_intake_and_runtime_use_the_same_gate_and_keep_the_configured_addition(
+    tmp_path: Path,
+) -> None:
+    rule_pack(tmp_path / "adopter", "example.adopter")
+    valid = rule_pack(tmp_path / "valid", "example.runtime")
+    invalid = rule_pack(tmp_path / "invalid", "example.untested")
+    (invalid / "policy.py").unlink()
+    _, env = environment(tmp_path, {"locations": {"opengrep_adopter_rules": "../adopter"}})
+
+    intake = run_cli(env, "sweep", "intake-rules", str(valid), str(invalid))
+    assert intake.returncode == 1, intake.stderr
+    verdict = json.loads(intake.stdout)
+    assert [r["rule_id"] for r in verdict["applied"]] == ["example.runtime"]
+    assert [r["rule_id"] for r in verdict["refused"]] == ["example.untested"]
+
+    target = tmp_path / "target"
+    target.mkdir()
+    (target / "app.py").write_text("acme_unsafe(value)\nacme_safe(value)\n")
+    output = tmp_path / "facts.json"
+    scan = run_cli(
+        env,
+        "adapters",
+        "opengrep",
+        str(target),
+        "--out",
+        str(output),
+        "--add-rules",
+        str(valid),
+        "--add-rules",
+        str(invalid),
+    )
+    assert scan.returncode == 0, scan.stderr
+    report = json.loads(output.read_text())
+    assert report["outcome"] == "degraded"
+    assert report["additive_rules"]["refused"] == verdict["refused"]
+    assert {f["rule_id"] for f in report["facts"] if f["origin"].startswith("additive:")} == {
+        "example.adopter",
+        "example.runtime",
+    }

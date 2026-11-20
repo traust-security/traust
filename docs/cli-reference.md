@@ -47,7 +47,7 @@ python3 -m traust.cli check skill-alignment      # equivalent
 | `session` | Headless skill sessions and artifact-only task preparation/recording | `prepare`, `record`, `run` |
 | `tools` | One door over traust-core's tool registry: each registered tool's readiness, version and database; one tool over a checkout, SBOM, image or symbols, its typed result as JSON | `list`, `run` |
 | `triage` | The triage skill's doors on traust-core | `check`, `intake`, `prepare`, `record`, `render` |
-| `sweep` | Class-generalization sweep, detection-quality reports, human-gated CVE replay and recall-benchmark answer keys | `benchmark`, `benchmark-targets`, `bootstrap-benchmark`, `build-canaries`, `cards`, `check-rules`, `collect`, `compliance-precision`, `critical-misses`, `cve-replay`, `draft`, `emit`, `mine`, `propose-rule`, `regression-drafts`, `rule-lane`, `score-benchmark`, `screen-injection`, `sweep`, `verify-draft` |
+| `sweep` | Class-generalization sweep, detection-quality reports, human-gated CVE replay and recall-benchmark answer keys | `benchmark`, `benchmark-targets`, `bootstrap-benchmark`, `build-canaries`, `cards`, `check-rules`, `collect`, `compliance-precision`, `critical-misses`, `cve-replay`, `draft`, `emit`, `intake-rules`, `mine`, `propose-rule`, `regression-drafts`, `rule-lane`, `score-benchmark`, `screen-injection`, `sweep`, `verify-draft` |
 | `util` | Utility commands | `elf`, `redact`, `safe-exec` |
 | `validation` | Core-backed machine validation evidence | `prepare`, `plan`, `record` |
 
@@ -205,6 +205,15 @@ they do not replace mining, regression-draft authoring or scheduled rule-lane ru
   Missing/unknown/skipped receipts, native errors and unannotated extra matches
   fail; direct native commands alone do not replace its coverage checks.
   Check the complete pack before promotion, not only selected rule IDs.
+- `traust sweep intake-rules <source>...` runs the additive gate without a target
+  or activation. It emits per-rule JSON receipts and exits 1 if any rule is refused.
+- `traust adapters opengrep <checkout> --add-rules <source>` is repeatable and
+  preserves the default pack and enabled supplements. Sources are local rule files
+  or directories with fixtures, or HTTPS Git sources pinned to a commit SHA.
+  Set `locations.opengrep_adopter_rules` to a reviewed local directory to include it
+  in default facts scans. `--rules` is an exclusive replacement and cannot be combined
+  with `--add-rules`. Read `outcome` and `additive_rules.refused` in the facts report:
+  exit 0 means the report was written, not that all optional coverage was available.
 - `traust sweep propose-rule --rule <rule.yaml> --example <example.py> --shape "<shape>" --checkout <dir>`
   stages a proposal only after static checks, mandatory native validation/tests,
   exact fixture matches and checkout hit limits pass. Engine-error partial scans

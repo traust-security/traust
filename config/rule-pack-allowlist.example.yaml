@@ -24,7 +24,8 @@
 # Semantic review and recorded-scan calibration remain necessary. Precision
 # accrues afterwards from scanner_correlation and is re-checked by the lane.
 #
-# Reuse overrides.rule_pack_allowlist; no additional extension setting is needed.
+# This policy is for fail-closed supplements. Optional additions can use
+# locations.opengrep_adopter_rules or --add-rules instead (degraded on refusal).
 # source accepts a local rule directory (relative to THIS allowlist file, with
 # paired native fixtures), or HTTPS Git pinned as URL@<40-hex-commit-SHA>.
 # Git sources retain the repository's rules/ subtree convention.

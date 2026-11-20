@@ -112,8 +112,10 @@ Rule origins are additive:
 - **Portfolio/ledger mining:** `traust sweep mine` retains the finding-driven coverage and
   authoring backlog. `regression-drafts` supplies fix pairs and `rule-lane` retains scheduled
   mining/sweep operations; see the [mining skill](../../../../harnessing/mine-ledger/SKILL.md).
-- **Adopter-authored rules:** deployment-specific rules can also be supplied in local or
-  pinned-Git packs through `overrides.rule_pack_allowlist`. This does not disable mining.
+- **Adopter-authored rules:** use `traust sweep intake-rules <source>` to vet proposals.
+  After semantic review and calibration, promote reviewed rules and fixtures to the
+  directory named by `locations.opengrep_adopter_rules`. A scan can also opt in to
+  optional sources with repeatable `--add-rules`. This does not disable mining.
 
 Both origins require the same native quality gate before scanning. Proposal admission also
 retains its static checks and checkout limits; enabling a supplied pack is not a substitute
@@ -133,9 +135,13 @@ extra matches refuse admission; a partial result is not a clean scan.
 Staging is not promotion or a finding verdict. Unauthored skeletons and their
 before/after material are drafts, not an active or validated pack.
 
-Adopters keep deployment-specific rules in their own pack and reuse
-`overrides.rule_pack_allowlist` in `traust.yaml`; there is no separate extension
-setting. See [`rule-pack-allowlist.example.yaml`](../../../../config/rule-pack-allowlist.example.yaml).
+Additive runtime rules are checked against the baseline and enabled supplements,
+then run separately so their failure cannot remove baseline results. The facts
+report names each match's origin and lists excluded rules and reasons; any such
+exclusion marks it degraded. An explicit `--rule-allow` still filters all output.
+
+Configured supplements remain a separate `overrides.rule_pack_allowlist` policy.
+See [`rule-pack-allowlist.example.yaml`](../../../../config/rule-pack-allowlist.example.yaml).
 Each enabled pack declares an explicit list of unique rule IDs. Its `source`
 is either a local rule directory (relative paths resolve from the allowlist
 file), with paired native fixtures, or an HTTPS Git repository pinned with
