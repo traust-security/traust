@@ -189,6 +189,15 @@ convert uninspectable deliverables and rerun the gate; there is no binary fallba
 
 ### Detection-quality operations
 
+Portfolio/ledger mining is retained. Adopter-authored packs are an additional rule source;
+they do not replace mining, regression-draft authoring or scheduled rule-lane runs.
+
+- `traust sweep mine [--pack <name>] [--out <file>]` mines Core's recorded,
+  disposition-confirmed findings for rule coverage gaps, authoring candidates and per-rule
+  precision. Graph/database pre-queries help scope work, not replace the corpus of record.
+- `traust sweep regression-drafts` stages before/after fix evidence for rule authoring;
+  `traust sweep rule-lane` retains the existing mining/sweep workflow.
+
 - `traust sweep check-rules <path>` is the mandatory rule-quality gate for the
   public pack and adopter packs. It requires native `opengrep validate` and
   `opengrep test --json --strict`, positive `ruleid:` and negative `ok:` cases
@@ -209,6 +218,9 @@ convert uninspectable deliverables and rerun the gate; there is no binary fallba
   pinned to a 40-hex commit SHA with the existing `rules/` subtree convention.
   Enabled supplements must pass the same full-pack gate; unreachable or invalid
   sources fail rather than silently skip. There is no validation bypass.
+  Before upgrading an existing enabled supplement, follow the
+  [upgrade procedure](../packs/security/detection/opengrep-rules/README.md#upgrading-enabled-supplements);
+  changing the shipped example does not change installed adopter configuration.
 - `traust sweep bootstrap-benchmark --out candidates.yaml [--limit 100]` harvests
   confirmed fixes as **unadmitted** answer-key candidates with fix evidence and a stable
   held-out split. Human review precedes `benchmark-targets candidates.yaml`.

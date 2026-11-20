@@ -63,19 +63,54 @@ def test_opengrep_refusals_keep_their_exit_codes(
     assert message in capsys.readouterr().err
 
 
-@pytest.mark.parametrize("failure", [RuntimeError("invalid scanner output"), TimeoutError()])
-def test_opengrep_engine_failures_exit_1_without_writing_a_report(
-    tmp_path: Path, bindir: Path, monkeypatch: pytest.MonkeyPatch, failure: Exception
+@pytest.mark.parametrize(
+    ("failure", "category"),
+    [
+        ("invalid-output", "invalid_output"),
+        ("timeout", "scan_timeout"),
+        ("abnormal-exit", "opengrep_failed"),
+    ],
+)
+def test_opengrep_process_failures_are_observable_without_writing_a_report(
+    tmp_path: Path, bindir: Path, capsys: pytest.CaptureFixture[str], failure: str, category: str
 ) -> None:
     target = tmp_path / "repo"
     target.mkdir()
-    fake(bindir, "opengrep", "raise AssertionError('the Core boundary is replaced')")
-
-    def fail(*args, **kwargs):
-        raise failure
-
-    monkeypatch.setattr(adapters, "opengrep_report", fail)
-    assert adapters.call_opengrep(opengrep_args(target, timeout=1)) == 1
+    (target / "app.py").write_text("dangerous(value)\n")
+    rule = tmp_path / "transport.yaml"
+    rule.write_text(
+        "rules:\n  - id: transport-check\n    languages: [python]\n"
+        "    severity: ERROR\n    message: Unsafe call\n    pattern: dangerous($X)\n"
+    )
+    rule.with_suffix(".py").write_text(
+        "# ruleid: transport-check\ndangerous(value)\n# ok: transport-check\nsafe(value)\n"
+    )
+    native_receipts = """#!/bin/sh
+case "$1" in
+  --version) printf '1.25.0\\n'; exit 0 ;;
+  validate) exit 0 ;;
+  test)
+    for root do :; done
+    config=$(find "$root" -type f -name '*.yaml' -print -quit)
+    fixture="${config%.yaml}.py"
+    printf '{"results":{"%s":{"checks":{"transport-check":{"passed":true,"errors":[],"matches":{"%s":{"expected_lines":[2],"reported_lines":[2]}}}}}},"fixtest_results":{},"config_missing_tests":[],"config_missing_fixtests":[],"config_with_errors":[]}\\n' "$config" "$fixture"
+    exit 0 ;;
+esac
+printf 'PRIVATE_ENGINE_DETAIL' >&2
+"""
+    behavior = {
+        "invalid-output": "printf 'PRIVATE_ENGINE_DETAIL not JSON\\n'",
+        "timeout": "exec sleep 10",
+        "abnormal-exit": "exit 2",
+    }[failure]
+    scanner = bindir / "opengrep"
+    scanner.write_text(native_receipts + behavior + "\n")
+    scanner.chmod(0o755)
+    assert adapters.call_opengrep(opengrep_args(target, rules=[str(rule)], timeout=2)) == 1
+    diagnostic = capsys.readouterr().err
+    assert diagnostic.startswith(category + ": ")
+    assert diagnostic.partition(": ")[2].strip()
+    assert "PRIVATE_ENGINE_DETAIL" not in diagnostic
     assert not (tmp_path / "og.json").exists()
 
 

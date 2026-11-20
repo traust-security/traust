@@ -27,19 +27,148 @@ rules:
           - pattern: request.POST.get(...)
           - pattern: $REQ.query_params.get(...)
           - pattern: $REQ.query_params[...]
-    # Boolean validators sanitize the target only in their successful branch.
-    # Calling a validator and ignoring its result does not validate the URL.
+    # Match only an immediately guarded return of the same local URL value.
+    # No wildcard statement gap may hide reassignment of the URL or result.
+    # Focusing the return argument leaves unchecked/failed-branch uses tainted.
     pattern-sanitizers:
       - patterns:
-          - pattern-inside: |
-              if url_has_allowed_host_and_scheme($URL, allowed_hosts=$HOSTS, ...):
+          - pattern-either:
+              - pattern: |
+                  if $VALIDATOR($URL, allowed_hosts=$HOSTS, ...):
+                      return $REDIRECT($TARGET, ...)
+              - pattern: |
+                  if $VALIDATOR(url=$URL, allowed_hosts=$HOSTS, ...):
+                      return $REDIRECT($TARGET, ...)
+              - pattern: |
+                  if $VALIDATOR($URL, $HOSTS, ...):
+                      return $REDIRECT($TARGET, ...)
+              - pattern: |
+                  if $VALIDATOR($URL, allowed_hosts=$HOSTS, ...):
+                      return $REDIRECT(url=$TARGET, ...)
+              - pattern: |
+                  if $VALIDATOR(url=$URL, allowed_hosts=$HOSTS, ...):
+                      return $REDIRECT(url=$TARGET, ...)
+              - pattern: |
+                  if $VALIDATOR($URL, $HOSTS, ...):
+                      return $REDIRECT(url=$TARGET, ...)
+              - pattern: |
+                  if not $VALIDATOR($URL, allowed_hosts=$HOSTS, ...):
+                      return ...
+                  return $REDIRECT($TARGET, ...)
+              - pattern: |
+                  if not $VALIDATOR(url=$URL, allowed_hosts=$HOSTS, ...):
+                      return ...
+                  return $REDIRECT($TARGET, ...)
+              - pattern: |
+                  if not $VALIDATOR($URL, $HOSTS, ...):
+                      return ...
+                  return $REDIRECT($TARGET, ...)
+              - pattern: |
+                  if not $VALIDATOR($URL, allowed_hosts=$HOSTS, ...):
+                      return ...
+                  return $REDIRECT(url=$TARGET, ...)
+              - pattern: |
+                  if not $VALIDATOR(url=$URL, allowed_hosts=$HOSTS, ...):
+                      return ...
+                  return $REDIRECT(url=$TARGET, ...)
+              - pattern: |
+                  if not $VALIDATOR($URL, $HOSTS, ...):
+                      return ...
+                  return $REDIRECT(url=$TARGET, ...)
+              - pattern: |
+                  $VALID = $VALIDATOR($URL, allowed_hosts=$HOSTS, ...)
+                  if $VALID:
+                      return $REDIRECT($TARGET, ...)
+              - pattern: |
+                  $VALID = $VALIDATOR(url=$URL, allowed_hosts=$HOSTS, ...)
+                  if $VALID:
+                      return $REDIRECT($TARGET, ...)
+              - pattern: |
+                  $VALID = $VALIDATOR($URL, $HOSTS, ...)
+                  if $VALID:
+                      return $REDIRECT($TARGET, ...)
+              - pattern: |
+                  $VALID = $VALIDATOR($URL, allowed_hosts=$HOSTS, ...)
+                  if $VALID:
+                      return $REDIRECT(url=$TARGET, ...)
+              - pattern: |
+                  $VALID = $VALIDATOR(url=$URL, allowed_hosts=$HOSTS, ...)
+                  if $VALID:
+                      return $REDIRECT(url=$TARGET, ...)
+              - pattern: |
+                  $VALID = $VALIDATOR($URL, $HOSTS, ...)
+                  if $VALID:
+                      return $REDIRECT(url=$TARGET, ...)
+              - pattern: |
+                  $VALID = $VALIDATOR($URL, allowed_hosts=$HOSTS, ...)
+                  if not $VALID:
+                      return ...
+                  return $REDIRECT($TARGET, ...)
+              - pattern: |
+                  $VALID = $VALIDATOR(url=$URL, allowed_hosts=$HOSTS, ...)
+                  if not $VALID:
+                      return ...
+                  return $REDIRECT($TARGET, ...)
+              - pattern: |
+                  $VALID = $VALIDATOR($URL, $HOSTS, ...)
+                  if not $VALID:
+                      return ...
+                  return $REDIRECT($TARGET, ...)
+              - pattern: |
+                  $VALID = $VALIDATOR($URL, allowed_hosts=$HOSTS, ...)
+                  if not $VALID:
+                      return ...
+                  return $REDIRECT(url=$TARGET, ...)
+              - pattern: |
+                  $VALID = $VALIDATOR(url=$URL, allowed_hosts=$HOSTS, ...)
+                  if not $VALID:
+                      return ...
+                  return $REDIRECT(url=$TARGET, ...)
+              - pattern: |
+                  $VALID = $VALIDATOR($URL, $HOSTS, ...)
+                  if not $VALID:
+                      return ...
+                  return $REDIRECT(url=$TARGET, ...)
+          - metavariable-regex:
+              metavariable: $VALIDATOR
+              regex: ^(url_has_allowed_host_and_scheme|is_safe_url)$
+          - metavariable-regex:
+              metavariable: $URL
+              regex: ^[A-Za-z_][A-Za-z_0-9]*$
+          - metavariable-regex:
+              metavariable: $REDIRECT
+              regex: ^(redirect|flask\.redirect|HttpResponseRedirect|RedirectResponse)$
+          # An else suite may replace the URL before the following return.
+          - pattern-not-inside: |
+              if not $CONDITION:
                   ...
-          - pattern: $URL
-      - patterns:
-          - pattern-inside: |
-              if is_safe_url($URL, allowed_hosts=$HOSTS, ...):
+              else:
                   ...
-          - pattern: $URL
+              return $REDIRECT($TARGET, ...)
+          - pattern-not-inside: |
+              if not $CONDITION:
+                  ...
+              else:
+                  ...
+              return $REDIRECT(url=$TARGET, ...)
+          - pattern-not-inside: |
+              $VALID = ...
+              if not $VALID:
+                  ...
+              else:
+                  ...
+              return $REDIRECT($TARGET, ...)
+          - pattern-not-inside: |
+              $VALID = ...
+              if not $VALID:
+                  ...
+              else:
+                  ...
+              return $REDIRECT(url=$TARGET, ...)
+          - metavariable-comparison:
+              metavariable: $TARGET
+              comparison: str($TARGET) == str($URL)
+          - focus-metavariable: $TARGET
       - pattern-either:
           - pattern: url_for(...)
           - pattern: urlencode(...)

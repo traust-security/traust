@@ -20,7 +20,13 @@ from traust_core.v1.context.tool_reports import (
     osv_sbom_report,
     yara_report,
 )
-from traust_core.v1.errors import ConfigError, IntegrityError, TraustError, ValidationError
+from traust_core.v1.errors import (
+    ConfigError,
+    IntegrityError,
+    ScannerError,
+    TraustError,
+    ValidationError,
+)
 
 from traust.cli.groups._registry import OpSpec, passthrough_op
 from traust.context import load
@@ -83,11 +89,8 @@ def call_opengrep(args) -> int:
     except (ValidationError, IntegrityError) as e:
         print(f"ERROR: {e}", file=sys.stderr)
         return 2
-    except TimeoutError:
-        print(f"opengrep timed out after {args.timeout}s", file=sys.stderr)
-        return 1
-    except RuntimeError as error:
-        print(str(error), file=sys.stderr)
+    except ScannerError as error:
+        print(f"{error.reason.value}: {error}", file=sys.stderr)
         return 1
 
     facts = report["facts"]

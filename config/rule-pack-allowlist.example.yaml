@@ -4,11 +4,10 @@
 #
 # Supplemental external or adopter-authored opengrep packs, enabled PER RULE.
 #
-# This file is the switch. `run_opengrep.py` reads it on every default run
-# (no explicit --rules), so adding a rule here enables it fleet-wide on the
-# next audit, and deleting a line disables it. The /mine-ledger lane
-# maintains it: it re-scores every enabled rule against the ~50% precision
-# gate each pass and flags demotion candidates.
+# This file is the switch. `traust adapters opengrep` reads the configured copy
+# on default scans (no explicit --rules). Selected adopter rules add coverage;
+# they do not replace portfolio/ledger mining. The /mine-ledger lane continues
+# to re-score enabled rules against its precision gate and flags demotion candidates.
 #
 # Why per-rule and never wholesale: argus-observe-rules ships 640 rules of
 # which 19 account for 86% of finding volume (~119 novel findings/repo of
@@ -33,6 +32,10 @@
 # pass native validation/tests even when only some IDs are selected.
 # There is no validation bypass: unreachable/invalid enabled supplements fail
 # the run rather than silently skipping a pack. Disable one explicitly below.
+# Upgrade: editing this example does not update an adopter's installed copy.
+# Validate every enabled source before upgrading; repair/curate it or explicitly
+# disable it and record the coverage gap. See the rule-pack README's
+# "Upgrading enabled supplements" procedure.
 # Draft skeletons and before/after snapshots are not active validated packs.
 
 packs:

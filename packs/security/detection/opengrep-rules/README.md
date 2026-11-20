@@ -107,6 +107,18 @@ validation, exact fixture assertions and per-rule positive/negative coverage.
 
 ## Proposals and adopter supplements
 
+Rule origins are additive:
+
+- **Portfolio/ledger mining:** `traust sweep mine` retains the finding-driven coverage and
+  authoring backlog. `regression-drafts` supplies fix pairs and `rule-lane` retains scheduled
+  mining/sweep operations; see the [mining skill](../../../../harnessing/mine-ledger/SKILL.md).
+- **Adopter-authored rules:** deployment-specific rules can also be supplied in local or
+  pinned-Git packs through `overrides.rule_pack_allowlist`. This does not disable mining.
+
+Both origins require the same native quality gate before scanning. Proposal admission also
+retains its static checks and checkout limits; enabling a supplied pack is not a substitute
+for semantic review, recorded-scan calibration or the promotion process.
+
 Submit a proposed rule and its annotated examples through the admission door:
 
 ```bash
@@ -134,6 +146,35 @@ only some IDs are allowlisted. Unreachable sources, invalid packs, unknown IDs
 or failed validation/tests fail the run rather than silently dropping the
 supplement. To disable a pack, explicitly set its existing `enabled` field to
 `false`; there is no validation bypass.
+
+### Upgrading enabled supplements
+
+This is a fail-closed upgrade: older configurations could enable a supplement and continue
+with a warning when it could not be loaded. Enabled supplements must now pass the complete
+native quality gate; audits refuse invalid or unreachable sources rather than silently
+reporting only the public pack. Updating this repository's example does not alter copies
+already installed in an adopter's configuration home.
+
+Before upgrading the runtime:
+
+1. Inventory enabled packs in the file named by `overrides.rule_pack_allowlist`, including
+   configurations copied when the Argus example was enabled by default.
+2. Acquire each source at its configured revision with its native fixtures, then run the new
+   runtime's `traust sweep check-rules <complete-rule-directory>` in a staging environment.
+   Allowlisting only some rule IDs does not exempt the rest of that source pack.
+3. If a pack fails, repair or curate a properly licensed pack with meaningful fixtures and
+   validate it. Otherwise explicitly set that pack's `enabled: false` in the installed
+   configuration before upgrading. Disabling removes its coverage; record that gap.
+4. Upgrade, then run a representative default scan with the intended supplements enabled.
+
+The historical Argus revision linked by the example failed the recorded native-validation
+baseline. Its native test command exited zero with no checked configurations and missing
+fixtures; historical precision calibration is not proof that it meets this gate. Do not
+enable that revision solely because the old example or test exit status allowed it.
+
+A failed standalone check returns a nonzero exit with failed `validate`/`test` receipts.
+An audit can report `Opengrep rule quality failed`; it must not be treated as a clean scan
+or repaired by restoring skip-on-failure behavior.
 
 
 ## Companion gitleaks pack

@@ -1,6 +1,6 @@
 ---
 name: mine-ledger
-description: Use when the user asks to mine the disposition ledger for confirmed true positives, build or refresh the rule-calibration corpus, find rule-pack coverage gaps, check per-rule precision, or produce the opengrep rule-authoring backlog — e.g. "mine the ledger", "what TP clusters have no rule", "how precise are the traust rules", "refresh the rule-mining report". Runs out-of-band from audits; audits themselves feed it via structured scanner_correlation entries. Authored rules require the shared native validation and strict fixture gate plus semantic review before promotion.
+description: Use when the user asks to mine the disposition ledger for confirmed true positives, build or refresh the rule-calibration corpus, find rule-pack coverage gaps, check per-rule precision, or produce the opengrep rule-authoring backlog — e.g. "mine the ledger", "what TP clusters have no rule", "how precise are the traust rules", "refresh the rule-mining report". Runs out-of-band from audits; audits themselves feed it via structured scanner_correlation entries. Authored rules require the shared native validation and strict fixture gate plus semantic review before promotion. Portfolio/ledger mining remains available; adopter-authored rules are an additional source, not its replacement.
 metadata:
   harness.tier: "secondary"
 allowed-tools:
@@ -31,6 +31,14 @@ match against the Traust opengrep pack (shipped in the security pack, the
 only copy), and aggregate the
 per-fact judge decisions audits record in `scanner_correlation` into
 campaign-wide per-rule precision.
+
+Adopter-authored rules are an additional input, not a replacement for portfolio/ledger mining.
+Continue `traust sweep mine`, `regression-drafts` and `rule-lane` for the existing
+finding-driven workflow. Portfolio graph/database pre-queries can scope the work; the
+authoritative mining corpus remains Core's recorded findings and confirmed dispositions.
+Adopters can also supply local or pinned-Git rule packs through
+`overrides.rule_pack_allowlist`. Both origins must pass the same native quality gate
+before scanning; configuring an adopter pack does not disable the mining lane.
 
 This skill is the out-of-band half of a loop the audits feed by default:
 `/secure-code-audit`'s pre-scan records every promote/dismiss decision as a
@@ -123,7 +131,9 @@ drafts, author, verify, promote:
 # 1. stage drafts (deterministic; identical pairs skipped) into
 #    locations.rule_drafts (traust-core regression_pairs; skipped fixes listed with why)
 python3 -m traust.cli sweep regression-drafts [--cwe CWE-494] [--limit 6]
-# 2. author patterns: in the draft's rule.skeleton.yaml so that
+# 2. author patterns in rule.skeleton.yaml and adjacent ruleid:/ok: fixtures
+#    (rule.skeleton.py, or rule.skeleton.test.yaml for a YAML rule), then:
+python3 -m traust.cli sweep check-rules <rule-drafts>/<draft>/rule.skeleton.yaml
 python3 -m traust.cli sweep verify-draft <rule-drafts>/<draft> \
     [--rule <rule-drafts>/<draft>/rule.skeleton.yaml]
 # passes (before/ fires, after/ silent)

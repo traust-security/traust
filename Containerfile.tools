@@ -99,17 +99,22 @@ ENV PATH="/out/go/bin:/out/bin:${PATH}"
 
 # --- Direct binary downloads from upstream GitHub releases, each verified against its pin ---
 
-# opengrep: the pinned release asset directly, not the install.sh URL (which tracks `main` and
-# can change shape under an already-published image tag).
+# opengrep: share the installer's reviewed release metadata; never chmod or execute
+# downloaded bytes until their official SHA-256 matches. This build-only source is
+# outside /out and is not copied into the fresh final stage.
+COPY scripts/opengrep-release.sh /tmp/opengrep-release.sh
 RUN set -eu; \
-    case "$TARGETARCH" in \
-      arm64) asset="opengrep_manylinux_aarch64" ;; \
-      amd64) asset="opengrep_manylinux_x86" ;; \
-      *) echo "FATAL: unsupported arch $TARGETARCH for opengrep" >&2; exit 1 ;; \
-    esac; \
-    curl -fsSL "https://github.com/opengrep/opengrep/releases/download/v${OPENGREP_VERSION}/${asset}" \
-      -o /out/bin/opengrep; \
-    chmod +x /out/bin/opengrep; \
+    . /tmp/opengrep-release.sh; \
+    metadata="$(opengrep_release "$OPENGREP_VERSION" linux "$TARGETARCH")"; \
+    set -- $metadata; asset="$1"; expected="$2"; \
+    tmp="$(mktemp)"; \
+    trap 'rm -f "$tmp"' EXIT; \
+    curl -fsSL --proto '=https' --tlsv1.2 \
+      "https://github.com/opengrep/opengrep/releases/download/v${OPENGREP_VERSION}/${asset}" \
+      -o "$tmp"; \
+    printf '%s  %s\n' "$expected" "$tmp" | sha256sum -c -; \
+    chmod +x "$tmp"; \
+    mv "$tmp" /out/bin/opengrep; \
     /out/bin/opengrep --version | grep -q "${OPENGREP_VERSION}" \
     || { echo "FATAL: opengrep reports a version other than ${OPENGREP_VERSION}" >&2; exit 1; }
 

@@ -181,6 +181,11 @@ def test_a_draft_verifies_with_opengrep(tmp_path: Path) -> None:
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(f.before if side == "before" else f.after or "")
     (draft / "rule.skeleton.yaml").write_text(RULE)
+    (draft / "rule.skeleton.py").write_text(
+        "import os\nimport subprocess\n"
+        "# ruleid: harness-python-regression-test\nos.system('ls ' + arg)\n"
+        "# ok: harness-python-regression-test\nsubprocess.run(['ls', arg])\n"
+    )
     # app/old.py was deleted by the fix: it fires before, and after/ holds only the fixed file.
     rc, out = verify(draft)
     assert rc == 0, out

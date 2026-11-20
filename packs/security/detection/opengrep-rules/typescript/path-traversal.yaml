@@ -25,6 +25,11 @@ rules:
       references:
         - "CWE-22 path traversal — request value joined into a filesystem path"
     mode: taint
+    # CommonJS sanitizers require an immutable binding. ES import aliases also
+    # need lexical shadow exclusions; import matching alone is not scope-safe.
+    options:
+      let_is_var: false
+      unify_ids_strictly: true
     pattern-sources:
       - pattern-either:
           - pattern: $REQ.query.$P
@@ -41,7 +46,10 @@ rules:
                   metavariable: $R
                   regex: ^(req|request)$
           - patterns:
-              - pattern-inside: "const {...} = $REQ.$PART;"
+              - pattern-either:
+                  - pattern-inside: "const {...} = $REQ.$PART;"
+                  - pattern-inside: "let {...} = $REQ.$PART;"
+                  - pattern-inside: "var {...} = $REQ.$PART;"
               - pattern: $V
               - metavariable-regex:
                   metavariable: $PART
@@ -50,7 +58,52 @@ rules:
       - pattern-either:
           - pattern: path.basename(...)
           - pattern: basename(...)
-          - pattern: sanitizeFilename(...)
+          - patterns:
+              - pattern-either:
+                  - pattern-inside: |
+                      import $SANITIZE from "sanitize-filename";
+                      ...
+                  - pattern-inside: |
+                      import { default as $SANITIZE } from "sanitize-filename";
+                      ...
+              - pattern: $SANITIZE(...)
+              - pattern-not-inside: |
+                  function ...(..., $SANITIZE, ...) {
+                    ...
+                  }
+              - pattern-not-inside: |
+                  (..., $SANITIZE, ...) => ...
+              - pattern-not-inside: |
+                  function ...(...) {
+                    ...
+                    function $SANITIZE(...) {
+                      ...
+                    }
+                    ...
+                  }
+              - pattern-not-inside: |
+                  function ...(...) {
+                    ...
+                    const $SANITIZE = ...;
+                    ...
+                  }
+              - pattern-not-inside: |
+                  function ...(...) {
+                    ...
+                    let $SANITIZE = ...;
+                    ...
+                  }
+              - pattern-not-inside: |
+                  function ...(...) {
+                    ...
+                    var $SANITIZE = ...;
+                    ...
+                  }
+          - patterns:
+              - pattern-inside: |
+                  const $SANITIZE = require("sanitize-filename");
+                  ...
+              - pattern: $SANITIZE(...)
     pattern-sinks:
       - patterns:
           - pattern-either:

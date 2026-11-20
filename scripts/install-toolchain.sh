@@ -185,28 +185,12 @@ install_bin() {
 # --- Installers per tool (direct upstream downloads) ---
 
 install_opengrep() {
-  local v asset expected actual tmp
+  local v asset expected actual tmp metadata
   v="$(pin_for opengrep)"
-  # Official release-asset `digest` metadata, pinned with the asset/version:
-  # https://api.github.com/repos/opengrep/opengrep/releases/tags/v1.25.0
-  # A version bump must record new official digests before it can install.
-  case "$v/$OS/$ARCH" in
-    1.25.0/darwin/arm64)
-      asset="opengrep_osx_arm64"
-      expected="3543fcabae9db2ae5bc974a3b75426353f0a3e369181b2157ef27f46867996c8" ;;
-    1.25.0/darwin/amd64)
-      asset="opengrep_osx_x86"
-      expected="fa2487b75527be1cc9ae4f9b0cb09a340454e7973c76785568285cbbcd977cb4" ;;
-    1.25.0/linux/arm64)
-      asset="opengrep_manylinux_aarch64"
-      expected="fd40124272d006082a5594b19aecee07b01dd50933d8add7a4fd5c557d2be5f6" ;;
-    1.25.0/linux/amd64)
-      asset="opengrep_manylinux_x86"
-      expected="9ac4aebb47ba3f7b0d8fc641ac8749cb6c2f253f616131a67d9631e00d4bea33" ;;
-    *)
-      echo "FATAL: no verified opengrep asset for v$v on $OS/$ARCH" >&2
-      return 1 ;;
-  esac
+  # The tools-image builder consumes the same reviewed asset/digest pairs.
+  . "$SCRIPT_DIR/opengrep-release.sh"
+  metadata="$(opengrep_release "$v" "$OS" "$ARCH")" || return 1
+  read -r asset expected <<< "$metadata"
   if [[ -x "$BIN_DIR/opengrep" ]] && [[ "$(sha256_of "$BIN_DIR/opengrep")" == "$expected" ]]; then
     ok "opengrep v$v already installed and checksum verified"
     return

@@ -48,3 +48,14 @@ rules:
               - pattern: std::fs::$OP($P, ...)
               - pattern: tokio::fs::$OP($P, ...)
           - focus-metavariable: $P
+      - patterns:
+          # These operations have two path operands; write content and permission
+          # objects must never become destination-path sinks.
+          - pattern-either:
+              - pattern: fs::$OP($FROM, $P)
+              - pattern: std::fs::$OP($FROM, $P)
+              - pattern: tokio::fs::$OP($FROM, $P)
+          - metavariable-regex:
+              metavariable: $OP
+              regex: ^(copy|rename|hard_link)$
+          - focus-metavariable: $P

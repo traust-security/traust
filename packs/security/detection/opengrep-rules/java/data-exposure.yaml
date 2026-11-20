@@ -3,11 +3,11 @@ rules:
     languages: [java]
     severity: ERROR
     message: >-
-      Every Spring Boot actuator endpoint is permitted without
-      authentication. Whatever the application exposes over the web (env,
-      heapdump, configprops, loggers, shutdown) is open to anyone who can
-      reach it. Permit only health (and info), and require an operator
-      role for the rest. CWE-200.
+      Spring Security permits anonymous access to a broad actuator matcher,
+      or to all requests in an actuator-selected chain. Review enabled web
+      endpoints, filter-chain ordering and network controls before concluding
+      that sensitive endpoints are publicly reachable. Limit anonymous access
+      to health/info and require an operator role for the rest. CWE-200.
     metadata:
       cwe: ["CWE-200", "CWE-306"]
       category: data-exposure
@@ -16,13 +16,33 @@ rules:
       references:
         - "CWE-200 exposed management endpoints — actuator permitted to anonymous callers"
     pattern-either:
-      - pattern: $A.requestMatchers(EndpointRequest.toAnyEndpoint()).permitAll()
       - pattern: $A.requestMatchers(EndpointRequest.toAnyEndpoint(...)).permitAll()
-      # Selecting the actuator chain alone does not grant anonymous access.
-      - pattern: $A.requestMatcher(EndpointRequest.toAnyEndpoint()).authorizeRequests().anyRequest().permitAll()
       - pattern: $A.requestMatchers("/actuator/**").permitAll()
       - pattern: $A.antMatchers("/actuator/**").permitAll()
       - pattern: $A.mvcMatchers("/actuator/**").permitAll()
+      # Endpoint selection alone grants nothing. Require a permit-all branch
+      # directly on the selected chain, not a protected matcher followed by a
+      # permit-all fallback for other requests.
+      - patterns:
+          - pattern-either:
+              - pattern: $HTTP.$SELECT(EndpointRequest.toAnyEndpoint(...)).$AUTHORIZE().anyRequest().permitAll()
+              - pattern: $HTTP.$SELECT(EndpointRequest.toAnyEndpoint(...)).$AUTHORIZE().antMatchers("/**").permitAll()
+              - pattern: $HTTP.$SELECT(EndpointRequest.toAnyEndpoint(...)).$AUTHORIZE($AUTH -> $AUTH.anyRequest().permitAll())
+              - pattern: $HTTP.$SELECT(EndpointRequest.toAnyEndpoint(...)).$AUTHORIZE($AUTH -> $AUTH.antMatchers("/**").permitAll())
+              - pattern: |
+                  $HTTP.$SELECT(EndpointRequest.toAnyEndpoint(...)).$AUTHORIZE($AUTH -> {
+                    $AUTH.anyRequest().permitAll();
+                  })
+              - pattern: |
+                  $HTTP.$SELECT(EndpointRequest.toAnyEndpoint(...)).$AUTHORIZE($AUTH -> {
+                    $AUTH.antMatchers("/**").permitAll();
+                  })
+          - metavariable-regex:
+              metavariable: $SELECT
+              regex: ^(requestMatcher|securityMatcher)$
+          - metavariable-regex:
+              metavariable: $AUTHORIZE
+              regex: ^(authorizeRequests|authorizeHttpRequests)$
 
   - id: traust-java-data-exposure-actuator-web-exposure-all
     languages: [regex]
