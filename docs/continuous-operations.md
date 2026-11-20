@@ -615,9 +615,9 @@ A reclaimed verification sweep rebuilds its worklist before deciding whether
 to run. Core currently records no original sweep manifest, and its
 already-verified test can be satisfied by a single finding at a head. When
 prior output exists, the runner therefore requires verification verdicts on
-the same line and head to cover every finding currently reported in the
-repository, including closed or newly reported findings on other lines. On
-reclaim it uses only this order's reports; a fresh order can use earlier
+the same line and head to cover every finding currently reported on that line,
+including closed or newly reported findings. On reclaim it uses only this
+order's reports; a fresh order can use earlier
 verifications to establish that no work remains. Regressions first reported by
 those same-head reports are not original verification targets; a finding also
 reported elsewhere remains in scope. It fails closed when coverage cannot be
