@@ -264,3 +264,85 @@ def changed_in_stored_guard_else(request):
         nxt = request.GET.get("override")
     # ruleid: traust-python-open-redirect-taint
     return RedirectResponse(url=nxt)
+
+
+def attacker_supplies_allowed_host(request):
+    nxt = request.GET.get("next")
+    if url_has_allowed_host_and_scheme(nxt, allowed_hosts={request.GET.get("host")}):
+        # ruleid: traust-python-open-redirect-taint
+        return redirect(nxt)
+
+
+def attacker_host_policy_alias(request):
+    nxt = request.GET.get("next")
+    hosts = {request.GET.get("host")}
+    valid = url_has_allowed_host_and_scheme(url=nxt, allowed_hosts=hosts)
+    if valid:
+        # ruleid: traust-python-open-redirect-taint
+        return HttpResponseRedirect(nxt)
+
+
+def attacker_host_early_guard(request):
+    nxt = request.GET.get("next")
+    hosts = {request.GET.get("host")}
+    if not is_safe_url(nxt, hosts):
+        return redirect("/")
+    # ruleid: traust-python-open-redirect-taint
+    return RedirectResponse(url=nxt)
+
+
+def mixed_untrusted_host_policy(request):
+    nxt = request.GET.get("next")
+    if is_safe_url(nxt, allowed_hosts={"trusted.example", request.GET.get("host")}):
+        # ruleid: traust-python-open-redirect-taint
+        return redirect(nxt)
+
+
+def unpacked_untrusted_host_policy(request):
+    nxt = request.GET.get("next")
+    if is_safe_url(nxt, allowed_hosts={"trusted.example", *request.GET.getlist("host")}):
+        # ruleid: traust-python-open-redirect-taint
+        return redirect(nxt)
+
+
+def destination_chooses_its_own_policy(request):
+    from urllib.parse import urlparse
+    nxt = request.GET.get("next")
+    if is_safe_url(nxt, allowed_hosts={urlparse(nxt).hostname}):
+        # ruleid: traust-python-open-redirect-taint
+        return redirect(nxt)
+
+
+def trusted_literal_host_policies(request):
+    nxt = request.GET.get("next")
+    if is_safe_url(nxt, allowed_hosts={"trusted.example", "login.example"}):
+        # ok: traust-python-open-redirect-taint
+        return redirect(nxt)
+
+
+def trusted_literal_host_list(request):
+    nxt = request.GET.get("next")
+    if is_safe_url(nxt, allowed_hosts=["trusted.example", "login.example"]):
+        # ok: traust-python-open-redirect-taint
+        return redirect(nxt)
+
+
+def trusted_literal_host_tuple(request):
+    nxt = request.GET.get("next")
+    if is_safe_url(nxt, allowed_hosts=("trusted.example", "login.example")):
+        # ok: traust-python-open-redirect-taint
+        return redirect(nxt)
+
+
+def trusted_literal_host_string(request):
+    nxt = request.GET.get("next")
+    if is_safe_url(nxt, allowed_hosts="trusted.example"):
+        # ok: traust-python-open-redirect-taint
+        return redirect(nxt)
+
+
+def trusted_current_and_static_hosts(request):
+    nxt = request.GET.get("next")
+    if is_safe_url(nxt, allowed_hosts={request.get_host(), "trusted.example"}):
+        # ok: traust-python-open-redirect-taint
+        return redirect(nxt)

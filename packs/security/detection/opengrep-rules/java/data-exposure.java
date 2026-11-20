@@ -171,4 +171,138 @@ class OpsChains {
         app.authorizeHttpRequests(a -> a.anyRequest().permitAll());
         return actuator.build();
     }
+
+    SecurityFilterChain narrowProtectionChained(HttpSecurity http) throws Exception {
+        // ruleid: traust-java-data-exposure-actuator-permit-all
+        http.requestMatcher(EndpointRequest.toAnyEndpoint()).authorizeRequests()
+            .antMatchers("/actuator/health").hasRole("OPS")
+            .anyRequest().permitAll();
+        return http.build();
+    }
+
+    SecurityFilterChain narrowProtectionLambda(HttpSecurity http) throws Exception {
+        // ruleid: traust-java-data-exposure-actuator-permit-all
+        http.securityMatcher(EndpointRequest.toAnyEndpoint()).authorizeHttpRequests(a -> a
+            .requestMatchers("/actuator/health").authenticated()
+            .anyRequest().permitAll());
+        return http.build();
+    }
+
+    SecurityFilterChain narrowProtectionBlock(HttpSecurity http) throws Exception {
+        // ruleid: traust-java-data-exposure-actuator-permit-all
+        http.securityMatcher(EndpointRequest.toAnyEndpoint()).authorizeHttpRequests(a -> {
+            a.requestMatchers("/actuator/health").hasRole("OPS");
+            a.anyRequest().permitAll();
+        });
+        return http.build();
+    }
+
+    SecurityFilterChain multipleNarrowProtectionChained(HttpSecurity http) throws Exception {
+        // ruleid: traust-java-data-exposure-actuator-permit-all
+        http.securityMatcher(EndpointRequest.toAnyEndpoint()).authorizeRequests()
+            .antMatchers("/actuator/health").hasRole("OPS")
+            .antMatchers("/actuator/info").authenticated()
+            .anyRequest().permitAll();
+        return http.build();
+    }
+
+    SecurityFilterChain multipleNarrowProtectionLambda(HttpSecurity http) throws Exception {
+        // ruleid: traust-java-data-exposure-actuator-permit-all
+        http.securityMatcher(EndpointRequest.toAnyEndpoint()).authorizeHttpRequests(a -> a
+            .requestMatchers("/actuator/health").hasRole("OPS")
+            .requestMatchers("/actuator/info").authenticated()
+            .anyRequest().permitAll());
+        return http.build();
+    }
+
+    SecurityFilterChain multipleNarrowProtectionBlock(HttpSecurity http) throws Exception {
+        // ruleid: traust-java-data-exposure-actuator-permit-all
+        http.securityMatcher(EndpointRequest.toAnyEndpoint()).authorizeHttpRequests(a -> {
+            a.requestMatchers("/actuator/health").hasRole("OPS");
+            a.requestMatchers("/actuator/info").authenticated();
+            a.anyRequest().permitAll();
+        });
+        return http.build();
+    }
+
+    SecurityFilterChain wholeProtectionBeforeNarrowChained(HttpSecurity http) throws Exception {
+        // ok: traust-java-data-exposure-actuator-permit-all
+        http.securityMatcher(EndpointRequest.toAnyEndpoint()).authorizeRequests()
+            .requestMatchers(EndpointRequest.toAnyEndpoint()).hasRole("OPS")
+            .antMatchers("/actuator/health").authenticated()
+            .anyRequest().permitAll();
+        return http.build();
+    }
+
+    SecurityFilterChain wholeProtectionBeforeNarrowLambda(HttpSecurity http) throws Exception {
+        // ok: traust-java-data-exposure-actuator-permit-all
+        http.securityMatcher(EndpointRequest.toAnyEndpoint()).authorizeHttpRequests(a -> a
+            .requestMatchers(EndpointRequest.toAnyEndpoint()).hasRole("OPS")
+            .requestMatchers("/actuator/health").authenticated()
+            .anyRequest().permitAll());
+        return http.build();
+    }
+
+    SecurityFilterChain wholeProtectionBeforeNarrowBlock(HttpSecurity http) throws Exception {
+        // ok: traust-java-data-exposure-actuator-permit-all
+        http.securityMatcher(EndpointRequest.toAnyEndpoint()).authorizeHttpRequests(a -> {
+            a.requestMatchers(EndpointRequest.toAnyEndpoint()).hasRole("OPS");
+            a.requestMatchers("/actuator/health").authenticated();
+            a.anyRequest().permitAll();
+        });
+        return http.build();
+    }
+
+    SecurityFilterChain wildcardWholeProtection(HttpSecurity http) throws Exception {
+        // ok: traust-java-data-exposure-actuator-permit-all
+        http.securityMatcher(EndpointRequest.toAnyEndpoint()).authorizeRequests()
+            .antMatchers("/actuator/**").hasRole("OPS")
+            .anyRequest().permitAll();
+        // ok: traust-java-data-exposure-actuator-permit-all
+        http.securityMatcher(EndpointRequest.toAnyEndpoint()).authorizeHttpRequests(a -> {
+            a.requestMatchers("/**").authenticated();
+            a.anyRequest().permitAll();
+        });
+        return http.build();
+    }
+
+    SecurityFilterChain earlierAnonymousWildcard(HttpSecurity http) throws Exception {
+        // ruleid: traust-java-data-exposure-actuator-permit-all
+        http.securityMatcher(EndpointRequest.toAnyEndpoint()).authorizeRequests()
+            .antMatchers("/**").permitAll()
+            .anyRequest().permitAll();
+        // ruleid: traust-java-data-exposure-actuator-permit-all
+        http.securityMatcher(EndpointRequest.toAnyEndpoint()).authorizeHttpRequests(a -> a
+            .requestMatchers("/**").permitAll()
+            .anyRequest().permitAll());
+        // ruleid: traust-java-data-exposure-actuator-permit-all
+        http.securityMatcher(EndpointRequest.toAnyEndpoint()).authorizeHttpRequests(a -> {
+            a.requestMatchers("/**").permitAll();
+            a.anyRequest().permitAll();
+        });
+        return http.build();
+    }
+
+    SecurityFilterChain unrelatedProtectionInsideLambda(
+        HttpSecurity http,
+        AuthorizationManagerRequestMatcherRegistry other
+    ) throws Exception {
+        // ruleid: traust-java-data-exposure-actuator-permit-all
+        http.securityMatcher(EndpointRequest.toAnyEndpoint()).authorizeHttpRequests(a -> {
+            other.requestMatchers(EndpointRequest.toAnyEndpoint()).authenticated();
+            a.requestMatchers("/actuator/health").hasRole("OPS");
+            a.anyRequest().permitAll();
+        });
+        return http.build();
+    }
+
+    SecurityFilterChain wholeProtectionWithinEarlierBlockChain(HttpSecurity http) throws Exception {
+        // ok: traust-java-data-exposure-actuator-permit-all
+        http.securityMatcher(EndpointRequest.toAnyEndpoint()).authorizeHttpRequests(a -> {
+            a.requestMatchers("/actuator/health").hasRole("OPS")
+                .requestMatchers(EndpointRequest.toAnyEndpoint()).authenticated();
+            a.anyRequest().permitAll();
+        });
+        return http.build();
+    }
 }

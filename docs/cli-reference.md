@@ -212,6 +212,12 @@ they do not replace mining, regression-draft authoring or scheduled rule-lane ru
   draft is not a promoted rule or a finding verdict.
   Use meaningful vulnerable and equivalent safe/guarded/fixed examples; human
   semantic review and recorded-scan calibration remain necessary.
+  Fixtures must test the trust and coverage of a guard, not merely the presence of a
+  validator call: attacker-supplied allowed-host sets do not make redirects safe, and
+  protecting only one actuator endpoint does not protect an anonymous fallback.
+  The shipped redirect rule trusts direct literal host policies and Django's validated
+  current-host expression; other computed policies remain candidates for review.
+  Actuator checks distinguish narrower protection from an earlier whole-scope decision.
   Adopters reuse `overrides.rule_pack_allowlist`: each enabled pack selects
   explicit unique rule IDs and uses either a local rule directory relative to
   the allowlist file (with paired native fixtures), or an HTTPS Git source

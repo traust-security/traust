@@ -20,29 +20,136 @@ rules:
       - pattern: $A.requestMatchers("/actuator/**").permitAll()
       - pattern: $A.antMatchers("/actuator/**").permitAll()
       - pattern: $A.mvcMatchers("/actuator/**").permitAll()
-      # Endpoint selection alone grants nothing. Require a permit-all branch
-      # directly on the selected chain, not a protected matcher followed by a
-      # permit-all fallback for other requests.
+      # Selected chains may fall through after narrower authorization branches.
       - patterns:
           - pattern-either:
-              - pattern: $HTTP.$SELECT(EndpointRequest.toAnyEndpoint(...)).$AUTHORIZE().anyRequest().permitAll()
-              - pattern: $HTTP.$SELECT(EndpointRequest.toAnyEndpoint(...)).$AUTHORIZE().antMatchers("/**").permitAll()
-              - pattern: $HTTP.$SELECT(EndpointRequest.toAnyEndpoint(...)).$AUTHORIZE($AUTH -> $AUTH.anyRequest().permitAll())
-              - pattern: $HTTP.$SELECT(EndpointRequest.toAnyEndpoint(...)).$AUTHORIZE($AUTH -> $AUTH.antMatchers("/**").permitAll())
-              - pattern: |
-                  $HTTP.$SELECT(EndpointRequest.toAnyEndpoint(...)).$AUTHORIZE($AUTH -> {
-                    $AUTH.anyRequest().permitAll();
-                  })
-              - pattern: |
-                  $HTTP.$SELECT(EndpointRequest.toAnyEndpoint(...)).$AUTHORIZE($AUTH -> {
-                    $AUTH.antMatchers("/**").permitAll();
-                  })
+              - pattern: $PREFIX.anyRequest().permitAll()
+              - pattern: $PREFIX.antMatchers("/**").permitAll()
+              - pattern: $PREFIX.requestMatchers("/**").permitAll()
+              - pattern: $PREFIX.mvcMatchers("/**").permitAll()
+          - metavariable-pattern:
+              metavariable: $PREFIX
+              pattern-either:
+                - pattern: <... $HTTP.requestMatcher(EndpointRequest.toAnyEndpoint(...)).authorizeRequests() ...>
+                - pattern: <... $HTTP.requestMatcher(EndpointRequest.toAnyEndpoint(...)).authorizeHttpRequests() ...>
+                - pattern: <... $HTTP.securityMatcher(EndpointRequest.toAnyEndpoint(...)).authorizeRequests() ...>
+                - pattern: <... $HTTP.securityMatcher(EndpointRequest.toAnyEndpoint(...)).authorizeHttpRequests() ...>
+          - metavariable-pattern:
+              metavariable: $PREFIX
+              patterns:
+                - pattern: $EXPRESSION
+                - metavariable-comparison:
+                    metavariable: $EXPRESSION
+                    comparison: str($EXPRESSION) == str($PREFIX)
+                - pattern-not: <... $CHAIN.requestMatchers(EndpointRequest.toAnyEndpoint(...)).$DECISION(...) ...>
+                - pattern-not: <... $CHAIN.requestMatchers("/actuator/**").$DECISION(...) ...>
+                - pattern-not: <... $CHAIN.antMatchers("/actuator/**").$DECISION(...) ...>
+                - pattern-not: <... $CHAIN.mvcMatchers("/actuator/**").$DECISION(...) ...>
+                - pattern-not: <... $CHAIN.requestMatchers("/**").$DECISION(...) ...>
+                - pattern-not: <... $CHAIN.antMatchers("/**").$DECISION(...) ...>
+                - pattern-not: <... $CHAIN.mvcMatchers("/**").$DECISION(...) ...>
+                - pattern-not: <... $CHAIN.anyRequest().$DECISION(...) ...>
+      - patterns:
+          - pattern-either:
+              - pattern: $HTTP.$SELECT(EndpointRequest.toAnyEndpoint(...)).$AUTHORIZE($AUTH -> $PREFIX.anyRequest().permitAll())
+              - pattern: $HTTP.$SELECT(EndpointRequest.toAnyEndpoint(...)).$AUTHORIZE($AUTH -> $PREFIX.antMatchers("/**").permitAll())
+              - pattern: $HTTP.$SELECT(EndpointRequest.toAnyEndpoint(...)).$AUTHORIZE($AUTH -> $PREFIX.requestMatchers("/**").permitAll())
+              - pattern: $HTTP.$SELECT(EndpointRequest.toAnyEndpoint(...)).$AUTHORIZE($AUTH -> $PREFIX.mvcMatchers("/**").permitAll())
           - metavariable-regex:
               metavariable: $SELECT
               regex: ^(requestMatcher|securityMatcher)$
           - metavariable-regex:
               metavariable: $AUTHORIZE
               regex: ^(authorizeRequests|authorizeHttpRequests)$
+          - metavariable-pattern:
+              metavariable: $PREFIX
+              pattern: <... $AUTH ...>
+          - metavariable-pattern:
+              metavariable: $PREFIX
+              patterns:
+                - pattern: $EXPRESSION
+                - metavariable-comparison:
+                    metavariable: $EXPRESSION
+                    comparison: str($EXPRESSION) == str($PREFIX)
+                - pattern-not: <... $CHAIN.requestMatchers(EndpointRequest.toAnyEndpoint(...)).$DECISION(...) ...>
+                - pattern-not: <... $CHAIN.requestMatchers("/actuator/**").$DECISION(...) ...>
+                - pattern-not: <... $CHAIN.antMatchers("/actuator/**").$DECISION(...) ...>
+                - pattern-not: <... $CHAIN.mvcMatchers("/actuator/**").$DECISION(...) ...>
+                - pattern-not: <... $CHAIN.requestMatchers("/**").$DECISION(...) ...>
+                - pattern-not: <... $CHAIN.antMatchers("/**").$DECISION(...) ...>
+                - pattern-not: <... $CHAIN.mvcMatchers("/**").$DECISION(...) ...>
+                - pattern-not: <... $CHAIN.anyRequest().$DECISION(...) ...>
+      - patterns:
+          - pattern: |
+              $HTTP.$SELECT(EndpointRequest.toAnyEndpoint(...)).$AUTHORIZE($AUTH -> {
+                ...
+                $TERMINAL;
+                ...
+              })
+          - metavariable-regex:
+              metavariable: $SELECT
+              regex: ^(requestMatcher|securityMatcher)$
+          - metavariable-regex:
+              metavariable: $AUTHORIZE
+              regex: ^(authorizeRequests|authorizeHttpRequests)$
+          - metavariable-pattern:
+              metavariable: $TERMINAL
+              patterns:
+                - pattern-either:
+                    - pattern: $PREFIX.anyRequest().permitAll()
+                    - pattern: $PREFIX.antMatchers("/**").permitAll()
+                    - pattern: $PREFIX.requestMatchers("/**").permitAll()
+                    - pattern: $PREFIX.mvcMatchers("/**").permitAll()
+                - metavariable-pattern:
+                    metavariable: $PREFIX
+                    pattern: <... $AUTH ...>
+                - metavariable-pattern:
+                    metavariable: $PREFIX
+                    patterns:
+                      - pattern: $EXPRESSION
+                      - metavariable-comparison:
+                          metavariable: $EXPRESSION
+                          comparison: str($EXPRESSION) == str($PREFIX)
+                      - pattern-not: <... $CHAIN.requestMatchers(EndpointRequest.toAnyEndpoint(...)).$DECISION(...) ...>
+                      - pattern-not: <... $CHAIN.requestMatchers("/actuator/**").$DECISION(...) ...>
+                      - pattern-not: <... $CHAIN.antMatchers("/actuator/**").$DECISION(...) ...>
+                      - pattern-not: <... $CHAIN.mvcMatchers("/actuator/**").$DECISION(...) ...>
+                      - pattern-not: <... $CHAIN.requestMatchers("/**").$DECISION(...) ...>
+                      - pattern-not: <... $CHAIN.antMatchers("/**").$DECISION(...) ...>
+                      - pattern-not: <... $CHAIN.mvcMatchers("/**").$DECISION(...) ...>
+                      - pattern-not: <... $CHAIN.anyRequest().$DECISION(...) ...>
+          - pattern-not-inside: |
+              $HTTP.$SELECT(EndpointRequest.toAnyEndpoint(...)).$AUTHORIZE($AUTH -> {
+                ...
+                (<... $AUTH ...>).$MATCHER(EndpointRequest.toAnyEndpoint(...)).$DECISION(...);
+                ...
+                $TERMINAL;
+                ...
+              })
+          - pattern-not-inside: |
+              $HTTP.$SELECT(EndpointRequest.toAnyEndpoint(...)).$AUTHORIZE($AUTH -> {
+                ...
+                (<... $AUTH ...>).$MATCHER("/actuator/**").$DECISION(...);
+                ...
+                $TERMINAL;
+                ...
+              })
+          - pattern-not-inside: |
+              $HTTP.$SELECT(EndpointRequest.toAnyEndpoint(...)).$AUTHORIZE($AUTH -> {
+                ...
+                (<... $AUTH ...>).$MATCHER("/**").$DECISION(...);
+                ...
+                $TERMINAL;
+                ...
+              })
+          - pattern-not-inside: |
+              $HTTP.$SELECT(EndpointRequest.toAnyEndpoint(...)).$AUTHORIZE($AUTH -> {
+                ...
+                (<... $AUTH ...>).anyRequest().$DECISION(...);
+                ...
+                $TERMINAL;
+                ...
+              })
 
   - id: traust-java-data-exposure-actuator-web-exposure-all
     languages: [regex]
