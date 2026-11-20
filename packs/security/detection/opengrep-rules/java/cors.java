@@ -54,4 +54,19 @@ class CorsSetup {
         resp.setHeader("Access-Control-Allow-Origin", req.getHeader("Origin"));
         resp.setHeader("Access-Control-Allow-Credentials", "true");
     }
+
+    CorsConfiguration trusted() {
+        CorsConfiguration c = new CorsConfiguration();
+        // ok: traust-java-cors-any-origin-with-credentials
+        c.addAllowedOriginPattern("https://portal.example.org");
+        c.setAllowCredentials(true);
+        return c;
+    }
+
+    void fixedOrigin(HttpServletRequest req, HttpServletResponse resp) {
+        // A fixed trusted origin is not a reflection of the caller's Origin header.
+        // ok: traust-java-cors-any-origin-with-credentials
+        resp.setHeader("Access-Control-Allow-Origin", "https://portal.example.org");
+        resp.setHeader("Access-Control-Allow-Credentials", "true");
+    }
 }

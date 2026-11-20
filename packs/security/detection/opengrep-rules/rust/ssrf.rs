@@ -24,3 +24,13 @@ async fn lookup(Path(key): Path<String>, db: &HashMap<String, String>) -> String
     db.get(&key).cloned().unwrap_or_default()
 }
 
+async fn listed_service(Query(params): Query<PreviewParams>) -> String {
+    // Translate an untrusted selector to a fixed destination, rather than
+    // treating a parsed URL or an arbitrary hostname as inherently safe.
+    let endpoint = match params.service.as_str() {
+        "status" => "https://status.example.com/health",
+        _ => return String::new(),
+    };
+    // ok: traust-rust-ssrf-request-taint
+    reqwest::get(endpoint).await.unwrap().text().await.unwrap()
+}

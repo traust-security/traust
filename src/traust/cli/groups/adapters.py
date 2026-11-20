@@ -20,7 +20,13 @@ from traust_core.v1.context.tool_reports import (
     osv_sbom_report,
     yara_report,
 )
-from traust_core.v1.errors import ConfigError, IntegrityError, TraustError, ValidationError
+from traust_core.v1.errors import (
+    ConfigError,
+    IntegrityError,
+    ScannerError,
+    TraustError,
+    ValidationError,
+)
 
 from traust.cli.groups._registry import OpSpec, passthrough_op
 from traust.context import load
@@ -32,7 +38,7 @@ def add_opengrep_args(ap) -> None:
         "--rules",
         action="append",
         default=[],
-        help="Rules source (path | git URL[@SHA] | p/<pack>). Repeatable.",
+        help="Rules source with paired fixtures (local path | HTTPS git URL@SHA). Repeatable.",
     )
     ap.add_argument("--out", help="Output file (default: <target-basename>-opengrep.json).")
     ap.add_argument(
@@ -83,11 +89,8 @@ def call_opengrep(args) -> int:
     except (ValidationError, IntegrityError) as e:
         print(f"ERROR: {e}", file=sys.stderr)
         return 2
-    except TimeoutError:
-        print(f"opengrep timed out after {args.timeout}s", file=sys.stderr)
-        return 1
-    except RuntimeError:
-        print("opengrep produced no JSON", file=sys.stderr)
+    except ScannerError as error:
+        print(f"{error.reason.value}: {error}", file=sys.stderr)
         return 1
 
     facts = report["facts"]

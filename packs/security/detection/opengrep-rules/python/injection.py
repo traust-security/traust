@@ -38,6 +38,9 @@ def raw_sql(request, connection, Model):
 
     # ok: traust-python-injection-raw-sql-taint
     cursor.execute("SELECT * FROM t WHERE fixed = 1")
+    # Parameter values stay data rather than becoming SQL syntax.
+    # ok: traust-python-injection-raw-sql-taint
+    cursor.execute("SELECT * FROM t WHERE name = %s", (q,))
 
 
 def render_user_template(request):
@@ -51,6 +54,14 @@ def render_static_template():
     import jinja2
     # ok: traust-python-injection-jinja2-template-taint
     return jinja2.Template("hello {{ name }}").render(name="world")
+
+
+def render_user_as_data(request):
+    import jinja2
+
+    # The same untrusted input is a variable, not template source.
+    # ok: traust-python-injection-jinja2-template-taint
+    return jinja2.Template("hello {{ name }}", autoescape=True).render(name=request.form.get("template"))
 
 
 def owned_items_orm(Item, owner_name, session):

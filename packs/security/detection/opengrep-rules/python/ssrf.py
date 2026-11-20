@@ -25,6 +25,21 @@ def proxy_json():
     requests.get(body["url"], timeout=5)
 
 
+def forward_payload():
+    payload = request.form.get("payload")
+    # A body, query parameter, or header cannot select a different host here.
+    # ok: traust-python-ssrf-request-taint
+    requests.post("https://api.example.org/events", data=payload)
+    # ok: traust-python-ssrf-request-taint
+    requests.get("https://api.example.org/search", params={"q": payload})
+    # ok: traust-python-ssrf-request-taint
+    requests.request("POST", "https://api.example.org/events", data=payload)
+    # ruleid: traust-python-ssrf-request-taint
+    requests.request("GET", request.args.get("url"))
+    # ruleid: traust-python-ssrf-request-taint
+    requests.get(url=request.args.get("url"))
+
+
 def import_feed(db):
     row = db.execute("SELECT url FROM feeds WHERE workspace = ?", ("w",)).fetchone()
     # ruleid: traust-python-ssrf-stored-url

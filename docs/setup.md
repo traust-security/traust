@@ -138,6 +138,7 @@ them when given an unknown name.
 ./scripts/install-toolchain.sh --all                      # every profile
 python3 -m traust.cli admin toolchain setup --profile secure-code-audit   # same, via the CLI
 python3 -m traust.cli admin toolchain doctor --profile secure-code-audit  # verify
+python3 -m traust.cli admin toolchain setup --tool opengrep             # only the pinned binary
 ```
 
 Binaries download straight from each project's own upstream release at the
@@ -149,6 +150,11 @@ with `HARNESS_BIN_DIR`); `--dry-run` previews. macOS and Linux. `doctor` exits
 0 when every tool for the profile is installed at the pinned version with its
 databases populated, 1 with a per-tool diagnostic otherwise; `/drift-watch`
 (`traust dashboard view freshness`) shows the same readiness on demand.
+
+Single-tool `setup --tool opengrep` reads the installed Core tool pin and invokes the
+verified installer without loading deployment configuration, feeds or a database. It can
+bootstrap rule validation even when `traust.yaml` is missing or invalid. Profile setup,
+`doctor` and `fetch-dbs` still load the deployment context they require.
 
 traust-core runs only the binaries `traust.yaml` grants under
 `process.allowed_binaries`. Impact analysis needs `syft` (commit SBOMs), plus

@@ -39,26 +39,45 @@ rules:
                   metavariable: $R
                   regex: ^(req|request)$
     pattern-sinks:
-      - pattern-either:
-          - pattern: fetch(...)
-          - pattern: axios.get(...)
-          - pattern: axios.post(...)
-          - pattern: axios(...)
-          - pattern: http.get(...)
-          - pattern: https.get(...)
-          - pattern: http.request(...)
-          - pattern: https.request(...)
-          - pattern: axios.put(...)
-          - pattern: axios.patch(...)
-          - pattern: axios.delete(...)
-          - pattern: axios.head(...)
-          - pattern: axios.request(...)
-          - pattern: got(...)
-          - pattern: got.get(...)
-          - pattern: got.post(...)
-          - pattern: superagent.get(...)
-          - pattern: superagent.post(...)
-          - pattern: needle(...)
-          - pattern: needle.get(...)
-          - pattern: undici.request(...)
-          - pattern: undici.fetch(...)
+      - patterns:
+          - pattern-either:
+              - pattern: fetch($URL, ...)
+              - pattern: axios.get($URL, ...)
+              - pattern: axios.post($URL, ...)
+              - pattern: axios.put($URL, ...)
+              - pattern: axios.patch($URL, ...)
+              - pattern: axios.delete($URL, ...)
+              - pattern: axios.head($URL, ...)
+              - pattern: http.get($URL, ...)
+              - pattern: https.get($URL, ...)
+              - pattern: http.request($URL, ...)
+              - pattern: https.request($URL, ...)
+              - pattern: got($URL, ...)
+              - pattern: got.get($URL, ...)
+              - pattern: got.post($URL, ...)
+              - pattern: superagent.get($URL, ...)
+              - pattern: superagent.post($URL, ...)
+              - pattern: needle($METHOD, $URL, ...)
+              - pattern: needle.get($URL, ...)
+              - pattern: undici.request($URL, ...)
+              - pattern: undici.fetch($URL, ...)
+              - patterns:
+                  - pattern-either:
+                      - pattern: axios($URL, ...)
+                      - pattern: axios.request($URL, ...)
+                  - metavariable-pattern:
+                      metavariable: $URL
+                      patterns:
+                        - pattern-not: "{...}"
+              # Axios config bodies/headers are not destinations. Only URL
+              # components, including baseURL, choose where the request goes.
+              - pattern: 'axios({ ..., url: $URL, ... })'
+              - pattern: 'axios({ ..., baseURL: $URL, ... })'
+              - patterns:
+                  - pattern-either:
+                      - pattern: 'axios.$METHOD(..., { ..., url: $URL, ... }, ...)'
+                      - pattern: 'axios.$METHOD(..., { ..., baseURL: $URL, ... }, ...)'
+                  - metavariable-regex:
+                      metavariable: $METHOD
+                      regex: ^(get|post|put|patch|delete|head|request)$
+          - focus-metavariable: $URL

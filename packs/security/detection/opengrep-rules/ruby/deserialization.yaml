@@ -21,6 +21,8 @@ rules:
           - pattern: YAML.load($X, ...)
           - pattern: Psych.load($X, ...)
       - pattern-not: 'YAML.load($X, ..., permitted_classes: $P, ...)'
+      # YAML is Psych's alias; apply the same explicit-class-list boundary.
+      - pattern-not: 'Psych.load($X, ..., permitted_classes: $P, ...)'
       - metavariable-pattern:
           metavariable: $X
           patterns:

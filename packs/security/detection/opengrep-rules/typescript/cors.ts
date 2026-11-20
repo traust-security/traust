@@ -10,6 +10,10 @@ app.use(cors({ credentials: true, origin: (origin, callback) => callback(null, t
 app.use(cors({ origin: ["https://app.example.org"], credentials: true }));
 // ok: traust-ts-cors-any-origin-with-credentials
 app.use(cors({ origin: true }));
+// ok: traust-ts-cors-any-origin-with-credentials
+app.use(cors({ origin: true, credentials: false }));
+// ok: traust-ts-cors-any-origin-with-credentials
+app.use(cors({ credentials: true, origin: (origin, callback) => callback(null, origin === "https://app.example.org") }));
 
 export function bootstrap(nest: { enableCors(o: object): void }) {
   // ruleid: traust-ts-cors-any-origin-with-credentials

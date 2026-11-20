@@ -1,4 +1,5 @@
 import https from "https";
+import * as crypto from "crypto";
 
 export function clients(url: string): void {
   // ruleid: traust-ts-cryptography-reject-unauthorized-false
@@ -18,6 +19,8 @@ export function tokens(password: string, data: Buffer, key: Buffer) {
   const resetToken = Math.random().toString(36).slice(2);
   // ok: traust-ts-cryptography-weak-random-secret
   const jitter = Math.random() * 100;
+  // ok: traust-ts-cryptography-weak-random-secret
+  const secureResetToken = crypto.randomBytes(32).toString("hex");
   // ruleid: traust-ts-cryptography-weak-hash
   const stored = crypto.createHash("md5").update(password).digest("hex");
   // ok: traust-ts-cryptography-weak-hash
@@ -28,5 +31,5 @@ export function tokens(password: string, data: Buffer, key: Buffer) {
   const ecb = crypto.createCipheriv("aes-256-ecb", key, null);
   // ok: traust-ts-cryptography-weak-cipher
   const gcm = crypto.createCipheriv("aes-256-gcm", key, iv);
-  return [resetToken, jitter, stored, digest, legacy, ecb, gcm];
+  return [resetToken, secureResetToken, jitter, stored, digest, legacy, ecb, gcm];
 }

@@ -47,7 +47,7 @@ python3 -m traust.cli check skill-alignment      # equivalent
 | `session` | Headless skill sessions and artifact-only task preparation/recording | `prepare`, `record`, `run` |
 | `tools` | One door over traust-core's tool registry: each registered tool's readiness, version and database; one tool over a checkout, SBOM, image or symbols, its typed result as JSON | `list`, `run` |
 | `triage` | The triage skill's doors on traust-core | `check`, `intake`, `prepare`, `record`, `render` |
-| `sweep` | Class-generalization sweep, detection-quality reports, human-gated CVE replay and recall-benchmark answer keys | `benchmark`, `benchmark-targets`, `bootstrap-benchmark`, `build-canaries`, `cards`, `collect`, `compliance-precision`, `critical-misses`, `cve-replay`, `draft`, `emit`, `mine`, `propose-rule`, `regression-drafts`, `rule-lane`, `score-benchmark`, `screen-injection`, `sweep`, `verify-draft` |
+| `sweep` | Class-generalization sweep, detection-quality reports, human-gated CVE replay and recall-benchmark answer keys | `benchmark`, `benchmark-targets`, `bootstrap-benchmark`, `build-canaries`, `cards`, `check-rules`, `collect`, `compliance-precision`, `critical-misses`, `cve-replay`, `draft`, `emit`, `mine`, `propose-rule`, `regression-drafts`, `rule-lane`, `score-benchmark`, `screen-injection`, `sweep`, `verify-draft` |
 | `util` | Utility commands | `elf`, `redact`, `safe-exec` |
 | `validation` | Core-backed machine validation evidence | `prepare`, `plan`, `record` |
 
@@ -189,6 +189,50 @@ convert uninspectable deliverables and rerun the gate; there is no binary fallba
 
 ### Detection-quality operations
 
+Portfolio/ledger mining is retained. Adopter-authored packs are an additional rule source;
+they do not replace mining, regression-draft authoring or scheduled rule-lane runs.
+
+- `traust sweep mine [--pack <name>] [--out <file>]` mines Core's recorded,
+  disposition-confirmed findings for rule coverage gaps, authoring candidates and per-rule
+  precision. Graph/database pre-queries help scope work, not replace the corpus of record.
+- `traust sweep regression-drafts` stages before/after fix evidence for rule authoring;
+  `traust sweep rule-lane` retains the existing mining/sweep workflow.
+
+- `traust sweep check-rules <path>` is the mandatory rule-quality gate for the
+  public pack and adopter packs. It requires native `opengrep validate` and
+  `opengrep test --json --strict`, positive `ruleid:` and negative `ok:` cases
+  for every rule, exact expected matches and complete check receipts.
+  Missing/unknown/skipped receipts, native errors and unannotated extra matches
+  fail; direct native commands alone do not replace its coverage checks.
+  Check the complete pack before promotion, not only selected rule IDs.
+- `traust sweep propose-rule --rule <rule.yaml> --example <example.py> --shape "<shape>" --checkout <dir>`
+  stages a proposal only after static checks, mandatory native validation/tests,
+  exact fixture matches and checkout hit limits pass. Engine-error partial scans
+  or unknown coverage refuse admission, never count as clean scans. An admitted
+  draft is not a promoted rule or a finding verdict.
+  Use meaningful vulnerable and equivalent safe/guarded/fixed examples; human
+  semantic review and recorded-scan calibration remain necessary.
+  Fixtures must test the trust and coverage of a guard, not merely the presence of a
+  validator call: attacker-supplied allowed-host sets do not make redirects safe, and
+  protecting only one actuator endpoint does not protect an anonymous fallback.
+  The shipped redirect rule trusts direct literal host policies and Django's validated
+  current-host expression; other computed policies remain candidates for review.
+  Actuator checks distinguish narrower protection from an earlier whole-scope decision.
+  A literal `/actuator/**` guard is not whole-scope proof for an endpoint-selected chain:
+  `management.endpoints.web.base-path` may relocate endpoints (for example, to `/manage`).
+  Endpoint-aware `EndpointRequest.toAnyEndpoint()` or universal `/**` guards remain supported.
+  Adopters reuse `overrides.rule_pack_allowlist`: each enabled pack selects
+  explicit unique rule IDs and uses either a local rule directory relative to
+  the allowlist file (with paired native fixtures), or an HTTPS Git source
+  pinned to a 40-hex commit SHA with the existing `rules/` subtree convention.
+  Enabled supplements must pass the same full-pack gate; unreachable or invalid
+  sources fail rather than silently skip. There is no validation bypass.
+  Before upgrading an existing enabled supplement, follow the
+  [upgrade procedure](../packs/security/detection/opengrep-rules/README.md#upgrading-enabled-supplements);
+  changing the shipped example does not change installed adopter configuration.
+  Deployments with private harness/configuration overlays must stage the matching runtime,
+  harness and allowlist as one release. A private copy still promising skip-with-warning
+  must be migrated before activation; updating the public template does not update it.
 - `traust sweep bootstrap-benchmark --out candidates.yaml [--limit 100]` harvests
   confirmed fixes as **unadmitted** answer-key candidates with fix evidence and a stable
   held-out split. Human review precedes `benchmark-targets candidates.yaml`.

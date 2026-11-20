@@ -22,6 +22,9 @@ func proxyPassthrough(w http.ResponseWriter, r *http.Request) {
 func proxyStripped(w http.ResponseWriter, r *http.Request) {
 	out, _ := http.NewRequest("GET", "http://upstream.svc", nil)
 	r.Header.Del("X-Forwarded-Access-Token")
+	r.Header.Del("X-Forwarded-Email")
+	r.Header.Del("X-Forwarded-User")
+	r.Header.Del("X-Forwarded-Preferred-Username")
 
 	// ok: traust-go-authentication-forwarded-identity-passthrough
 	out.Header = r.Header
@@ -29,7 +32,7 @@ func proxyStripped(w http.ResponseWriter, r *http.Request) {
 
 func proxyLoopStripped(w http.ResponseWriter, r *http.Request) {
 	out, _ := http.NewRequest("GET", "http://upstream.svc", nil)
-	for _, h := range []string{"X-Forwarded-User", "X-Forwarded-Email", "X-Forwarded-Access-Token"} {
+	for _, h := range []string{"X-Forwarded-User", "X-Forwarded-Email", "X-Forwarded-Access-Token", "X-Forwarded-Preferred-Username"} {
 		r.Header.Del(h)
 	}
 

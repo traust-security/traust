@@ -16,3 +16,14 @@ fn digest(password: &str, blob: &[u8]) {
     // ok: traust-rust-cryptography-weak-hash
     let strong = Sha256::digest(blob);
 }
+
+fn private_ca(ca: reqwest::Certificate) -> reqwest::Client {
+    // A private trust anchor does not require accepting arbitrary certificates.
+    // ok: traust-rust-cryptography-tls-verify-off
+    reqwest::Client::builder().add_root_certificate(ca).build().unwrap()
+}
+
+fn strict_hostname() -> native_tls::TlsConnector {
+    // ok: traust-rust-cryptography-tls-verify-off
+    native_tls::TlsConnector::builder().danger_accept_invalid_hostnames(false).build().unwrap()
+}

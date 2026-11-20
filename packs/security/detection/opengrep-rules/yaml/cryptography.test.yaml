@@ -36,3 +36,13 @@ compose_env:
   - OPENSSL_VERIFY=false
   # ok: traust-yaml-cryptography-tls-verify-disabled
   - OPENSSL_VERIFY=true
+  # ok: traust-yaml-cryptography-tls-verify-disabled
+  - TLS_VERIFY=true
+
+private_ca:
+  # Certificate verification stays on even with a private trust anchor.
+  # ok: traust-yaml-cryptography-tls-verify-disabled
+  verify_peer: true
+  ca_file: /run/secrets/database-ca.pem
+  # ok: traust-yaml-cryptography-dsn-sslmode-disabled
+  ssl_mode: verify-full

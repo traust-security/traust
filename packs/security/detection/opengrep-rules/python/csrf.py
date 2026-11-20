@@ -1,6 +1,6 @@
 from django.utils.decorators import method_decorator
 from django.views import View
-from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.csrf import csrf_exempt, csrf_protect
 from flask import Flask
 from flask_wtf.csrf import CSRFProtect
 
@@ -50,3 +50,17 @@ def test_client():
 # ok: traust-python-csrf-protection-disabled
 def summary(request):
     return None
+
+
+# ok: traust-python-csrf-protection-disabled
+@csrf_protect
+def protected_transfer(request):
+    return None
+
+
+def protected_app():
+    app = Flask(__name__)
+    # ok: traust-python-csrf-protection-disabled
+    app.config["WTF_CSRF_ENABLED"] = True
+    CSRFProtect(app)
+    return app

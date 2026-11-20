@@ -3,9 +3,10 @@ rules:
     languages: [go]
     severity: ERROR
     message: >-
-      Request-derived value reaches exec.Command without validation — an
-      attacker who controls the parameter controls process arguments (and,
-      via a shell binary, the command line). CWE-78.
+      A request-derived value reaches exec.Command. This establishes a
+      process-argument flow, not shell injection by itself: check whether
+      the value controls the executable, shell syntax, or unsafe options
+      for the selected program. Map input to allowed actions. CWE-78.
     metadata:
       cwe: ["CWE-78"]
       category: injection

@@ -16,8 +16,10 @@ class InputValidationTests {
     }
 
     Object deserializeFiltered(InputStream in) throws Exception {
+        // Reject application gadget classes and bound graph size before reading.
+        // ok: traust-java-input-validation-untrusted-deserialization
         ObjectInputStream ois = new ObjectInputStream(in);
-        ois.setObjectInputFilter(ObjectInputFilter.Config.createFilter("com.example.*;!*"));
+        ois.setObjectInputFilter(ObjectInputFilter.Config.createFilter("maxdepth=5;maxrefs=100;maxbytes=4096;java.lang.String;!*"));
         // ok: traust-java-input-validation-untrusted-deserialization
         return ois.readObject();
     }
@@ -53,6 +55,8 @@ class InputValidationTests {
         String ok1 = String.format("%s", userValue);
         // ok: traust-java-input-validation-variable-format-string
         formatter.format("%s", buf.toString());
+        // ok: traust-java-input-validation-variable-format-string
+        System.out.printf("%s", userValue);
     }
 
     static final String JSON_PARSING_ERROR = "failed to parse: %s";

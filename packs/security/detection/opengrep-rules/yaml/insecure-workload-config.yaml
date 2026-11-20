@@ -4,10 +4,11 @@ rules:
     languages: [yaml]
     severity: ERROR
     message: >-
-      Shipped configuration disables authentication (or enables anonymous
-      access) by default — every deployment that keeps the default
-      exposes the service unauthenticated. Default to auth on; make any
-      insecure toggle an explicit, documented opt-out. CWE-306.
+      Configuration contains an authentication-disable or anonymous-access
+      toggle. Confirm the consuming component's semantics, effective
+      overrides, listener exposure and any external authentication boundary.
+      This match alone does not establish unauthenticated service access.
+      Default to authentication on. CWE-306.
     metadata:
       cwe: ["CWE-306"]
       category: insecure-workload-config

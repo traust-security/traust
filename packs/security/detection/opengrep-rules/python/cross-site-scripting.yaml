@@ -25,7 +25,14 @@ rules:
           - pattern: request.data[...]
           - pattern: request.args.get(...)
           - pattern: request.form.get(...)
+    pattern-sanitizers:
+      - pattern: django.utils.html.conditional_escape(...)
+      - pattern: django.utils.html.escape(...)
+      # Only literal format strings are safe; their arguments are escaped.
+      - pattern: format_html("...", ...)
     pattern-sinks:
-      - pattern-either:
-          - pattern: mark_safe(...)
-          - pattern: format_html($FMT)
+      - patterns:
+          - pattern-either:
+              - pattern: mark_safe($HTML)
+              - pattern: format_html($HTML, ...)
+          - focus-metavariable: $HTML

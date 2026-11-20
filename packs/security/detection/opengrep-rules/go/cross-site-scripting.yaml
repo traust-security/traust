@@ -3,11 +3,11 @@ rules:
     languages: [go]
     severity: ERROR
     message: >-
-      A request value is written into the response body unescaped
-      (fmt.Fprintf / Fprint / io.WriteString / w.Write on the
-      ResponseWriter). Go sniffs an unset Content-Type, so HTML in the
-      value runs as script. Render through html/template, or escape with
-      html.EscapeString and set a non-HTML Content-Type. CWE-79.
+      A request value reaches a response-body write. The rule does not
+      check the effective Content-Type, escaping context or browser
+      behavior; an HTML response may interpret attacker markup. Use
+      html/template for HTML or an appropriate non-HTML content type and
+      context-specific encoding. CWE-79.
     metadata:
       cwe: ["CWE-79"]
       category: cross-site-scripting
@@ -45,12 +45,11 @@ rules:
     languages: [go]
     severity: ERROR
     message: >-
-      A request value converted to one of html/template's trusted types
-      (template.HTML, HTMLAttr, JS, JSStr, URL, CSS, Srcset) — the
-      conversion turns off html/template's escaping for it, so the
-      caller's markup or script is injected as is. Keep it a plain string
-      and let the template escape it, or sanitize first (bluemonday).
-      CWE-79.
+      A request value is converted to an html/template trusted type,
+      bypassing contextual escaping if later rendered. Confirm template
+      use and the output context; HTML sanitization is not automatically
+      safe for JS, CSS, URL or attribute contexts. Keep untrusted values
+      as plain data and let the template escape them. CWE-79.
     metadata:
       cwe: ["CWE-79"]
       category: cross-site-scripting

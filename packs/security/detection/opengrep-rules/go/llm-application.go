@@ -94,6 +94,11 @@ func llmServeSSE(s any) {
 	_ = sse
 }
 
+func llmServeStdio(s *server.MCPServer) error {
+	// ok: traust-go-llm-application-mcp-http-without-auth
+	return server.ServeStdio(s)
+}
+
 func llmResearch(ctx context.Context, question string) (string, error) {
 	// ruleid: traust-go-llm-application-unbounded-agent-loop
 	for {
@@ -133,5 +138,16 @@ func llmDrain(ch chan string) {
 			return
 		}
 		_ = item
+	}
+}
+
+func llmAllowedAction(resp *llmResponse) *exec.Cmd {
+	switch strings.TrimSpace(resp.Choices[0].Message.Content) {
+	case "uptime":
+		// Model output selects an allow-listed action, never process syntax.
+		// ok: traust-go-llm-application-output-to-exec-taint
+		return exec.Command("uptime")
+	default:
+		return nil
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os/exec"
+	"strings"
 )
 
 // stand-in for github.com/gorilla/mux so the fixture stays stdlib-only;
@@ -71,7 +72,9 @@ func ownedItems(ctx context.Context, db *sql.DB, ownerName string) {
 	db.Query("SELECT id FROM item WHERE owner = '" + ownerName + "'")
 }
 
-func escapeLike(s string) string { return s }
+func escapeLike(s string) string {
+	return strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(s)
+}
 
 func preview(w http.ResponseWriter, r *http.Request) {
 	body := r.FormValue("template")
@@ -81,4 +84,18 @@ func preview(w http.ResponseWriter, r *http.Request) {
 	fixed, _ := template.New("page").Parse("<p>{{.Name}}</p>")
 	_ = t
 	_ = fixed
+	// Fixed template source with request-controlled data retains template escaping.
+	// ok: traust-go-injection-template-parse-taint
+	fixed.Execute(w, map[string]string{"Name": r.FormValue("name")})
+}
+
+func allowedCommand(w http.ResponseWriter, r *http.Request) {
+	switch r.FormValue("resource") {
+	case "pods":
+		// Only a fixed action is selected; request bytes never become arguments.
+		// ok: traust-go-injection-exec-taint
+		exec.Command("kubectl", "get", "pods")
+	default:
+		http.Error(w, "unsupported resource", http.StatusBadRequest)
+	}
 }

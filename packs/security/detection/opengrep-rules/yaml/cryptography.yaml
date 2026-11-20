@@ -4,12 +4,11 @@ rules:
     languages: [yaml]
     severity: ERROR
     message: >-
-      Shipped configuration defaults the database connection to a
-      non-verifying TLS mode (sslmode disable/allow/prefer) — traffic and
-      credentials cross the network in plaintext or without server
-      authentication wherever the default is not overridden. Default to
-      verify-full (or require at minimum) and make the insecure mode an
-      explicit opt-out. CWE-319.
+      Configuration contains a database sslmode of disable/allow/prefer.
+      If this value is consumed without a stronger override, the connection
+      may permit plaintext or lack server authentication. Confirm the
+      effective deployment setting and prefer verify-full; require alone
+      does not generally establish hostname verification. CWE-319.
     metadata:
       cwe: ["CWE-319"]
       category: cryptography
@@ -36,10 +35,10 @@ rules:
     languages: [yaml]
     severity: ERROR
     message: >-
-      Shipped configuration disables TLS certificate verification by
-      default — every deployment that keeps the default accepts an
-      on-path attacker's certificate. Default to verification on; make
-      any insecure toggle explicit and documented. CWE-295.
+      Configuration contains a TLS-verification-disable-shaped setting.
+      Confirm the consuming component's meaning, effective overrides and
+      network use before concluding that an on-path attacker can
+      impersonate the server. Keep certificate verification on. CWE-295.
     metadata:
       cwe: ["CWE-295"]
       category: cryptography

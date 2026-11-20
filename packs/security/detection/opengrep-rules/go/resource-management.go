@@ -18,6 +18,7 @@ func clients() {
 	// ok: traust-go-resource-management-http-client-no-timeout
 	c3 := &http.Client{Timeout: 30 * time.Second}
 
+	// ok: traust-go-resource-management-http-client-no-timeout
 	c4 := &http.Client{Transport: http.DefaultTransport}
 	// sanitizer: Timeout assigned after construction
 	c4.Timeout = 30 * time.Second
@@ -35,6 +36,7 @@ func servers(mux *http.ServeMux) {
 	// ok: traust-go-resource-management-http-server-no-timeouts
 	s3 := http.Server{Addr: ":8080", WriteTimeout: 30 * time.Second}
 
+	// ok: traust-go-resource-management-http-server-no-timeouts
 	s4 := &http.Server{Addr: ":8080", Handler: mux}
 	// sanitizer: timeout assigned after construction
 	s4.IdleTimeout = 60 * time.Second
@@ -66,5 +68,12 @@ func handlerBounded(w http.ResponseWriter, r *http.Request) {
 func clientResponse(resp *http.Response) {
 	// ok: traust-go-resource-management-unbounded-request-body-read
 	body, _ := io.ReadAll(resp.Body)
+	_ = body
+}
+
+func handlerLimited(w http.ResponseWriter, r *http.Request) {
+	// Equivalent size-bound direction without rebinding the request body.
+	// ok: traust-go-resource-management-unbounded-request-body-read
+	body, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20))
 	_ = body
 }

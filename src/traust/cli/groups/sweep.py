@@ -8,7 +8,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from traust_core.v1.context import Context
-from traust_core.v1.context.tool_reports import opengrep_report
+from traust_core.v1.context.tool_reports import opengrep_quality_report, opengrep_report
 from traust_core.v1.context.tools import load_rule_allowlist
 from traust_core.v1.errors import (
     DeploymentConfigMissing,
@@ -456,6 +456,30 @@ def call_propose(args) -> int:
         return 0 if verdict.admitted else 1
 
     return _door(call)
+
+
+def add_check_rules_args(ap) -> None:
+    ap.add_argument("rules", nargs="+", type=Path, help="local rule files or pack directories")
+    ap.add_argument("--opengrep", default="opengrep", help="Opengrep binary")
+    ap.add_argument("--timeout", type=int, default=300, help="timeout per native quality command")
+
+
+def call_check_rules(args) -> int:
+    def call() -> int:
+        result = opengrep_quality_report(
+            load(args.config_home), args.rules, timeout=args.timeout, binary=args.opengrep
+        )
+        print(json.dumps({"passed": result.passed, **result.model_dump(mode="json")}, indent=2))
+        return 0 if result.passed else 1
+
+    return _door(call)
+
+
+CHECK_RULES = OpSpec(
+    add_args=add_check_rules_args,
+    call=call_check_rules,
+    help="require native Opengrep validation and strict positive/negative fixture tests",
+)
 
 
 COLLECT = OpSpec(

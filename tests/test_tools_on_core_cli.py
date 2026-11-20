@@ -7,6 +7,7 @@ import json
 import os
 import stat
 import struct
+import subprocess
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -63,15 +64,55 @@ def test_opengrep_refusals_keep_their_exit_codes(
     assert message in capsys.readouterr().err
 
 
-def test_opengrep_without_json_or_in_time_is_exit_1(tmp_path: Path, bindir: Path, capsys) -> None:
+@pytest.mark.parametrize(
+    ("failure", "category"),
+    [
+        ("invalid-output", "invalid_output"),
+        ("timeout", "scan_timeout"),
+        ("abnormal-exit", "opengrep_failed"),
+    ],
+)
+def test_opengrep_process_failures_are_observable_without_writing_a_report(
+    tmp_path: Path, bindir: Path, capsys: pytest.CaptureFixture[str], failure: str, category: str
+) -> None:
     target = tmp_path / "repo"
     target.mkdir()
-    fake(bindir, "opengrep", "print('not json')")
-    assert adapters.call_opengrep(opengrep_args(target, rules=[str(target)])) == 1
-    assert "opengrep produced no JSON" in capsys.readouterr().err
-    fake(bindir, "opengrep", "import time; time.sleep(5)")
-    assert adapters.call_opengrep(opengrep_args(target, rules=[str(target)], timeout=1)) == 1
-    assert "opengrep timed out after 1s" in capsys.readouterr().err
+    (target / "app.py").write_text("dangerous(value)\n")
+    rule = tmp_path / "transport.yaml"
+    rule.write_text(
+        "rules:\n  - id: transport-check\n    languages: [python]\n"
+        "    severity: ERROR\n    message: Unsafe call\n    pattern: dangerous($X)\n"
+    )
+    rule.with_suffix(".py").write_text(
+        "# ruleid: transport-check\ndangerous(value)\n# ok: transport-check\nsafe(value)\n"
+    )
+    native_receipts = """#!/bin/sh
+case "$1" in
+  --version) printf '1.25.0\\n'; exit 0 ;;
+  validate) exit 0 ;;
+  test)
+    for root do :; done
+    config=$(find "$root" -type f -name '*.yaml' -print -quit)
+    fixture="${config%.yaml}.py"
+    printf '{"results":{"%s":{"checks":{"transport-check":{"passed":true,"errors":[],"matches":{"%s":{"expected_lines":[2],"reported_lines":[2]}}}}}},"fixtest_results":{},"config_missing_tests":[],"config_missing_fixtests":[],"config_with_errors":[]}\\n' "$config" "$fixture"
+    exit 0 ;;
+esac
+printf 'PRIVATE_ENGINE_DETAIL' >&2
+"""
+    behavior = {
+        "invalid-output": "printf 'PRIVATE_ENGINE_DETAIL not JSON\\n'",
+        "timeout": "exec sleep 10",
+        "abnormal-exit": "exit 2",
+    }[failure]
+    scanner = bindir / "opengrep"
+    scanner.write_text(native_receipts + behavior + "\n")
+    scanner.chmod(0o755)
+    assert adapters.call_opengrep(opengrep_args(target, rules=[str(rule)], timeout=2)) == 1
+    diagnostic = capsys.readouterr().err
+    assert diagnostic.startswith(category + ": ")
+    assert diagnostic.partition(": ")[2].strip()
+    assert "PRIVATE_ENGINE_DETAIL" not in diagnostic
+    assert not (tmp_path / "og.json").exists()
 
 
 def yara_args(target: Path, **kw) -> SimpleNamespace:
@@ -239,3 +280,124 @@ def test_the_doctor_checks_each_profile_tool_on_the_core_toolchain(
     assert "issue(s) found" in out
     assert toolchain.main(["doctor", "--profile", "nope"]) == 1
     assert "Available profiles:" in capsys.readouterr().err
+
+
+@pytest.fixture
+def invalid_config_home(tmp_path: Path) -> Path:
+    home = tmp_path / "config"
+    home.mkdir()
+    (home / "traust.yaml").write_text("database: [\n")
+    return home
+
+
+def _run_toolchain_cli(*args: str) -> subprocess.CompletedProcess[str]:
+    repo = Path(__file__).resolve().parents[1]
+    env = {
+        **os.environ,
+        "HARNESS_ROOT": str(repo),
+        "PYTHONPATH": os.pathsep.join(
+            filter(None, (str(repo / "src"), os.environ.get("PYTHONPATH")))
+        ),
+    }
+    return subprocess.run(
+        [sys.executable, "-m", "traust.cli", "admin", "toolchain", *args],
+        cwd=repo,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+@pytest.mark.parametrize("config_source", ["environment", "argument"])
+def test_grouped_setup_one_tool_reaches_the_pinned_installer_without_deployment_config(
+    tmp_path: Path, bindir: Path, monkeypatch, invalid_config_home: Path, config_source: str
+) -> None:
+    downloads = tmp_path / "downloads"
+    fake(
+        bindir,
+        "curl",
+        f"open({str(downloads)!r}, 'a').write('download attempted\\n')\nsys.exit(97)",
+    )
+    (bindir / "python3").symlink_to(sys.executable)
+    installed = tmp_path / "installed"
+    monkeypatch.setenv("HARNESS_BIN_DIR", str(installed))
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    args = []
+    if config_source == "environment":
+        monkeypatch.setenv("TRAUST_CONFIG_HOME", str(invalid_config_home))
+    else:
+        args = ["--config-home", str(invalid_config_home)]
+
+    result = _run_toolchain_cli(*args, "setup", "--tool", "opengrep", "--dry-run")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "Tool: opengrep" in result.stdout
+    assert "dry-run: would install opengrep v1.25.0" in result.stdout
+    assert not downloads.exists()
+    assert not installed.exists()
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        ["setup", "--profile", "vuln-scan", "--dry-run"],
+        ["doctor", "--profile", "vuln-scan"],
+        ["fetch-dbs", "--profile", "vuln-scan"],
+    ],
+)
+def test_grouped_profile_operations_still_validate_deployment_config(
+    invalid_config_home: Path, args: list[str]
+) -> None:
+    result = _run_toolchain_cli("--config-home", str(invalid_config_home), *args)
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert "traust.yaml not resolvable:" in result.stderr
+    assert "Harness toolchain installer" not in result.stdout
+
+
+@pytest.mark.parametrize("dry_run", [False, True])
+def test_setup_one_tool_delegates_only_that_tool_to_the_installer(
+    tmp_path: Path, monkeypatch, invalid_config_home: Path, dry_run: bool
+) -> None:
+    installer = tmp_path / "install-toolchain.sh"
+    recorded_args = tmp_path / "installer-args"
+    installer.write_text('printf "%s\\n" "$@" > "$INSTALLER_TEST_ARGS"\nexit 17\n')
+    monkeypatch.setenv("INSTALLER_TEST_ARGS", str(recorded_args))
+    monkeypatch.setattr(toolchain, "INSTALL_SCRIPT", installer)
+    args = ["--config-home", str(invalid_config_home), "setup", "--tool", "opengrep"]
+    if dry_run:
+        args.append("--dry-run")
+    assert toolchain.main(args) == 17
+    expected = ["--tool", "opengrep"]
+    if dry_run:
+        expected.append("--dry-run")
+    assert recorded_args.read_text().splitlines() == expected
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        ["setup"],
+        ["setup", "--tool", "unknown"],
+        ["setup", "--tool", "opengrep", "--profile", "vuln-scan"],
+    ],
+)
+def test_setup_rejects_missing_unknown_or_ambiguous_selection(monkeypatch, args) -> None:
+    def unexpected_load(*_args):
+        pytest.fail("invalid selection must fail before loading deployment context")
+
+    monkeypatch.setattr(toolchain, "load", unexpected_load)
+    with pytest.raises(SystemExit) as error:
+        toolchain.main(args)
+    assert error.value.code == 2
+
+
+def test_setup_one_tool_fails_when_the_verified_installer_is_missing(
+    tmp_path: Path, monkeypatch, capsys, invalid_config_home: Path
+) -> None:
+    monkeypatch.setattr(toolchain, "INSTALL_SCRIPT", tmp_path / "missing")
+    assert (
+        toolchain.main(["--config-home", str(invalid_config_home), "setup", "--tool", "opengrep"])
+        == 1
+    )
+    assert "installer is missing" in capsys.readouterr().err

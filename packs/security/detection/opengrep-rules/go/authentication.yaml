@@ -4,12 +4,12 @@ rules:
     languages: [go]
     severity: ERROR
     message: >-
-      Inbound identity headers reach the upstream request without being
-      stripped — X-Forwarded-(Access-Token|Email|User|Preferred-Username)
-      are trust assertions the upstream derives identity from, so a client
-      that sets them spoofs an authenticated principal through the proxy.
-      Delete the inbound identity headers before proxying and re-add only
-      values the proxy itself authenticated. CWE-290.
+      An inbound-header copy, identity-header forward, or reverse-proxy
+      co-occurrence pattern needs review. The matcher does not prove that
+      an untrusted header reaches an upstream that trusts it, and its strip
+      exclusions do not establish complete coverage or execution order.
+      Strip all inbound identity headers and re-add only authenticated
+      values before proxying. CWE-290.
     metadata:
       cwe: ["CWE-290"]
       category: authentication
@@ -67,14 +67,12 @@ rules:
     languages: [go]
     severity: ERROR
     message: >-
-      A JWT is accepted without signature verification — ParseUnverified,
-      a key function that returns no key, or the unsigned `none` algorithm
-      allowed. Whoever writes the token chooses its subject and claims.
-      This is a finding even behind a test/debug switch: trace where that
-      switch is set, including its shipped default. Verify every token
-      against a pinned key and an explicit WithValidMethods list; if a
-      claim must be read before the key is known, use it only to select
-      the key, then verify. CWE-347.
+      A JWT API skips verification, admits the unsigned algorithm, or uses
+      a key callback returning nil. These are review signals, not proof of
+      acceptance: libraries may reject missing keys, and unverified decoding
+      may only select a key before a verified parse. Trace the returned
+      claims to their use and require a valid signature with an explicit
+      accepted-algorithm list before trusting them. CWE-347.
     metadata:
       cwe: ["CWE-347", "CWE-287"]
       category: authentication

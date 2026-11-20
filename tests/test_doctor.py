@@ -168,7 +168,7 @@ def test_a_required_gap_is_a_fail_row_and_a_nonzero_exit(
     ]
 
 
-def test_an_unset_feed_key_variable_is_a_fail_row_not_a_crash(
+def test_an_unset_feed_key_variable_is_not_a_fail_row(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, gitleaks_on_path: None
 ) -> None:
     monkeypatch.delenv("TEST_NVD_KEY", raising=False)
@@ -178,10 +178,9 @@ def test_an_unset_feed_key_variable_is_a_fail_row_not_a_crash(
     document = yaml.safe_load((home / "traust.yaml").read_text())
     document["feeds"] = {"api_keys": {"nvd": "TEST_NVD_KEY"}}
     (home / "traust.yaml").write_text(yaml.safe_dump(document))
-    rc, rows = _doctor(home, monkeypatch)
-    assert rc == 1
-    feeds = [(r["status"], r["check"]) for r in rows if r["check"].startswith("feeds: ")]
-    assert feeds == [("FAIL", "feeds: feeds.api_keys.nvd names unset variable TEST_NVD_KEY")]
+    _rc, rows = _doctor(home, monkeypatch)
+    # traust-core#524: an unset key logs an error and the source runs keyless
+    assert not [r for r in rows if r["status"] == "FAIL" and r["check"].startswith("feeds: ")]
 
 
 def _pack_requires(path: Path) -> list[Requirement]:
@@ -476,7 +475,7 @@ def test_an_invalid_traust_yaml_fails_the_config_row(tmp_path: Path) -> None:
     assert "traust.yaml not loadable" in results[0][1]
 
 
-def test_a_feeds_error_never_hides_another_preflight_gap(
+def test_an_unset_feed_key_never_hides_another_preflight_gap(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.delenv("TEST_NVD_KEY", raising=False)
@@ -490,6 +489,6 @@ def test_a_feeds_error_never_hides_another_preflight_gap(
     rc, rows = _doctor(home, monkeypatch)
     failed = [r["check"] for r in rows if r["status"] == "FAIL"]
     assert rc == 1
-    assert "feeds: feeds.api_keys.nvd names unset variable TEST_NVD_KEY" in failed
+    assert not [f for f in failed if f.startswith("feeds: ")]  # keyless, not a gap (core#524)
     assert [f for f in failed if "gitleaks" in f]  # the other gap is still reported
     assert not [f for f in failed if "is not an enabled source" in f]  # nor repeated per feed

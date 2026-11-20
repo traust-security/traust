@@ -3,11 +3,11 @@ rules:
     languages: [go]
     severity: ERROR
     message: >-
-      A request value is the target of a redirect (http.Redirect, a
-      Location header, or a gin/echo/fiber Redirect) with no allow-list —
-      the server sends users wherever the link says (phishing, token
-      leakage through referer). Redirect only to relative paths or
-      allow-listed hosts. CWE-601.
+      A request-derived value reaches a redirect target or Location header.
+      Confirm that a redirect is sent and whether a guard restricts the
+      destination; taint matching alone does not establish an exploitable
+      off-origin redirect. Prefer fixed local destinations or a strict
+      scheme/host allow-list. CWE-601.
     metadata:
       cwe: ["CWE-601"]
       category: open-redirect

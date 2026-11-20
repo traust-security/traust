@@ -18,6 +18,8 @@ fn peek(token: &str) -> Claims {
 
 fn strict(token: &str, key: &DecodingKey) -> Result<Claims> {
     // ok: traust-rust-authentication-jwt-validation-disabled
-    let validation = Validation::new(Algorithm::ES256);
+    let mut validation = Validation::new(Algorithm::ES256);
+    // ok: traust-rust-authentication-jwt-validation-disabled
+    validation.validate_exp = true;
     Ok(decode::<Claims>(token, key, &validation)?.claims)
 }

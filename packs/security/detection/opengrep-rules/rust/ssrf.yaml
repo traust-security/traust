@@ -3,11 +3,11 @@ rules:
     languages: [rust]
     severity: ERROR
     message: >-
-      A request value (a gRPC message field, or an axum / actix-web Query,
-      Path or Json extractor) is the destination of an outbound reqwest
-      call — callers reach internal services and cloud metadata. Allow-list
-      hosts, or resolve and refuse private addresses before connecting.
-      CWE-918.
+      A request-shaped value reaches a reqwest URL argument, possibly
+      while only building a request. Confirm that it is sent, that the
+      caller controls the destination, and which networks/redirects are
+      reachable. Allow-list destinations and enforce egress policy;
+      parsing a URL alone is not validation. CWE-918.
     metadata:
       cwe: ["CWE-918"]
       category: ssrf

@@ -3,10 +3,10 @@ rules:
     languages: [bash]
     severity: ERROR
     message: >-
-      Credential passed on a command line — argv is visible to every
-      process on the host and is echoed verbatim into CI logs whenever
-      xtrace is on. Use the tool's stdin/credential-file mechanism
-      (e.g. `--password-stdin`). CWE-532/CWE-214.
+      Credential-bearing login argument — command lines can be exposed
+      through process inspection and are echoed into CI logs when xtrace
+      is enabled. Confirm the value is a live credential and use the
+      tool's stdin/credential-file mechanism. CWE-532/CWE-214.
     metadata:
       cwe: ["CWE-532", "CWE-214"]
       category: data-exposure
@@ -30,11 +30,11 @@ rules:
     languages: [bash]
     severity: INFO
     message: >-
-      Shell tracing enabled in a script that references credential-shaped
-      identifiers — every expanded value, including those secrets, echoes
-      into the job log. Drop the x flag or bracket the sensitive section
-      with `set +x`; judge whether the referenced values are live
-      credentials in this script's scope. CWE-532.
+      Shell tracing is enabled in a file containing credential-shaped
+      text or a remote-script source. This file-level heuristic does not
+      establish that a live secret is expanded while tracing is active.
+      Check execution order and disable tracing before sensitive
+      expansions with `set +x`. CWE-532.
     metadata:
       cwe: ["CWE-532"]
       category: data-exposure
@@ -52,11 +52,7 @@ rules:
                   metavariable: $FLAGS
                   regex: ^-[a-w]*x[a-w]*$
           - pattern: set -o xtrace
-      # co-occurrence constraint: the script must mention a
-      # credential-shaped identifier (var, heredoc, flag) OR source/pipe a
-      # remotely fetched script (whose credential handling inherits this
-      # shell's xtrace) — the anchored lookahead makes the regex span the
-      # whole file, so pattern-inside keeps xtrace hits only in scripts
-      # where the trace can expose secret material
+      # File-level text co-occurrence, not a control-flow check: comments,
+      # unrelated functions, and guarded sections can satisfy this signal.
       - pattern-inside:
           pattern-regex: (?is)\A(?=.*(password|passwd|secret|token|api[_-]?key|credential|bearer|aws_access_key|aws_secret_access|source\s*<\(\s*curl|curl[^\n]*\|\s*(ba|z)?sh)).*

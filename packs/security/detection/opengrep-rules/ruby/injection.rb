@@ -26,6 +26,12 @@ class Preview
     # ok: traust-ruby-injection-erb-template
     ERB.new(File.read(TEMPLATE)).result(binding)
   end
+
+  def fixed_banner(theme)
+    # Imported content is a value, not ERB source (HTML escaping is separate).
+    # ok: traust-ruby-injection-erb-template
+    ERB.new("Banner: <%= banner %>").result_with_hash(banner: theme.fetch("banner"))
+  end
 end
 
 class OrdersController < ApplicationController
@@ -42,6 +48,11 @@ class OrdersController < ApplicationController
     @safe = Order.where("region = ?", params[:region])
     # ok: traust-ruby-injection-sql-interpolation
     @hash = Order.where(region: params[:region]).order(:created_at)
+    sort_column = { "created_at" => :created_at, "region" => :region }.fetch(params[:sort], :created_at)
+    # ok: traust-ruby-injection-sql-interpolation
+    @sorted = Order.order(sort_column)
+    # ok: traust-ruby-injection-sql-interpolation
+    @labels = Order.find_by_sql(["SELECT * FROM orders WHERE label = ?", params[:label]])
   end
 
   def thumbnail
@@ -57,5 +68,8 @@ class OrdersController < ApplicationController
     system("convert", params[:file], "-resize", "64x64", "thumb.png")
     # ok: traust-ruby-injection-shell-interpolation
     system("make clean")
+    # Separate argv avoids shell parsing; -- also ends git's option parsing.
+    # ok: traust-ruby-injection-shell-interpolation
+    out, _ = Open3.capture2("git", "log", "--", params[:path])
   end
 end

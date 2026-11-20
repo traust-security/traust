@@ -3,12 +3,11 @@ rules:
     languages: [go]
     severity: ERROR
     message: >-
-      CORS accepts any origin and allows credentials: an origin check that
-      always returns true, rs/cors with a "*" origin (it echoes the caller's
-      Origin), echo's unsafe wildcard option, or the Origin header copied
-      into Access-Control-Allow-Origin. Any site can then make requests with
-      the user's cookies and read the responses. List the allowed origins
-      explicitly. CWE-942.
+      Credentials support occurs with a permissive-origin CORS shape.
+      Confirm the middleware version and effective response headers:
+      libraries may reject or ignore wildcard-plus-credentials settings.
+      Credentialed cross-origin data exposure also depends on browser,
+      cookie and endpoint behavior. Restrict allowed origins. CWE-942.
     metadata:
       cwe: ["CWE-942", "CWE-346"]
       category: cors

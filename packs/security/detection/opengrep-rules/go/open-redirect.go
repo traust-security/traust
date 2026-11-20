@@ -18,3 +18,15 @@ func ginLogin(c *gin.Context) {
 	// ok: traust-go-open-redirect-taint
 	c.Redirect(http.StatusFound, "/home")
 }
+
+func fixedDestination(w http.ResponseWriter, r *http.Request) {
+	switch r.URL.Query().Get("next") {
+	case "settings":
+		// Untrusted input selects a fixed local destination.
+		// ok: traust-go-open-redirect-taint
+		http.Redirect(w, r, "/settings", http.StatusFound)
+	default:
+		// ok: traust-go-open-redirect-taint
+		http.Redirect(w, r, "/dashboard", http.StatusFound)
+	}
+}

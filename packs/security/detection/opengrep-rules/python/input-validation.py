@@ -40,6 +40,14 @@ def restore_state(request):
     return pickle.loads(raw)
 
 
+def restore_json_state(request):
+    import json
+
+    # Request-controlled state is parsed as data, not an object graph.
+    # ok: traust-python-input-validation-pickle-loads-taint
+    return json.loads(request.body)
+
+
 def restore_state_encoded(request):
     import pickle
     import base64

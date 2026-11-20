@@ -3,11 +3,11 @@ rules:
     languages: [python]
     severity: ERROR
     message: >-
-      A request value is the target of a redirect (Flask/Django redirect,
-      HttpResponseRedirect, Starlette RedirectResponse) with no allow-list
-      — the server sends users wherever the link says. Redirect only to
-      relative paths, or check the host (Django's
-      url_has_allowed_host_and_scheme). CWE-601.
+      A request value reaches a redirect without a locally verified host
+      policy. Computed host sets need review: accepting a URL against an
+      attacker-supplied allowed-host set does not make it safe. Use
+      server-controlled hosts or Django's validated current host and check
+      the validator result before redirecting. CWE-601.
     metadata:
       cwe: ["CWE-601"]
       category: open-redirect
@@ -27,14 +27,166 @@ rules:
           - pattern: request.POST.get(...)
           - pattern: $REQ.query_params.get(...)
           - pattern: $REQ.query_params[...]
-    # query-string building keeps the value in the query, so the host stays fixed
+    # Match only an immediately guarded return of the same local URL value.
+    # No wildcard statement gap may hide reassignment of the URL or result.
+    # Focusing the return argument leaves unchecked/failed-branch uses tainted.
     pattern-sanitizers:
+      - patterns:
+          - pattern-either:
+              - pattern: |
+                  if $VALIDATOR($URL, allowed_hosts=$HOSTS, ...):
+                      return $REDIRECT($TARGET, ...)
+              - pattern: |
+                  if $VALIDATOR(url=$URL, allowed_hosts=$HOSTS, ...):
+                      return $REDIRECT($TARGET, ...)
+              - pattern: |
+                  if $VALIDATOR($URL, $HOSTS, ...):
+                      return $REDIRECT($TARGET, ...)
+              - pattern: |
+                  if $VALIDATOR($URL, allowed_hosts=$HOSTS, ...):
+                      return $REDIRECT(url=$TARGET, ...)
+              - pattern: |
+                  if $VALIDATOR(url=$URL, allowed_hosts=$HOSTS, ...):
+                      return $REDIRECT(url=$TARGET, ...)
+              - pattern: |
+                  if $VALIDATOR($URL, $HOSTS, ...):
+                      return $REDIRECT(url=$TARGET, ...)
+              - pattern: |
+                  if not $VALIDATOR($URL, allowed_hosts=$HOSTS, ...):
+                      return ...
+                  return $REDIRECT($TARGET, ...)
+              - pattern: |
+                  if not $VALIDATOR(url=$URL, allowed_hosts=$HOSTS, ...):
+                      return ...
+                  return $REDIRECT($TARGET, ...)
+              - pattern: |
+                  if not $VALIDATOR($URL, $HOSTS, ...):
+                      return ...
+                  return $REDIRECT($TARGET, ...)
+              - pattern: |
+                  if not $VALIDATOR($URL, allowed_hosts=$HOSTS, ...):
+                      return ...
+                  return $REDIRECT(url=$TARGET, ...)
+              - pattern: |
+                  if not $VALIDATOR(url=$URL, allowed_hosts=$HOSTS, ...):
+                      return ...
+                  return $REDIRECT(url=$TARGET, ...)
+              - pattern: |
+                  if not $VALIDATOR($URL, $HOSTS, ...):
+                      return ...
+                  return $REDIRECT(url=$TARGET, ...)
+              - pattern: |
+                  $VALID = $VALIDATOR($URL, allowed_hosts=$HOSTS, ...)
+                  if $VALID:
+                      return $REDIRECT($TARGET, ...)
+              - pattern: |
+                  $VALID = $VALIDATOR(url=$URL, allowed_hosts=$HOSTS, ...)
+                  if $VALID:
+                      return $REDIRECT($TARGET, ...)
+              - pattern: |
+                  $VALID = $VALIDATOR($URL, $HOSTS, ...)
+                  if $VALID:
+                      return $REDIRECT($TARGET, ...)
+              - pattern: |
+                  $VALID = $VALIDATOR($URL, allowed_hosts=$HOSTS, ...)
+                  if $VALID:
+                      return $REDIRECT(url=$TARGET, ...)
+              - pattern: |
+                  $VALID = $VALIDATOR(url=$URL, allowed_hosts=$HOSTS, ...)
+                  if $VALID:
+                      return $REDIRECT(url=$TARGET, ...)
+              - pattern: |
+                  $VALID = $VALIDATOR($URL, $HOSTS, ...)
+                  if $VALID:
+                      return $REDIRECT(url=$TARGET, ...)
+              - pattern: |
+                  $VALID = $VALIDATOR($URL, allowed_hosts=$HOSTS, ...)
+                  if not $VALID:
+                      return ...
+                  return $REDIRECT($TARGET, ...)
+              - pattern: |
+                  $VALID = $VALIDATOR(url=$URL, allowed_hosts=$HOSTS, ...)
+                  if not $VALID:
+                      return ...
+                  return $REDIRECT($TARGET, ...)
+              - pattern: |
+                  $VALID = $VALIDATOR($URL, $HOSTS, ...)
+                  if not $VALID:
+                      return ...
+                  return $REDIRECT($TARGET, ...)
+              - pattern: |
+                  $VALID = $VALIDATOR($URL, allowed_hosts=$HOSTS, ...)
+                  if not $VALID:
+                      return ...
+                  return $REDIRECT(url=$TARGET, ...)
+              - pattern: |
+                  $VALID = $VALIDATOR(url=$URL, allowed_hosts=$HOSTS, ...)
+                  if not $VALID:
+                      return ...
+                  return $REDIRECT(url=$TARGET, ...)
+              - pattern: |
+                  $VALID = $VALIDATOR($URL, $HOSTS, ...)
+                  if not $VALID:
+                      return ...
+                  return $REDIRECT(url=$TARGET, ...)
+          - metavariable-regex:
+              metavariable: $VALIDATOR
+              regex: ^(url_has_allowed_host_and_scheme|is_safe_url)$
+          # Unknown/computed policies remain tainted; get_host validates Django ALLOWED_HOSTS.
+          - metavariable-regex:
+              metavariable: $HOSTS
+              regex: >-
+                (?x)^(?:
+                  request\.get_host\(\)
+                  | '[^'\\\r\n]*' | "[^"\\\r\n]*"
+                  | [\{\[\(]\s*
+                    (?:
+                      (?:request\.get_host\(\)|'[^'\\\r\n]*'|"[^"\\\r\n]*")
+                      (?:\s*,\s*(?:request\.get_host\(\)|'[^'\\\r\n]*'|"[^"\\\r\n]*"))*
+                      \s*,?
+                    )?
+                    \s*[\}\]\)]
+                )$
+          - metavariable-regex:
+              metavariable: $URL
+              regex: ^[A-Za-z_][A-Za-z_0-9]*$
+          - metavariable-regex:
+              metavariable: $REDIRECT
+              regex: ^(redirect|flask\.redirect|HttpResponseRedirect|RedirectResponse)$
+          # An else suite may replace the URL before the following return.
+          - pattern-not-inside: |
+              if not $CONDITION:
+                  ...
+              else:
+                  ...
+              return $REDIRECT($TARGET, ...)
+          - pattern-not-inside: |
+              if not $CONDITION:
+                  ...
+              else:
+                  ...
+              return $REDIRECT(url=$TARGET, ...)
+          - pattern-not-inside: |
+              $VALID = ...
+              if not $VALID:
+                  ...
+              else:
+                  ...
+              return $REDIRECT($TARGET, ...)
+          - pattern-not-inside: |
+              $VALID = ...
+              if not $VALID:
+                  ...
+              else:
+                  ...
+              return $REDIRECT(url=$TARGET, ...)
+          - metavariable-comparison:
+              metavariable: $TARGET
+              comparison: str($TARGET) == str($URL)
+          - focus-metavariable: $TARGET
       - pattern-either:
-          - pattern: url_has_allowed_host_and_scheme(...)
-          - pattern: is_safe_url(...)
           - pattern: url_for(...)
           - pattern: urlencode(...)
-          - pattern: quote(...)
           - pattern: quote_plus(...)
           - patterns:
               - pattern: $FMT % $X

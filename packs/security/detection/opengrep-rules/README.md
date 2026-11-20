@@ -25,25 +25,49 @@ opengrep-rules/
 YAML-language rules use `.test.yaml` fixture files because the rule files
 themselves are `.yaml`.
 
-## Running tests
+## Required rule-quality gate
 
-From the traust repo root, with [opengrep](https://github.com/opengrep/opengrep) on `PATH`:
+Before proposing or enabling a rule, run the shared gate with the pinned
+[opengrep](https://github.com/opengrep/opengrep) available on `PATH`:
 
 ```bash
-opengrep test packs/security/detection/opengrep-rules/<lang>
+traust sweep check-rules packs/security/detection/opengrep-rules
 ```
 
-Run every language directory, or target one (`go`, `python`, `yaml`, …).
+For iteration, pass a language directory or your adopter's rule directory.
+Promotion requires checking the complete pack, not just its changed rule or
+the subset selected for scanning.
 
-`opengrep test` evaluates every fixture whose name extends the rule file's
-basename (`data-exposure.nocred.sh` pairs with `data-exposure.yaml`) but
-**ignores** `paths:` filters — path exclusions are exercised at scan time
-only. File-level co-occurrence constraints (`pattern-inside: pattern-regex:`
+The gate requires native `opengrep validate` and
+`opengrep test --json --strict` to succeed. Every rule ID must have both
+positive `ruleid:` and negative `ok:` fixture assertions, and actual matches
+must equal the expected matches: unexpected, unannotated matches are failures.
+Missing, unknown or skipped check receipts are not passes. A missing executable,
+native error or incomplete result fails closed; validation cannot be skipped.
+Direct native commands are useful for diagnosis but do not replace the shared
+gate's per-rule coverage and receipt checks.
+
+Coverage counts only fixture paths present in each rule's native `check.matches`.
+Do not assume extra basename-suffixed files were exercised. Expected autofix
+outputs such as `policy.fixed.py` do not provide negative matching coverage.
+`opengrep test` **ignores** `paths:` filters — path exclusions are exercised at
+scan time only. File-level co-occurrence constraints (`pattern-inside: pattern-regex:`
 with an anchored lookahead) scan comments too; fixtures must not name the
 lexicon words they test.
 
-traust's pytest suite also exercises the pack end-to-end when opengrep
-is available:
+Fixtures must represent a vulnerable matching shape and equivalent safe, fixed,
+sanitized or guarded cases. Keep the same relevant input and operation where
+possible; an unrelated no-op is not evidence that a guard works. Never loosen
+annotations or remove valid positives merely to pass.
+
+These checks establish matching behavior, not application exploitability or
+business/security requirements. A reviewer must inspect framework/version
+semantics, input control, guard strength, authorization, deployment settings and
+the consequences of a match. File-level text co-occurrence and name-based
+heuristics do not prove those properties.
+
+Traust's pytest suite also exercises the pack end-to-end when opengrep is
+available; it supplements, rather than replaces, the mandatory shared gate:
 
 ```bash
 pytest tests/test_default_rule_packs.py -q
@@ -60,7 +84,8 @@ traust impact calibrate-rule-pack traust --scan <assessment-uuid> --scan <assess
 
 Fixture-sanity and live checkout rescans (`--fixtures`, `--rules`, `--limit`)
 are not available: traust-core's detection-quality door scores recorded scans
-only. Keep running `opengrep test` above for the `ruleid:`/`ok:` assertion gate.
+only. Use `traust sweep check-rules <pack-directory>` for the mandatory native
+validation, exact fixture assertions and per-rule positive/negative coverage.
 
 ## Rule conventions
 
@@ -77,6 +102,88 @@ only. Keep running `opengrep test` above for the `ruleid:`/`ok:` assertion gate.
   rules should carry an honest `confidence` tier.
 - **messages:** original wording; framework and standard citations by ID only
   (e.g. SEI CERT rule IDs in `metadata.cert` for Java rules).
+- **semantic scope:** describe what matching establishes and the review still
+  needed; a passing fixture suite is not proof of exploitation or business logic.
+
+## Proposals and adopter supplements
+
+Rule origins are additive:
+
+- **Portfolio/ledger mining:** `traust sweep mine` retains the finding-driven coverage and
+  authoring backlog. `regression-drafts` supplies fix pairs and `rule-lane` retains scheduled
+  mining/sweep operations; see the [mining skill](../../../../harnessing/mine-ledger/SKILL.md).
+- **Adopter-authored rules:** deployment-specific rules can also be supplied in local or
+  pinned-Git packs through `overrides.rule_pack_allowlist`. This does not disable mining.
+
+Both origins require the same native quality gate before scanning. Proposal admission also
+retains its static checks and checkout limits; enabling a supplied pack is not a substitute
+for semantic review, recorded-scan calibration or the promotion process.
+
+Submit a proposed rule and its annotated examples through the admission door:
+
+```bash
+traust sweep propose-rule --rule <rule.yaml> --example <example.py> \
+  --shape "<uncovered matching shape>" --checkout <source-checkout>
+```
+
+Native validation and strict fixture tests run before admission. Static checks,
+exact expected matches and checkout hit limits must also pass. Engine errors,
+partial scans, unknown coverage, missing/skipped check receipts and unannotated
+extra matches refuse admission; a partial result is not a clean scan.
+Staging is not promotion or a finding verdict. Unauthored skeletons and their
+before/after material are drafts, not an active or validated pack.
+
+Adopters keep deployment-specific rules in their own pack and reuse
+`overrides.rule_pack_allowlist` in `traust.yaml`; there is no separate extension
+setting. See [`rule-pack-allowlist.example.yaml`](../../../../config/rule-pack-allowlist.example.yaml).
+Each enabled pack declares an explicit list of unique rule IDs. Its `source`
+is either a local rule directory (relative paths resolve from the allowlist
+file), with paired native fixtures, or an HTTPS Git repository pinned with
+`@<40-hex-commit-SHA>` using the existing repository `rules/` subtree convention.
+
+Every enabled supplement must pass the same full-pack quality gate, even when
+only some IDs are allowlisted. Unreachable sources, invalid packs, unknown IDs
+or failed validation/tests fail the run rather than silently dropping the
+supplement. To disable a pack, explicitly set its existing `enabled` field to
+`false`; there is no validation bypass.
+
+### Upgrading enabled supplements
+
+This is a fail-closed upgrade: older configurations could enable a supplement and continue
+with a warning when it could not be loaded. Enabled supplements must now pass the complete
+native quality gate; audits refuse invalid or unreachable sources rather than silently
+reporting only the public pack. Updating this repository's example does not alter copies
+already installed in an adopter's configuration home.
+
+Before upgrading the runtime:
+
+1. Inventory enabled packs in the file named by `overrides.rule_pack_allowlist`, including
+   configurations copied when the Argus example was enabled by default.
+2. Acquire each source at its configured revision with its native fixtures, then run the new
+   runtime's `traust sweep check-rules <complete-rule-directory>` in a staging environment.
+   Allowlisting only some rule IDs does not exempt the rest of that source pack.
+3. If a pack fails, repair or curate a properly licensed pack with meaningful fixtures and
+   validate it. Otherwise explicitly set that pack's `enabled: false` in the installed
+   configuration before upgrading. Disabling removes its coverage; record that gap.
+4. Upgrade, then run a representative default scan with the intended supplements enabled.
+
+If a deployment layers private configuration or a private harness image over this repository,
+coordinate the runtime, harness and installed allowlist versions before activation. Remove the
+old skip-with-warning policy from the authoritative overlay and validate every enabled source
+with the staged runtime. Activate the matching versions together; pause audits during cutover
+if the deployment cannot switch them together. Do not install a local-directory allowlist into
+an older runtime that cannot read it, or enable the new gate against an unmigrated overlay.
+An unavailable coordinated update blocks rollout; it does not justify failing open.
+
+The historical Argus revision linked by the example failed the recorded native-validation
+baseline. Its native test command exited zero with no checked configurations and missing
+fixtures; historical precision calibration is not proof that it meets this gate. Do not
+enable that revision solely because the old example or test exit status allowed it.
+
+A failed standalone check returns a nonzero exit with failed `validate`/`test` receipts.
+An audit can report `Opengrep rule quality failed`; it must not be treated as a clean scan
+or repaired by restoring skip-on-failure behavior.
+
 
 ## Companion gitleaks pack
 

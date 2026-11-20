@@ -3,11 +3,11 @@ rules:
     languages: [rust]
     severity: ERROR
     message: >-
-      TLS certificate or hostname verification turned off
-      (danger_accept_invalid_certs(true), danger_accept_invalid_hostnames(true),
-      or a rustls dangerous() custom verifier) — anyone on the network path
-      can impersonate the server. Keep verification on; add a private CA
-      with add_root_certificate. CWE-295.
+      TLS certificate/hostname checks are explicitly disabled, or rustls
+      installs a custom certificate verifier. A custom verifier can be
+      secure: inspect its implementation before concluding that arbitrary
+      certificates are accepted. Keep trust-chain and hostname checks;
+      add a private CA when appropriate. CWE-295.
     metadata:
       cwe: ["CWE-295"]
       category: cryptography

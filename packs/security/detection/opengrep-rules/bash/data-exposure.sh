@@ -12,6 +12,9 @@ registry_logins() {
 
   # ok: traust-bash-data-exposure-cred-in-argv
   git login -p "$X"
+
+  # ok: traust-bash-data-exposure-cred-in-argv
+  printf '%s' "$QUAY_TOKEN" | docker login --password-stdin -u bot quay.io
 }
 
 # this script references credential-shaped identifiers (the login block
@@ -29,4 +32,11 @@ tracing() {
 
   # ok: traust-bash-data-exposure-xtrace
   set -euo pipefail
+
+  # Disabling tracing before expanding a credential is the fixed direction.
+  # The earlier set -x matches remain file-level review signals, not proof
+  # that this later expansion is traced.
+  # ok: traust-bash-data-exposure-xtrace
+  set +x
+  printf '%s' "$QUAY_TOKEN" | docker login --password-stdin -u bot quay.io
 }
