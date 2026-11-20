@@ -190,11 +190,13 @@ spec:
           args:
           - use
           - $(params.SOURCE_ARTIFACT)=/var/workdir/source
+          env:
+          - name: CA_FILE
+            value: /var/run/trusted-ca/ca-bundle.crt
           volumeMounts:
-          - mountPath: /etc/pki/tls/certs/ca-custom-bundle.crt
+          - mountPath: /var/run/trusted-ca
             name: trusted-ca
             readOnly: true
-            subPath: ca-bundle.crt
         - name: check-rules
           image: ghcr.io/astral-sh/uv:0.9.5-python3.12-bookworm@sha256:19a8c92b461bbc32e8bd30c15132cec1d16c49c61f4359c9225262938485f513
           workingDir: /var/workdir/source

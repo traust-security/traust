@@ -384,14 +384,16 @@ def test_an_unset_feed_key_variable_runs_keyless_like_no_key(tmp_path, monkeypat
     import yaml
 
     monkeypatch.delenv("TEST_NVD_KEY", raising=False)
-    results = []
-    for feeds in ({}, {"feeds": {"api_keys": {"nvd": "TEST_NVD_KEY"}}}):
-        home = tmp_path / f"home-{len(results)}"
+    monkeypatch.setattr(
+        osv_mod, "scan_api", lambda repo, advisories, clock, resolver=None: _body("complete")
+    )
+    for index, feeds in enumerate(({}, {"feeds": {"api_keys": {"nvd": "TEST_NVD_KEY"}}})):
+        home = tmp_path / f"home-{index}"
         shutil.copytree(FIXTURE_HOME, home)
         (home / "traust.yaml").write_text(
-            yaml.safe_dump({"home": str(tmp_path / f"store-{len(results)}"), **feeds})
+            yaml.safe_dump({"home": str(tmp_path / f"store-{index}"), **feeds})
         )
-        out = tmp_path / f"o-{len(results)}.json"
-        results.append(adapters.call_osv(_args(tmp_path, out, config_home=home)))
-    assert results[0] == results[1]  # traust-core#524: an unset key falls back to keyless
+        out = tmp_path / f"o-{index}.json"
+        assert adapters.call_osv(_args(tmp_path, out, config_home=home)) == 0
+        assert json.loads(out.read_text())["metadata"]["status"] == "complete"
     assert "names unset variable" not in capsys.readouterr().err

@@ -7,6 +7,7 @@ import json
 import os
 import stat
 import struct
+import subprocess
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -281,28 +282,96 @@ def test_the_doctor_checks_each_profile_tool_on_the_core_toolchain(
     assert "Available profiles:" in capsys.readouterr().err
 
 
+@pytest.fixture
+def invalid_config_home(tmp_path: Path) -> Path:
+    home = tmp_path / "config"
+    home.mkdir()
+    (home / "traust.yaml").write_text("database: [\n")
+    return home
+
+
+def _run_toolchain_cli(*args: str) -> subprocess.CompletedProcess[str]:
+    repo = Path(__file__).resolve().parents[1]
+    env = {
+        **os.environ,
+        "HARNESS_ROOT": str(repo),
+        "PYTHONPATH": os.pathsep.join(
+            filter(None, (str(repo / "src"), os.environ.get("PYTHONPATH")))
+        ),
+    }
+    return subprocess.run(
+        [sys.executable, "-m", "traust.cli", "admin", "toolchain", *args],
+        cwd=repo,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+@pytest.mark.parametrize("config_source", ["environment", "argument"])
+def test_grouped_setup_one_tool_reaches_the_pinned_installer_without_deployment_config(
+    tmp_path: Path, bindir: Path, monkeypatch, invalid_config_home: Path, config_source: str
+) -> None:
+    downloads = tmp_path / "downloads"
+    fake(
+        bindir,
+        "curl",
+        f"open({str(downloads)!r}, 'a').write('download attempted\\n')\nsys.exit(97)",
+    )
+    (bindir / "python3").symlink_to(sys.executable)
+    installed = tmp_path / "installed"
+    monkeypatch.setenv("HARNESS_BIN_DIR", str(installed))
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    args = []
+    if config_source == "environment":
+        monkeypatch.setenv("TRAUST_CONFIG_HOME", str(invalid_config_home))
+    else:
+        args = ["--config-home", str(invalid_config_home)]
+
+    result = _run_toolchain_cli(*args, "setup", "--tool", "opengrep", "--dry-run")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "Tool: opengrep" in result.stdout
+    assert "dry-run: would install opengrep v1.25.0" in result.stdout
+    assert not downloads.exists()
+    assert not installed.exists()
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        ["setup", "--profile", "vuln-scan", "--dry-run"],
+        ["doctor", "--profile", "vuln-scan"],
+        ["fetch-dbs", "--profile", "vuln-scan"],
+    ],
+)
+def test_grouped_profile_operations_still_validate_deployment_config(
+    invalid_config_home: Path, args: list[str]
+) -> None:
+    result = _run_toolchain_cli("--config-home", str(invalid_config_home), *args)
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert "traust.yaml not resolvable:" in result.stderr
+    assert "Harness toolchain installer" not in result.stdout
+
+
 @pytest.mark.parametrize("dry_run", [False, True])
 def test_setup_one_tool_delegates_only_that_tool_to_the_installer(
-    tmp_path: Path, monkeypatch, dry_run: bool
+    tmp_path: Path, monkeypatch, invalid_config_home: Path, dry_run: bool
 ) -> None:
     installer = tmp_path / "install-toolchain.sh"
-    installer.write_text("#!/bin/sh\nexit 0\n")
-    calls = []
-
-    def run(command):
-        calls.append(command)
-        return SimpleNamespace(returncode=17)
-
+    recorded_args = tmp_path / "installer-args"
+    installer.write_text('printf "%s\\n" "$@" > "$INSTALLER_TEST_ARGS"\nexit 17\n')
+    monkeypatch.setenv("INSTALLER_TEST_ARGS", str(recorded_args))
     monkeypatch.setattr(toolchain, "INSTALL_SCRIPT", installer)
-    monkeypatch.setattr(toolchain.subprocess, "run", run)
-    args = ["setup", "--tool", "opengrep"]
+    args = ["--config-home", str(invalid_config_home), "setup", "--tool", "opengrep"]
     if dry_run:
         args.append("--dry-run")
     assert toolchain.main(args) == 17
-    expected = ["bash", str(installer), "--tool", "opengrep"]
+    expected = ["--tool", "opengrep"]
     if dry_run:
         expected.append("--dry-run")
-    assert calls == [expected]
+    assert recorded_args.read_text().splitlines() == expected
 
 
 @pytest.mark.parametrize(
@@ -324,8 +393,11 @@ def test_setup_rejects_missing_unknown_or_ambiguous_selection(monkeypatch, args)
 
 
 def test_setup_one_tool_fails_when_the_verified_installer_is_missing(
-    tmp_path: Path, monkeypatch, capsys
+    tmp_path: Path, monkeypatch, capsys, invalid_config_home: Path
 ) -> None:
     monkeypatch.setattr(toolchain, "INSTALL_SCRIPT", tmp_path / "missing")
-    assert toolchain.main(["setup", "--tool", "opengrep"]) == 1
+    assert (
+        toolchain.main(["--config-home", str(invalid_config_home), "setup", "--tool", "opengrep"])
+        == 1
+    )
     assert "installer is missing" in capsys.readouterr().err

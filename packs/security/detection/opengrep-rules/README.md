@@ -167,6 +167,14 @@ Before upgrading the runtime:
    configuration before upgrading. Disabling removes its coverage; record that gap.
 4. Upgrade, then run a representative default scan with the intended supplements enabled.
 
+If a deployment layers private configuration or a private harness image over this repository,
+coordinate the runtime, harness and installed allowlist versions before activation. Remove the
+old skip-with-warning policy from the authoritative overlay and validate every enabled source
+with the staged runtime. Activate the matching versions together; pause audits during cutover
+if the deployment cannot switch them together. Do not install a local-directory allowlist into
+an older runtime that cannot read it, or enable the new gate against an unmigrated overlay.
+An unavailable coordinated update blocks rollout; it does not justify failing open.
+
 The historical Argus revision linked by the example failed the recorded native-validation
 baseline. Its native test command exited zero with no checked configurations and missing
 fixtures; historical precision calibration is not proof that it meets this gate. Do not

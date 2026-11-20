@@ -1,17 +1,20 @@
-"""Execute the quality gate; optionally round-trip real pinned OCI source artifacts.
+"""Execute the quality gate; optionally exercise the pinned OCI artifact helper.
 
 OCI integration requires TRAUST_TEST_ARTIFACT_STORE (a writable test repository).
-TRAUST_TEST_CONTAINER_RUNTIME defaults to podman. Optional registry settings are
+TRAUST_TEST_CONTAINER_RUNTIME defaults to podman; setting it explicitly also enables
+container-only CA startup tests. Optional registry settings are
 TRAUST_TEST_ARTIFACT_AUTHFILE and TRAUST_TEST_ARTIFACT_ORAS_OPTIONS; use a disposable
 registry, since the tests push artifacts. No cluster or Git source access is used.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shlex
 import shutil
+import ssl
 import subprocess
 import sys
 from pathlib import Path
@@ -125,9 +128,15 @@ def test_quality_executes_from_source_and_propagates_failures(
 
 
 def _artifact_command(
-    workdir: Path, image: str, *args: str, retry_max_tries: int | None = None
+    workdir: Path,
+    image: str,
+    *args: str,
+    retry_max_tries: int | None = None,
+    restore_step: dict[str, Any] | None = None,
+    trusted_ca: Path | None = None,
+    entrypoint: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
-    """Use the actual upstream image entrypoint, registry client and archive code."""
+    """Use the pinned upstream container, registry client and archive code."""
     runtime = shlex.split(os.environ.get("TRAUST_TEST_CONTAINER_RUNTIME", "podman"))
     command = [
         *runtime,
@@ -154,9 +163,93 @@ def _artifact_command(
     oras_options = os.environ.get("TRAUST_TEST_ARTIFACT_ORAS_OPTIONS")
     if oras_options:
         command += ["--env", f"ORAS_OPTIONS={oras_options}"]
+    if restore_step is not None:
+        for variable in restore_step.get("env", []):
+            command += ["--env", f"{variable['name']}={variable['value']}"]
+        for mount in restore_step.get("volumeMounts", []):
+            if mount["name"] != "trusted-ca":
+                continue
+            assert trusted_ca is not None
+            source = trusted_ca / mount["subPath"] if "subPath" in mount else trusted_ca
+            mode = "ro,Z" if mount.get("readOnly") else "Z"
+            command += ["--volume", f"{source}:{mount['mountPath']}:{mode}"]
+    if entrypoint is not None:
+        command += ["--entrypoint", entrypoint]
     return subprocess.run(
         [*command, image, *args], text=True, capture_output=True, check=False, timeout=300
     )
+
+
+@pytest.mark.skipif(
+    not (
+        os.environ.get("TRAUST_TEST_CONTAINER_RUNTIME")
+        or os.environ.get("TRAUST_TEST_ARTIFACT_STORE")
+    ),
+    reason="requires an explicitly enabled container runtime",
+)
+@pytest.mark.parametrize("pipeline", PIPELINES)
+@pytest.mark.parametrize(
+    "projection", ("absent-configmap", "absent-key", "empty-bundle", "populated-bundle")
+)
+def test_real_optional_ca_helper_startup(tmp_path: Path, pipeline: str, projection: str) -> None:
+    """Run the pinned helper against directory projections, not YAML assertions.
+
+    An absent optional ConfigMap and an absent selected key both project an empty
+    directory. This models their container view; kubelet projection itself still
+    requires cluster verification.
+    """
+    workdir = tmp_path / "workdir"
+    workdir.mkdir()
+    trusted_ca = tmp_path / "trusted-ca"
+    trusted_ca.mkdir()
+    bundle = trusted_ca / "ca-bundle.crt"
+    if projection == "populated-bundle":
+        certificate = ssl.create_default_context().get_ca_certs(binary_form=True)[0]
+        bundle.write_text(ssl.DER_cert_to_PEM_cert(certificate))
+    elif projection == "empty-bundle":
+        bundle.touch()
+    restore = _tasks(pipeline)["opengrep-quality"]["taskSpec"]["steps"][0]
+    # The same probe without the optional mount records the image's default trust.
+    probe = r"""
+set -euo pipefail
+source /usr/local/bin/oras_opts.sh
+printf 'SSL_CERT_FILE=%s\n' "${SSL_CERT_FILE:-}"
+printf 'ORAS_OPTION=%s\n' "${oras_opts[@]}"
+for bundle in /etc/pki/tls/certs/ca-bundle.crt /etc/ssl/certs/ca-certificates.crt; do
+    if test -s "$bundle"; then
+        printf 'SYSTEM_TRUST=%s\n' "$(sha256sum "$bundle")"
+    fi
+done
+if test -n "${SSL_CERT_FILE:-}"; then
+    printf 'CUSTOM_TRUST=%s\n' "$(sha256sum "$SSL_CERT_FILE" | cut -d ' ' -f 1)"
+fi
+"""
+    baseline = _artifact_command(workdir, restore["image"], "-c", probe, entrypoint="/bin/bash")
+    assert baseline.returncode == 0, baseline.stdout + baseline.stderr
+    started = _artifact_command(
+        workdir,
+        restore["image"],
+        "-c",
+        probe,
+        restore_step=restore,
+        trusted_ca=trusted_ca,
+        entrypoint="/bin/bash",
+    )
+    assert started.returncode == 0, started.stdout + started.stderr
+    defaults = baseline.stdout.splitlines()
+    configured = started.stdout.splitlines()
+    system_trust = [line for line in defaults if line.startswith("SYSTEM_TRUST=")]
+    assert system_trust, baseline.stdout
+    assert [line for line in configured if line.startswith("SYSTEM_TRUST=")] == system_trust
+    assert [line for line in configured if line.startswith("ORAS_OPTION=")] == [
+        line for line in defaults if line.startswith("ORAS_OPTION=")
+    ]
+    if projection == "populated-bundle":
+        assert "SSL_CERT_FILE=/var/run/trusted-ca/ca-bundle.crt" in configured
+        assert f"CUSTOM_TRUST={hashlib.sha256(bundle.read_bytes()).hexdigest()}" in configured
+    else:
+        assert "SSL_CERT_FILE=" in configured
+        assert not any(line.startswith("CUSTOM_TRUST=") for line in configured)
 
 
 @pytest.mark.skipif(
@@ -187,7 +280,11 @@ def test_real_source_artifact_round_trip_and_failed_quality(
     # The original checkout is gone: only the digest-pinned clone artifact can work.
     shutil.rmtree(original)
     args = [arg.replace("$(params.SOURCE_ARTIFACT)", artifact) for arg in restore["args"]]
-    restored = _artifact_command(workdir, restore["image"], *args)
+    trusted_ca = tmp_path / "trusted-ca"
+    trusted_ca.mkdir()
+    restored = _artifact_command(
+        workdir, restore["image"], *args, restore_step=restore, trusted_ca=trusted_ca
+    )
     assert restored.returncode == 0, restored.stdout + restored.stderr
     assert (workdir / "source" / "source-identity").read_text() == "exact resolved clone content\n"
     assert url in (workdir / "source" / ".git" / "config").read_text()
@@ -213,6 +310,15 @@ def test_real_missing_artifact_fails_before_quality(tmp_path: Path, pipeline: st
     restore = task["taskSpec"]["steps"][0]
     missing = f"oci:{os.environ['TRAUST_TEST_ARTIFACT_STORE']}@sha256:{'0' * 64}"
     args = [arg.replace("$(params.SOURCE_ARTIFACT)", missing) for arg in restore["args"]]
-    result = _artifact_command(workdir, restore["image"], *args, retry_max_tries=1)
+    trusted_ca = tmp_path / "trusted-ca"
+    trusted_ca.mkdir()
+    result = _artifact_command(
+        workdir,
+        restore["image"],
+        *args,
+        retry_max_tries=1,
+        restore_step=restore,
+        trusted_ca=trusted_ca,
+    )
     assert result.returncode != 0, result.stdout + result.stderr
     assert not (workdir / "source" / "source-identity").exists()

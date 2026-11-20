@@ -230,6 +230,9 @@ they do not replace mining, regression-draft authoring or scheduled rule-lane ru
   Before upgrading an existing enabled supplement, follow the
   [upgrade procedure](../packs/security/detection/opengrep-rules/README.md#upgrading-enabled-supplements);
   changing the shipped example does not change installed adopter configuration.
+  Deployments with private harness/configuration overlays must stage the matching runtime,
+  harness and allowlist as one release. A private copy still promising skip-with-warning
+  must be migrated before activation; updating the public template does not update it.
 - `traust sweep bootstrap-benchmark --out candidates.yaml [--limit 100]` harvests
   confirmed fixes as **unadmitted** answer-key candidates with fix evidence and a stable
   held-out split. Human review precedes `benchmark-targets candidates.yaml`.

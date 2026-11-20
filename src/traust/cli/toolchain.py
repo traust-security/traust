@@ -12,7 +12,8 @@ Subcommands:
 
   setup     Install the profile's tools (direct upstream downloads at the
             pins traust-core ships in external-tools.yaml), then populate DBs;
-            --tool opengrep installs only its checksum-verified pinned binary.
+            --tool opengrep installs only its checksum-verified pinned binary
+            without loading deployment configuration.
   doctor    Check every tool: installed? right version? DB present?
             Fail-closed: exits 1 if anything is wrong.
   fetch-dbs Populate vulnerability databases for the given profile.
@@ -68,16 +69,22 @@ def _print_header(text: str) -> None:
     print(f"{'=' * 60}\n")
 
 
-def cmd_setup(args: argparse.Namespace, core: Context) -> int:
+def _run_installer(selection: list[str], *, dry_run: bool) -> int:
+    if not INSTALL_SCRIPT.is_file():
+        print(f"ERROR: installer is missing: {INSTALL_SCRIPT}", file=sys.stderr)
+        return 1
+    cmd = ["bash", str(INSTALL_SCRIPT), *selection]
+    if dry_run:
+        cmd.append("--dry-run")
+    return subprocess.run(cmd).returncode
+
+
+def cmd_setup(args: argparse.Namespace) -> int:
     tool = getattr(args, "tool", None)
     if tool is not None:
-        if not INSTALL_SCRIPT.is_file():
-            print(f"ERROR: installer is missing: {INSTALL_SCRIPT}", file=sys.stderr)
-            return 1
-        cmd = ["bash", str(INSTALL_SCRIPT), "--tool", tool]
-        if args.dry_run:
-            cmd.append("--dry-run")
-        return subprocess.run(cmd).returncode
+        return _run_installer(["--tool", tool], dry_run=args.dry_run)
+
+    core = load(args.config_home)
     profile_tools = _profile_tools(args.profile, core)
     if not profile_tools:
         print(f"ERROR: no tools found for profile '{args.profile}'", file=sys.stderr)
@@ -85,10 +92,7 @@ def cmd_setup(args: argparse.Namespace, core: Context) -> int:
         return 1
 
     if INSTALL_SCRIPT.is_file():
-        cmd = ["bash", str(INSTALL_SCRIPT), args.profile]
-        if args.dry_run:
-            cmd.append("--dry-run")
-        return subprocess.run(cmd).returncode
+        return _run_installer([args.profile], dry_run=args.dry_run)
 
     # Fallback if script not found — advisory mode
     tool_names = [t["name"] for t in profile_tools]
@@ -285,13 +289,14 @@ def main(argv=None) -> int:
     )
 
     args = ap.parse_args(argv)
-    core = load(args.config_home)
     dispatch = {
-        "setup": cmd_setup,
         "doctor": cmd_doctor,
         "fetch-dbs": cmd_fetch_dbs,
     }
     try:
+        if args.command == "setup":
+            return cmd_setup(args)
+        core = load(args.config_home)
         return dispatch[args.command](args, core)
     except ConfigError as e:
         print(f"config not resolvable: {e}", file=sys.stderr)
