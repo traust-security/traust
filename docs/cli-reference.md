@@ -14,6 +14,9 @@ traust check skill-alignment
 python3 -m traust.cli check skill-alignment      # equivalent
 ```
 
+For portfolio-mined rules, adopter-supplied rules, updates and required quality checks,
+see [Opengrep rule updates and adopter validation](#opengrep-rule-updates-and-adopter-validation).
+
 ## Command groups
 
 29 groups.
@@ -186,6 +189,207 @@ be inspected or redacted. Read/decode/write errors, inaccessible directories,
 symlinks and unsupported files are incomplete inspection, never a clean result.
 Readable text still uses Core's established redaction policy. Remove, replace or
 convert uninspectable deliverables and rerun the gate; there is no binary fallback.
+
+### Opengrep rule updates and adopter validation
+
+**Runtime requirements.** Install matching reviewed Traust runtime and harness releases
+that provide adopter-pack registration, `sweep check-rules` and
+`admin toolchain setup --tool opengrep`. Check command availability with
+`traust sweep check-rules --help` and `traust admin toolchain setup --help`.
+If these operations are unavailable, upgrade the runtime and harness together
+before following this workflow; do not skip validation.
+
+#### Rule sources: portfolio mining and adopter contributions
+
+The two inputs are **additive**:
+
+- **Portfolio/ledger mining remains available.** `traust sweep mine` reads Core's recorded,
+  disposition-confirmed findings, clusters uncovered shapes and reports the rule-authoring
+  backlog and precision. Graph/database pre-queries can scope that work; they do not replace
+  the corpus of record. `regression-drafts` stages before/after fix evidence, and `rule-lane`
+  retains the existing scheduled mining/sweep workflow.
+- **Adopters may also write or supply their own rules.** Keep deployment-specific rules in
+  an adopter-owned pack rather than editing Traust's shipped baseline. An enabled pack
+  supplements the baseline; it does not turn off mining or replace the existing rules.
+
+For the existing mining entrypoints:
+
+```bash
+traust sweep mine --pack traust --out rule-mining.json
+traust sweep regression-drafts
+```
+
+Mining produces authoring material, not automatically approved findings or executable
+draft rules. Author the patterns and fixtures, apply the checks below, then follow the
+existing semantic-review, calibration and promotion policy.
+
+#### Install the reviewed Opengrep executable
+
+```bash
+traust admin toolchain setup --tool opengrep
+```
+
+This installs only the binary at the tool pin shipped by the installed Core package,
+verifying its reviewed release checksum. It does not require deployment configuration
+or populate vulnerability databases. Do not substitute an upstream `latest` installer
+or an unreviewed executable when updating rules.
+
+#### Author an adopter rule and its native fixtures
+
+Example deployment paths below are `/srv/traust/config` for configuration and
+`/srv/traust/rules/acme` for the adopter pack; substitute your actual paths.
+Create `/srv/traust/rules/acme/explicit-shell.yaml`:
+
+```yaml
+rules:
+  - id: acme-python-explicit-shell
+    languages: [python]
+    severity: ERROR
+    message: Explicit shell execution; review command origin and argument handling.
+    metadata:
+      cwe: [CWE-78]
+      category: injection
+      confidence: MEDIUM
+    pattern: subprocess.run(..., shell=True, ...)
+```
+
+Create the same-basename fixture `/srv/traust/rules/acme/explicit-shell.py`:
+
+```python
+import subprocess
+
+def shell_command(command):
+    # ruleid: acme-python-explicit-shell
+    return subprocess.run(command, shell=True)
+
+def argument_vector(argv):
+    # ok: acme-python-explicit-shell
+    return subprocess.run(argv, shell=False, check=True)
+```
+
+Every rule needs positive `ruleid:` and negative `ok:` assertions. Keep equivalent
+operations when testing a mitigation; an unrelated no-op does not prove a guard works.
+For YAML-language inputs use paired `.test.yaml`/`.test.yml` fixtures. Only matching
+fixture paths reported by the native per-rule `check.matches` count toward coverage:
+an expected autofix output such as `explicit-shell.fixed.py` cannot supply a missing
+negative case. Keep autofix expectations as additional files when the rule defines a fix.
+
+This example tests explicit shell use. A quiet `shell=False` case does not prove that
+the chosen executable or its arguments are authorized, and a shell match alone does
+not prove exploitability.
+
+#### Validate before admission, activation and every update
+
+```bash
+traust sweep check-rules /srv/traust/rules/acme
+```
+
+The shared gate **requires both** native `opengrep validate` and
+`opengrep test --json --strict`. It also checks per-rule positive/negative coverage,
+complete receipts and exact expected matches. Run it on the complete pack, even if
+only some IDs will be enabled. Missing/skipped tests, unknown IDs, zero assertions,
+unexpected or missing matches, malformed results and native failures are not passes.
+The standalone quality check does not open the record store.
+
+For diagnosis, the vendor commands are:
+
+```bash
+opengrep validate /srv/traust/rules/acme
+opengrep test --json --strict /srv/traust/rules/acme
+```
+
+Their exit status alone does not replace `traust sweep check-rules`: a native test
+command can exit zero without exercising the intended rules or negative fixtures.
+Native matching tests also ignore `paths:` filters; check those on a representative
+checkout. Fixtures establish matching behavior, not business requirements or runtime
+reachability. Review input control, policy trust, effective guards, authorization
+ordering and deployment configuration before promotion.
+
+For a proposed uncovered shape, use the existing admission door after authoring:
+
+```bash
+traust sweep propose-rule \
+  --rule /srv/traust/rules/acme/explicit-shell.yaml \
+  --example /srv/traust/rules/acme/explicit-shell.py \
+  --shape "Explicit shell execution requiring command-origin review" \
+  --checkout /path/to/representative-checkout
+```
+
+Proposal admission additionally applies static rule checks and checkout hit limits.
+It requires the normal deployment configuration and draft location. Admission stages
+an authored draft; it does not promote the rule or establish a vulnerability verdict.
+
+#### Enable selected adopter rules
+
+Keep the deployment's existing required `traust.yaml` settings. Add this override
+to `/srv/traust/config/traust.yaml`:
+
+```yaml
+overrides:
+  rule_pack_allowlist: /srv/traust/config/rule-packs.yaml
+```
+
+Create `/srv/traust/config/rule-packs.yaml`:
+
+```yaml
+packs:
+  acme:
+    enabled: true
+    source: ../rules/acme
+    rules:
+      - acme-python-explicit-shell
+```
+
+The local `source` resolves relative to the allowlist file, not the working directory.
+It must name a directory with the rules and fixtures. Alternatively use an HTTPS Git
+repository pinned as `https://host/organization/repository@<40-lowercase-hex-commit>`;
+that checkout must include native fixtures and uses the existing `rules/` subtree
+convention. Do not use a moving branch, `auto` or registry shorthand in place of a
+reviewed, tested source. Rule IDs must be unique, and every enabled pack declares the
+specific IDs allowed to contribute facts.
+
+With the deployment config home selected, run a representative default scan:
+
+```bash
+export TRAUST_CONFIG_HOME=/srv/traust/config
+traust adapters opengrep /path/to/representative-checkout --out opengrep-candidates.json
+```
+
+Default scans compose the shipped rules with enabled supplements. Check the report's
+`supplemental_packs.applied` and intended rule facts. Explicit `--rules` chooses scan
+sources instead of this default composition. Outputs remain candidates for review,
+not admitted findings merely because an adopter supplied a rule.
+
+#### Updating, calibrating and rolling out rules
+
+After any pattern, fixture or source revision change, rerun the complete-pack gate
+and representative scans. Preserve an existing rule ID when maintaining the same
+rule contract; review semantic changes and their provenance. For Git packs, update
+the configured immutable source commit only after validating that exact revision.
+Update Traust's baseline through a reviewed harness/runtime release rather than
+editing an immutable deployed image or putting adopter-specific rules in the baseline.
+
+Use recorded scans for the existing calibration door:
+
+```bash
+traust impact calibrate-rule-pack acme --scan <assessment-uuid> --scan <assessment-uuid>
+```
+
+Record the scans through the normal audit workflow first; candidate JSON by itself
+is not an assessment or calibration receipt. This command scores recorded evidence,
+not a new live scan. Passing matching fixtures does not waive calibration or review.
+
+Enabled sources **fail closed**: an unreachable pack, invalid rule or failed native
+gate stops the scan rather than silently dropping adopter coverage. To stop using a
+pack, explicitly set its `enabled` value to `false` and record the resulting coverage
+gap; there is no validation-bypass switch.
+
+Before upgrading from the old warn-and-skip policy, inventory the installed allowlist,
+validate or curate every enabled source with the staged runtime, or explicitly disable
+it. Editing a shipped example does not migrate an adopter's installed copy. Coordinate
+runtime, harness/private overlay and installed allowlist versions as one tested release;
+pause audits if they cannot switch together. Do not activate a new fail-closed runtime
+against a legacy overlay that still promises skipped supplements.
 
 ### Detection-quality operations
 
