@@ -36,10 +36,17 @@ from uuid import UUID
 
 import pydantic
 from pydantic import Field
-from traust_core.v1.context import TRAUST_CONFIG_HOME_ENV, CheckoutRequest, Context, Workspace
+from traust_core.v1.context import (
+    TRAUST_CONFIG_HOME_ENV,
+    CheckoutRequest,
+    Context,
+    Services,
+    Workspace,
+)
 from traust_core.v1.errors import NotFoundError, ServiceError, TraustError, ValidationError
 from traust_core.v1.models.assessment import Assessment, AssessmentKind, DiffRefused
 from traust_core.v1.models.base import Dto
+from traust_core.v1.models.common import every_item
 from traust_core.v1.models.operations import (
     JobResult,
     ModelName,
@@ -51,6 +58,7 @@ from traust_core.v1.models.operations import (
     SkillName,
     WorkerId,
 )
+from traust_core.v1.models.remediation import SweepSkip, VerificationFilter
 from traust_core.v1.models.values import GitSha, HttpsRepoUrl
 from traust_core.v1.models.vocabulary import SourceType
 
@@ -214,23 +222,25 @@ def diff_anchor(url: str, clone: Path) -> str:
 
 
 @contextmanager
-def checkout(url: str, config_home: Path | None) -> Iterator[Workspace]:
-    """The order's commit — the head its repo_state observation recorded, not the branch's
-    current tip — through the checkout service, released when the session ends. The mirror's
-    worktree holds the history a diff scan anchors at (the anchor itself only resolves once
-    the checkout exists, so the request names no bound)."""
+def checkout(
+    url: str, config_home: Path | None, ref: GitSha | None = None
+) -> Iterator[Workspace]:
+    """Check out a registered repository at the supplied commit or its observed default head.
+
+    The mirror's worktree holds the history a diff scan anchors at; it is released after use.
+    """
     core = load(config_home)
     services = core.services()
     parsed = HttpsRepoUrl.parse(url, core.config.forge_hosts)
     repo = services.portfolio.find_repository(parsed)
     if repo is None or repo.id is None:
         raise NotFoundError(f"{url}: not in the inventory (`traust portfolio observe` records it)")
-    head = services.portfolio.default_ref(repo.id)
-    if head is None:
-        raise NotFoundError(f"{url}: no observed default head to check out")
-    workspace = services.checkouts.checkout(
-        CheckoutRequest(repo=parsed, ref=GitSha.parse(head.sha))
-    ).data
+    if ref is None:
+        head = services.portfolio.default_ref(repo.id)
+        if head is None:
+            raise NotFoundError(f"{url}: no observed default head to check out")
+        ref = GitSha.parse(head.sha)
+    workspace = services.checkouts.checkout(CheckoutRequest(repo=parsed, ref=ref)).data
     try:
         yield workspace
     finally:
@@ -302,15 +312,25 @@ def run(argv: list[str] | None = None) -> int:
         return answer(JobResult.failed(OrderReason.BAD_REQUEST))
     mode = [args.mode] if args.mode else []
     kind = RECORDING_SKILLS.get(args.skill)
+    triage_source: UUID | None = None
+    triage_ref: GitSha | None = None
+    full_sweep_repo: UUID | None = None
+    verification_item: UUID | None = None
     try:
         order_id = _order_id(args.run_id)
-        # what the order had before this attempt, to prefer this attempt's own below
-        before = set() if order_id is None or kind is None else _recorded(order_id, kind, args)
+        # Scoped recording writers authorize before reading the order's prior output.
+        before = (
+            set()
+            if order_id is None or kind is None or args.skill in {"triage", "verify-remediation"}
+            else _recorded(order_id, kind, args)
+        )
         if order_id is not None and args.skill == "triage":
             if args.checkout or mode or extra:
                 raise ValidationError("scheduled triage input comes from its repository order")
-            args.repo = str(_triage_source(order_id, args))
-            extra = ["--auto"]
+            triage_source, triage_ref, completed = _triage_source(order_id, args)
+            if completed:
+                return answer(JobResult.succeeded(written=completed))
+            extra = ["--auto", "--fresh"]
         if order_id is not None and args.skill == "verify-remediation":
             core = load(args.config_home)
             order = scoped_recording_order(
@@ -323,8 +343,15 @@ def run(argv: list[str] | None = None) -> int:
             repository = services.portfolio.get_repository(order.repository_id)
             if args.repo != repository.url:
                 raise ValidationError("verification repository differs from the leased order")
-            if before:
-                return answer(JobResult.succeeded(written=tuple(sorted(before))))
+            before = _recorded(order_id, kind, args)
+            if order.work_item_id is not None:
+                verification_item = order.work_item_id
+                if before:
+                    matching = _work_item_covered(
+                        services, order.repository_id, order_id, verification_item, before
+                    )
+                    if matching:
+                        return answer(JobResult.succeeded(written=tuple(sorted(matching))))
             if order.work_item_id is not None:
                 prepared = services.verification.prepare(order.work_item_id)
                 item = prepared.work_item
@@ -333,10 +360,32 @@ def run(argv: list[str] | None = None) -> int:
                 ):
                     raise ValidationError("verification order has no bound patched work item")
                 mode, args.repo = [str(order.work_item_id)], f"{item.fork.url}@{item.fix_commit}"
-            elif services.verification.sweep([order.repository_id]).queued:
-                mode = ["full-sweep", "--repo-url"]
             else:
-                return answer(JobResult.succeeded())
+                sweep = services.verification.sweep([order.repository_id])
+                if sweep.queued:
+                    full_sweep_repo = order.repository_id
+                    mode = ["full-sweep", "--repo-url"]
+                else:
+                    ids = before
+                    evidence_order = order_id
+                    if not ids and any(e.skip == SweepSkip.ALREADY_VERIFIED for e in sweep.skipped):
+                        evidence_order = None
+                        ids = {
+                            str(a.id)
+                            for a in services.assessment.list_for_repository(
+                                order.repository_id, AssessmentKind.VERIFICATION
+                            )
+                            if a.id is not None and a.status == "completed"
+                        }
+                    if (before or evidence_order is None) and not _sweep_covered(
+                        services, order.repository_id, evidence_order, ids
+                    ):
+                        print(
+                            f"run {args.run_id}: verification sweep coverage is not proven",
+                            file=sys.stderr,
+                        )
+                        return answer(JobResult.failed(OrderReason.SESSION_OUTPUT_INVALID))
+                    return answer(JobResult.succeeded(written=tuple(sorted(before))))
     except ValueError:
         print(f"run {args.run_id}: {OrderReason.BAD_REQUEST}: not a run order id", file=sys.stderr)
         return answer(JobResult.failed(OrderReason.BAD_REQUEST))
@@ -370,14 +419,21 @@ def run(argv: list[str] | None = None) -> int:
     if args.config_home is not None:
         env[TRAUST_CONFIG_HOME_ENV] = str(args.config_home)
     usage: tuple[ModelUsage, ...] = ()
-    entered = checkout(args.repo, args.config_home) if args.checkout else nullcontext(None)
+    if triage_ref is not None:
+        entered = checkout(args.repo, args.config_home, triage_ref)
+    else:
+        entered = checkout(args.repo, args.config_home) if args.checkout else nullcontext(None)
     try:
         with entered as workspace:
-            target = (
-                [str(workspace.path)]
-                if workspace is not None
-                else ([args.repo] if args.repo else [])
-            )
+            if triage_source is not None:
+                assert workspace is not None
+                target = [str(triage_source), "--repo", shlex.quote(str(workspace.path))]
+            else:
+                target = (
+                    [str(workspace.path)]
+                    if workspace is not None
+                    else ([args.repo] if args.repo else [])
+                )
             command = [*AGENT, "--model", model, prompt(args.skill, [*mode, *target, *extra])]
             try:
                 done, usage = session(command, args.skill, env)
@@ -414,6 +470,57 @@ def run(argv: list[str] | None = None) -> int:
             )
             return answer(_spent(JobResult.failed(OrderReason.SESSION_OUTPUT_INVALID), usage))
         return answer(_spent(JobResult.succeeded(written=(str(reported),)), usage))
+    if triage_source is not None:
+        try:
+            source, _, completed = _triage_source(order_id, args)
+            if source != triage_source or not completed:
+                print(f"run {args.run_id}: triage did not record its source", file=sys.stderr)
+                return answer(_spent(JobResult.failed(OrderReason.SESSION_OUTPUT_INVALID), usage))
+            return answer(_spent(JobResult.succeeded(written=completed), usage))
+        except SystemExit:
+            print(f"run {args.run_id}: {OrderReason.BAD_REQUEST}: configuration", file=sys.stderr)
+            return answer(_spent(JobResult.failed(OrderReason.BAD_REQUEST), usage))
+        except (TraustError, OSError) as e:
+            print(f"run {args.run_id}: triage lookup: {type(e).__name__}", file=sys.stderr)
+            return answer(_spent(JobResult.failed(OrderReason.RUNNER_CRASHED), usage))
+    if full_sweep_repo is not None:
+        try:
+            services = load(args.config_home).services()
+            recorded = _recorded(order_id, AssessmentKind.VERIFICATION, args)
+            if (
+                not recorded
+                or services.verification.sweep([full_sweep_repo]).queued
+                or not _sweep_covered(services, full_sweep_repo, order_id, recorded)
+            ):
+                print(
+                    f"run {args.run_id}: /{args.skill} left work queued or coverage unproved",
+                    file=sys.stderr,
+                )
+                return answer(_spent(JobResult.failed(OrderReason.SESSION_OUTPUT_INVALID), usage))
+            return answer(_spent(JobResult.succeeded(written=tuple(sorted(recorded))), usage))
+        except SystemExit:
+            print(f"run {args.run_id}: {OrderReason.BAD_REQUEST}: configuration", file=sys.stderr)
+            return answer(_spent(JobResult.failed(OrderReason.BAD_REQUEST), usage))
+        except (TraustError, OSError) as e:
+            print(f"run {args.run_id}: verification sweep: {type(e).__name__}", file=sys.stderr)
+            return answer(_spent(JobResult.failed(OrderReason.RUNNER_CRASHED), usage))
+    if verification_item is not None:
+        try:
+            services = load(args.config_home).services()
+            recorded = _recorded(order_id, AssessmentKind.VERIFICATION, args)
+            matching = _work_item_covered(
+                services, order.repository_id, order_id, verification_item, recorded
+            )
+            if not matching:
+                print(f"run {args.run_id}: work-item verification incomplete", file=sys.stderr)
+                return answer(_spent(JobResult.failed(OrderReason.SESSION_OUTPUT_INVALID), usage))
+            return answer(_spent(JobResult.succeeded(written=tuple(sorted(matching))), usage))
+        except SystemExit:
+            print(f"run {args.run_id}: {OrderReason.BAD_REQUEST}: configuration", file=sys.stderr)
+            return answer(_spent(JobResult.failed(OrderReason.BAD_REQUEST), usage))
+        except (TraustError, OSError) as e:
+            print(f"run {args.run_id}: verification lookup: {type(e).__name__}", file=sys.stderr)
+            return answer(_spent(JobResult.failed(OrderReason.RUNNER_CRASHED), usage))
     if order_id is not None and kind is not None:
         try:
             recorded = _recorded(order_id, kind, args)
@@ -445,7 +552,93 @@ def order_assessments(order_id: UUID, config_home: Path | None) -> list[Assessme
     return load(config_home).services().assessment.list_for_order(order_id)
 
 
-def _triage_source(order_id: UUID, args: argparse.Namespace) -> UUID:
+def _work_item_covered(
+    services: Services, repository_id: UUID, order_id: UUID, item_id: UUID, ids: set[str]
+) -> set[str]:
+    prepared = services.verification.prepare(item_id)
+    item = prepared.work_item
+    if prepared.subject.repository_id != repository_id or not (item.fork and item.fix_commit):
+        raise ValidationError("verification order has no bound patched work item")
+    runs = {
+        a.id for a in services.assessment.list_for_order(order_id)
+        if str(a.id) in ids and a.run_order_id == order_id and a.status == "completed"
+    }
+    return {
+        str(v.verification_id)
+        for v in prepared.verifications
+        if v.verification_id in runs
+        and bool(item.finding_ids)
+        and set(item.finding_ids) <= {verdict.finding_id for verdict in v.verdicts}
+        and (
+            (ref := services.portfolio.inventory.get_ref(v.repository_ref_id)).repository_id
+            == repository_id
+            and ref.sha == item.fix_commit
+        )
+    }
+
+
+def _sweep_covered(
+    services: Services, repository_id: UUID, order_id: UUID | None, ids: set[str]
+) -> bool:
+    """Require verdicts for every reported finding in the repository.
+
+    Core's default sweep considers every line and skips a head after any decision there;
+    that does not prove report coverage. With no saved worklist, including closed and
+    newly reported findings is conservative.
+    """
+    candidates = (
+        services.assessment.list_for_order(order_id)
+        if order_id is not None
+        else services.assessment.list_for_repository(repository_id, AssessmentKind.VERIFICATION)
+    )
+    runs = [
+        a for a in candidates
+        if str(a.id) in ids
+        and (order_id is None or a.run_order_id == order_id)
+        and a.status == "completed"
+    ]
+    head = services.portfolio.default_ref(repository_id)
+    if not runs or {str(a.id) for a in runs} != ids or head is None or head.id is None:
+        return False
+    expected = set(services.findings.records.ids_for_repository(repository_id))
+    recorded = {a.id for a in runs}
+    covered: set[UUID] = set()
+    regressions: set[UUID] = set()
+    current_runs: set[UUID] = set()
+    for v in every_item(
+        lambda page: services.verification.list(VerificationFilter(repository_id=repository_id), page)
+    ):
+        if v.verification_id not in recorded:
+            continue
+        ref = services.portfolio.inventory.get_ref(v.repository_ref_id)
+        if (ref.repository_id, ref.name, ref.kind, ref.sha) == (
+            repository_id, head.name, head.kind, head.sha
+        ):
+            current_runs.add(v.verification_id)
+            covered.update(verdict.finding_id for verdict in v.verdicts)
+            regressions.update(v.regression_ids)
+    if regressions:
+        origins: dict[UUID, set[UUID]] = {}
+        for occurrence in services.findings.occurrences(finding_ids=regressions):
+            origins.setdefault(occurrence.finding_id, set()).add(occurrence.assessment_id)
+        # Newly discovered regressions were not targets in the original worklist. A finding
+        # reported anywhere else remains in scope, even if this order also called it a regression.
+        expected -= {
+            finding for finding in regressions
+            if origins.get(finding) and origins[finding] <= current_runs
+        }
+    latest = services.portfolio.default_ref(repository_id)
+    return (
+        latest is not None
+        and (latest.id, latest.sha) == (head.id, head.sha)
+        and bool(expected)
+        and expected <= covered
+    )
+
+
+def _triage_source(
+    order_id: UUID, args: argparse.Namespace
+) -> tuple[UUID, GitSha, tuple[str, ...]]:
     core = load(args.config_home)
     order = scoped_recording_order(core, order_id, RecordKind.TRIAGE, SourceType.TRIAGE_REPORT)
     assert order.repository_id is not None
@@ -453,12 +646,44 @@ def _triage_source(order_id: UUID, args: argparse.Namespace) -> UUID:
     repository = services.portfolio.get_repository(order.repository_id)
     if args.repo != repository.url:
         raise ValidationError("triage repository differs from the leased order")
+    recorded = [
+        a for a in order_assessments(order_id, args.config_home) if a.kind == AssessmentKind.TRIAGE
+    ]
+    if recorded:
+        # The scheduled writer commits its assessment, decisions, reviews and ledger seal in
+        # one lease-checked transaction. A naked assessment without its binding is not proof.
+        if len({a.baseline_assessment_id for a in recorded}) != 1:
+            raise ValidationError("order has triages of different audits")
+        for a in recorded:
+            if (
+                a.id is None
+                or a.run_order_id != order_id
+                or a.status != "completed"
+                or a.assessor != "triage"
+                or a.baseline_assessment_id is None
+            ):
+                raise ValidationError("order has an invalid triage assessment")
+            baseline = services.assessment.get(a.baseline_assessment_id)
+            ref = services.portfolio.inventory.get_ref(a.repository_ref_id)
+            if (
+                ref.repository_id != order.repository_id
+                or baseline.id != a.baseline_assessment_id
+                or baseline.repository_ref_id != a.repository_ref_id
+                or baseline.kind != AssessmentKind.SECURE_CODE_CANONICAL
+                or baseline.status != "completed"
+                or not services.assessment.list_artifacts(a.id, "triage")
+            ):
+                raise ValidationError("order triage is not bound to its repository audit")
+        return baseline.id, GitSha.parse(ref.sha), tuple(sorted(str(a.id) for a in recorded))
     audit = services.assessment.latest_on_default_line(
         order.repository_id, AssessmentKind.SECURE_CODE_CANONICAL
     )
     if audit is None or audit.id is None:
         raise NotFoundError("no completed secure-code assessment on the repository's default line")
-    return audit.id
+    ref = services.portfolio.inventory.get_ref(audit.repository_ref_id)
+    if ref.repository_id != order.repository_id:
+        raise ValidationError("triage audit is outside the leased repository")
+    return audit.id, GitSha.parse(ref.sha), ()
 
 
 def _recorded(order_id: UUID, kind: AssessmentKind, args: argparse.Namespace) -> set[str]:

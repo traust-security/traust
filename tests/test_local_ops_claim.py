@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import sys
 from pathlib import Path
@@ -18,7 +19,7 @@ from traust_core.v1.models.values import GitSha, HttpsRepoUrl
 from tests.local_ops_support import REPO, LocalOpsRig
 from traust.context import load, load_caller, load_recorder
 
-# Only the paid executable is substituted: both generated reports pass through the normal CLI.
+# The paid executable and an offline checkout are substituted; records use the normal CLI.
 _AGENT = '''import json, os, shlex, subprocess, sys
 from pathlib import Path
 from uuid import UUID
@@ -45,13 +46,15 @@ if words[0] == '/secure-code-audit':
     door('reporting', 'record', str(authored), '--kind', 'secure_code', '--repo-url', words[1],
          '--sha', meta['commit'], '--branch', meta['ref'])
 else:
-    skill, assessment, auto = words
-    assert (skill, auto) == ('/triage', '--auto')
+    skill, assessment, repo_flag, checkout, auto, fresh = words
+    assert (skill, repo_flag, auto, fresh) == ('/triage', '--repo', '--auto', '--fresh')
+    target = Path(checkout)
+    assert (target / 'requirements.txt').read_text() == 'fixture==1.0\\n'
     prepared = door('triage', 'prepare', assessment)
     item, = prepared['items']
     path = fixture / 'result.json'
     path.write_bytes(report(item))
-    receipt = door('triage', 'record', assessment, str(path), '--repo', str(fixture))
+    receipt = door('triage', 'record', assessment, str(path), '--repo', str(target))
     (fixture / 'receipt.json').write_text(json.dumps(receipt))
 print(json.dumps({'session_id':'local-fixture','modelUsage':{},'result':'fixture complete'}))
 '''
@@ -71,6 +74,26 @@ def test_claim_runs_the_shipped_triage_command_as_its_own_recorder(
         f'#!{sys.executable}\nfrom traust_engine.ops.cli import main\nraise SystemExit(main())\n',
     )
     rig._executable('claude', f'#!{sys.executable}\n' + _AGENT)
+    # The fixture audit names a synthetic SHA, not a forge commit. Keep the rig
+    # offline while checking that the session asks for exactly that source.
+    patch = tmp_path / 'session-fixture'
+    patch.mkdir()
+    (patch / 'sitecustomize.py').write_text('''\
+import os
+from contextlib import contextmanager
+from pathlib import Path
+from types import SimpleNamespace
+from traust.cli import session
+
+@contextmanager
+def checkout(url, config_home, ref=None):
+    assert url == "https://github.com/example/smoke-repo"
+    assert str(ref) == "a" * 40
+    yield SimpleNamespace(path=Path(os.environ["TEST_INPUTS"]))
+
+session.checkout = checkout
+''')
+    rig.env['PYTHONPATH'] = str(patch) + os.pathsep + rig.env['PYTHONPATH']
     rig.env.update(TEST_CHECKOUT=str(REPO), TEST_INPUTS=str(tmp_path))
     setup = rig.run('up')
     assert setup.returncode == 0, setup.stderr

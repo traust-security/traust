@@ -90,12 +90,14 @@ def recording_order_id(explicit: uuid.UUID | None) -> uuid.UUID | None:
     return inherited
 
 
-def report_provenance(order_id: uuid.UUID | None, source: SourceType) -> Provenance:
+def report_provenance(
+    order_id: uuid.UUID | None, source: SourceType, order_started: str | None = None
+) -> Provenance:
     order_id = recording_order_id(order_id)
     return Provenance(
         run_id=order_id or uuid.uuid4(),
         source=source,
-        occurred_at=order_started_at() if order_id is not None else datetime.now(UTC),
+        occurred_at=order_started_at(order_started) if order_id is not None else datetime.now(UTC),
     )
 
 

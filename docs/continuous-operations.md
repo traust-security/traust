@@ -596,11 +596,34 @@ outcome is the session's exit. Pass `--feeds` (traust-core's shipped `feeds.yaml
 `traust-engine` command so core knows the pack's feeds when a run reports one
 degraded.
 
-Scheduled triage records against the order in `TRAUST_RUN_ID`. Log the runner
-in as the machine that holds that lease and configure the writer's ledger for
-required signing. A missing login or invalid lease fails recording; it does
-not fall back to a standalone import. A session that exits without recording
-its assessment does not complete the order successfully.
+Scheduled triage records against the order in `TRAUST_RUN_ID`. The runner
+checks out the exact commit of the selected source assessment outside the
+harness, passes it to `/triage --repo`, and starts a fresh checkpoint. It
+releases the checkout after the session. A reclaim with a completed,
+order-bound triage of that source returns its assessment without another
+model session. Log the runner in as the machine that holds the lease and
+configure the writer's ledger for required signing. A missing login or
+invalid lease fails recording; it does not fall back to a standalone import.
+A session that exits without recording its assessment does not complete the
+order successfully.
+
+**Release gate:** the current Core pin predates the required order-ledger API
+and claim-bound validation and verification guards. Do not deploy scheduled
+recording until a compatible Core revision is merged, pinned, and verified.
+
+A reclaimed verification sweep rebuilds its worklist before deciding whether
+to run. Core currently records no original sweep manifest, and its
+already-verified test can be satisfied by a single finding at a head. When
+prior output exists, the runner therefore requires verification verdicts on
+the same line and head to cover every finding currently reported in the
+repository, including closed or newly reported findings on other lines. On
+reclaim it uses only this order's reports; a fresh order can use earlier
+verifications to establish that no work remains. Regressions first reported by
+those same-head reports are not original verification targets; a finding also
+reported elsewhere remains in scope. It fails closed when coverage cannot be
+proved, so this conservative bound can require operator review even when the
+original sweep was complete. These reads are not an atomic snapshot; do not
+rely on this coverage proof while finding records are changing concurrently.
 
 The session's measured usage (Claude Code's JSON result, per model) rides on its
 JobResult, and completing the order records it as the order's spend in the same
@@ -666,15 +689,27 @@ it. Keep the private identity; do not regenerate over it. A later successful
 setup upgrades an empty unsigned placeholder or adds `required: true` to the
 rig's original key pair if omitted. Operator-owned signing settings are preserved.
 
-`ops-up` keeps the human login and refreshes a separate private machine credential
-for `ops-claim`. Only the claimant exports `TRAUST_RECORDER_TOKEN_FILE`; the engine
-leases as that verified machine's ref. Re-run `ops-up` to renew the recorder.
+`ops-up` refuses symlinks in the path to its home or in issuer files, a configured
+home outside the rig, and an untrusted local issuer.
+It creates a human login only when the rig's home has no existing credential entry.
+It never replaces an existing login, even if it has expired: it cannot distinguish
+a rig-created local login from one the operator chose. Check it with `traust auth status` in `make
+ops-sh`; renew or create a local login explicitly with `traust auth local
+--identity YOUR_IDENTITY`, using the desired identity shown by status, or use
+the external provider's renewal flow. Separately, `ops-up` refreshes the private
+machine credential for `ops-claim`. Only the
+claimant exports `TRAUST_RECORDER_TOKEN_FILE`; the engine leases as that verified
+machine's ref. Re-run `ops-up` to renew the recorder.
 No `recording.start` grant is added: recording a leased order does not authorize
 submitting or approving one. The normal rig binds `full_audit` as the assessment
 predecessor of `sci_triage`; a pre-existing `recording:` policy remains operator-owned.
 Use `scripts/local_ops.sh claim --once` to run just one claim (this can run a paid
 session on a real queue). A bound report uses the original claim's
-`TRAUST_ORDER_STARTED_AT`, not a later read of the lease.
+`TRAUST_ORDER_STARTED_AT`, not a later read of the lease. Outside a session,
+`triage record`, `validation record`, and `remediation verify-record` accept
+`--run-id` and `--order-started-at` for that claim; the recorder must still be
+the verified machine holding the lease, and validation provenance must carry
+the same start time.
 
 The runner's tool grants and Read denials are **not credential isolation**.
 Granted Python/Bash can read inherited environment variables and host files.

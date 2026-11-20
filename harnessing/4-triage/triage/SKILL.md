@@ -10,7 +10,8 @@ description: Triage a batch of raw security findings. Verify each is real,
   asked to "triage findings", "validate scanner output", "prioritize vulns",
   or "review the backlog". Runs interactively by default; pass --auto to
   skip the interview. Scanner source attribution comes from the recorded Core
-  assessment, not a caller-supplied origin flag.
+  assessment, not a caller-supplied origin flag. Scheduled triage verifies
+  against a checkout at the source assessment's exact commit.
 argument-hint: "<assessment-id|findings-path> [--prepared-input] [--auto] [--votes N] [--repo PATH] [--fp-rules FILE] [--fresh]"
 user-invocable: true
 metadata:
@@ -61,7 +62,8 @@ claimed severity, and **route** each to a component owner. Output is a
 short, ranked, owned list instead of a raw dump.
 
 Invoke with `/triage <assessment-id|findings-path> [--prepared-input] [--auto] [--votes N] [--repo PATH] [--fp-rules FILE]`.
-The scheduled rig supplies the recorded assessment ID (input A) and `--auto`.
+The scheduled rig supplies the recorded assessment ID (input A), `--auto`,
+`--fresh`, and a temporary `--repo` checkout at that assessment's exact commit.
 Leave its run ID and original claim start inherited when calling `triage record`;
 never substitute the timestamp or credentials of a later attempt.
 
@@ -491,15 +493,17 @@ Attach to every finding:
 
 ### 1c. Locate the target codebase
 
-Resolve `--repo` (default cwd). For the first 5 findings with a `file`,
-check the path resolves under the repo. Try, in order: (a) `repo/file`
-as-given; (b) `file` as an absolute or cwd-relative path; (c) `repo/file`
-with common prefixes stripped from `file` (`src/`, `app/`, `./`, or the
-repo's own basename, e.g. `harness/grade.py` with `--repo harness`).
-Record which resolution worked and apply it to every finding. If none
-resolve, **stop**: tell the user verification needs source access and the
-cited files aren't reachable, and suggest a `--repo` value based on the
-longest common suffix you can see.
+Resolve `--repo` (default cwd) to an absolute directory. For the first 5
+findings with a `file`, check the path resolves under that directory. Try,
+in order: (a) `repo/file` as given; (b) `file` as an absolute or cwd-relative
+path; (c) `repo/file` with common prefixes stripped (`src/`, `app/`, `./`, or
+the repo's own basename). Resolve symlinks and accept a candidate only if its
+resolved path stays inside the resolved repo. Never read cited files outside
+the target checkout, even when an absolute path or symlink points there.
+Record which resolution worked and apply it to every finding. If none resolve,
+**stop**: tell the user verification needs source access and the cited files
+aren't reachable. A genuinely empty admitted batch has no paths to locate;
+skip this check and follow the zero-finding contract in 1a.
 
 **Checkpoint:** Write tool → `./.triage-state/_chunk.tmp`:
 
