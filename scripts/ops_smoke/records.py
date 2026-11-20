@@ -8,7 +8,6 @@ import io
 import json
 import os
 from contextlib import redirect_stdout
-from datetime import datetime
 from importlib.metadata import version
 from pathlib import Path
 from uuid import UUID
@@ -16,15 +15,16 @@ from uuid import UUID
 import yaml
 from pydantic import BaseModel
 from traust_core.v1.context import Context
+from traust_core.v1.errors import ConflictError
 from traust_core.v1.models.artifacts import SecurityAuditArtifact, TriageArtifact
-from traust_core.v1.models.common import Provenance
 from traust_core.v1.models.dependencies import FixUptakeState, Version
 from traust_core.v1.models.identity import Principal
-from traust_core.v1.models.operations import AssetName, JobResult, OrderRequest
+from traust_core.v1.models.operations import AssetName, JobResult, OrderRequest, WorkerId
 from traust_core.v1.models.values import HttpsRepoUrl
 from traust_core.v1.models.vocabulary import Ecosystem, SourceType
 
 from traust.cli.__main__ import main as traust
+from traust.cli._doors import report_provenance
 from traust.context import load, load_caller
 
 HERE = Path(__file__).resolve().parent
@@ -46,6 +46,7 @@ class Prepared(BaseModel):
     human: str
     validity_id: UUID
     severity_id: UUID
+    item: dict
 
 
 def require(condition: bool, explanation: str) -> None:
@@ -110,16 +111,27 @@ def report(item: dict) -> bytes:
             "harness_version": version("traust"),
         },
         "summary": {
-            "input_count": 1, "true_positives": 1, "hardening": 0, "false_positives": 0,
-            "undetermined": 0, "duplicates": 0,
+            "input_count": 1,
+            "true_positives": 1,
+            "hardening": 0,
+            "false_positives": 0,
+            "undetermined": 0,
+            "duplicates": 0,
             "by_severity": {"critical": 1, "high": 0, "medium": 0, "low": 0, "informational": 0},
         },
-        "findings": [{
-            "id": "f001", "title": finding["title"], "verdict": "true_positive",
-            "severity": "critical", "file": loc["path"], "line": loc["line_start"],
-            "rationale": "Synthetic conflicting machine verdict for requirements.txt:1.",
-            "fingerprint": finding["fingerprint"], "fingerprint_algo": finding["fingerprint_algo"],
-        }],
+        "findings": [
+            {
+                "id": "f001",
+                "title": finding["title"],
+                "verdict": "true_positive",
+                "severity": "critical",
+                "file": loc["path"],
+                "line": loc["line_start"],
+                "rationale": "Synthetic conflicting machine verdict for requirements.txt:1.",
+                "fingerprint": finding["fingerprint"],
+                "fingerprint_algo": finding["fingerprint_algo"],
+            }
+        ],
     }
     return TriageArtifact.from_document(doc).payload
 
@@ -134,12 +146,14 @@ def submit_authored(core: Context) -> None:
     print(order.id)
 
 
-def authored(run: Path, core: Context, order_id: UUID) -> None:
+def authored(run: Path, core: Context, order_id: UUID, lease_generation: int) -> None:
     svc = core.services()
     order = svc.ops.get(order_id)
     repo = svc.portfolio.find_repository(HttpsRepoUrl.parse(REPO, core.config.forge_hosts))
-    require(repo is not None and order.repository_id == repo.id and order.asset == AUTHORED,
-            "authored order is not for the fixture")
+    require(
+        repo is not None and order.repository_id == repo.id and order.asset == AUTHORED,
+        "authored order is not for the fixture",
+    )
     head = svc.portfolio.default_ref(repo.id)
     require(head is not None and head.sha == SHA, "wrong authored report subject")
     raw = (HERE / "authored.json").read_bytes()
@@ -147,11 +161,9 @@ def authored(run: Path, core: Context, order_id: UUID) -> None:
         SecurityAuditArtifact.parse(raw),
         head.id,
         version("traust"),
-        Provenance(
-            run_id=order_id, source=SourceType.VULN_SCAN_REPORT,
-            occurred_at=datetime.fromisoformat(os.environ["TRAUST_ORDER_STARTED_AT"]),
-        ),
+        report_provenance(order_id, SourceType.VULN_SCAN_REPORT),
         run_order_id=order_id,
+        lease_generation=lease_generation,
         principal=machine(core),
     )
     [finding] = result.intake.findings.values()
@@ -159,8 +171,10 @@ def authored(run: Path, core: Context, order_id: UUID) -> None:
     require(result.intake.created == (() if replay else (finding,)), "wrong authored intake count")
     require(svc.artifacts.payload(result.artifact_id) == raw, "stored authored report bytes differ")
     assessment = svc.assessment.get(result.assessment_id)
-    require((assessment.run_order_id, assessment.repository_ref_id) == (order_id, head.id),
-            "authored record not bound to the claimed order and fixture head")
+    require(
+        (assessment.run_order_id, assessment.repository_ref_id) == (order_id, head.id),
+        "authored record not bound to the claimed order and fixture head",
+    )
     ids = (order_id, result.assessment_id, result.artifact_id, finding)
     print(JobResult.succeeded(tuple(map(str, ids))).model_dump_json())
 
@@ -171,8 +185,10 @@ def prepare(run: Path, core: Context) -> None:
     require(human.is_verified_human(), "prepare needs the rig's verified human login")
     authored_receipt = JobResult.model_validate_json((run / f"{AUTHORED}.receipt").read_bytes())
     order_id, baseline, _, authored_finding = authored_receipt.written
-    require(core.services().ops.get(UUID(order_id)).state == "succeeded",
-            "the authored assessment must complete before triage")
+    require(
+        core.services().ops.get(UUID(order_id)).state == "succeeded",
+        "the authored assessment must complete before triage",
+    )
     prepared = door("triage", "prepare", baseline)
     subject = prepared["subject"]
     [item] = prepared["items"]
@@ -186,14 +202,21 @@ def prepare(run: Path, core: Context) -> None:
         and (occurrence["assessment_id"], occurrence["finding_id"]) == (baseline, fid),
         "prepared subject or occurrence does not match intake",
     )
-    (run / REPORT).write_bytes(report(item))
     judged = {}
     for field, value in (("validity", "false_positive"), ("severity", "medium")):
         # This probes a tie. Giving either statement a stronger evidence grade
         # would test a different policy and mask an incorrect winner.
         saved = door(
-            "findings", "record", "--finding", fid, "--decision", field, f"--{field}", value,
-            "--rationale", "Human review of the synthetic fixture marker.",
+            "findings",
+            "record",
+            "--finding",
+            fid,
+            "--decision",
+            field,
+            f"--{field}",
+            value,
+            "--rationale",
+            "Human review of the synthetic fixture marker.",
         )
         require(saved["finding_id"] == fid and saved["actor"] == human.ref, "wrong human receipt")
         judged[field] = saved["id"]
@@ -209,19 +232,30 @@ def prepare(run: Path, core: Context) -> None:
         human=human.ref,
         validity_id=judged["validity"],
         severity_id=judged["severity"],
+        item=item,
     )
     (run / STATE).write_text(state.model_dump_json() + "\n")
     (run / FINDING_ID).write_text(fid + "\n")
     print(order.id)
 
 
-def record(run: Path, core: Context, state: Prepared, order_id: UUID) -> None:
+def record(
+    run: Path,
+    core: Context,
+    state: Prepared,
+    order_id: UUID,
+    lease_generation: int,
+    payload: bytes,
+) -> None:
     require(order_id == state.order_id, "not the order submitted by prepare")
     receipt = core.services().findings.decisions.record_triage(
-        state.baseline_id, TriageArtifact.parse((run / REPORT).read_bytes()),
-        Provenance(run_id=order_id, source=SourceType.TRIAGE_REPORT,
-                   occurred_at=datetime.fromisoformat(os.environ["TRAUST_ORDER_STARTED_AT"])),
-        run_order_id=order_id, principal=machine(core), checkout=HERE / "repo",
+        state.baseline_id,
+        TriageArtifact.parse(payload),
+        report_provenance(order_id, SourceType.TRIAGE_REPORT),
+        run_order_id=order_id,
+        principal=machine(core),
+        lease_generation=lease_generation,
+        checkout=HERE / "repo",
     )
     [decision] = receipt.decisions
     require(
@@ -234,11 +268,84 @@ def record(run: Path, core: Context, state: Prepared, order_id: UUID) -> None:
     result = JobResult.succeeded(tuple(str(i) for i in ids))
     path = run / "smoke-record-receipt.json"
     path.write_text(result.model_dump_json() + "\n")
+    (run / REPORT).write_bytes(payload)
     print(result.model_dump_json())
+
+
+def retry_stale(
+    run: Path,
+    core: Context,
+    asset: str,
+    order_id: UUID,
+    worker: WorkerId,
+    lease_generation: int,
+) -> None:
+    """Even a byte-identical retry by the same worker must lose to its replacement claim."""
+    try:
+        if asset == AUTHORED:
+            authored(run, core, order_id, lease_generation)
+        elif asset == ASSET:
+            state = Prepared.model_validate_json((run / STATE).read_bytes())
+            record(run, core, state, order_id, lease_generation, (run / REPORT).read_bytes())
+        else:
+            svc = core.services()
+            repo = svc.portfolio.find_repository(HttpsRepoUrl.parse(REPO, core.config.forge_hosts))
+            require(repo is not None, "missing fixture repository")
+            head = svc.portfolio.default_ref(repo.id)
+            require(
+                head is not None and head.sha == SHA and head.manifest_sbom_id is not None,
+                "expected a committed manifest at the fixture head",
+            )
+            svc.exposure.record_manifest_sbom(
+                head.id,
+                run_order_id=order_id,
+                worker=worker,
+                lease_generation=lease_generation,
+            )
+    except ConflictError as exc:
+        require(
+            str(exc) == f"order {order_id}: stale lease generation", f"unexpected conflict: {exc}"
+        )
+        return
+    raise SystemExit(f"smoke records: {asset} accepted work from a superseded claim")
+
+
+def verify_completion(run: Path, core: Context, asset: str) -> None:
+    """Retry each completion with the generation captured alongside that result."""
+    ops = core.services().ops
+    order_id = UUID((run / f"{asset}.order").read_text().strip())
+    worker = WorkerId((run / f"{asset}.worker").read_text().strip())
+    before = ops.get(order_id)
+    manifest = ops.manifest(order_id)
+    first = int((run / f"{asset}.generation").read_text())
+    second = int((run / f"{asset}.replayed-generation").read_text())
+    require(
+        (first, second, before.lease_generation, before.completed_by, before.state)
+        == (1, 2, second, worker, "succeeded"),
+        f"unexpected completion for {asset}",
+    )
+    stale = JobResult.model_validate_json((run / f"{asset}.receipt").read_bytes())
+    try:
+        ops.complete(order_id, worker, stale, lease_generation=first)
+    except ConflictError as exc:
+        require(
+            str(exc) == f"order {order_id}: completion belongs to another lease",
+            f"unexpected completion conflict: {exc}",
+        )
+    else:
+        raise SystemExit(f"smoke records: {asset} accepted a superseded completion")
+    fresh = JobResult.model_validate_json((run / f"{asset}.replayed-receipt").read_bytes())
+    require(
+        ops.complete(order_id, worker, fresh, lease_generation=second) == before
+        and ops.manifest(order_id) == manifest,
+        f"{asset} completion replay changed the order",
+    )
 
 
 def verify(run: Path, core: Context, state: Prepared) -> None:
     svc = core.services()
+    for asset in (AUTHORED, ASSET, "manifest_sbom"):
+        verify_completion(run, core, asset)
     fid = state.finding_id
     require(UUID((run / FINDING_ID).read_text().strip()) == fid, "incorrect finding-id handoff")
     order = svc.ops.get(state.order_id)
@@ -251,7 +358,8 @@ def verify(run: Path, core: Context, state: Prepared) -> None:
     require(len(rows) == 3 and all(d.finding_id == fid for d in rows), "expected three decisions")
     by_id = {row.id: row for row in rows}
     for key, validity, severity in (
-        (state.validity_id, "false_positive", None), (state.severity_id, None, "medium"),
+        (state.validity_id, "false_positive", None),
+        (state.severity_id, None, "medium"),
     ):
         human = by_id.pop(key, None)
         if human is None:
@@ -259,7 +367,8 @@ def verify(run: Path, core: Context, state: Prepared) -> None:
         require(
             (human.actor, human.validity, human.severity, human.evidence_grade)
             == (state.human, validity, severity, None)
-            and human.assessment_id is None and human.artifact_id is None,
+            and human.assessment_id is None
+            and human.artifact_id is None,
             "human statement changed",
         )
     [machine_row] = by_id.values()
@@ -267,7 +376,8 @@ def verify(run: Path, core: Context, state: Prepared) -> None:
         machine_row.actor is None
         and machine_row.evidence_grade is None
         and (machine_row.validity, machine_row.severity) == ("confirmed", "critical")
-        and machine_row.assessment_id is not None and machine_row.artifact_id is not None,
+        and machine_row.assessment_id is not None
+        and machine_row.artifact_id is not None,
         "no persisted conflicting machine triage",
     )
     receipt = JobResult.model_validate_json((run / "smoke-record-receipt.json").read_bytes())
@@ -300,17 +410,19 @@ def verify_coverage(core: Context) -> None:
     require(repo is not None, "Docker-only fixture not onboarded")
     ref = svc.portfolio.default_ref(repo.id)
     require(ref is not None and ref.sha == SHA, "Docker-only fixture head not observed")
-    require(ref.manifest_sbom_assessment_id is not None and not svc.exposure.dependencies(ref.id),
-            "Docker-only fixture needs a completed, empty manifest scan")
+    require(
+        ref.manifest_sbom_assessment_id is not None and not svc.exposure.dependencies(ref.id),
+        "Docker-only fixture needs a completed, empty manifest scan",
+    )
     [artifact] = svc.assessment.list_artifacts(ref.manifest_sbom_assessment_id, "manifest-coverage")
     evidence = json.loads(svc.artifacts.payload(artifact.id))
     require(
         evidence["assessment_id"] == str(ref.manifest_sbom_assessment_id)
         and evidence["sbom_id"] == str(ref.manifest_sbom_id)
-        and evidence["tool"]["name"] == "syft" and bool(evidence["tool"]["version"])
-        and evidence["unresolved"] == {
-            "docker": {"build/images/Dockerfile": "unsupported-manifest"}
-        },
+        and evidence["tool"]["name"] == "syft"
+        and bool(evidence["tool"]["version"])
+        and evidence["unresolved"]
+        == {"docker": {"build/images/Dockerfile": "unsupported-manifest"}},
         "missing scan-bound Docker coverage",
     )
     uptake = svc.exposure.consumes_fix(ref.id, Ecosystem.DOCKER, "base", Version("1.2.4"))
@@ -323,9 +435,16 @@ def main() -> None:
     commands = parser.add_subparsers(dest="command", required=True)
     for name in ("submit-authored", "prepare", "worker", "verify", "verify-coverage"):
         commands.add_parser(name)
-    for name in ("authored", "record"):
-        commands.add_parser(name).add_argument("order_id", type=UUID)
+    for name in ("authored", "record", "retry-stale"):
+        writer = commands.add_parser(name)
+        if name == "retry-stale":
+            writer.add_argument("asset", choices=(AUTHORED, ASSET, "manifest_sbom"))
+            writer.add_argument("--worker", required=True)
+        writer.add_argument("order_id", type=UUID)
+        writer.add_argument("--lease-generation", type=int, required=True)
     args = parser.parse_args()
+    if hasattr(args, "lease_generation") and args.lease_generation < 1:
+        parser.error("--lease-generation must be positive")
     run, core = rig(args.command == "submit-authored")
     if args.command == "verify-coverage":
         verify_coverage(core)
@@ -333,7 +452,11 @@ def main() -> None:
     if args.command == "submit-authored":
         submit_authored(core)
     elif args.command == "authored":
-        authored(run, core, args.order_id)
+        authored(run, core, args.order_id, args.lease_generation)
+    elif args.command == "retry-stale":
+        retry_stale(
+            run, core, args.asset, args.order_id, WorkerId(args.worker), args.lease_generation
+        )
     elif args.command == "prepare":
         prepare(run, core)
     elif args.command == "worker":
@@ -341,7 +464,9 @@ def main() -> None:
     else:
         state = Prepared.model_validate_json((run / STATE).read_bytes())
         if args.command == "record":
-            record(run, core, state, args.order_id)
+            # Compute the report from the prepared *input* for this claim. Only the
+            # stale retry resubmits the previous claim's persisted report bytes.
+            record(run, core, state, args.order_id, args.lease_generation, report(state.item))
         else:
             verify(run, core, state)
 

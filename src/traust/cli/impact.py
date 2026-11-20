@@ -48,7 +48,15 @@ from traust_core.v1.models.vocabulary import (
     SourceType,
 )
 
-from traust.cli._doors import add_branch_arg, answer, parser, register_commit, run
+from traust.cli._doors import (
+    add_branch_arg,
+    add_materializer_lease_args,
+    answer,
+    materialize_repository,
+    parser,
+    register_commit,
+    run,
+)
 from traust.context import load
 from traust.ops.materializers import MANUAL, BelowRangePacketsMaterializer, ManifestSbomMaterializer
 from traust.paths import HARNESS_ROOT
@@ -475,12 +483,11 @@ def manifest_sbom(argv: list[str] | None = None) -> int:
         "outcome is the exit code.",
     )
     ap.add_argument("--repo", required=True, help="https URL of an inventory repository")
-    ap.add_argument("--run-id", default=MANUAL, help="the run order this SBOM is for")
+    add_materializer_lease_args(ap)
     args = ap.parse_args(argv)
     core = _core(args.config_home)
     materializer = ManifestSbomMaterializer(core.services(), core.config.forge_hosts)
-    request = AssetRequest(asset=materializer.asset, run_id=args.run_id, partition=args.repo)
-    return answer(materializer.materialize(request))
+    return materialize_repository(args, materializer)
 
 
 def below_range_scan(argv: list[str] | None = None) -> int:

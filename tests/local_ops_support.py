@@ -115,7 +115,6 @@ class LocalOpsRig:
             "TRAUST_OPERATOR_CONFIG_HOME",
             "TRAUST_RECORDER_TOKEN_FILE",
             "TRAUST_RUN_ID",
-            "TRAUST_ORDER_STARTED_AT",
             "OPS_SIGNED_SMOKE",
             "COSIGN_PASSWORD",
             "GITHUB_TOKEN",

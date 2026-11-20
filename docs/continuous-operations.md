@@ -580,8 +580,8 @@ nothing. `traust-engine run` is the loop itself, for after the cutover.
 
 After the cutover, `traust-engine run` plans and admits, and a runner does the
 work. `traust-engine claim $E` leases one queued order of an asset with a `run`
-command, fills its `{run_id}`, `{repo_url}` and `{rule}` (the router rule that
-routed it) tokens from the order, renews the
+command, substitutes `{run_id}`, `{worker}`, `{lease_generation}`, `{repo_url}` and
+`{rule}` (the routing rule) where used, renews the
 lease while the command runs, completes the order with the command's JobResult
 and exits (0 succeeded, 1 failed, 4 degraded, 5 refused; nothing queued is 0).
 It is claim-once, started by an operator or a scheduler, never a daemon.
@@ -596,9 +596,11 @@ outcome is the session's exit. Pass `--feeds` (traust-core's shipped `feeds.yaml
 `traust-engine` command so core knows the pack's feeds when a run reports one
 degraded.
 
-Scheduled triage records against the order in `TRAUST_RUN_ID`. The runner
-checks out the exact commit of the selected source assessment outside the
-harness, passes it to `/triage --repo`, and starts a fresh checkpoint. It
+Scheduled triage records against the order in `TRAUST_RUN_ID`. The recording
+command must also receive the literal `--lease-generation N` from the session's
+invocation; the order ID alone is not enough. The runner checks out the exact
+commit of the selected source assessment outside the harness, passes the checkout
+to `/triage --repo`, and starts a fresh checkpoint. It
 releases the checkout after the session. A reclaim with a completed,
 order-bound triage of that source returns its assessment without another
 model session. Log the runner in as the machine that holds the lease and
@@ -607,9 +609,10 @@ invalid lease fails recording; it does not fall back to a standalone import.
 A session that exits without recording its assessment does not complete the
 order successfully.
 
-**Release gate:** the current Core pin predates the required order-ledger API
-and claim-bound validation and verification guards. Do not deploy scheduled
-recording until a compatible Core revision is merged, pinned, and verified.
+**Release gate:** deploy the lease-generation schema, Core writers and engine
+substitution together with the matching CLI and pack. Old and new claim/record
+protocols are not interchangeable. Drain outstanding work before cutover;
+do not attach a new generation to evidence produced under an old claim.
 
 A reclaimed verification sweep rebuilds its worklist before deciding whether
 to run. Core currently records no original sweep manifest, and its
@@ -704,12 +707,13 @@ No `recording.start` grant is added: recording a leased order does not authorize
 submitting or approving one. The normal rig binds `full_audit` as the assessment
 predecessor of `sci_triage`; a pre-existing `recording:` policy remains operator-owned.
 Use `scripts/local_ops.sh claim --once` to run just one claim (this can run a paid
-session on a real queue). A bound report uses the original claim's
-`TRAUST_ORDER_STARTED_AT`, not a later read of the lease. Outside a session,
-`triage record`, `validation record`, and `remediation verify-record` accept
-`--run-id` and `--order-started-at` for that claim; the recorder must still be
-the verified machine holding the lease, and validation provenance must carry
-the same start time.
+session on a real queue). The engine passes the integer from that claim as an
+argv value. The recorder must pass it unchanged to the write; do not query the
+current order to obtain a generation. Outside a session, pass both
+`--run-id <order-uuid>` and `--lease-generation <generation-from-claim>`
+to a bound record door. Validation provenance retains the original **event**
+time; it must not be set to the lease start. `portfolio observe` and
+`impact manifest-sbom` also take the claiming `--worker` for ordered writes.
 
 The runner's tool grants and Read denials are **not credential isolation**.
 Granted Python/Bash can read inherited environment variables and host files.

@@ -43,6 +43,11 @@ allowed-tools:
 
 # Verify Remediation
 
+For a scheduled run, take `--lease-generation N` from the session invocation
+(before interpreting positional inputs). Keep the inherited `TRAUST_RUN_ID` and pass
+that exact N to `verify-prepare` and `verify-record`, including when given an explicit
+report path. Omit the flag in standalone runs. Native-input mode still does not record.
+
 > **Paths.** `analysis-results/…` and `progress-tracker/…` in this skill are the
 > default workspace layout. They resolve through `locations:` in `traust.yaml` in
 > `$TRAUST_CONFIG_HOME` (`docs/setup.md`, Storage locations); substitute your
@@ -160,7 +165,7 @@ and identity/admission gates to the original emitted bytes through the SDK.
 The remaining input forms below apply only when `--native-input` is absent.
 
 1. **The original audit report** — one of:
-   - A work item id: `traust remediation verify-prepare <work-item>` prints
+   - A work item id: `traust remediation verify-prepare [--lease-generation N] <work-item>` prints
      its findings, every decision on them and earlier verifications
    - Path to a `*-security-audit.json` file (preferred)
    - Path to a `*-security-audit.md` file (parsed for finding data)
@@ -1141,7 +1146,7 @@ It does not advance a work item's forward-only status or manufacture execution
 evidence. Native-input runs still leave recording to their trusted caller.
 
 ```bash
-python3 -m traust.cli remediation verify-record \
+python3 -m traust.cli remediation verify-record [--lease-generation N] \
   <path-to>/<repo-name>-remediation-verification.json
 ```
 
@@ -1308,7 +1313,7 @@ For each worklist entry, in order:
    Write the verification report beside the audit report in the
    findings tree.
 2. Emit resolution events into the ledger:
-   `traust remediation verify-record <report>` (Phase 7b).
+   `traust remediation verify-record [--lease-generation N] <report>` (Phase 7b).
    Verification reports are class-1 evidence, the only sanctioned path
    to `resolution: resolved`. Phase 7a2 regression routing happens in the
    same call, once.

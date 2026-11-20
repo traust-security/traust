@@ -177,7 +177,16 @@ def test_scanner_output_triaged_and_recorded(
     # A scheduled record cannot silently use the manual import when the runner has no identity.
     with monkeypatch.context() as patch:
         patch.setenv("TRAUST_RUN_ID", str(uuid4()))
-        rc, _ = run(triage.record, home, assessment, str(path), "--repo", str(CANARY))
+        rc, _ = run(
+            triage.record,
+            home,
+            assessment,
+            str(path),
+            "--repo",
+            str(CANARY),
+            "--lease-generation",
+            "1",
+        )
     assert rc == 2 and "identity" in capsys.readouterr().err
     assert not load(home).services().findings.history(finding["id"])
 
