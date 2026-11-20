@@ -10,7 +10,14 @@ from traust_core.v1.models.artifacts import ValidationArtifact, ValidationPlanAr
 from traust_core.v1.models.common import Provenance
 from traust_core.v1.models.validation import TargetAttestation, ValidationRecordInput
 
-from traust.cli._doors import add_run_order_arg, order_started_at, parser, recording_order_id, run
+from traust.cli._doors import (
+    add_order_started_arg,
+    add_run_order_arg,
+    order_started_at,
+    parser,
+    recording_order_id,
+    run,
+)
 from traust.context import load, load_recorder
 
 
@@ -52,6 +59,7 @@ def record_report(
     *,
     config_home: Path | None = None,
     run_id: UUID | None = None,
+    order_started: str | None = None,
     target_attestation: Path | None = None,
     install_failure: Path | None = None,
 ) -> dict:
@@ -77,7 +85,7 @@ def record_report(
     if order_id is None:
         result = validation.record(document, provenance, recording)
     else:
-        if provenance.occurred_at != order_started_at():
+        if provenance.occurred_at != order_started_at(order_started):
             raise ValidationError("validation provenance differs from the original claim start")
         result = validation.record_order(
             document, provenance, recording, order_id, load_recorder(core)
@@ -93,6 +101,7 @@ def record(argv: list[str] | None = None) -> int:
         "--provenance", required=True, type=Path, help="Actual run's core Provenance JSON."
     )
     add_run_order_arg(ap)
+    add_order_started_arg(ap)
     ap.add_argument(
         "--target-attestation", type=Path, help="Full explicit preflight attestation JSON."
     )
@@ -109,6 +118,7 @@ def record(argv: list[str] | None = None) -> int:
                 Provenance.model_validate_json(args.provenance.read_bytes()),
                 config_home=args.config_home,
                 run_id=args.run_id,
+                order_started=args.order_started_at,
                 target_attestation=args.target_attestation,
                 install_failure=args.install_failure,
             )

@@ -69,6 +69,7 @@ from traust_core.v1.models.vocabulary import (
 
 from traust.cli._doors import (
     add_branch_arg,
+    add_order_started_arg,
     add_run_order_arg,
     parser,
     products,
@@ -664,6 +665,7 @@ def verify_record(argv: list[str] | None = None) -> int:
     ap = _parser("verify-record", "Record a validated verification report.")
     ap.add_argument("report", type=Path, help="the verification report JSON")
     add_run_order_arg(ap)
+    add_order_started_arg(ap)
     args = ap.parse_args(argv)
 
     def call() -> dict:
@@ -671,7 +673,9 @@ def verify_record(argv: list[str] | None = None) -> int:
         order_id = recording_order_id(args.run_id)
         core = load(args.config_home)
         verification = core.services().verification
-        provenance = report_provenance(order_id, SourceType.VERIFICATION_REPORT)
+        provenance = report_provenance(
+            order_id, SourceType.VERIFICATION_REPORT, args.order_started_at
+        )
         if order_id is None:
             made = verification.record(doc, provenance)
         else:

@@ -109,10 +109,17 @@ def validation_producer(fixture, writer_home, mp):
     return runner["main"](args)
 
 
-def verification_fixture(core, fixture, repo_id):
+def verification_fixture(core, fixture, repo_id, *, complete):
     raw = (Path(__file__).parent / "fixtures/remediation/verification-report.json").read_text()
     doc = json.loads(raw.replace("FINDING_ID", str(fixture["finding_id"])))
     doc["metadata"].update(repository=URL, patched_ref="main", original_commit="a" * 40)
+    if complete:
+        findings = core.services().findings.records.ids_for_repository(repo_id)
+        template = doc["verified_findings"][0]
+        doc["verified_findings"] = [dict(template, original_id=str(id_)) for id_ in findings]
+        doc["summary"]["total_findings"] = len(findings)
+        doc["summary"]["by_verdict"]["resolved"] = len(findings)
+        doc["commit_timeline"][0]["addresses"] = [str(id_) for id_ in findings]
     with SqlTraustUnitOfWork(core.database) as uow:
         # A bare source commit does not establish ancestry. Observe it on main
         # before moving the default head to the patched commit.
@@ -131,10 +138,18 @@ def verification_fixture(core, fixture, repo_id):
     return path
 
 
-@pytest.mark.parametrize("asset", [VALIDATE, VERIFY])
-@pytest.mark.parametrize("writer_ledger", [True, False], ids=["writer-ledger", "no-writer-ledger"])
+@pytest.mark.parametrize(
+    ("asset", "writer_ledger", "complete"),
+    [
+        pytest.param(VALIDATE, True, True, id="validation-writer-ledger"),
+        pytest.param(VALIDATE, False, True, id="validation-no-writer-ledger"),
+        pytest.param(VERIFY, True, True, id="verification-complete"),
+        pytest.param(VERIFY, True, False, id="verification-partial"),
+        pytest.param(VERIFY, False, True, id="verification-no-writer-ledger"),
+    ],
+)
 def test_pack_command_uses_the_repository_lease_and_the_writers_own_ledger(
-    evidence, tmp_path, monkeypatch, capsys, asset, writer_ledger  # noqa: F811
+    evidence, tmp_path, monkeypatch, capsys, asset, writer_ledger, complete  # noqa: F811
 ):
     from traust_core.v1.errors import ServiceError
 
@@ -165,7 +180,7 @@ def test_pack_command_uses_the_repository_lease_and_the_writers_own_ledger(
         assert main(argv) == 0
         skipped = json.loads(capsys.readouterr().out)
         assert skipped["outcome"] == "succeeded" and skipped["written"] == []
-        path = verification_fixture(core, evidence, repo.id)
+        path = verification_fixture(core, evidence, repo.id, complete=complete)
         assert services.verification.sweep([repo.id]).queued
     attempts = []
 
@@ -214,17 +229,29 @@ def test_pack_command_uses_the_repository_lease_and_the_writers_own_ledger(
     code = main(argv)
     captured = capsys.readouterr()
     result = JobResult.model_validate_json(captured.out)
+    partial = asset == VERIFY and not complete
     if writer_ledger:
         monkeypatch.setattr(session, "session", lambda *_: pytest.fail("already recorded"))
-        assert main(argv) == 0
-        assert JobResult.model_validate_json(capsys.readouterr().out).written == result.written
+        assert main(argv) == (1 if partial else 0)
+        retry = JobResult.model_validate_json(capsys.readouterr().out)
+        if partial:
+            assert retry.reason == "session-output-invalid" and not retry.written
+        else:
+            assert retry.written == result.written
     finished = services.ops.complete(order.id, worker, result)
     runs = services.assessment.list_for_order(order.id)
     history = services.findings.history(evidence["finding_id"])
     if writer_ledger:
-        assert (attempts, code, finished.state) == ([0], 0, "succeeded"), captured.err
+        assert attempts == [0], captured.err
+        if partial:
+            assert code != 0 and finished.state == "failed"
+            assert result.reason == "session-output-invalid" and not result.written
+        else:
+            assert code == 0 and finished.state == "succeeded", captured.err
         [recorded] = runs
-        assert result.written == (str(recorded.id),) and recorded.run_order_id == order.id
+        assert recorded.run_order_id == order.id
+        if not partial:
+            assert result.written == (str(recorded.id),)
         assert recorded.occurred_at == order.started_at
         [said] = [d for d in history if d.assessment_id == recorded.id]
         with SqlTraustUnitOfWork(core.database) as uow:
@@ -258,3 +285,75 @@ def test_partial_or_conflicting_claim_never_generates_standalone_provenance(
             monkeypatch.setenv(name, value)
     with pytest.raises(ValidationError):
         report_provenance(override, SourceType.VERIFICATION_REPORT)
+
+
+@pytest.mark.parametrize("asset", [VALIDATE, VERIFY])
+def test_manual_order_writer_requires_original_claim_and_leaseholder(
+    evidence, tmp_path, monkeypatch, capsys, asset  # noqa: F811
+):
+    core = configure(evidence["config"], tmp_path / "store", ledger=True)
+    services = core.services()
+    repo = services.portfolio.find_repository(URL)
+    machine = core.local_issuer.mint("manual-recorder", machine=True)
+    other = core.local_issuer.mint("other-recorder", machine=True)
+    worker = WorkerId(core.identity.authenticate(machine).ref)
+    approver = core.identity.authenticate(core.local_issuer.mint("operator@example.com"))
+    order = lease(core, asset, repo.id, tmp_path, approver, worker)
+    start = order.started_at.isoformat()
+    stale = (order.started_at - timedelta(seconds=1)).isoformat()
+    token = tmp_path / "manual-recorder-token"
+    token.touch(mode=0o600)
+    token.write_text(machine.token.get_secret_value())
+    monkeypatch.setenv("TRAUST_RECORDER_TOKEN_FILE", str(token))
+    monkeypatch.delenv(RUN_ORDER_ENV, raising=False)
+    monkeypatch.delenv(ORDER_STARTED_ENV, raising=False)
+
+    provenance_path = tmp_path / "manual-provenance.json"
+    if asset == VALIDATE:
+        report = tmp_path / "manual-validation.json"
+        bindings = tmp_path / "manual-bindings.json"
+        report.write_text(json.dumps(evidence["report"]))
+        bindings.write_text(json.dumps(evidence["bindings"]))
+        evidence["provenance"].update(run_id=str(order.id), occurred_at=start)
+        provenance_path.write_text(json.dumps(evidence["provenance"]))
+        command = [
+            "validation", "record", "--report", str(report), "--bindings", str(bindings),
+            "--provenance", str(provenance_path),
+        ]
+    else:
+        report = verification_fixture(core, evidence, repo.id, complete=False)
+        command = ["remediation", "verify-record", str(report)]
+    command += ["--config-home", str(evidence["config"]), "--run-id", str(order.id)]
+
+    def call(*args):
+        rc = main([*command, *args])
+        return rc, capsys.readouterr()
+
+    # Omitting the timestamp or supplying a naive timestamp is not a valid claim.
+    assert call()[0] == 2
+    assert call("--order-started-at", "2026-01-01T00:00:00")[0] == 2
+    # An inherited session cannot override either part of its identity.
+    with monkeypatch.context() as session_env:
+        session_env.setenv(RUN_ORDER_ENV, str(order.id))
+        session_env.setenv(ORDER_STARTED_ENV, start)
+        assert call("--order-started-at", stale)[0] == 2
+        assert call("--order-started-at", start, "--run-id", str(UUID(int=2)))[0] == 2
+    # For validation, mismatch with the submitted provenance is rejected before recording.
+    if asset == VALIDATE:
+        assert call("--order-started-at", stale)[0] == 2
+        evidence["provenance"]["occurred_at"] = stale
+        provenance_path.write_text(json.dumps(evidence["provenance"]))
+    # Even a self-consistent supplied timestamp must match the real claim under lock.
+    assert call("--order-started-at", stale)[0] == 2
+    if asset == VALIDATE:
+        evidence["provenance"]["occurred_at"] = start
+        provenance_path.write_text(json.dumps(evidence["provenance"]))
+    token.write_text(other.token.get_secret_value())
+    assert call("--order-started-at", start)[0] == 2
+    assert services.assessment.list_for_order(order.id) == []
+    token.write_text(machine.token.get_secret_value())
+    rc, output = call("--order-started-at", start)
+    assert rc == 0, output.err
+    [recorded] = services.assessment.list_for_order(order.id)
+    assert recorded.run_order_id == order.id
+    assert recorded.occurred_at == order.started_at
