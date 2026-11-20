@@ -378,18 +378,20 @@ def test_resolution_is_reported(tmp_path, monkeypatch, capsys):
     assert "still unresolved" in err
 
 
-def test_an_unset_feed_key_variable_is_an_error_exit_2(tmp_path, monkeypatch, capsys):
+def test_an_unset_feed_key_variable_runs_keyless_like_no_key(tmp_path, monkeypatch, capsys):
     import shutil
 
     import yaml
 
-    home = tmp_path / "home"
-    shutil.copytree(FIXTURE_HOME, home)
-    (home / "traust.yaml").write_text(
-        yaml.safe_dump(
-            {"home": str(tmp_path / "store"), "feeds": {"api_keys": {"nvd": "TEST_NVD_KEY"}}}
-        )
-    )
     monkeypatch.delenv("TEST_NVD_KEY", raising=False)
-    assert adapters.call_osv(_args(tmp_path, tmp_path / "o.json", config_home=home)) == 2
-    assert "names unset variable TEST_NVD_KEY" in capsys.readouterr().err
+    results = []
+    for feeds in ({}, {"feeds": {"api_keys": {"nvd": "TEST_NVD_KEY"}}}):
+        home = tmp_path / f"home-{len(results)}"
+        shutil.copytree(FIXTURE_HOME, home)
+        (home / "traust.yaml").write_text(
+            yaml.safe_dump({"home": str(tmp_path / f"store-{len(results)}"), **feeds})
+        )
+        out = tmp_path / f"o-{len(results)}.json"
+        results.append(adapters.call_osv(_args(tmp_path, out, config_home=home)))
+    assert results[0] == results[1]  # traust-core#524: an unset key falls back to keyless
+    assert "names unset variable" not in capsys.readouterr().err
