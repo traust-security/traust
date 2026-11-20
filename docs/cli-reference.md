@@ -218,6 +218,9 @@ they do not replace mining, regression-draft authoring or scheduled rule-lane ru
   The shipped redirect rule trusts direct literal host policies and Django's validated
   current-host expression; other computed policies remain candidates for review.
   Actuator checks distinguish narrower protection from an earlier whole-scope decision.
+  A literal `/actuator/**` guard is not whole-scope proof for an endpoint-selected chain:
+  `management.endpoints.web.base-path` may relocate endpoints (for example, to `/manage`).
+  Endpoint-aware `EndpointRequest.toAnyEndpoint()` or universal `/**` guards remain supported.
   Adopters reuse `overrides.rule_pack_allowlist`: each enabled pack selects
   explicit unique rule IDs and uses either a local rule directory relative to
   the allowlist file (with paired native fixtures), or an HTTPS Git source

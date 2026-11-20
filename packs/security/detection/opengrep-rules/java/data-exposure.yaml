@@ -3,11 +3,11 @@ rules:
     languages: [java]
     severity: ERROR
     message: >-
-      Spring Security permits anonymous access to a broad actuator matcher,
-      or to all requests in an actuator-selected chain. Review enabled web
-      endpoints, filter-chain ordering and network controls before concluding
-      that sensitive endpoints are publicly reachable. Limit anonymous access
-      to health/info and require an operator role for the rest. CWE-200.
+      Spring Security contains a broad anonymous actuator matcher or a
+      permit-all fallback in an actuator-selected chain. Literal
+      /actuator paths do not prove coverage of the configured management
+      base path. Review endpoint exposure and first-match authorization;
+      use endpoint-aware protection or a whole-chain policy. CWE-200.
     metadata:
       cwe: ["CWE-200", "CWE-306"]
       category: data-exposure
@@ -42,9 +42,6 @@ rules:
                     metavariable: $EXPRESSION
                     comparison: str($EXPRESSION) == str($PREFIX)
                 - pattern-not: <... $CHAIN.requestMatchers(EndpointRequest.toAnyEndpoint(...)).$DECISION(...) ...>
-                - pattern-not: <... $CHAIN.requestMatchers("/actuator/**").$DECISION(...) ...>
-                - pattern-not: <... $CHAIN.antMatchers("/actuator/**").$DECISION(...) ...>
-                - pattern-not: <... $CHAIN.mvcMatchers("/actuator/**").$DECISION(...) ...>
                 - pattern-not: <... $CHAIN.requestMatchers("/**").$DECISION(...) ...>
                 - pattern-not: <... $CHAIN.antMatchers("/**").$DECISION(...) ...>
                 - pattern-not: <... $CHAIN.mvcMatchers("/**").$DECISION(...) ...>
@@ -72,9 +69,6 @@ rules:
                     metavariable: $EXPRESSION
                     comparison: str($EXPRESSION) == str($PREFIX)
                 - pattern-not: <... $CHAIN.requestMatchers(EndpointRequest.toAnyEndpoint(...)).$DECISION(...) ...>
-                - pattern-not: <... $CHAIN.requestMatchers("/actuator/**").$DECISION(...) ...>
-                - pattern-not: <... $CHAIN.antMatchers("/actuator/**").$DECISION(...) ...>
-                - pattern-not: <... $CHAIN.mvcMatchers("/actuator/**").$DECISION(...) ...>
                 - pattern-not: <... $CHAIN.requestMatchers("/**").$DECISION(...) ...>
                 - pattern-not: <... $CHAIN.antMatchers("/**").$DECISION(...) ...>
                 - pattern-not: <... $CHAIN.mvcMatchers("/**").$DECISION(...) ...>
@@ -111,9 +105,6 @@ rules:
                           metavariable: $EXPRESSION
                           comparison: str($EXPRESSION) == str($PREFIX)
                       - pattern-not: <... $CHAIN.requestMatchers(EndpointRequest.toAnyEndpoint(...)).$DECISION(...) ...>
-                      - pattern-not: <... $CHAIN.requestMatchers("/actuator/**").$DECISION(...) ...>
-                      - pattern-not: <... $CHAIN.antMatchers("/actuator/**").$DECISION(...) ...>
-                      - pattern-not: <... $CHAIN.mvcMatchers("/actuator/**").$DECISION(...) ...>
                       - pattern-not: <... $CHAIN.requestMatchers("/**").$DECISION(...) ...>
                       - pattern-not: <... $CHAIN.antMatchers("/**").$DECISION(...) ...>
                       - pattern-not: <... $CHAIN.mvcMatchers("/**").$DECISION(...) ...>
@@ -122,14 +113,6 @@ rules:
               $HTTP.$SELECT(EndpointRequest.toAnyEndpoint(...)).$AUTHORIZE($AUTH -> {
                 ...
                 (<... $AUTH ...>).$MATCHER(EndpointRequest.toAnyEndpoint(...)).$DECISION(...);
-                ...
-                $TERMINAL;
-                ...
-              })
-          - pattern-not-inside: |
-              $HTTP.$SELECT(EndpointRequest.toAnyEndpoint(...)).$AUTHORIZE($AUTH -> {
-                ...
-                (<... $AUTH ...>).$MATCHER("/actuator/**").$DECISION(...);
                 ...
                 $TERMINAL;
                 ...
