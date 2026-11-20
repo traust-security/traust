@@ -258,9 +258,11 @@ Create the same-basename fixture `/srv/traust/rules/acme/explicit-shell.py`:
 ```python
 import subprocess
 
+
 def shell_command(command):
     # ruleid: acme-python-explicit-shell
     return subprocess.run(command, shell=True)
+
 
 def argument_vector(argv):
     # ok: acme-python-explicit-shell
