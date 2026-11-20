@@ -160,6 +160,24 @@ PY
 
 cmd_up() {
     umask 077
+    # Refuse redirected rig paths before creating keys, credentials, or config.
+    local part path="$REPO_ROOT"
+    local -a rig_parts
+    IFS='/' read -r -a rig_parts <<< "$OPS_DIR/run/home"
+    for part in "${rig_parts[@]}"; do
+        [ -n "$part" ] || continue
+        path="$path/$part"
+        if [ -L "$path" ]; then
+            echo "local rig path must not contain symlinks: $path" >&2
+            return 1
+        fi
+    done
+    for path in "$RUN_DIR/home/local-key.pem" "$RUN_DIR/home/local-jwks.json"; do
+        if [ -L "$path" ]; then
+            echo "local rig issuer must not use a symlink: $path" >&2
+            return 1
+        fi
+    done
     if ! container_running; then
         if "$CT" ps -a --format '{{.Names}}' 2>/dev/null | grep -qx "$OPS_CONTAINER"; then
             "$CT" start "$OPS_CONTAINER" >/dev/null
@@ -487,11 +505,16 @@ PYEOF
 EOF
     fi
 
-    # Bootstrap the interactive login separately from the machine that executes orders.
-    # Do not replace an operator's stored credentials on a subsequent up.
-    if [ ! -f "$RUN_DIR/home/credentials.json" ]; then
+    # The rig's isolated home was checked above. Preserve existing entries,
+    # including dangling symlinks, rather than replacing an operator's login.
+    if [ ! -e "$RUN_DIR/home/credentials.json" ] && \
+        [ ! -L "$RUN_DIR/home/credentials.json" ]; then
         TRAUST_CONFIG_HOME="$CONFIG_HOME" uv run --no-sync python -m traust.cli auth local \
             --identity "${USER:-$(id -un)}@local-rig" >/dev/null
+    else
+        echo "human login preserved in the rig home"
+        echo "use make ops-sh and traust auth status; renew or create the login explicitly if needed"
+        echo "for a local login: traust auth local --identity YOUR_IDENTITY; for an external login use its renewal flow"
     fi
     if [[ "${OPS_SIGNED_SMOKE:-}" != 1 ]]; then
         uv run --no-sync python - "$CONFIG_HOME/traust.yaml" "$RUN_DIR" <<'PY'
