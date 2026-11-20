@@ -7,6 +7,10 @@ metadata:
 
 # Secure RPM Audit
 
+For a scheduled run, take `--lease-generation N` from the session invocation
+(before interpreting positional inputs). Keep the inherited `TRAUST_RUN_ID` and pass
+that exact N to record; never look it up again. Omit the flag in standalone runs.
+
 > **Paths.** `analysis-results/…` and `progress-tracker/…` in this skill are the
 > default workspace layout. They resolve through `locations:` in `traust.yaml` in
 > `$TRAUST_CONFIG_HOME` (`docs/setup.md`, Storage locations); substitute your
@@ -718,7 +722,7 @@ This Markdown file is for human consumption only — the JSON file remains the a
 **Step 5 — Record it** as an RPM assessment of the audited dist-git commit:
 
 ```bash
-python3 -m traust.cli reporting record <path-to-report.json> --kind rpm \
+python3 -m traust.cli reporting record [--lease-generation N] <path-to-report.json> --kind rpm \
   --repo-url <dist-git url> --sha <dist-git commit> [--branch <stream>]
 ```
 

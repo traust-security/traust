@@ -258,7 +258,7 @@ Triage a batch of raw security findings. Verify each is real, keep finding kind 
 
 - **Stage:** ④ Triage
 - **Tier:** `primary`
-- **Invoke:** `/triage` — arguments: `<assessment-id|findings-path> [--prepared-input] [--auto] [--votes N] [--repo PATH] [--fp-rules FILE] [--fresh]`
+- **Invoke:** `/triage` — arguments: `<assessment-id|findings-path> [--prepared-input] [--auto] [--votes N] [--repo PATH] [--fp-rules FILE] [--fresh] [--lease-generation N]`
 - **Skill:** [harnessing/4-triage/triage/SKILL.md](../harnessing/4-triage/triage/SKILL.md)
 - **Produces / consumes:** [Integrations](../harnessing/4-triage/triage/SKILL.md#integrations)
 

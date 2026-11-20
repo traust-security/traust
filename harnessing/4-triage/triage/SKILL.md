@@ -12,7 +12,7 @@ description: Triage a batch of raw security findings. Verify each is real,
   skip the interview. Scanner source attribution comes from the recorded Core
   assessment, not a caller-supplied origin flag. Scheduled triage verifies
   against a checkout at the source assessment's exact commit.
-argument-hint: "<assessment-id|findings-path> [--prepared-input] [--auto] [--votes N] [--repo PATH] [--fp-rules FILE] [--fresh]"
+argument-hint: "<assessment-id|findings-path> [--prepared-input] [--auto] [--votes N] [--repo PATH] [--fp-rules FILE] [--fresh] [--lease-generation N]"
 user-invocable: true
 metadata:
   harness.tier: "primary"
@@ -64,8 +64,9 @@ short, ranked, owned list instead of a raw dump.
 Invoke with `/triage <assessment-id|findings-path> [--prepared-input] [--auto] [--votes N] [--repo PATH] [--fp-rules FILE]`.
 The scheduled rig supplies the recorded assessment ID (input A), `--auto`,
 `--fresh`, and a temporary `--repo` checkout at that assessment's exact commit.
-Leave its run ID and original claim start inherited when calling `triage record`;
-never substitute the timestamp or credentials of a later attempt.
+For a scheduled write, leave the run ID inherited and copy the invocation's
+literal `--lease-generation N` to `triage record`. Never look up a newer lease
+or retry without the flag. A standalone triage omits it.
 
 **Arguments** (parse from `$ARGUMENTS`; positional `$1`/`$2` expansion is
 not stable across runtimes):
@@ -1691,7 +1692,7 @@ ID; zero native counts do not prove the repository secure.
 Bash:
 
 ```
-python3 -m traust.cli triage record <assessment-id> <findings-dir>/<repo>-triage.json --repo {REPO_PATH}
+python3 -m traust.cli triage record <assessment-id> <findings-dir>/<repo>-triage.json --repo {REPO_PATH} [--lease-generation N]
 ```
 
 traust-core records the triage as an assessment with its JSON, then one

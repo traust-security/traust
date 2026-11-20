@@ -355,7 +355,9 @@ def test_the_group_answers_on_the_cli(sqlite_home: Path, tmp_path: Path) -> None
     assert out.getvalue().strip() == "0 errors"
 
 
-def test_record_binds_the_audit_to_its_leased_order(home: Path, tmp_path: Path) -> None:
+def test_record_binds_the_audit_to_its_leased_order(
+    home: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     services = load(home).services()
     repo = services.portfolio.register_repository(
         HttpsRepoUrl.parse(REPO, load(home).config.forge_hosts), False
@@ -374,19 +376,26 @@ def test_record_binds_the_audit_to_its_leased_order(home: Path, tmp_path: Path) 
     order = services.ops.submit(
         OrderRequest(asset="cloud_config_audit", priority=1, repository_id=repo.id), operator
     )
-    services.ops.claim(WorkerId("machine:runner"), timedelta(minutes=5), order_id=order.id)
+    runner = Principal(identity="runner", kind=ActorKind.MACHINE, display="runner")
+    monkeypatch.setattr(cloud_config, "load_recorder", lambda core: runner)
+    claim = services.ops.claim(WorkerId(runner.ref), timedelta(minutes=5), order_id=order.id)
+    assert claim is not None
     report = str(a_report(tmp_path))
+    args = (report, "--repo-url", REPO, "--sha", SHA, "--run-id", str(order.id))
+    before = services.portfolio.list_refs(repo.id)
+    assert run(cloud_config.record, home, *args)[0] == 2
+    wrong = str(claim.lease_generation + 1)
+    stale_args = (*args, "--branch", "stale", "--lease-generation", wrong)
+    assert run(cloud_config.record, home, *stale_args)[0] == 2
+    assert not list(load(home).services().assessment.list_for_order(order.id))
+    assert services.portfolio.list_refs(repo.id) == before
 
     rc, out, err = run(
         cloud_config.record,
         home,
-        report,
-        "--repo-url",
-        REPO,
-        "--sha",
-        SHA,
-        "--run-id",
-        str(order.id),
+        *args,
+        "--lease-generation",
+        str(claim.lease_generation),
     )
 
     assert rc == 0, err
@@ -402,5 +411,7 @@ def test_record_binds_the_audit_to_its_leased_order(home: Path, tmp_path: Path) 
         SHA,
         "--run-id",
         str(uuid.uuid4()),
+        "--lease-generation",
+        str(claim.lease_generation),
     )
     assert rc != 0

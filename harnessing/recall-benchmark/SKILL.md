@@ -29,6 +29,10 @@ allowed-tools:
 
 # Detection-Recall Benchmark
 
+For a scheduled run, take `--lease-generation N` from the session invocation
+(before interpreting positional inputs). Keep the inherited `TRAUST_RUN_ID` and pass
+that exact N to record; never look it up again. Omit the flag in standalone runs.
+
 > **On traust-core** (skill port 35): candidate harvest (`traust sweep bootstrap-benchmark`) reads confirmed fixes without admitting or recording candidates. The answer key is recorded (`traust sweep benchmark-targets`, `build-canaries`) and runs are scored (`traust sweep score-benchmark`) by traust-core's detection quality service. Canary and seeded targets are local repositories, so their runs are scored on demand from the runs dir and never recorded; real targets are public repositories and their runs are also recorded as benchmark audits, so scorecards trend per auditor version.
 
 > **Paths.** `analysis-results/…` and `progress-tracker/…` in this skill are the
@@ -185,7 +189,7 @@ target, optionally `--sample N`:
 5. Real targets only (`provenance` other than `seeded`; their `repo_url` is
    a public https repository): record each run, and its rerun, as a
    benchmark audit of the pinned commit, so it trends across runs:
-   `python3 -m traust.cli reporting record /tmp/recall-bench/runs/<id>/<slug>-security-audit.json --kind benchmark_audit --repo-url <repo_url> --sha <pre_fix_sha> --public`.
+   `python3 -m traust.cli reporting record [--lease-generation N] /tmp/recall-bench/runs/<id>/<slug>-security-audit.json --kind benchmark_audit --repo-url <repo_url> --sha <pre_fix_sha> --public`.
    Core owns new-report admission at this existing door; compatibility
    validation or successful scoring alone does not establish publication.
    Never rewrite a historical run or recreate a retired benchmark writer.

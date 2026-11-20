@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
+from uuid import UUID
 
 import pytest
 import yaml
@@ -18,7 +19,7 @@ from traust_core.v1.models.artifacts import AdapterResultArtifact
 from traust_core.v1.models.assessment import Assessment, AssessmentKind
 from traust_core.v1.models.inventory import RepositoryRef
 from traust_core.v1.models.observation import ComparisonStatus
-from traust_core.v1.models.operations import AssetRequest, JobResult, OrderReason
+from traust_core.v1.models.operations import AssetRequest, JobResult, OrderReason, WorkerId
 from traust_core.v1.models.values import HttpsRepoUrl
 from traust_core.v1.providers.base import Acquisition, ProviderRegistry, Readiness, Result
 from traust_core.v1.repositories.contract import SqlTraustUnitOfWork
@@ -31,6 +32,8 @@ from traust.ops.router import SecurityRouter
 
 REPO = "https://github.com/org/app"
 HOSTS = ("github.com",)
+ORDER = UUID(int=7)
+WORKER = WorkerId("worker:observe")
 FORGE = {
     "repos/org/app": {
         "pushed_at": "2026-10-01T00:00:00Z",
@@ -222,7 +225,8 @@ class Portfolio:
     def __init__(self, outcome: ComparisonStatus | Exception) -> None:
         self.outcome = outcome
 
-    def record_forge_facts(self, *, repo_url: str) -> Any:
+    def record_forge_facts(self, *, repo_url: str, **claim: Any) -> Any:
+        assert claim == {"run_order_id": ORDER, "worker": WORKER, "lease_generation": 8}
         if isinstance(self.outcome, Exception):
             raise self.outcome
         return type("Facts", (), {"status": self.outcome})
@@ -231,7 +235,9 @@ class Portfolio:
 @pytest.mark.parametrize("status", list(ComparisonStatus))
 def test_every_status_is_succeeded_or_a_named_gap(status: ComparisonStatus) -> None:
     result = RepoStateMaterializer(Services(Portfolio(status))).materialize(  # type: ignore[arg-type]
-        AssetRequest(asset="repo_state", run_id="t", partition=REPO)
+        AssetRequest(asset="repo_state", run_id=str(ORDER), partition=REPO),
+        worker=WORKER,
+        lease_generation=8,
     )
     answered = status in ("ok", "no-pinned-sha", "never-audited")
     assert result == (JobResult.succeeded() if answered else JobResult.partly({status: 1}))
@@ -240,9 +246,28 @@ def test_every_status_is_succeeded_or_a_named_gap(status: ComparisonStatus) -> N
 def test_a_repository_core_doesnt_know_is_refused_with_its_reason() -> None:
     portfolio = Portfolio(NotFoundError("repository not in inventory: x"))
     result = RepoStateMaterializer(Services(portfolio)).materialize(  # type: ignore[arg-type]
-        AssetRequest(asset="repo_state", run_id="t", partition=REPO)
+        AssetRequest(asset="repo_state", run_id=str(ORDER), partition=REPO),
+        worker=WORKER,
+        lease_generation=8,
     )
     assert result == JobResult.refused(OrderReason.NOT_FOUND)
+
+
+@pytest.mark.parametrize(
+    "flags",
+    [
+        ["--run-id", str(ORDER), "--worker", WORKER],
+        ["--run-id", str(ORDER), "--lease-generation", "8"],
+        ["--lease-generation", "8", "--worker", WORKER],
+        ["--run-id", str(ORDER), "--lease-generation", "0", "--worker", WORKER],
+    ],
+)
+def test_partial_claim_cannot_become_a_manual_observation(home, flags, capsys):
+    rc = portfolio_observe.main(["--config-home", str(home), "--repo", REPO, *flags])
+    assert rc == 1
+    assert json.loads(capsys.readouterr().out) == JobResult.failed(
+        OrderReason.BAD_REQUEST
+    ).model_dump(mode="json")
 
 
 def test_malformed_ipv6_repository_is_bad_request(home: Path) -> None:
