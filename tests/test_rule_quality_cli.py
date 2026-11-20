@@ -127,3 +127,165 @@ def test_invalid_enabled_adopter_pack_refuses_the_scan_instead_of_losing_coverag
     result = run_cli(env, "adapters", "opengrep", str(target), "--out", str(output))
     assert result.returncode != 0
     assert not output.exists()
+
+
+def test_import_rules_cli_admits_a_pack_before_scanning_without_a_database(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    rule_pack(source / "python")
+    (source / "LICENSE").write_text("Copyright Acme. Licensed under Apache-2.0.\n")
+    (source / "NOTICE").write_text("Rule attribution: Acme security team.\n")
+    original = {
+        path.relative_to(source): path.read_bytes() for path in source.rglob("*") if path.is_file()
+    }
+    destination = tmp_path / "imported-rules"
+    home, env = environment(
+        tmp_path, {"overrides": {"rule_pack_allowlist": str(tmp_path / "config" / "rules.yaml")}}
+    )
+    allowlist = home / "rules.yaml"
+    allowlist.write_text("packs: {}\n")
+    config_before = (home / "traust.yaml").read_bytes()
+    binary = shutil.which("opengrep")
+    assert binary is not None
+    result = run_cli(
+        env,
+        "sweep",
+        "import-rules",
+        str(source),
+        "--into",
+        str(destination),
+        "--opengrep",
+        binary,
+        "--timeout",
+        "30",
+    )
+    assert result.returncode == 0, result.stderr
+    report = json.loads(result.stdout)
+    assert report["passed"] is True
+    assert report["destination"] == str(destination)
+    assert report["rules"] == ["acme.custom.rule"]
+    assert {check["name"] for check in report["checks"]} == {"validate", "test"}
+    assert all(check["passed"] for check in report["checks"])
+    assert {
+        path.relative_to(destination): path.read_bytes()
+        for path in destination.rglob("*")
+        if path.is_file()
+    } == original
+    assert {
+        path.relative_to(source): path.read_bytes() for path in source.rglob("*") if path.is_file()
+    } == original
+    assert (home / "traust.yaml").read_bytes() == config_before
+    assert allowlist.read_text() == "packs: {}\n"
+    assert not (tmp_path / "store" / "traust.db").exists()
+
+    # Importing does not enable the pack; opt in explicitly before scanning.
+    allowlist.write_text(
+        "packs:\n  acme:\n    enabled: true\n    source: ../imported-rules\n"
+        "    rules: [acme.custom.rule]\n"
+    )
+    target = tmp_path / "target"
+    target.mkdir()
+    (target / "app.py").write_text("acme_unsafe(request_value)\nacme_safe(request_value)\n")
+    output = tmp_path / "facts.json"
+    scan = run_cli(env, "adapters", "opengrep", str(target), "--out", str(output))
+    assert scan.returncode == 0, scan.stderr
+    scanned = json.loads(output.read_text())
+    assert "acme.custom.rule" in {fact["rule_id"] for fact in scanned["facts"]}
+    assert scanned["supplemental_packs"]["applied"] == ["acme"]
+    assert any(item["source"] == "traust rule pack" for item in scanned["rules"])
+    assert all(check["passed"] for check in scanned["quality_checks"])
+    assert not (tmp_path / "store" / "traust.db").exists()
+
+
+@pytest.mark.parametrize(
+    ("failure", "failed_check"),
+    [
+        ("missing-positive", "test"),
+        ("missing-negative", "test"),
+        ("incorrect-positive", "test"),
+        ("incorrect-negative", "test"),
+        ("unexpected-match", "test"),
+        ("no-tests", "test"),
+        ("invalid-pattern", "validate"),
+    ],
+)
+def test_import_rules_cli_refuses_native_quality_failures_without_a_destination(
+    tmp_path: Path, failure: str, failed_check: str
+) -> None:
+    pack = rule_pack(tmp_path / "rules")
+    fixture = pack / "policy.py"
+    if failure == "missing-positive":
+        fixture.write_text("# ok: acme.custom.rule\nacme_safe(value)\n")
+    elif failure == "missing-negative":
+        fixture.write_text("# ruleid: acme.custom.rule\nacme_unsafe(value)\n")
+    elif failure == "incorrect-positive":
+        fixture.write_text(
+            "# ruleid: acme.custom.rule\nacme_safe(value)\n"
+            "# ok: acme.custom.rule\nacme_safe(other)\n"
+        )
+    elif failure == "incorrect-negative":
+        fixture.write_text(
+            "# ruleid: acme.custom.rule\nacme_unsafe(value)\n"
+            "# ok: acme.custom.rule\nacme_unsafe(other)\n"
+        )
+    elif failure == "unexpected-match":
+        fixture.write_text(fixture.read_text() + "acme_unsafe(other)\n")
+    elif failure == "no-tests":
+        fixture.unlink()
+    else:
+        policy = pack / "policy.yaml"
+        policy.write_text(policy.read_text().replace("pattern: acme_unsafe($X)", "pattern: '('"))
+    _, env = environment(tmp_path)
+    destination = tmp_path / "imported-rules"
+    result = run_cli(env, "sweep", "import-rules", str(pack), "--into", str(destination))
+    assert result.returncode == 1, result.stderr
+    report = json.loads(result.stdout)
+    assert report["passed"] is False
+    assert "destination" not in report
+    assert any(
+        check["name"] == failed_check and not check["passed"] for check in report["checks"]
+    )
+    assert not destination.exists()
+    assert not (tmp_path / "store" / "traust.db").exists()
+
+
+@pytest.mark.parametrize("existing", ["directory", "file"])
+def test_import_rules_cli_never_overwrites_an_existing_destination(
+    tmp_path: Path, existing: str
+) -> None:
+    pack = rule_pack(tmp_path / "rules")
+    destination = tmp_path / "imported-rules"
+    if existing == "directory":
+        destination.mkdir()
+        sentinel = destination / "existing-rule.yaml"
+    else:
+        sentinel = destination
+    sentinel.write_bytes(b"Do not replace this content.\n")
+    _, env = environment(tmp_path)
+    result = run_cli(env, "sweep", "import-rules", str(pack), "--into", str(destination))
+    assert result.returncode == 2, result.stdout
+    assert result.stderr
+    assert not result.stdout
+    assert sentinel.read_bytes() == b"Do not replace this content.\n"
+    if existing == "directory":
+        assert list(destination.iterdir()) == [sentinel]
+    assert not (tmp_path / "store" / "traust.db").exists()
+
+
+@pytest.mark.parametrize("source_kind", ["missing", "file"])
+def test_import_rules_cli_rejects_non_directory_sources(
+    tmp_path: Path, source_kind: str
+) -> None:
+    source = tmp_path / "source"
+    if source_kind == "file":
+        source.write_text("not a pack directory\n")
+    destination = tmp_path / "imported-rules"
+    _, env = environment(tmp_path)
+    result = run_cli(env, "sweep", "import-rules", str(source), "--into", str(destination))
+    assert result.returncode == 2, result.stdout
+    assert result.stderr
+    assert not result.stdout
+    assert not destination.exists()
+    assert not (tmp_path / "store" / "traust.db").exists()

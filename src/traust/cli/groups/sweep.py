@@ -8,7 +8,11 @@ from collections.abc import Callable
 from pathlib import Path
 
 from traust_core.v1.context import Context
-from traust_core.v1.context.tool_reports import opengrep_quality_report, opengrep_report
+from traust_core.v1.context.tool_reports import (
+    import_opengrep_rules,
+    opengrep_quality_report,
+    opengrep_report,
+)
 from traust_core.v1.context.tools import load_rule_allowlist
 from traust_core.v1.errors import (
     DeploymentConfigMissing,
@@ -473,6 +477,38 @@ def call_check_rules(args) -> int:
         return 0 if result.passed else 1
 
     return _door(call)
+
+
+def add_import_rules_args(ap) -> None:
+    ap.add_argument("source", type=Path, help="local rule pack directory")
+    ap.add_argument("--into", required=True, type=Path, help="new destination directory")
+    ap.add_argument("--opengrep", default="opengrep", help="Opengrep binary")
+    ap.add_argument("--timeout", type=int, default=300, help="timeout per native quality command")
+
+
+def call_import_rules(args) -> int:
+    def call() -> int:
+        result = import_opengrep_rules(
+            load(args.config_home),
+            args.source,
+            args.into,
+            timeout=args.timeout,
+            binary=args.opengrep,
+        )
+        report = {"passed": result.passed, **result.model_dump(mode="json")}
+        if result.passed:
+            report["destination"] = str(args.into)
+        print(json.dumps(report, indent=2))
+        return 0 if result.passed else 1
+
+    return _door(call)
+
+
+IMPORT_RULES = OpSpec(
+    add_args=add_import_rules_args,
+    call=call_import_rules,
+    help="import a local rule pack only after native validation and strict fixture tests pass",
+)
 
 
 CHECK_RULES = OpSpec(

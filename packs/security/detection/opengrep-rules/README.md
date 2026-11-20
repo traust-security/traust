@@ -27,16 +27,19 @@ themselves are `.yaml`.
 
 ## Required rule-quality gate
 
-Before proposing or enabling a rule, run the shared gate with the pinned
-[opengrep](https://github.com/opengrep/opengrep) available on `PATH`:
+Mined and adopter-supplied candidates must enter installed packs through the
+deterministic pre-write tool, with the reviewed Opengrep available on `PATH`:
 
 ```bash
-traust sweep check-rules packs/security/detection/opengrep-rules
+traust sweep import-rules <complete-candidate-pack> --into <new-installed-pack-directory>
 ```
 
-For iteration, pass a language directory or your adopter's rule directory.
-Promotion requires checking the complete pack, not just its changed rule or
-the subset selected for scanning.
+The tool runs the native checks below in private staging and imports only the
+tested bytes after success. A refusal creates no accepted destination; an existing
+pack is never overwritten. Use a new versioned destination for updates, then
+select its reviewed IDs/source after semantic review and calibration. Do not copy
+rules directly into active packs or defer admission to CI or the first audit.
+`traust sweep check-rules <pack>` is a standalone diagnostic, not an import.
 
 The gate requires native `opengrep validate` and
 `opengrep test --json --strict` to succeed. Every rule ID must have both
@@ -115,9 +118,10 @@ Rule origins are additive:
 - **Adopter-authored rules:** deployment-specific rules can also be supplied in local or
   pinned-Git packs through `overrides.rule_pack_allowlist`. This does not disable mining.
 
-Both origins require the same native quality gate before scanning. Proposal admission also
-retains its static checks and checkout limits; enabling a supplied pack is not a substitute
-for semantic review, recorded-scan calibration or the promotion process.
+Both origins require native validation and testing before accepted-pack writes,
+not merely before scanning. Proposal admission also retains its static checks and
+checkout limits; import does not enable rules, replace the baseline, or waive
+semantic review, recorded-scan calibration or the promotion process.
 
 Submit a proposed rule and its annotated examples through the admission door:
 
@@ -133,6 +137,10 @@ extra matches refuse admission; a partial result is not a clean scan.
 Staging is not promotion or a finding verdict. Unauthored skeletons and their
 before/after material are drafts, not an active or validated pack.
 
+For supplied or reviewed mined packs, use `traust sweep import-rules` before
+configuring their installed source. See the
+[adopter workflow](../../../../docs/cli-reference.md#opengrep-rule-updates-and-adopter-validation).
+
 Adopters keep deployment-specific rules in their own pack and reuse
 `overrides.rule_pack_allowlist` in `traust.yaml`; there is no separate extension
 setting. See [`rule-pack-allowlist.example.yaml`](../../../../config/rule-pack-allowlist.example.yaml).
@@ -140,6 +148,9 @@ Each enabled pack declares an explicit list of unique rule IDs. Its `source`
 is either a local rule directory (relative paths resolve from the allowlist
 file), with paired native fixtures, or an HTTPS Git repository pinned with
 `@<40-hex-commit-SHA>` using the existing repository `rules/` subtree convention.
+New Git-sourced contributions must be acquired at the reviewed revision and imported
+through the pre-write tool before configuring the accepted local destination.
+Pointing at a raw directory or Git source is not an alternative admission workflow.
 
 Every enabled supplement must pass the same full-pack quality gate, even when
 only some IDs are allowlisted. Unreachable sources, invalid packs, unknown IDs

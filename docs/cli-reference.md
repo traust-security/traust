@@ -47,7 +47,7 @@ python3 -m traust.cli check skill-alignment      # equivalent
 | `session` | Headless skill sessions and artifact-only task preparation/recording | `prepare`, `record`, `run` |
 | `tools` | One door over traust-core's tool registry: each registered tool's readiness, version and database; one tool over a checkout, SBOM, image or symbols, its typed result as JSON | `list`, `run` |
 | `triage` | The triage skill's doors on traust-core | `check`, `intake`, `prepare`, `record`, `render` |
-| `sweep` | Class-generalization sweep, detection-quality reports, human-gated CVE replay and recall-benchmark answer keys | `benchmark`, `benchmark-targets`, `bootstrap-benchmark`, `build-canaries`, `cards`, `check-rules`, `collect`, `compliance-precision`, `critical-misses`, `cve-replay`, `draft`, `emit`, `mine`, `propose-rule`, `regression-drafts`, `rule-lane`, `score-benchmark`, `screen-injection`, `sweep`, `verify-draft` |
+| `sweep` | Class-generalization sweep, detection-quality reports, human-gated CVE replay and recall-benchmark answer keys | `benchmark`, `benchmark-targets`, `bootstrap-benchmark`, `build-canaries`, `cards`, `check-rules`, `collect`, `compliance-precision`, `critical-misses`, `cve-replay`, `draft`, `emit`, `import-rules`, `mine`, `propose-rule`, `regression-drafts`, `rule-lane`, `score-benchmark`, `screen-injection`, `sweep`, `verify-draft` |
 | `util` | Utility commands | `elf`, `redact`, `safe-exec` |
 | `validation` | Core-backed machine validation evidence | `prepare`, `plan`, `record` |
 
@@ -187,52 +187,154 @@ symlinks and unsupported files are incomplete inspection, never a clean result.
 Readable text still uses Core's established redaction policy. Remove, replace or
 convert uninspectable deliverables and rerun the gate; there is no binary fallback.
 
+### Opengrep rule updates and adopter validation
+
+**Validation happens in the CLI, before accepted rules are written. No CI service is
+required.** Both mined rules and adopter contributions use Opengrep's own
+[`validate`](https://www.opengrep.dev/docs/commands/validate.html) and
+[`test --json --strict`](https://www.opengrep.dev/docs/commands/test.html) capabilities.
+Validation checks YAML, schema, pattern parsing and metachecks; testing checks
+annotated matching behavior. Traust also requires positive and negative assertions
+for every rule and exact expected matches.
+
+Use a runtime that provides `traust sweep import-rules --help`. Install its
+reviewed, checksum-verified Opengrep executable with:
+
+```bash
+traust admin toolchain setup --tool opengrep
+```
+
+#### Author a rule and its tests
+
+Keep proposed files in a working directory, outside the installed rule pack.
+For example, create `acme-proposed/shell.yaml`:
+
+```yaml
+rules:
+  - id: acme-python-explicit-shell
+    languages: [python]
+    severity: ERROR
+    message: Explicit shell execution; review command origin and argument handling.
+    metadata:
+      cwe: [CWE-78]
+    pattern: subprocess.run(..., shell=True, ...)
+```
+
+Create its same-basename fixture, `acme-proposed/shell.py`:
+
+```python
+import subprocess
+
+def shell_command(command):
+    # ruleid: acme-python-explicit-shell
+    return subprocess.run(command, shell=True)
+
+def argument_vector(argv):
+    # ok: acme-python-explicit-shell
+    return subprocess.run(argv, shell=False, check=True)
+```
+
+Use meaningful matching and equivalent safe, fixed or guarded cases. For YAML-language
+rules, pair the rule with a `.test.yaml` or `.test.yml` fixture. Expected autofix
+outputs such as `shell.fixed.py` cannot supply missing negative matching coverage.
+
+#### Import a pack before accepting its rules
+
+```bash
+traust sweep import-rules ./acme-proposed --into /srv/traust/rules/acme-v1
+```
+
+This command automatically validates and tests a private copy of the complete input
+pack. It writes the accepted destination only after both native checks and Traust's
+coverage checks pass. It imports the checked bytes, not a later reread of mutable
+input. You do not need to run a separate validation command first.
+
+- Exit **0**: imported; JSON includes the destination, rule IDs and check results.
+- Exit **1**: quality refused; no accepted destination is created.
+- Exit **2**: input, destination or execution error.
+
+Missing fixtures, missing positive/negative assertions, unexpected matches and
+missing/skipped test results refuse import. Existing destinations are not overwritten.
+For an update, import the complete revised pack into a new destination, such as
+`/srv/traust/rules/acme-v2`; a failed update leaves the installed version untouched.
+
+The destination's parent directory must already exist and be writable.
+
+Import does **not** enable rules, replace Traust's baseline or establish exploitability.
+Native tests check the behavior expressed by the fixtures. Review the claimed
+security/business logic, input control, guard strength, authorization and deployment
+assumptions, then calibrate against recorded scans before enabling the rules.
+
+#### Mine findings and admit generated proposals
+
+Portfolio mining remains available; adopter rules are an additional input:
+
+```bash
+traust sweep mine --pack traust --out rule-mining.json
+traust sweep regression-drafts
+```
+
+Mining uses Core's recorded, disposition-confirmed findings. Graph/database queries
+can scope that work. Draft skeletons and before/after evidence are authoring material,
+not accepted rules. For an authored single-rule proposal:
+
+```bash
+traust sweep propose-rule \
+  --rule ./acme-proposed/shell.yaml \
+  --example ./acme-proposed/shell.py \
+  --shape "Explicit shell execution requiring command-origin review" \
+  --checkout /path/to/source-checkout
+```
+
+The CLI automatically runs native validation/tests, static checks and checkout hit
+limits **before writing an admitted draft**. A failed check refuses admission.
+An admitted draft still needs semantic review and calibration. Use `import-rules`
+to accept the complete reviewed pack into a new installed directory; do not copy
+generated rules directly into an active pack.
+
+#### Enable reviewed rules
+
+Keep the deployment's existing `traust.yaml` settings. Point its
+`overrides.rule_pack_allowlist` at the installed allowlist, for example:
+
+```yaml
+overrides:
+  rule_pack_allowlist: /srv/traust/config/rule-packs.yaml
+```
+
+In that allowlist, select explicit rule IDs from the imported pack:
+
+```yaml
+packs:
+  acme:
+    enabled: true
+    source: /srv/traust/rules/acme-v1
+    rules:
+      - acme-python-explicit-shell
+```
+
+Default `traust adapters opengrep <checkout>` scans add enabled supplements to the
+shipped baseline. Explicit `--rules` selects sources instead of that default
+composition. Both paths revalidate their inputs before scanning, so changing an
+installed pack by hand does not bypass validation. An invalid or unreachable enabled
+pack stops the scan; it is not silently skipped.
+
+Local relative sources resolve beside the allowlist. For a new Git-sourced pack,
+acquire the reviewed full 40-hex revision with its native fixtures, then **import
+its complete local rule directory before selecting the accepted destination**.
+Do not treat a Git URL or a raw checkout in the allowlist as an admission bypass.
+Existing Git sources retain their pinned-revision and `rules/` subtree conventions.
+
+For diagnostics without importing or enabling anything, use
+`traust sweep check-rules <complete-pack-directory>`. See the
+[upgrade procedure](../packs/security/detection/opengrep-rules/README.md#upgrading-enabled-supplements)
+when migrating previously enabled packs.
+
 ### Detection-quality operations
 
-Portfolio/ledger mining is retained. Adopter-authored packs are an additional rule source;
-they do not replace mining, regression-draft authoring or scheduled rule-lane runs.
-
-- `traust sweep mine [--pack <name>] [--out <file>]` mines Core's recorded,
-  disposition-confirmed findings for rule coverage gaps, authoring candidates and per-rule
-  precision. Graph/database pre-queries help scope work, not replace the corpus of record.
-- `traust sweep regression-drafts` stages before/after fix evidence for rule authoring;
-  `traust sweep rule-lane` retains the existing mining/sweep workflow.
-
-- `traust sweep check-rules <path>` is the mandatory rule-quality gate for the
-  public pack and adopter packs. It requires native `opengrep validate` and
-  `opengrep test --json --strict`, positive `ruleid:` and negative `ok:` cases
-  for every rule, exact expected matches and complete check receipts.
-  Missing/unknown/skipped receipts, native errors and unannotated extra matches
-  fail; direct native commands alone do not replace its coverage checks.
-  Check the complete pack before promotion, not only selected rule IDs.
-- `traust sweep propose-rule --rule <rule.yaml> --example <example.py> --shape "<shape>" --checkout <dir>`
-  stages a proposal only after static checks, mandatory native validation/tests,
-  exact fixture matches and checkout hit limits pass. Engine-error partial scans
-  or unknown coverage refuse admission, never count as clean scans. An admitted
-  draft is not a promoted rule or a finding verdict.
-  Use meaningful vulnerable and equivalent safe/guarded/fixed examples; human
-  semantic review and recorded-scan calibration remain necessary.
-  Fixtures must test the trust and coverage of a guard, not merely the presence of a
-  validator call: attacker-supplied allowed-host sets do not make redirects safe, and
-  protecting only one actuator endpoint does not protect an anonymous fallback.
-  The shipped redirect rule trusts direct literal host policies and Django's validated
-  current-host expression; other computed policies remain candidates for review.
-  Actuator checks distinguish narrower protection from an earlier whole-scope decision.
-  A literal `/actuator/**` guard is not whole-scope proof for an endpoint-selected chain:
-  `management.endpoints.web.base-path` may relocate endpoints (for example, to `/manage`).
-  Endpoint-aware `EndpointRequest.toAnyEndpoint()` or universal `/**` guards remain supported.
-  Adopters reuse `overrides.rule_pack_allowlist`: each enabled pack selects
-  explicit unique rule IDs and uses either a local rule directory relative to
-  the allowlist file (with paired native fixtures), or an HTTPS Git source
-  pinned to a 40-hex commit SHA with the existing `rules/` subtree convention.
-  Enabled supplements must pass the same full-pack gate; unreachable or invalid
-  sources fail rather than silently skip. There is no validation bypass.
-  Before upgrading an existing enabled supplement, follow the
-  [upgrade procedure](../packs/security/detection/opengrep-rules/README.md#upgrading-enabled-supplements);
-  changing the shipped example does not change installed adopter configuration.
-  Deployments with private harness/configuration overlays must stage the matching runtime,
-  harness and allowlist as one release. A private copy still promising skip-with-warning
-  must be migrated before activation; updating the public template does not update it.
+- `traust sweep rule-lane` retains the scheduled mining, draft and delta workflow.
+- [Rule admission and adopter packs](#opengrep-rule-updates-and-adopter-validation)
+  covers native validation, pre-write import and activation.
 - `traust sweep bootstrap-benchmark --out candidates.yaml [--limit 100]` harvests
   confirmed fixes as **unadmitted** answer-key candidates with fix evidence and a stable
   held-out split. Human review precedes `benchmark-targets candidates.yaml`.
