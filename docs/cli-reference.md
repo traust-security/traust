@@ -47,7 +47,7 @@ python3 -m traust.cli check skill-alignment      # equivalent
 | `session` | Headless skill sessions and artifact-only task preparation/recording | `prepare`, `record`, `run` |
 | `tools` | One door over traust-core's tool registry: each registered tool's readiness, version and database; one tool over a checkout, SBOM, image or symbols, its typed result as JSON | `list`, `run` |
 | `triage` | The triage skill's doors on traust-core | `check`, `intake`, `prepare`, `record`, `render` |
-| `sweep` | Class-generalization sweep, detection-quality reports, human-gated CVE replay and recall-benchmark answer keys | `benchmark`, `benchmark-targets`, `bootstrap-benchmark`, `build-canaries`, `cards`, `check-rules`, `collect`, `compliance-precision`, `critical-misses`, `cve-replay`, `draft`, `emit`, `mine`, `propose-rule`, `regression-drafts`, `rule-lane`, `score-benchmark`, `screen-injection`, `sweep`, `verify-draft` |
+| `sweep` | Class-generalization sweep, detection-quality reports, human-gated CVE replay and recall-benchmark answer keys | `benchmark`, `benchmark-targets`, `bootstrap-benchmark`, `build-canaries`, `cards`, `check-rules`, `collect`, `compliance-precision`, `critical-misses`, `cve-replay`, `draft`, `emit`, `intake-rules`, `mine`, `propose-rule`, `regression-drafts`, `rule-lane`, `score-benchmark`, `screen-injection`, `sweep`, `verify-draft` |
 | `util` | Utility commands | `elf`, `redact`, `safe-exec` |
 | `validation` | Core-backed machine validation evidence | `prepare`, `plan`, `record` |
 
@@ -198,13 +198,27 @@ they do not replace mining, regression-draft authoring or scheduled rule-lane ru
 - `traust sweep regression-drafts` stages before/after fix evidence for rule authoring;
   `traust sweep rule-lane` retains the existing mining/sweep workflow.
 
-- `traust sweep check-rules <path>` is the mandatory rule-quality gate for the
-  public pack and adopter packs. It requires native `opengrep validate` and
-  `opengrep test --json --strict`, positive `ruleid:` and negative `ok:` cases
-  for every rule, exact expected matches and complete check receipts.
-  Missing/unknown/skipped receipts, native errors and unannotated extra matches
-  fail; direct native commands alone do not replace its coverage checks.
-  Check the complete pack before promotion, not only selected rule IDs.
+- `python3 -m traust.cli sweep intake-rules <source>... --into <NEW_DEST>` admits
+  complete mined or adopter packs without activation or a database. Sources are
+  local files/directories with fixtures or pinned HTTPS Git sources. Private stable
+  staging preserves the checked bytes; native `opengrep validate` and
+  `opengrep test --json --strict` must provide exact matches and complete positive
+  and negative receipts for every rule before publishing. Existing destinations
+  are never overwritten; refused packs create no accepted destination. JSON
+  includes `admitted`, `applied`, `refused` and `quality_checks`, with `destination`
+  only on success. Exit 0 means published, 1 refused, 2 typed error.
+- `traust sweep check-rules <path>` is an optional local diagnostic using the same
+  native checker; it does not publish or replace pre-write intake. Neither CI nor
+  first-scan validation replaces admission. Review semantics and calibrate before
+  explicit activation.
+- `traust adapters opengrep <checkout> --add-rules <source>` is repeatable and
+  preserves the default pack and enabled supplements. Sources are local rule files
+  or directories with fixtures, or HTTPS Git sources pinned to a commit SHA.
+  Set `locations.opengrep_adopter_rules` to an admitted, reviewed local directory
+  for default Opengrep facts scans only, not registered artifact scanners.
+  `--rules` is an exclusive replacement and cannot be combined
+  with `--add-rules`. Read `outcome` and `additive_rules.refused` in the facts report:
+  exit 0 means the report was written, not that all optional coverage was available.
 - `traust sweep propose-rule --rule <rule.yaml> --example <example.py> --shape "<shape>" --checkout <dir>`
   stages a proposal only after static checks, mandatory native validation/tests,
   exact fixture matches and checkout hit limits pass. Engine-error partial scans

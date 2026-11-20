@@ -14,17 +14,19 @@
 # reflection and single-argument .get() matches). Enabling the pack whole
 # would bury triage; enabling the calibrated subset costs ~1.4 novel/repo.
 #
-# Before enabling, run: traust sweep check-rules <complete-rule-directory>
-# This requires native opengrep validate and opengrep test --json --strict,
-# positive ruleid: and negative ok: cases for EVERY rule, exact expected
-# matches, and complete receipts: missing/unknown/skipped checks fail.
-# Direct native commands are useful diagnostics, not substitutes for this gate.
+# Before installation, keep candidates private and publish with:
+# python3 -m traust.cli sweep intake-rules <complete-rule-directory> --into <NEW_DEST>
+# Native opengrep validate and test --json --strict require positive/negative
+# assertions for every rule, exact matches and complete receipts before writes.
+# Existing packs are never overwritten. check-rules is an optional diagnostic.
 # Fixtures need meaningful vulnerable and equivalent safe/fixed/guarded cases;
 # matching tests do not prove exploitability or business/security logic.
 # Semantic review and recorded-scan calibration remain necessary. Precision
 # accrues afterwards from scanner_correlation and is re-checked by the lane.
 #
-# Reuse overrides.rule_pack_allowlist; no additional extension setting is needed.
+# This policy is for fail-closed supplements. Optional facts-scan additions use
+# locations.opengrep_adopter_rules or --add-rules (degraded on refusal); this
+# location does not extend registered artifact scanners.
 # source accepts a local rule directory (relative to THIS allowlist file, with
 # paired native fixtures), or HTTPS Git pinned as URL@<40-hex-commit-SHA>.
 # Git sources retain the repository's rules/ subtree convention.
@@ -83,8 +85,8 @@ packs:
   adopter-rules:
     enabled: false
     # Relative to this allowlist file, not the scan checkout or process cwd.
-    source: ./opengrep-rules
-    # Author and validate the entire directory with paired native fixtures,
-    # then replace this illustrative ID with your explicitly selected IDs.
+    source: ./accepted-opengrep-rules-v1
+    # Admit the entire private candidate directory first, then select IDs here.
+    # Activation still requires semantic review and recorded-scan calibration.
     rules:
       - adopter-python-injection-shell

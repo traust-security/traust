@@ -56,6 +56,7 @@
 #   rule_drafts: /srv/traust/rule-drafts             # default: <progress_tracker>/metrics/rule-mining/rule-drafts
 #   gitleaks_config: /srv/traust/gitleaks.toml       # default: the security pack's
 #   opengrep_rules: /srv/traust/opengrep-rules       # default: the security pack's
+#   opengrep_adopter_rules: /srv/traust/accepted-rules-v1 # optional Opengrep facts scans only; admit with sweep intake-rules SOURCE... --into NEW_DEST
 #   product_definitions: https://products.example.com/products.json
 #   sarif_tool_uri: https://harness.example.com
 

@@ -1,6 +1,6 @@
 ---
 name: mine-ledger
-description: Use when the user asks to mine the disposition ledger for confirmed true positives, build or refresh the rule-calibration corpus, find rule-pack coverage gaps, check per-rule precision, or produce the opengrep rule-authoring backlog — e.g. "mine the ledger", "what TP clusters have no rule", "how precise are the traust rules", "refresh the rule-mining report". Runs out-of-band from audits; audits themselves feed it via structured scanner_correlation entries. Authored rules require the shared native validation and strict fixture gate plus semantic review before promotion. Portfolio/ledger mining remains available; adopter-authored rules are an additional source, not its replacement.
+description: Mine confirmed dispositions for rule coverage and precision, author and calibrate private candidates, and admit complete mined or adopter packs with sweep intake-rules before installation. Admission does not activate rules or prove exploitability.
 metadata:
   harness.tier: "secondary"
 allowed-tools:
@@ -36,9 +36,9 @@ Adopter-authored rules are an additional input, not a replacement for portfolio/
 Continue `traust sweep mine`, `regression-drafts` and `rule-lane` for the existing
 finding-driven workflow. Portfolio graph/database pre-queries can scope the work; the
 authoritative mining corpus remains Core's recorded findings and confirmed dispositions.
-Adopters can also supply local or pinned-Git rule packs through
-`overrides.rule_pack_allowlist`. Both origins must pass the same native quality gate
-before scanning; configuring an adopter pack does not disable the mining lane.
+Adopters can propose local or pinned-Git rules through [Adopter rule intake](#adopter-rule-intake).
+Configured supplements under `overrides.rule_pack_allowlist` still use their existing
+strict full-pack gate. Neither layer disables the mining lane.
 
 This skill is the out-of-band half of a loop the audits feed by default:
 `/secure-code-audit`'s pre-scan records every promote/dismiss decision as a
@@ -131,20 +131,18 @@ drafts, author, verify, promote:
 # 1. stage drafts (deterministic; identical pairs skipped) into
 #    locations.rule_drafts (traust-core regression_pairs; skipped fixes listed with why)
 python3 -m traust.cli sweep regression-drafts [--cwe CWE-494] [--limit 6]
-# 2. author patterns in rule.skeleton.yaml and adjacent ruleid:/ok: fixtures
-#    (rule.skeleton.py, or rule.skeleton.test.yaml for a YAML rule), then:
-python3 -m traust.cli sweep check-rules <rule-drafts>/<draft>/rule.skeleton.yaml
+# 2. author patterns and paired ruleid:/ok: fixtures only in private drafts.
+#    Preserve regression_of (fingerprint + fix commit) and attribution.
 python3 -m traust.cli sweep verify-draft <rule-drafts>/<draft> \
     [--rule <rule-drafts>/<draft>/rule.skeleton.yaml]
-# passes (before/ fires, after/ silent)
-# 3. merge the authored rule into the matching CATEGORY file of YOUR
-#    deployment's own rule pack, with paired ruleid:/ok: fixtures.
-#    Keep regression_of (fingerprint + fix commit); it links later hits
-#    to the resolved source finding. Never copy deployment-specific
-#    rules into traust's public baseline or a regression.yaml dump.
-python3 -m traust.cli sweep check-rules <adopter-rule-directory>
-# 4. after semantic review and calibration, select explicit rule IDs in
-#    the existing overrides.rule_pack_allowlist, then delete the draft dir.
+# 3. assemble the COMPLETE proposed pack with fixtures in a private directory,
+#    never in an installed CATEGORY file or active rules directory.
+python3 -m traust.cli sweep intake-rules <private-complete-pack> \
+    --into <new-accepted-pack-directory>
+# 4. after admission, semantic review and recorded-scan calibration, explicitly
+#    activate the immutable accepted directory using the intended facts-scan
+#    location or select explicit IDs through overrides.rule_pack_allowlist.
+#    Never overwrite an installed pack; admit a new version to a new path.
 ```
 
 Not every fix is rule-expressible: additive-coverage fixes (a filter
@@ -158,10 +156,36 @@ pack and not evidence of passing native checks. Adopter packs are supported
 through the existing allowlist: `source` may be a local rule directory relative
 to that allowlist file, or an HTTPS Git source pinned to a 40-hex commit SHA
 (the repository's existing `rules/` subtree convention). Enabled packs need
-explicit unique rule IDs and paired native fixtures. The entire source pack,
-not only selected IDs, must pass `traust sweep check-rules <path>`.
-Unreachable or invalid enabled supplements fail rather than being skipped;
-there is no validation bypass.
+explicit unique rule IDs and paired native fixtures. Admit the complete candidate
+pack through `intake-rules ... --into NEW_DEST` before any installed-pack write.
+Runtime supplements also retain their full-pack checks and fail closed when invalid.
+
+## Adopter rule intake
+
+Keep submitted local files/directories or pinned HTTPS Git sources and fixtures
+private until the deterministic publisher accepts them:
+
+```bash
+python3 -m traust.cli sweep intake-rules <source>... --into <new-accepted-pack-directory>
+```
+
+Use this same command for ledger-mined rules. It snapshots sources into private
+stable staging, applies static/ID checks, then runs Opengrep's own `validate` and
+`test --json --strict` on the complete pack with real positive/negative receipts.
+Only success publishes the checked bytes. Exit 0 and `admitted: true` mean a new
+pack was written; 1 refuses admission, 2 reports a typed error. Refusal creates no
+accepted destination; existing destinations are never overwritten. Inspect
+`quality_checks`, `applied` and `refused`; no manual copy, CI job or first scan
+can replace this pre-write gate.
+
+Semantic review and recorded-scan calibration remain required before explicit
+activation. Set `locations.opengrep_adopter_rules` to the accepted directory for
+default Opengrep facts scans only, not registered artifact scanners. Never point
+it at private drafts. A caller can also request an optional additive facts scan
+with `traust adapters opengrep <checkout> --add-rules <source>`. Each scan checks
+actual bytes again. Refused optional additions do not run; the report is degraded
+and preserves baseline and supplement facts. Admission is not activation and a
+match is not a finding verdict.
 
 ## Class-generalization sweeps (plan §6, Phase 4)
 
@@ -209,8 +233,8 @@ rule for it. Write one rule and meaningful vulnerable and equivalent safe,
 fixed, sanitized or guarded examples in the target language, with `ruleid:`
 and `ok:` assertions for every rule. Preserve valid positives and test the
 actual guard boundary, not an unrelated no-op. Run
-`traust sweep check-rules <path>`, then submit through the admission gate,
-never into `rule-drafts/` by hand:
+`traust sweep check-rules <path>` for optional local diagnosis, then submit
+through the draft proposal gate:
 
 ```bash
 python3 -m traust.cli sweep propose-rule --rule <rule.yaml> --example <example.py> \
@@ -233,8 +257,9 @@ A rule that fails a static check never runs. Native validation and strict
 tests are mandatory before admission and cannot be skipped. Exit 0 means it
 was staged as an authored draft, not promoted or proved exploitable. Exit 1
 lists failing checks: fix it or drop the proposal, never loosen the examples
-to pass. An admitted draft then follows steps 3–4: calibrate, `sweep sweep`,
-`sweep emit`. Its hits are triage candidates, never findings.
+to pass. An admitted draft still requires complete-pack `intake-rules ... --into
+NEW_DEST` before installation, plus semantic review, calibration, `sweep sweep`
+and `sweep emit`. Its hits are triage candidates, never findings.
 
 Before promotion, a reviewer must check whether the matching shape really
 supports the claimed security/business logic: input control, framework/version
@@ -298,14 +323,15 @@ any audit are listed separately — silence is not a pass.
 **Standing delegation (user, 2026-07-29):** scheduled agent runs of this
 skill proceed from the lane's delta report through semantic review, rule
 authoring and **the full test-and-calibrate gate** without per-run approval:
-(1) `traust sweep check-rules <complete-pack-directory>` requires native
-`opengrep validate`, `opengrep test --json --strict`, exact expected matches
-and positive/negative coverage for every rule, with no missing/unknown/skipped
-receipts; (2) the default-scan canary
-(`uv run pytest tests/test_default_rule_packs.py`); and (3) TP-rediscovery
-calibration against recorded corpus scans. Direct native commands are useful
-diagnostics, not substitutes for the shared gate. No judgment waives a failed
-leg, and passing matching tests never substitutes for semantic review.
+(1) `python3 -m traust.cli sweep intake-rules <private-complete-pack> --into
+<new-accepted-pack-directory>` publishes only after native `opengrep validate`
+and `opengrep test --json --strict`, exact matches and complete positive/negative
+receipts; (2) the default-scan canary (`uv run pytest
+tests/test_default_rule_packs.py`); and (3) TP-rediscovery calibration against
+recorded corpus scans. Keep authoring private and never edit installed packs.
+Neither CI nor manual copying substitutes for admission. No judgment waives a
+failed leg; passing matching tests never substitutes for semantic review or
+explicit activation.
 Sweep hits and mined candidates still route to **/triage** like any other
 candidate batch — the lane never auto-files findings, writes to ledgers or
 touches Jira.

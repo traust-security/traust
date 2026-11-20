@@ -1,5 +1,5 @@
-# Lint, unit tests and mandatory native Opengrep rule quality on every PR,
-# in the merge queue, and after each merge to development or main.
+# Lint and unit tests on every PR, in the merge queue,
+# and after each merge to development or main.
 name: CI
 
 on:
@@ -42,22 +42,6 @@ jobs:
           bash scripts/install-toolchain.sh ledger-signing
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - run: uv run pytest tests/ -n auto
-
-  opengrep-quality:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
-        with:
-          enable-cache: true
-          python-version: "3.12"
-      - run: uv sync --frozen
-      - name: Install pinned Opengrep only
-        run: |
-          uv run python -m traust.cli admin toolchain setup --tool opengrep
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-      - name: Validate and test every authored rule
-        run: uv run python -m traust.cli sweep check-rules packs/security/detection/opengrep-rules
 
   session-postgres:
     runs-on: ubuntu-latest

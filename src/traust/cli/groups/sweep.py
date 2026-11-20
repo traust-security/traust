@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
+import argparse
 import json
 import sys
 from collections.abc import Callable
 from pathlib import Path
 
 from traust_core.v1.context import Context
-from traust_core.v1.context.tool_reports import opengrep_quality_report, opengrep_report
+from traust_core.v1.context.tool_reports import (
+    intake_opengrep_rules,
+    opengrep_quality_report,
+    opengrep_report,
+)
 from traust_core.v1.context.tools import load_rule_allowlist
 from traust_core.v1.errors import (
     DeploymentConfigMissing,
@@ -479,6 +484,37 @@ CHECK_RULES = OpSpec(
     add_args=add_check_rules_args,
     call=call_check_rules,
     help="require native Opengrep validation and strict positive/negative fixture tests",
+)
+
+
+def add_intake_rules_args(ap: argparse.ArgumentParser) -> None:
+    ap.add_argument("sources", nargs="+", help="local rules or HTTPS Git sources pinned to a SHA")
+    ap.add_argument(
+        "--into", required=True, type=Path, help="new accepted-pack directory (never overwritten)"
+    )
+    ap.add_argument("--opengrep", default="opengrep", help="Opengrep binary")
+    ap.add_argument("--timeout", type=int, default=300, help="timeout per native quality command")
+
+
+def call_intake_rules(args: argparse.Namespace) -> int:
+    def call() -> int:
+        report = intake_opengrep_rules(
+            load(args.config_home),
+            args.sources,
+            args.into,
+            timeout=args.timeout,
+            binary=args.opengrep,
+        )
+        print(json.dumps(report, indent=2))
+        return 0 if report["admitted"] else 1
+
+    return _door(call)
+
+
+INTAKE_RULES = OpSpec(
+    add_args=add_intake_rules_args,
+    call=call_intake_rules,
+    help="check and publish an additive Opengrep pack without activating it",
 )
 
 
