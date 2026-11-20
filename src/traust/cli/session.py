@@ -580,11 +580,11 @@ def _work_item_covered(
 def _sweep_covered(
     services: Services, repository_id: UUID, order_id: UUID | None, ids: set[str]
 ) -> bool:
-    """Require verdicts for every reported finding in the repository.
+    """Require verdicts for every finding selected on the current default line.
 
-    Core's default sweep considers every line and skips a head after any decision there;
-    that does not prove report coverage. With no saved worklist, including closed and
-    newly reported findings is conservative.
+    Core's sweep skips a head after any decision there; that does not prove report
+    coverage. Match the skill's ref-scoped baseline, conservatively including closed
+    and newly reported findings when the original worklist is unavailable.
     """
     candidates = (
         services.assessment.list_for_order(order_id)
@@ -600,7 +600,11 @@ def _sweep_covered(
     head = services.portfolio.default_ref(repository_id)
     if not runs or {str(a.id) for a in runs} != ids or head is None or head.id is None:
         return False
-    expected = set(services.findings.records.ids_for_repository(repository_id))
+    expected = {
+        view.finding.id
+        for view in services.findings.on_ref(head.id)
+        if view.finding.id is not None
+    }
     recorded = {a.id for a in runs}
     covered: set[UUID] = set()
     regressions: set[UUID] = set()

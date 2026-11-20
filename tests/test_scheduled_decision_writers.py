@@ -14,8 +14,10 @@ from uuid import UUID
 import pytest
 import yaml
 from traust_core.v1.models.assessment import Assessment, AssessmentKind
+from traust_core.v1.models.findings import Finding, Occurrence
 from traust_core.v1.models.inventory import RepositoryRef
 from traust_core.v1.models.operations import AssetRequest, JobResult, OrderRequest, WorkerId
+from traust_core.v1.models.vocabulary import ScannerSeverity
 from traust_core.v1.repositories.contract import SqlTraustUnitOfWork
 
 from tests.test_validation_record import recording as evidence  # noqa: F401
@@ -113,26 +115,65 @@ def verification_fixture(core, fixture, repo_id, *, complete):
     raw = (Path(__file__).parent / "fixtures/remediation/verification-report.json").read_text()
     doc = json.loads(raw.replace("FINDING_ID", str(fixture["finding_id"])))
     doc["metadata"].update(repository=URL, patched_ref="main", original_commit="a" * 40)
-    if complete:
-        findings = core.services().findings.records.ids_for_repository(repo_id)
-        template = doc["verified_findings"][0]
-        doc["verified_findings"] = [dict(template, original_id=str(id_)) for id_ in findings]
-        doc["summary"]["total_findings"] = len(findings)
-        doc["summary"]["by_verdict"]["resolved"] = len(findings)
-        doc["commit_timeline"][0]["addresses"] = [str(id_) for id_ in findings]
     with SqlTraustUnitOfWork(core.database) as uow:
         # A bare source commit does not establish ancestry. Observe it on main
         # before moving the default head to the patched commit.
-        uow.repository_refs.add(RepositoryRef(
+        original = uow.repository_refs.add(RepositoryRef(
             repository_id=repo_id, name="main", kind="branch",
             sha=doc["metadata"]["original_commit"], is_default=True,
         ))
+        branch = uow.repository_refs.add(RepositoryRef(
+            repository_id=repo_id, name="feature", kind="branch", sha="c" * 40,
+        ))
+        main_audit = uow.assessments.add(Assessment(
+            repository_ref_id=original.id, kind=AssessmentKind.SCANNER,
+            status="completed", assessor="fixture", assessor_version="1",
+            occurred_at=core.clock.now(),
+        ))
+        branch_audit = uow.assessments.add(Assessment(
+            repository_ref_id=branch.id, kind=AssessmentKind.SCANNER,
+            status="completed", assessor="fixture", assessor_version="1",
+            occurred_at=core.clock.now(),
+        ))
+        main_finding = uow.findings.add(Finding(
+            repository_id=repo_id, fingerprint_algo="v3", fingerprint="e" * 64,
+            title="Another finding on main",
+        ))
+        branch_finding = uow.findings.add(Finding(
+            repository_id=repo_id, fingerprint_algo="v3", fingerprint="f" * 64,
+            title="Finding only on the feature branch",
+        ))
+        for finding_id, assessment_id in (
+            (fixture["finding_id"], main_audit.id),
+            (main_finding.id, main_audit.id),
+            (branch_finding.id, branch_audit.id),
+        ):
+            uow.occurrences.add(Occurrence(
+                finding_id=finding_id, assessment_id=assessment_id,
+                severity=ScannerSeverity.HIGH,
+            ))
         head = uow.repository_refs.add(RepositoryRef(repository_id=repo_id, name="main", kind="branch",
                                                     sha=doc["metadata"]["patched_commit"], is_default=True))
         uow.assessments.add(Assessment(repository_ref_id=head.id, kind=AssessmentKind.REPO_STATE,
                                        status="completed", assessor="fixture", assessor_version="1",
                                        occurred_at=core.clock.now()))
         uow.commit()
+    baseline = io.StringIO()
+    with redirect_stdout(baseline):
+        assert main([
+            "findings", "baseline", "--config-home", str(fixture["config"]),
+            "--repo-url", URL, "--ref-id", str(head.id),
+        ]) == 0
+    findings = [view["finding"]["id"] for view in json.loads(baseline.getvalue())]
+    assert str(fixture["finding_id"]) in findings and str(main_finding.id) in findings
+    assert str(branch_finding.id) not in findings
+    assert branch_finding.id in core.services().findings.records.ids_for_repository(repo_id)
+    if complete:
+        template = doc["verified_findings"][0]
+        doc["verified_findings"] = [dict(template, original_id=id_) for id_ in findings]
+        doc["summary"]["total_findings"] = len(findings)
+        doc["summary"]["by_verdict"]["resolved"] = len(findings)
+        doc["commit_timeline"][0]["addresses"] = findings
     path = fixture["root"] / "verification.json"
     path.write_text(json.dumps(doc))
     return path

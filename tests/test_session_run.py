@@ -747,11 +747,7 @@ def scheduled_sweep(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
             list_for_order=lambda _: [r for r in records if r.run_order_id == UUID(ORDER)],
             list_for_repository=lambda *_: list(records),
         ),
-        findings=SimpleNamespace(
-            records=SimpleNamespace(
-                ids_for_repository=lambda _: {view.finding.id for view in views}
-            )
-        ),
+        findings=SimpleNamespace(on_ref=lambda _: views),
         verification=SimpleNamespace(
             sweep=lambda _: SimpleNamespace(
                 queued=[object()] if state.queued else [],
@@ -899,20 +895,21 @@ def test_finding_reported_since_partial_sweep_is_not_silently_skipped(
     assert not processes.agent_calls()
 
 
-def test_default_sweep_requires_findings_from_other_lines(
+def test_default_sweep_ignores_findings_only_on_other_lines(
     processes: Processes, scheduled_sweep: SimpleNamespace
 ) -> None:
     sweep = scheduled_sweep
-    sweep.record(sweep.first, sweep.second)
-    default_line = list(sweep.views)
-    sweep.services.findings.on_ref = lambda _: default_line
-    sweep.views.append(SimpleNamespace(finding=SimpleNamespace(id=uuid4())))
+    row = sweep.record(sweep.first, sweep.second)
+    branch_only = uuid4()
+    sweep.services.findings.records = SimpleNamespace(
+        ids_for_repository=lambda _: {sweep.first, sweep.second, branch_only}
+    )
     sweep.state.queued = False
     rc, result = run(
         "--skill", "verify-remediation", "--role", "verification-verdict",
         "--repo", REPO, "--run-id", ORDER,
     )
-    assert (rc, result["reason"]) == (1, "session-output-invalid")
+    assert (rc, result["outcome"], result["written"]) == (0, "succeeded", [str(row.id)])
     assert not processes.agent_calls()
 
 
