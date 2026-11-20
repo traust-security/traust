@@ -476,7 +476,7 @@ Use when the user asks how many lines of code have been scanned/audited, wants a
 
 ## mine-ledger
 
-Mines confirmed dispositions for rule coverage and precision; graph/database queries scope rather than replace portfolio mining. Authors and calibrates private mined or adopter candidates, then requires `python3 -m traust.cli sweep intake-rules <source>... --into <NEW_DEST>` before installation. Native validation and strict complete positive/negative fixtures must pass before publishing checked bytes. Semantic review, recorded-scan calibration and explicit activation remain separate; admission does not prove exploitability.
+Mine confirmed dispositions for rule coverage and precision, author and calibrate private candidates, and admit complete mined or adopter packs with sweep intake-rules before installation. Admission does not activate rules or prove exploitability.
 
 - **Stage:** —
 - **Tier:** `secondary`
