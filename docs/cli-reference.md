@@ -192,13 +192,12 @@ convert uninspectable deliverables and rerun the gate; there is no binary fallba
 
 ### Opengrep rule updates and adopter validation
 
-**Runtime requirement.** Adopter-pack registration, `sweep check-rules` and
-`admin toolchain setup --tool opengrep` require the runtime/harness support introduced
-by [PR #431](https://github.com/traust-security/traust/pull/431), merged into `development`.
-Documentation alone does not add these operations to an older `main` installation.
-Install a matching reviewed runtime and harness containing that change before following
-this workflow. Check availability with `traust sweep check-rules --help`; an unknown
-operation means the installed runtime must be upgraded, not that validation may be skipped.
+**Runtime requirements.** Install matching reviewed Traust runtime and harness releases
+that provide adopter-pack registration, `sweep check-rules` and
+`admin toolchain setup --tool opengrep`. Check command availability with
+`traust sweep check-rules --help` and `traust admin toolchain setup --help`.
+If these operations are unavailable, upgrade the runtime and harness together
+before following this workflow; do not skip validation.
 
 #### Rule sources: portfolio mining and adopter contributions
 
