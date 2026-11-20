@@ -21,12 +21,12 @@ from traust_core.v1.models.vocabulary import SourceType
 
 from traust.cli._doors import (
     add_branch_arg,
-    add_order_started_arg,
+    add_lease_generation_arg,
     add_run_order_arg,
-    order_started_at,
     parser,
     recording_order_id,
     register_commit,
+    report_provenance,
     run,
 )
 from traust.context import load, load_recorder
@@ -97,22 +97,16 @@ def record(argv: list[str] | None = None) -> int:
     ap.add_argument("triage", type=Path, help="the validated triage JSON")
     ap.add_argument("--repo", type=Path, required=True, help="target repo checkout (read-only)")
     add_run_order_arg(ap)
-    add_order_started_arg(ap)
+    add_lease_generation_arg(ap)
     args = ap.parse_args(argv)
 
     def call() -> dict:
         doc = TriageArtifact.parse(args.triage.read_bytes())
         core = load(args.config_home)
         decisions = core.services().findings.decisions
-        order_id = recording_order_id(args.run_id)
+        order_id = recording_order_id(args.run_id, args.lease_generation)
         recorder = load_recorder(core) if order_id is not None else None
-        provenance = Provenance(
-            run_id=order_id or uuid.uuid4(),
-            source=SourceType.TRIAGE_REPORT,
-            occurred_at=(
-                order_started_at(args.order_started_at) if order_id else datetime.now(UTC)
-            ),
-        )
+        provenance = report_provenance(order_id, SourceType.TRIAGE_REPORT)
         if order_id is None:
             made = decisions.record(args.assessment_id, doc, provenance, args.repo)
         else:
@@ -123,6 +117,7 @@ def record(argv: list[str] | None = None) -> int:
                 provenance,
                 run_order_id=order_id,
                 principal=recorder,
+                lease_generation=args.lease_generation,
                 checkout=args.repo,
             ).decisions
         return {

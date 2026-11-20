@@ -7,13 +7,13 @@ import json
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
-from uuid import UUID, uuid4
+from uuid import UUID
 
 import pytest
 from traust_core.v1.errors import ConfigError, ServiceError, ValidationError
 from traust_core.v1.models.assessment import Assessment, AssessmentKind
 from traust_core.v1.models.inventory import RepositoryRef
-from traust_core.v1.models.operations import AssetRequest, JobResult, OrderReason
+from traust_core.v1.models.operations import AssetRequest, JobResult, OrderReason, WorkerId
 from traust_core.v1.models.values import HttpsRepoUrl
 from traust_core.v1.providers.base import Acquisition, Readiness, Result
 from traust_core.v1.providers.forge_archive import ArchiveCheckout
@@ -30,14 +30,16 @@ __all__ = ["home"]
 
 HOSTS = ("github.com",)
 SBOM_ID = UUID(int=9)
+ORDER = UUID(int=10)
+WORKER = WorkerId("worker:snapshot")
 
 
 class Exposure:
     def __init__(self, outcome: Exception | None = None) -> None:
         self.outcome, self.asked = outcome, []
 
-    def record_manifest_sbom(self, repository_ref_id: UUID) -> Any:
-        self.asked.append(repository_ref_id)
+    def record_manifest_sbom(self, repository_ref_id: UUID, **claim: Any) -> Any:
+        self.asked.append((repository_ref_id, claim))
         if self.outcome is not None:
             raise self.outcome
         return type("Sbom", (), {"id": SBOM_ID})
@@ -62,7 +64,9 @@ class Services:
 def materialize(services: Services, partition: str = REPO) -> JobResult:
     materializer = ManifestSbomMaterializer(services, HOSTS)  # type: ignore[arg-type]
     return materializer.materialize(
-        AssetRequest(asset="manifest_sbom", run_id=str(uuid4()), partition=partition)
+        AssetRequest(asset="manifest_sbom", run_id=str(ORDER), partition=partition),
+        worker=WORKER,
+        lease_generation=17,
     )
 
 
@@ -95,7 +99,9 @@ def test_the_materializer_answers_each_door_outcome(
 ) -> None:
     exposure = Exposure(outcome)
     assert materialize(Services(exposure)) == want
-    assert exposure.asked == [UUID(int=8)]
+    assert exposure.asked == [
+        (UUID(int=8), {"run_order_id": ORDER, "worker": WORKER, "lease_generation": 17})
+    ]
 
 
 @pytest.mark.parametrize(

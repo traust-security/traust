@@ -112,7 +112,7 @@ def observation(services: Services, repository_id: UUID, result: JobResult) -> U
         worker,
         timedelta(minutes=5),
     )
-    services.ops.complete(order.id, worker, result)
+    services.ops.complete(order.id, worker, result, lease_generation=order.lease_generation)
     return order.id
 
 

@@ -7,6 +7,10 @@ metadata:
 
 # Operator Privilege Profile (least-privilege assessment)
 
+For a scheduled run, take `--lease-generation N` from the session invocation
+(before interpreting positional inputs). Keep the inherited `TRAUST_RUN_ID` and pass
+that exact N to record; never look it up again. Omit the flag in standalone runs.
+
 > **Paths.** `analysis-results/…` and `progress-tracker/…` in this skill are the
 > default workspace layout. They resolve through `locations:` in `traust.yaml` in
 > `$TRAUST_CONFIG_HOME` (`docs/setup.md`, Storage locations); substitute your
@@ -58,7 +62,7 @@ Record each profile as a priv-profile assessment of the profiled commit
 (`git -C <local-path> rev-parse HEAD`):
 
 ```bash
-python3 -m traust.cli reporting record \
+python3 -m traust.cli reporting record [--lease-generation N] \
     analysis-results/findings/<product>/<repo>/<repo>-priv-profile.json \
     --kind priv_profile --repo-url <url> --sha <commit> --branch <branch>
 ```

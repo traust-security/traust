@@ -43,7 +43,7 @@ OPS_DB_PASS="${OPS_DB_PASS:-traust}"
 OPS_DB_NAME="${OPS_DB_NAME:-traust}"
 OPS_DSN="postgresql://${OPS_DB_USER}:${OPS_DB_PASS}@localhost:${OPS_PORT}/${OPS_DB_NAME}"
 OPS_EVERY="${OPS_EVERY:-1m}"            # engine --every: minutes, hours or days
-OPS_ENGINE_SRC="${OPS_ENGINE_SRC:-git+https://github.com/traust-security/traust-engine@779471df5b9473bbf31cf0ad78d213f88bda9153}"
+OPS_ENGINE_SRC="${OPS_ENGINE_SRC:-git+https://github.com/traust-security/traust-engine@56a8064f38720605223679611aba1c2921fcecf9}"
 
 CONFIG_HOME="$REPO_ROOT/$OPS_DIR/config"
 RUN_DIR="$REPO_ROOT/$OPS_DIR/run"
@@ -744,7 +744,8 @@ smoke_audit() {
         where f.id = '$finding' and l.merkle_root_signature <> ''
         and convert_from(e.event_payload, 'UTF8')::jsonb ->> 'id' = d.id::text"
     smoke_expect 1 "select count(*) from traust_ops.run_order where asset='ledger_audit'
-        and state='succeeded' and started_at >= (select max(created_at) from traust.decision)"
+        and state='succeeded' and lease_generation=1 and completed_by='machine:smoke-recorder'
+        and started_at >= (select max(created_at) from traust.decision)"
     # This fault is visible to the next scheduled claim, never to the normal rig.
     smoke_sql "begin;
         alter table traust_ledger.events disable trigger ledger_events_reject_mutation;
@@ -782,6 +783,7 @@ smoke_snapshot() {
         smoke_sql "select r.id, a.id, s.id, c.id, d.id
             from traust_ops.run_order o join traust.repository_ref r on r.repository_id=o.repository_id
             join traust.assessment a on a.id=r.manifest_sbom_assessment_id and a.repository_ref_id=r.id
+                and a.run_order_id=o.id
             join traust.sbom s on s.id=r.manifest_sbom_id
             join traust.artifact c on c.assessment_id=a.id and c.kind='manifest-coverage'
             join traust.dependency d on d.sbom_id=s.id join traust.package p on p.id=d.package_id
@@ -817,9 +819,13 @@ smoke_snapshot() {
 }
 
 smoke_crash() {
-    local asset=$1 order snapshot
+    local asset=$1 order snapshot generation worker
     order=$(cat "$RUN_DIR/$asset.order")
     smoke_uuid "$order"
+    generation=$(cat "$RUN_DIR/$asset.generation")
+    worker=$(cat "$RUN_DIR/$asset.worker")
+    smoke_expect "$worker|$generation" "select lease_holder,lease_generation
+        from traust_ops.run_order where id='$order'"
     smoke_expect 1 "select count(*) from traust_ops.run_order o join traust.repository r
         on r.id=o.repository_id where o.id='$order' and o.asset='$asset'
         and r.url='$good' and o.state='leased' and o.finished_at is null"
@@ -827,7 +833,7 @@ smoke_crash() {
     [[ -n "$snapshot" && "$snapshot" != *$'\n'* ]] ||
         { echo "smoke: $asset has no unique committed record before expiry" >&2; return 1; }
     printf '%s\n' "$snapshot" > "$RUN_DIR/$asset.before"
-    echo "smoke: $asset committed under lease $order; waiting for natural expiry"
+    echo "smoke: $asset committed under lease $order generation $generation; waiting for natural expiry"
     smoke_wait_db "$asset lease expiry" "select lease_expires_at <= statement_timestamp()
         from traust_ops.run_order where id='$order' and state='leased'"
 }
@@ -870,19 +876,23 @@ sys.exit(0 if (r["asset"], r["state"], r["reason"]) == expected[sys.argv[1]] els
 }
 
 smoke_replayed() {
-    local asset=$1 order
+    local asset=$1 order generation worker
     order=$(cat "$RUN_DIR/$asset.order")
     smoke_uuid "$order"
-    smoke_expect succeeded "select state from traust_ops.run_order where id='$order' and asset='$asset'"
+    generation=$(cat "$RUN_DIR/$asset.replayed-generation")
+    worker=$(cat "$RUN_DIR/$asset.worker")
+    smoke_expect "succeeded|$worker|$generation" "select state,completed_by,lease_generation
+        from traust_ops.run_order where id='$order' and asset='$asset'"
     cmp "$RUN_DIR/$asset.order" "$RUN_DIR/$asset.replayed"
     smoke_snapshot "$asset" "$order" > "$RUN_DIR/$asset.after"
     cmp "$RUN_DIR/$asset.before" "$RUN_DIR/$asset.after"
-    echo "smoke: reclaimed $asset $order with unchanged receipts, rows and counts"
+    echo "smoke: reclaimed $asset $order at generation $generation with unchanged receipts, rows and counts"
 }
 
 cmd_smoke() {
     [[ $# = 0 ]] || { echo "smoke takes no input or target overrides" >&2; return 2; }
     unset GITHUB_TOKEN GH_TOKEN GITLAB_TOKEN ANTHROPIC_API_KEY OPENAI_API_KEY TRAUST_TOKEN
+    unset TRAUST_RUN_ID TRAUST_RECORDER_TOKEN_FILE
     if [[ "${OPS_ACCEPTANCE:-0}" = 1 ]]; then
         if [[ -n "${PYTHONPATH:-}" || -n "${PYTHONHOME:-}" ]]; then
             echo "smoke: unset PYTHONPATH and PYTHONHOME; acceptance must import the locked build" >&2
@@ -952,8 +962,10 @@ PY
         timeout --kill-after=5s 180s bash "$SCRIPT_DIR/local_ops.sh" smoke-engine \
             claim --worker smoke-observer --lease 1m
     done
-    smoke_expect 3 "select count(*) from traust_ops.run_order where asset='repo_state' and state='succeeded'"
-    smoke_expect 1 "select count(*) from traust_ops.run_order where asset='ledger_audit' and state='queued'"
+    smoke_expect 3 "select count(*) from traust_ops.run_order where asset='repo_state' and state='succeeded'
+        and completed_by='smoke-observer' and lease_generation=1"
+    smoke_expect 1 "select count(*) from traust_ops.run_order where asset='ledger_audit' and state='queued'
+        and lease_generation=0"
 
     # Triage depends on the completed authored assessment. Leave the scheduled
     # ledger audit queued across these two explicitly submitted recording orders.
@@ -984,9 +996,10 @@ PY
         'smoke_authored|succeeded|1' 'smoke_triage|succeeded|1')" \
         "select asset,state,count(*) from traust_ops.run_order group by 1,2 order by 1,2"
     smoke_expect 3 "select count(distinct repository_id) from traust_ops.run_order
-        where asset='manifest_sbom' and state='withheld' and reason='upstream-stale'"
+        where asset='manifest_sbom' and state='withheld' and reason='upstream-stale' and lease_generation=0"
     smoke_expect 1 "select count(*) from traust_ops.run_order o join traust.repository r on r.id=o.repository_id
-        where r.url='$failed' and o.asset='manifest_sbom' and o.state='failed' and o.reason='source_unavailable'"
+        where r.url='$failed' and o.asset='manifest_sbom' and o.state='failed' and o.reason='source_unavailable'
+        and o.completed_by='smoke-manifest' and o.lease_generation=1"
     smoke_expect 1 "select count(*) from traust.repository r join traust.repository_ref h on h.repository_id=r.id
         where r.url='$failed' and h.is_default and h.sha=repeat('a',40)
         and h.manifest_sbom_id is null and h.manifest_sbom_assessment_id is null"
@@ -994,8 +1007,14 @@ PY
         (select count(*) from traust.assessment where kind='manifest_sbom'),
         (select count(*) from traust.artifact where kind='manifest-coverage'),
         (select count(*) from traust.dependency)"
+    smoke_expect 1 "select count(*) from traust_ops.run_order o join traust.repository r on r.id=o.repository_id
+        join traust.repository_ref h on h.repository_id=r.id and h.is_default
+        join traust.assessment a on a.id=h.manifest_sbom_assessment_id and a.run_order_id=o.id
+        where r.url='$partial' and o.asset='manifest_sbom' and o.state='succeeded'
+        and o.completed_by='smoke-manifest' and o.lease_generation=1"
     smoke_records verify-coverage
-    audit=$(smoke_sql "select id from traust_ops.run_order where asset='ledger_audit' and state='degraded'")
+    audit=$(smoke_sql "select id from traust_ops.run_order where asset='ledger_audit' and state='degraded'
+        and completed_by='smoke-manifest' and lease_generation=1")
     smoke_uuid "$audit"
     uv run --no-sync python - "$audit" <<'PY'
 import sys

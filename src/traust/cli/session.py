@@ -63,19 +63,26 @@ from traust_core.v1.models.values import GitSha, HttpsRepoUrl
 from traust_core.v1.models.vocabulary import SourceType
 
 from traust.cli._doors import (
-    ORDER_STARTED_ENV,
     RUN_ORDER_ENV,
+    add_lease_generation_arg,
     answer,
     parser,
+    recording_order_id,
     scoped_recording_order,
 )
 from traust.cli._doors import run as door
 from traust.cli.assessments import REFUSED
-from traust.context import MODEL_REGISTRY, TRAUST_CONFIG_HOME_DEFAULT, load, resolve_config_home
+from traust.context import (
+    MODEL_REGISTRY,
+    TRAUST_CONFIG_HOME_DEFAULT,
+    load,
+    load_recorder,
+    resolve_config_home,
+)
 from traust.ops.materializers import _order_id
 from traust.ops.router import THREAT_MODEL_PR
 from traust.ops.session_guard import flags as confinement_flags
-from traust.ops.sessions import SESSIONS, SessionRunner
+from traust.ops.sessions import SESSIONS, SessionRunner, leased_session_order
 from traust.paths import HARNESS_ROOT, HARNESSING_DIR, skill_dir, skill_dirs
 
 # PENDING(agents): Claude Code is the agent sessions start in; Crush is the other implementation.
@@ -97,6 +104,9 @@ RECORDING_SKILLS = {
 }
 # Skills whose ordered session must leave a report on the work item its order names.
 REPORTING_SKILLS = frozenset({"remediate-finding"})
+# These skills may record, but their session need not produce a report to succeed.
+OPTIONAL_RECORDING_SKILLS = frozenset({"threat-model", "recall-benchmark"})
+BOUND_SKILLS = RECORDING_SKILLS.keys() | REPORTING_SKILLS | OPTIONAL_RECORDING_SKILLS
 
 
 class _Tokens(Dto):
@@ -222,9 +232,7 @@ def diff_anchor(url: str, clone: Path) -> str:
 
 
 @contextmanager
-def checkout(
-    url: str, config_home: Path | None, ref: GitSha | None = None
-) -> Iterator[Workspace]:
+def checkout(url: str, config_home: Path | None, ref: GitSha | None = None) -> Iterator[Workspace]:
     """Check out a registered repository at the supplied commit or its observed default head.
 
     The mirror's worktree holds the history a diff scan anchors at; it is released after use.
@@ -253,7 +261,7 @@ def checkout(
 
 
 def prompt(skill: str, args: list[str]) -> str:
-    return " ".join([f"/{skill}", *args])
+    return shlex.join([f"/{skill}", *args])
 
 
 def run(argv: list[str] | None = None) -> int:
@@ -281,11 +289,23 @@ def run(argv: list[str] | None = None) -> int:
     )
     ap.add_argument("--run-id", default="manual", help="the run order this session is for")
     ap.add_argument("--worker", help="the engine worker holding the order's lease")
+    add_lease_generation_arg(ap)
     ap.add_argument("--rule", help="the router rule that routed the order")
     argv = sys.argv[1:] if argv is None else argv
     split = argv.index("--") if "--" in argv else len(argv)
     args, extra = ap.parse_args(argv[:split]), argv[split + 1 :]
-    if (args.skill, args.mode) in SESSIONS:
+    artifact_mode = (args.skill, args.mode) in SESSIONS
+    if artifact_mode or args.skill in BOUND_SKILLS:
+        # The child receives binding flags from this runner, not from free-form skill args.
+        # Exclude argparse's long-option abbreviations as well as --name=value.
+        reserved = ("--run-id", "--lease-generation")
+        if any(
+            len(name) > 2 and any(flag.startswith(name) for flag in reserved)
+            for name in (arg.partition("=")[0] for arg in extra)
+        ):
+            print("session: claim flags must precede the skill arguments", file=sys.stderr)
+            return answer(JobResult.failed(OrderReason.BAD_REQUEST))
+    if artifact_mode:
         return artifact_run(
             args.skill,
             args.mode,
@@ -293,6 +313,7 @@ def run(argv: list[str] | None = None) -> int:
             args.repo,
             args.run_id,
             args.worker,
+            args.lease_generation,
             args.config_home,
             extra,
         )
@@ -318,6 +339,16 @@ def run(argv: list[str] | None = None) -> int:
     verification_item: UUID | None = None
     try:
         order_id = _order_id(args.run_id)
+        recording_skill = args.skill in BOUND_SKILLS
+        if recording_skill:
+            if recording_order_id(order_id, args.lease_generation) != order_id:
+                raise ValidationError("recording session must name its scheduled run order")
+            if order_id is not None:
+                _check_session_claim(order_id, args)
+            elif args.worker is not None:
+                raise ValidationError("manual recording sessions do not have a worker lease")
+        elif args.lease_generation is not None:
+            raise ValidationError("--lease-generation is only for ordered recording sessions")
         # Scoped recording writers authorize before reading the order's prior output.
         before = (
             set()
@@ -334,7 +365,11 @@ def run(argv: list[str] | None = None) -> int:
         if order_id is not None and args.skill == "verify-remediation":
             core = load(args.config_home)
             order = scoped_recording_order(
-                core, order_id, RecordKind.VERIFICATION, SourceType.VERIFICATION_REPORT
+                core,
+                order_id,
+                RecordKind.VERIFICATION,
+                SourceType.VERIFICATION_REPORT,
+                args.lease_generation,
             )
             if order.asset != "verify_remediation" or args.checkout or mode or extra:
                 raise ValidationError("verification inputs must come from the repository order")
@@ -386,8 +421,8 @@ def run(argv: list[str] | None = None) -> int:
                         )
                         return answer(JobResult.failed(OrderReason.SESSION_OUTPUT_INVALID))
                     return answer(JobResult.succeeded(written=tuple(sorted(before))))
-    except ValueError:
-        print(f"run {args.run_id}: {OrderReason.BAD_REQUEST}: not a run order id", file=sys.stderr)
+    except ValueError as e:
+        print(f"run {args.run_id}: {OrderReason.BAD_REQUEST}: {e}", file=sys.stderr)
         return answer(JobResult.failed(OrderReason.BAD_REQUEST))
     except SystemExit:
         # `load` exits on an unusable configuration rather than raising
@@ -414,10 +449,12 @@ def run(argv: list[str] | None = None) -> int:
     env.pop(RUN_ORDER_ENV, None)
     if order_id is not None:
         env[RUN_ORDER_ENV] = str(order_id)
-    else:
-        env.pop(ORDER_STARTED_ENV, None)
     if args.config_home is not None:
         env[TRAUST_CONFIG_HOME_ENV] = str(args.config_home)
+    if order_id is not None and recording_skill:
+        # Only the order is inherited. Each nested record door must receive this literal
+        # generation; it cannot read a newer claim to label an older session's output.
+        extra = [*extra, "--lease-generation", str(args.lease_generation)]
     usage: tuple[ModelUsage, ...] = ()
     if triage_ref is not None:
         entered = checkout(args.repo, args.config_home, triage_ref)
@@ -427,7 +464,7 @@ def run(argv: list[str] | None = None) -> int:
         with entered as workspace:
             if triage_source is not None:
                 assert workspace is not None
-                target = [str(triage_source), "--repo", shlex.quote(str(workspace.path))]
+                target = [str(triage_source), "--repo", str(workspace.path)]
             else:
                 target = (
                     [str(workspace.path)]
@@ -438,10 +475,19 @@ def run(argv: list[str] | None = None) -> int:
             try:
                 done, usage = session(command, args.skill, env)
                 if done.returncode == 0 and pr_model:
-                    pr = threat_model_pr(args.run_id, args.repo, Path(target[0]), pr_model, env)
+                    if order_id is not None:
+                        _check_session_claim(order_id, args)
+                    pr = threat_model_pr(
+                        args.run_id,
+                        args.repo,
+                        Path(target[0]),
+                        pr_model,
+                        env,
+                        args.lease_generation,
+                    )
                     if pr is not None:
                         done, usage = pr[0], usage + pr[1]
-            except (OSError, ServiceError, subprocess.CalledProcessError) as e:
+            except (OSError, TraustError, subprocess.CalledProcessError) as e:
                 print(f"run {args.run_id}: {OrderReason.RUNNER_CRASHED}: {e}", file=sys.stderr)
                 return answer(_spent(JobResult.failed(OrderReason.RUNNER_CRASHED), usage))
     except (ValidationError, NotFoundError, ServiceError) as e:
@@ -547,6 +593,14 @@ def run(argv: list[str] | None = None) -> int:
     return answer(_spent(JobResult.succeeded(), usage))
 
 
+def _check_session_claim(order_id: UUID, args: argparse.Namespace) -> None:
+    core = load(args.config_home)
+    worker = WorkerId(load_recorder(core).ref)
+    if args.worker is not None and args.worker != worker:
+        raise ValidationError("session worker differs from its recording principal")
+    leased_session_order(core.services(), core.clock, order_id, worker, args.lease_generation)
+
+
 def order_assessments(order_id: UUID, config_home: Path | None) -> list[Assessment]:
     """What the order recorded, as its record doors bound it (`--run-id`)."""
     return load(config_home).services().assessment.list_for_order(order_id)
@@ -560,7 +614,8 @@ def _work_item_covered(
     if prepared.subject.repository_id != repository_id or not (item.fork and item.fix_commit):
         raise ValidationError("verification order has no bound patched work item")
     runs = {
-        a.id for a in services.assessment.list_for_order(order_id)
+        a.id
+        for a in services.assessment.list_for_order(order_id)
         if str(a.id) in ids and a.run_order_id == order_id and a.status == "completed"
     }
     return {
@@ -592,7 +647,8 @@ def _sweep_covered(
         else services.assessment.list_for_repository(repository_id, AssessmentKind.VERIFICATION)
     )
     runs = [
-        a for a in candidates
+        a
+        for a in candidates
         if str(a.id) in ids
         and (order_id is None or a.run_order_id == order_id)
         and a.status == "completed"
@@ -601,22 +657,25 @@ def _sweep_covered(
     if not runs or {str(a.id) for a in runs} != ids or head is None or head.id is None:
         return False
     expected = {
-        view.finding.id
-        for view in services.findings.on_ref(head.id)
-        if view.finding.id is not None
+        view.finding.id for view in services.findings.on_ref(head.id) if view.finding.id is not None
     }
     recorded = {a.id for a in runs}
     covered: set[UUID] = set()
     regressions: set[UUID] = set()
     current_runs: set[UUID] = set()
     for v in every_item(
-        lambda page: services.verification.list(VerificationFilter(repository_id=repository_id), page)
+        lambda page: services.verification.list(
+            VerificationFilter(repository_id=repository_id), page
+        )
     ):
         if v.verification_id not in recorded:
             continue
         ref = services.portfolio.inventory.get_ref(v.repository_ref_id)
         if (ref.repository_id, ref.name, ref.kind, ref.sha) == (
-            repository_id, head.name, head.kind, head.sha
+            repository_id,
+            head.name,
+            head.kind,
+            head.sha,
         ):
             current_runs.add(v.verification_id)
             covered.update(verdict.finding_id for verdict in v.verdicts)
@@ -628,7 +687,8 @@ def _sweep_covered(
         # Newly discovered regressions were not targets in the original worklist. A finding
         # reported anywhere else remains in scope, even if this order also called it a regression.
         expected -= {
-            finding for finding in regressions
+            finding
+            for finding in regressions
             if origins.get(finding) and origins[finding] <= current_runs
         }
     latest = services.portfolio.default_ref(repository_id)
@@ -644,7 +704,9 @@ def _triage_source(
     order_id: UUID, args: argparse.Namespace
 ) -> tuple[UUID, GitSha, tuple[str, ...]]:
     core = load(args.config_home)
-    order = scoped_recording_order(core, order_id, RecordKind.TRIAGE, SourceType.TRIAGE_REPORT)
+    order = scoped_recording_order(
+        core, order_id, RecordKind.TRIAGE, SourceType.TRIAGE_REPORT, args.lease_generation
+    )
     assert order.repository_id is not None
     services = core.services()
     repository = services.portfolio.get_repository(order.repository_id)
@@ -734,19 +796,21 @@ def prepare(argv: list[str] | None = None) -> int:
     ap.add_argument("--mode", required=True)
     ap.add_argument("--repo", required=True)
     ap.add_argument("--task", required=True, type=Path)
-    ap.add_argument("--run-id", default="manual")
+    ap.add_argument("--run-id", type=_order_id, default="manual")
     ap.add_argument("--worker")
+    add_lease_generation_arg(ap)
     args = ap.parse_args(argv)
 
     def call() -> str:
         _, runner = _runner(args.config_home)
-        task = runner.prepare(
+        task, _ = runner.prepare(
             args.skill,
             args.mode,
             args.repo,
             args.task,
-            _order_id(args.run_id),
-            WorkerId(args.worker) if args.worker else None,
+            args.run_id,
+            WorkerId(args.worker) if args.worker is not None else None,
+            lease_generation=args.lease_generation,
         )
         return task.payload.decode()
 
@@ -754,14 +818,18 @@ def prepare(argv: list[str] | None = None) -> int:
 
 
 def record(argv: list[str] | None = None) -> int:
-    ap = parser("session", "record", "Validate and record the staged task's declared output.")
+    ap = parser(
+        "session",
+        "record",
+        "Record the declared output under the original claim staged by session prepare.",
+    )
     ap.add_argument("--task", required=True, type=Path)
     ap.add_argument("--worker")
     args = ap.parse_args(argv)
     try:
         _, runner = _runner(args.config_home)
         result = runner.record(
-            args.task.resolve(), worker=WorkerId(args.worker) if args.worker else None
+            args.task.resolve(), worker=WorkerId(args.worker) if args.worker is not None else None
         )
     except (OSError, TraustError, pydantic.ValidationError, ValueError) as error:
         print(f"session record: {type(error).__name__}", file=sys.stderr)
@@ -776,11 +844,12 @@ def artifact_run(
     repo: str | None,
     run_id: str,
     worker: str | None,
+    lease_generation: int | None,
     config_home: Path | None,
     extra: list[str],
 ) -> int:
     result: SessionResult | None = None
-    holder = WorkerId(worker) if worker else None
+    holder = WorkerId(worker) if worker is not None else None
     try:
         core, runner = _runner(config_home)
         model = core.model_catalog.resolve_role(
@@ -795,8 +864,17 @@ def artifact_run(
     with tempfile.TemporaryDirectory(prefix="traust-session-") as temporary:
         root = (Path(temporary) / "task").resolve()
         try:
-            runner.prepare(skill, mode, repo, root, order_id, holder, extra)
-            staged = runner.task(root)
+            staged = runner.prepare(
+                skill,
+                mode,
+                repo,
+                root,
+                order_id,
+                holder,
+                extra,
+                lease_generation=lease_generation,
+                persist_binding=False,
+            )
         except NotFoundError:
             return answer(JobResult.refused(OrderReason.NOT_FOUND))
         except ValidationError:
@@ -867,7 +945,12 @@ def artifact_run(
 
 
 def threat_model_pr(
-    run_id: str, url: str, clone: Path, model: str, env: Mapping[str, str]
+    run_id: str,
+    url: str,
+    clone: Path,
+    model: str,
+    env: Mapping[str, str],
+    lease_generation: int | None,
 ) -> tuple[subprocess.CompletedProcess[str], tuple[ModelUsage, ...]] | None:
     """The stamp's report-only `/threat-model pr` session on the scan's checkout; None when the
     diff is refused, said on stderr."""
@@ -876,5 +959,8 @@ def threat_model_pr(
     except DiffRefused as e:
         print(f"run {run_id}: {THREAT_MODEL_PR} skipped: diff refused: {e}", file=sys.stderr)
         return None
-    pr = prompt("threat-model", ["pr", str(clone), "--base", anchor])
+    args = ["pr", str(clone), "--base", anchor]
+    if lease_generation is not None:
+        args.extend(("--lease-generation", str(lease_generation)))
+    pr = prompt("threat-model", args)
     return session([*AGENT, "--model", model, pr], "threat-model", env)

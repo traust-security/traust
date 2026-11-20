@@ -10,7 +10,7 @@
 # Usage:
 #   run_one.sh <work-item-id>
 #   run_one.sh --next --repo-url <url>
-#   run_one.sh                      (under a run order: $TRAUST_RUN_ID names the work item)
+#   run_one.sh --lease-generation N  (under a run order: $TRAUST_RUN_ID names the work item)
 #
 # Output (stdout): JSON describing the prepared workspace.
 
@@ -32,18 +32,21 @@ traust_load_paths
 traust() { python3 -m traust.cli "$@"; }
 
 WI=""
+PREP=""
 REPO_URL=""
+lease_args=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --next)     WI="__next__"; shift;;
     --repo-url) REPO_URL="$2"; shift 2;;
+    --lease-generation) lease_args=(--lease-generation "${2:?missing lease generation}"); shift 2;;
     *)          WI="$1"; shift;;
   esac
 done
 
 if [[ -z "$WI" && -n "${TRAUST_RUN_ID:-}" ]]; then
   # the order names the work item; never the repository's next one
-  PREP="$(traust remediation prepare)" || { echo "[run_one] order $TRAUST_RUN_ID: no work item to prepare" >&2; exit 1; }
+  PREP="$(traust remediation prepare "${lease_args[@]}")" || { echo "[run_one] order $TRAUST_RUN_ID: no work item to prepare" >&2; exit 1; }
   WI="$(echo "$PREP" | python3 -c 'import sys,json; print(json.load(sys.stdin)["work_item"]["work_item_id"])')"
 elif [[ "$WI" == "__next__" || -z "$WI" ]]; then
   WI="$(traust remediation next --repo-url "${REPO_URL:?--next needs --repo-url}" \
@@ -58,7 +61,7 @@ if [[ ! "$WI" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ 
 fi
 
 if [[ -z "${PREP:-}" ]]; then
-  PREP="$(traust remediation prepare "$WI")" || { echo "[run_one] unknown work item: $WI" >&2; exit 1; }
+  PREP="$(traust remediation prepare "$WI" "${lease_args[@]}")" || { echo "[run_one] unknown work item: $WI" >&2; exit 1; }
 fi
 
 field() { echo "$PREP" | python3 -c "import sys,json;d=json.load(sys.stdin)

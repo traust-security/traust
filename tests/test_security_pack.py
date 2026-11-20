@@ -64,9 +64,8 @@ def test_every_asset_has_a_trigger_freshness_and_runner_labels() -> None:
 
 
 REGISTRY = Path(__file__).resolve().parents[1] / "config" / "model-registry.yaml"
-# What traust-engine's claim-once runner fills in: the order's id, its repository's URL, a
-# skill session's model role, a routed order's rule, and the claiming worker.
-RUNNER_PARAMS = {"run_id", "repo_url", "role", "rule", "worker"}
+# The values traust-engine substitutes into argv when it claims an order.
+RUNNER_PARAMS = {"run_id", "lease_generation", "repo_url", "role", "rule", "worker"}
 
 
 def test_every_skill_session_names_a_registry_role() -> None:
@@ -82,6 +81,32 @@ def test_every_command_param_is_one_the_runner_fills() -> None:
         assert named <= RUNNER_PARAMS, (name, named)
         assert "repo_url" not in named or asset.get("partitions") == "dynamic:repo", name
         assert "rule" not in named or "lanes" in asset["trigger"], name
+
+
+def test_only_claim_bound_doors_receive_the_original_generation() -> None:
+    from traust.cli.session import BOUND_SKILLS, REPORTING_SKILLS
+    from traust.ops.sessions import SESSIONS
+
+    for name, asset in _assets().items():
+        run = asset.get("run", [])
+        door = tuple(run[3:5])
+        needs_worker = door in {("portfolio", "observe"), ("impact", "manifest-sbom")}
+        bound = needs_worker or door == ("portfolio", "event-validate")
+        if door == ("session", "run"):
+            skill = run[run.index("--skill") + 1]
+            mode = run[run.index("--mode") + 1] if "--mode" in run else None
+            needs_worker = (skill, mode) in SESSIONS or skill in REPORTING_SKILLS
+            bound = needs_worker or skill in BOUND_SKILLS
+        if not bound:
+            assert "--lease-generation" not in run and "{lease_generation}" not in run, name
+            continue
+
+        # Before `--`: this pair goes to the recording door, not to the skill's own arguments.
+        options = run[: run.index("--")] if "--" in run else run
+        assert options[options.index("--lease-generation") + 1] == "{lease_generation}", name
+        assert options[options.index("--run-id") + 1] == "{run_id}", name
+        if needs_worker:
+            assert options[options.index("--worker") + 1] == "{worker}", name
 
 
 def test_every_runnable_skill_session_starts_through_traust_session_with_its_role() -> None:

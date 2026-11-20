@@ -11,9 +11,8 @@ from traust_core.v1.models.common import Provenance
 from traust_core.v1.models.validation import TargetAttestation, ValidationRecordInput
 
 from traust.cli._doors import (
-    add_order_started_arg,
+    add_lease_generation_arg,
     add_run_order_arg,
-    order_started_at,
     parser,
     recording_order_id,
     run,
@@ -59,7 +58,7 @@ def record_report(
     *,
     config_home: Path | None = None,
     run_id: UUID | None = None,
-    order_started: str | None = None,
+    lease_generation: int | None = None,
     target_attestation: Path | None = None,
     install_failure: Path | None = None,
 ) -> dict:
@@ -79,16 +78,20 @@ def record_report(
         updates.update(install_failure=failure, install_failed=True)
     if updates:
         recording = ValidationRecordInput.model_validate({**recording.model_dump(), **updates})
-    order_id = recording_order_id(run_id)
+    order_id = recording_order_id(run_id, lease_generation)
     core = load(config_home)
     validation = core.services().validation
     if order_id is None:
         result = validation.record(document, provenance, recording)
     else:
-        if provenance.occurred_at != order_started_at(order_started):
-            raise ValidationError("validation provenance differs from the original claim start")
+        assert lease_generation is not None
         result = validation.record_order(
-            document, provenance, recording, order_id, load_recorder(core)
+            document,
+            provenance,
+            recording,
+            order_id,
+            load_recorder(core),
+            lease_generation=lease_generation,
         )
     return result.model_dump(mode="json", exclude={"findings": {"__all__": {"rationale"}}})
 
@@ -101,7 +104,7 @@ def record(argv: list[str] | None = None) -> int:
         "--provenance", required=True, type=Path, help="Actual run's core Provenance JSON."
     )
     add_run_order_arg(ap)
-    add_order_started_arg(ap)
+    add_lease_generation_arg(ap)
     ap.add_argument(
         "--target-attestation", type=Path, help="Full explicit preflight attestation JSON."
     )
@@ -118,7 +121,7 @@ def record(argv: list[str] | None = None) -> int:
                 Provenance.model_validate_json(args.provenance.read_bytes()),
                 config_home=args.config_home,
                 run_id=args.run_id,
-                order_started=args.order_started_at,
+                lease_generation=args.lease_generation,
                 target_attestation=args.target_attestation,
                 install_failure=args.install_failure,
             )
