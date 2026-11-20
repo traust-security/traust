@@ -138,12 +138,17 @@ def test_intake_and_runtime_use_the_same_gate_and_keep_the_configured_addition(
     (invalid / "policy.py").unlink()
     _, env = environment(tmp_path, {"locations": {"opengrep_adopter_rules": "../adopter"}})
 
-    intake = run_cli(env, "sweep", "intake-rules", str(valid), str(invalid))
+    destination = tmp_path / "refused-pack"
+    intake = run_cli(
+        env, "sweep", "intake-rules", str(valid), str(invalid), "--into", str(destination)
+    )
     assert intake.returncode == 1, intake.stderr
     verdict = json.loads(intake.stdout)
-    assert [r["rule_id"] for r in verdict["applied"]] == ["example.runtime"]
-    assert [r["rule_id"] for r in verdict["refused"]] == ["example.untested"]
-
+    assert verdict["admitted"] is False
+    assert verdict["applied"] == []
+    assert "destination" not in verdict
+    assert not destination.exists()
+    assert "example.untested" in {r["rule_id"] for r in verdict["refused"]}
     target = tmp_path / "target"
     target.mkdir()
     (target / "app.py").write_text("acme_unsafe(value)\nacme_safe(value)\n")
@@ -163,8 +168,92 @@ def test_intake_and_runtime_use_the_same_gate_and_keep_the_configured_addition(
     assert scan.returncode == 0, scan.stderr
     report = json.loads(output.read_text())
     assert report["outcome"] == "degraded"
-    assert report["additive_rules"]["refused"] == verdict["refused"]
+    assert "example.untested" in {
+        receipt["rule_id"] for receipt in report["additive_rules"]["refused"]
+    }
     assert {f["rule_id"] for f in report["facts"] if f["origin"].startswith("additive:")} == {
         "example.adopter",
         "example.runtime",
     }
+
+
+def test_native_intake_publishes_multiple_sources_then_scans_the_accepted_bytes(
+    tmp_path: Path,
+) -> None:
+    first = rule_pack(tmp_path / "first", "example.first")
+    second = rule_pack(tmp_path / "second", "example.second")
+    _, env = environment(tmp_path)
+    destination = tmp_path / "accepted"
+    intake = run_cli(
+        env, "sweep", "intake-rules", str(first), str(second), "--into", str(destination)
+    )
+    assert intake.returncode == 0, intake.stderr
+    verdict = json.loads(intake.stdout)
+    assert verdict["admitted"] is True
+    assert Path(verdict["destination"]) == destination
+    assert verdict["refused"] == []
+    assert {check["name"] for check in verdict["quality_checks"]} == {"validate", "test"}
+    assert all(check["passed"] for check in verdict["quality_checks"])
+    assert len(list(destination.rglob("policy.yaml"))) == 2
+    assert len(list(destination.rglob("policy.py"))) == 2
+    shutil.rmtree(first)
+    shutil.rmtree(second)
+    target = tmp_path / "target"
+    target.mkdir()
+    (target / "app.py").write_text("acme_unsafe(value)\nacme_safe(value)\n")
+    output = tmp_path / "facts.json"
+    scan = run_cli(
+        env, "adapters", "opengrep", str(target), "--add-rules", str(destination),
+        "--out", str(output),
+    )
+    assert scan.returncode == 0, scan.stderr
+    report = json.loads(output.read_text())
+    assert {"example.first", "example.second"} <= {
+        fact["rule_id"] for fact in report["facts"]
+    }
+    assert not (tmp_path / "store" / "traust.db").exists()
+
+
+@pytest.mark.parametrize(
+    "failure", ["invalid-schema", "missing-negative", "unexpected-match", "no-tests"]
+)
+def test_native_intake_refuses_before_publishing(tmp_path: Path, failure: str) -> None:
+    source = rule_pack(tmp_path / "private")
+    fixture = source / "policy.py"
+    if failure == "invalid-schema":
+        rule = source / "policy.yaml"
+        rule.write_text(rule.read_text().replace("    pattern:", "    unknown-pattern:"))
+    elif failure == "missing-negative":
+        fixture.write_text("# ruleid: acme.custom.rule\nacme_unsafe(value)\n")
+    elif failure == "unexpected-match":
+        fixture.write_text(fixture.read_text() + "acme_unsafe(other)\n")
+    else:
+        fixture.unlink()
+    _, env = environment(tmp_path)
+    destination = tmp_path / "accepted"
+    result = run_cli(
+        env, "sweep", "intake-rules", str(source), "--into", str(destination)
+    )
+    assert result.returncode == 1, result.stderr
+    verdict = json.loads(result.stdout)
+    assert verdict["admitted"] is False
+    assert verdict["applied"] == []
+    assert verdict["refused"]
+    assert "destination" not in verdict
+    assert not destination.exists()
+    assert not (tmp_path / "store" / "traust.db").exists()
+
+
+def test_native_intake_never_overwrites_an_existing_destination(tmp_path: Path) -> None:
+    source = rule_pack(tmp_path / "private")
+    _, env = environment(tmp_path)
+    destination = tmp_path / "installed"
+    destination.mkdir()
+    marker = destination / "keep.txt"
+    marker.write_bytes(b"installed bytes\n")
+    result = run_cli(
+        env, "sweep", "intake-rules", str(source), "--into", str(destination)
+    )
+    assert result.returncode in (1, 2), result.stdout
+    assert list(destination.iterdir()) == [marker]
+    assert marker.read_bytes() == b"installed bytes\n"

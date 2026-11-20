@@ -27,16 +27,23 @@ themselves are `.yaml`.
 
 ## Required rule-quality gate
 
-Before proposing or enabling a rule, run the shared gate with the pinned
-[opengrep](https://github.com/opengrep/opengrep) available on `PATH`:
+Keep candidate rules, paired fixtures and attribution in a private complete-pack
+directory. With pinned [opengrep](https://github.com/opengrep/opengrep) on `PATH`,
+use the same publisher for mined and adopter rules:
 
 ```bash
-traust sweep check-rules packs/security/detection/opengrep-rules
+python3 -m traust.cli sweep intake-rules <private-complete-pack> --into <new-accepted-pack>
 ```
 
-For iteration, pass a language directory or your adopter's rule directory.
-Promotion requires checking the complete pack, not just its changed rule or
-the subset selected for scanning.
+Intake snapshots sources into private stable staging and publishes only the
+checked bytes after both native checks succeed. Refusals create no accepted
+destination; installed packs are never overwritten. Local files/directories and
+pinned HTTPS Git sources are supported, including multiple sources. Exit 0 with
+`admitted: true` means published, 1 refused, 2 typed error. Inspect JSON
+`quality_checks`, `applied` and `refused`. Admission is not activation.
+Never merge candidate CATEGORY files into an installed pack before intake.
+`traust sweep check-rules <path>` and `make check-rules` remain optional local
+diagnostics, not publishers; no CI or first-scan fallback replaces intake.
 
 The gate requires native `opengrep validate` and
 `opengrep test --json --strict` to succeed. Every rule ID must have both
@@ -84,8 +91,8 @@ traust impact calibrate-rule-pack traust --scan <assessment-uuid> --scan <assess
 
 Fixture-sanity and live checkout rescans (`--fixtures`, `--rules`, `--limit`)
 are not available: traust-core's detection-quality door scores recorded scans
-only. Use `traust sweep check-rules <pack-directory>` for the mandatory native
-validation, exact fixture assertions and per-rule positive/negative coverage.
+only. Use complete-pack intake for pre-write admission; `traust sweep check-rules
+<pack-directory>` offers the same native checker as an optional diagnostic.
 
 ## Rule conventions
 
@@ -112,14 +119,17 @@ Rule origins are additive:
 - **Portfolio/ledger mining:** `traust sweep mine` retains the finding-driven coverage and
   authoring backlog. `regression-drafts` supplies fix pairs and `rule-lane` retains scheduled
   mining/sweep operations; see the [mining skill](../../../../harnessing/mine-ledger/SKILL.md).
-- **Adopter-authored rules:** use `traust sweep intake-rules <source>` to vet proposals.
-  After semantic review and calibration, promote reviewed rules and fixtures to the
-  directory named by `locations.opengrep_adopter_rules`. A scan can also opt in to
-  optional sources with repeatable `--add-rules`. This does not disable mining.
+- **Adopter-authored rules:** use the same complete-pack intake command above.
+  After semantic review and recorded-scan calibration, explicitly point
+  `locations.opengrep_adopter_rules` at the accepted directory for default Opengrep
+  facts scans only, not registered artifact scanners. A scan can also opt in to
+  optional sources with repeatable `--add-rules`; `--rules` remains an exclusive
+  replacement and cannot be combined with additions. This does not disable mining.
 
-Both origins require the same native quality gate before scanning. Proposal admission also
-retains its static checks and checkout limits; enabling a supplied pack is not a substitute
-for semantic review, recorded-scan calibration or the promotion process.
+Both origins require pre-write native admission. Proposal admission retains its
+static checks and checkout limits but creates a draft, not an installed pack.
+Neither admission nor enabling a pack proves exploitability or replaces semantic
+review, calibration and explicit activation.
 
 Submit a proposed rule and its annotated examples through the admission door:
 

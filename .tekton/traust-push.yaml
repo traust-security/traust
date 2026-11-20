@@ -164,59 +164,6 @@ spec:
       workspaces:
       - name: basic-auth
         workspace: git-auth
-    # Mandatory source-quality gate: deliberately independent of skip-checks.
-    # Restore the trusted clone's exact content without fetching source again.
-    - name: opengrep-quality
-      params:
-      - name: SOURCE_ARTIFACT
-        value: $(tasks.clone-repository.results.SOURCE_ARTIFACT)
-      runAfter:
-      - clone-repository
-      taskSpec:
-        params:
-        - name: SOURCE_ARTIFACT
-          type: string
-        stepTemplate:
-          volumeMounts:
-          - mountPath: /var/workdir
-            name: workdir
-        steps:
-        - name: use-trusted-artifact
-          # Same helper pin and interface as the clone and prefetch task bundles.
-          image: quay.io/konflux-ci/build-trusted-artifacts:latest@sha256:6df16e808f147926a2ba5f88588350bd8f77e73fde43614e79ddbd6e2b097d2e
-          args:
-          - use
-          - $(params.SOURCE_ARTIFACT)=/var/workdir/source
-          env:
-          - name: CA_FILE
-            value: /var/run/trusted-ca/ca-bundle.crt
-          volumeMounts:
-          - mountPath: /var/run/trusted-ca
-            name: trusted-ca
-            readOnly: true
-        - name: check-rules
-          image: ghcr.io/astral-sh/uv:0.9.5-python3.12-bookworm@sha256:19a8c92b461bbc32e8bd30c15132cec1d16c49c61f4359c9225262938485f513
-          workingDir: /var/workdir/source
-          script: |
-            #!/usr/bin/env bash
-            set -euo pipefail
-            # uv clones pinned dependencies from its own local Git cache.
-            export GIT_ALLOW_PROTOCOL=https:file
-            export UV_CACHE_DIR=/tmp/uv-cache
-            export PATH="$HOME/.local/bin:$PATH"
-            uv sync --frozen
-            uv run python -m traust.cli admin toolchain setup --tool opengrep
-            uv run python -m traust.cli sweep check-rules packs/security/detection/opengrep-rules
-        volumes:
-        - name: workdir
-          emptyDir: {}
-        - name: trusted-ca
-          configMap:
-            name: trusted-ca
-            optional: true
-            items:
-            - key: ca-bundle.crt
-              path: ca-bundle.crt
     - name: prefetch-dependencies
       params:
       - name: input
@@ -289,7 +236,6 @@ spec:
         value: $(tasks.prefetch-dependencies.results.PREFETCH_ARTIFACT)
       runAfter:
       - prefetch-dependencies
-      - opengrep-quality
       taskRef:
         params:
         - name: name

@@ -101,17 +101,50 @@ def test_intake_emits_receipts_and_fails_when_any_rule_is_refused(
 ) -> None:
     parser = argparse.ArgumentParser()
     sweep.add_intake_rules_args(parser)
-    args = parser.parse_args(["adopter"])
+    args = parser.parse_args(["adopter", "--into", "accepted"])
     args.config_home = None
     monkeypatch.setattr(sweep, "load", lambda _: object())
-    receipts = {"applied": [], "refused": [{"rule_id": "a-rule", "check": "test"}]}
+    receipts = {
+        "admitted": False,
+        "applied": [],
+        "refused": [{"rule_id": "a-rule", "check": "test"}],
+    }
 
-    def report(_ctx, sources, **_options):
+    def report(_ctx, sources, destination, **_options):
         assert sources == ["adopter"]
+        assert destination == Path("accepted")
         return receipts
 
-    monkeypatch.setattr(sweep, "opengrep_intake_report", report)
+    monkeypatch.setattr(sweep, "intake_opengrep_rules", report)
     assert sweep.call_intake_rules(args) == 1
+    assert json.loads(capsys.readouterr().out) == receipts
+
+
+def test_intake_requires_a_new_destination() -> None:
+    parser = argparse.ArgumentParser()
+    sweep.add_intake_rules_args(parser)
+    with pytest.raises(SystemExit) as error:
+        parser.parse_args(["adopter"])
+    assert error.value.code == 2
+
+
+def test_intake_success_is_reported_only_for_admitted_publication(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    parser = argparse.ArgumentParser()
+    sweep.add_intake_rules_args(parser)
+    args = parser.parse_args(["adopter", "--into", "accepted"])
+    args.config_home = None
+    monkeypatch.setattr(sweep, "load", lambda _: object())
+    receipts = {
+        "admitted": True,
+        "destination": "accepted",
+        "applied": [{"rule_id": "a-rule"}],
+        "refused": [],
+        "quality_checks": [],
+    }
+    monkeypatch.setattr(sweep, "intake_opengrep_rules", lambda *_args, **_kwargs: receipts)
+    assert sweep.call_intake_rules(args) == 0
     assert json.loads(capsys.readouterr().out) == receipts
 
 

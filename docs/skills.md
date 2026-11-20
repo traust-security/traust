@@ -476,7 +476,7 @@ Use when the user asks how many lines of code have been scanned/audited, wants a
 
 ## mine-ledger
 
-Use when the user asks to mine the disposition ledger for confirmed true positives, build or refresh the rule-calibration corpus, find rule-pack coverage gaps, check per-rule precision, or vet proposed additive OpenGrep rules. Runs out-of-band from audits; audits feed it via structured scanner_correlation entries. Use sweep intake-rules to vet adopter proposals without activating them. Promotion still requires strict native fixtures, semantic review and calibration. Adopter rules do not replace portfolio mining.
+Mines confirmed dispositions for rule coverage and precision; graph/database queries scope rather than replace portfolio mining. Authors and calibrates private mined or adopter candidates, then requires `python3 -m traust.cli sweep intake-rules <source>... --into <NEW_DEST>` before installation. Native validation and strict complete positive/negative fixtures must pass before publishing checked bytes. Semantic review, recorded-scan calibration and explicit activation remain separate; admission does not prove exploitability.
 
 - **Stage:** —
 - **Tier:** `secondary`
