@@ -270,7 +270,7 @@ def test_image_installs_and_executes_only_verified_platform_asset(tmp_path: Path
     assert result.returncode == 0, result.stdout + result.stderr
     installed = tmp_path / "image" / "out" / "bin" / "opengrep"
     assert installed.read_bytes() == PAYLOAD
-    assert installed.stat().st_mode & 0o111 == 0o111
+    assert installed.stat().st_mode & 0o777 == 0o755
     assert (tmp_path / "executed").read_text().splitlines() == ["invoked"]
     assert (tmp_path / "permissions").exists()
     assert (tmp_path / "downloads").read_text().splitlines() == [

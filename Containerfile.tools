@@ -113,7 +113,7 @@ RUN set -eu; \
       "https://github.com/opengrep/opengrep/releases/download/v${OPENGREP_VERSION}/${asset}" \
       -o "$tmp"; \
     printf '%s  %s\n' "$expected" "$tmp" | sha256sum -c -; \
-    chmod +x "$tmp"; \
+    chmod 0755 "$tmp"; \
     mv "$tmp" /out/bin/opengrep; \
     /out/bin/opengrep --version | grep -q "${OPENGREP_VERSION}" \
     || { echo "FATAL: opengrep reports a version other than ${OPENGREP_VERSION}" >&2; exit 1; }
