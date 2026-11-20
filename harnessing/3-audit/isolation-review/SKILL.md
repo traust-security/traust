@@ -8,6 +8,10 @@ metadata:
 
 # Tenant-Isolation Review (service-level)
 
+For a scheduled run, take `--lease-generation N` from the session invocation
+(before interpreting positional inputs). Keep the inherited `TRAUST_RUN_ID` and pass
+that exact N to record; never look it up again. Omit the flag in standalone runs.
+
 > **Paths.** `analysis-results/…` and `progress-tracker/…` in this skill are the
 > default workspace layout. They resolve through `locations:` in `traust.yaml` in
 > `$TRAUST_CONFIG_HOME` (`docs/setup.md`, Storage locations); substitute your
@@ -169,7 +173,7 @@ if nothing supports a score, the score is wrong or the review is incomplete.
    then every gap names a listed interface) and records nothing when it fails:
 
    ```bash
-   python3 -m traust.cli reporting record \
+   python3 -m traust.cli reporting record [--lease-generation N] \
      analysis-results/isolation/<service-slug>/<service-slug>-isolation-review.json \
      --kind isolation_review --repo-url <repo url> --sha <commit> --branch <branch>   # once per repo
    ```

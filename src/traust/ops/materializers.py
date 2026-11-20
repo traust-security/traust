@@ -15,6 +15,8 @@ from uuid import UUID
 from traust_core.v1.context import Services
 from traust_core.v1.errors import (
     ConfigError,
+    ConflictError,
+    ForbiddenError,
     IntegrityError,
     NotFoundError,
     RepositoryError,
@@ -26,7 +28,13 @@ from traust_core.v1.models.below_range import BelowRangeStatus
 from traust_core.v1.models.dependencies import FeedName
 from traust_core.v1.models.insight import RenderedView, ViewFilter, ViewName
 from traust_core.v1.models.observation import ComparisonStatus
-from traust_core.v1.models.operations import AssetRequest, DegradedKey, JobResult, OrderReason
+from traust_core.v1.models.operations import (
+    AssetRequest,
+    DegradedKey,
+    JobResult,
+    OrderReason,
+    WorkerId,
+)
 from traust_core.v1.models.values import GitSha, HttpsRepoUrl
 
 log = logging.getLogger(__name__)
@@ -54,17 +62,32 @@ class RepoStateMaterializer:
     def __init__(self, services: Services) -> None:
         self._portfolio = services.portfolio
 
-    def materialize(self, request: AssetRequest) -> JobResult:
+    def materialize(
+        self,
+        request: AssetRequest,
+        *,
+        worker: WorkerId | None = None,
+        lease_generation: int | None = None,
+    ) -> JobResult:
         try:
             url = _repo_url(request.partition or "")
-        except ValidationError as e:
+            order_id = _order_id(request.run_id)
+        except (ValidationError, ValueError) as e:
             log.warning("run %s: %s: %s", request.run_id, OrderReason.BAD_REQUEST, e)
             return JobResult.failed(OrderReason.BAD_REQUEST)
         try:
-            facts = self._portfolio.record_forge_facts(repo_url=str(url))
+            facts = self._portfolio.record_forge_facts(
+                repo_url=str(url),
+                run_order_id=order_id,
+                worker=worker,
+                lease_generation=lease_generation,
+            )
         except NotFoundError as e:
             log.warning("run %s: %s: %s", request.run_id, OrderReason.NOT_FOUND, e)
             return JobResult.refused(OrderReason.NOT_FOUND)
+        except (ConflictError, ForbiddenError, ValidationError) as e:
+            log.warning("run %s: %s: %s", request.run_id, OrderReason.BAD_REQUEST, e)
+            return JobResult.failed(OrderReason.BAD_REQUEST)
         if facts.status in ANSWERED:
             return JobResult.succeeded()
         return JobResult.partly({facts.status.value: 1})
@@ -81,10 +104,17 @@ class ManifestSbomMaterializer:
         self._exposure = services.exposure
         self._hosts = tuple(hosts)
 
-    def materialize(self, request: AssetRequest) -> JobResult:
+    def materialize(
+        self,
+        request: AssetRequest,
+        *,
+        worker: WorkerId | None = None,
+        lease_generation: int | None = None,
+    ) -> JobResult:
         try:
             url = HttpsRepoUrl.parse(request.partition or "", self._hosts)
-        except ValidationError as e:
+            order_id = _order_id(request.run_id)
+        except (ValidationError, ValueError) as e:
             log.warning("run %s: %s: %s", request.run_id, OrderReason.BAD_REQUEST, e)
             return JobResult.failed(OrderReason.BAD_REQUEST)
         repo = self._portfolio.find_repository(url)
@@ -98,8 +128,13 @@ class ManifestSbomMaterializer:
             )
             return JobResult.refused(OrderReason.NOT_FOUND)
         try:
-            sbom = self._exposure.record_manifest_sbom(head.id)
-        except (ConfigError, ValidationError) as e:
+            sbom = self._exposure.record_manifest_sbom(
+                head.id,
+                run_order_id=order_id,
+                worker=worker,
+                lease_generation=lease_generation,
+            )
+        except (ConfigError, ConflictError, ForbiddenError, ValidationError) as e:
             log.warning("run %s: %s: %s", request.run_id, OrderReason.BAD_REQUEST, e)
             return JobResult.failed(OrderReason.BAD_REQUEST)
         except ServiceError as e:

@@ -7,6 +7,8 @@ from __future__ import annotations
 import contextlib
 import io
 import json
+import shutil
+import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -91,7 +93,53 @@ def gitleaks_on_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     stub.mkdir()
     (stub / "gitleaks").write_text("#!/bin/sh\necho 999.0.0\n")
     (stub / "gitleaks").chmod(0o755)
+    if signer := shutil.which("cosign"):
+        (stub / "cosign").symlink_to(signer)
     monkeypatch.setenv("PATH", str(stub))
+
+
+def _enable_writers(config: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    if not shutil.which("cosign"):
+        pytest.skip("positive decision-writer doctor test requires cosign")
+    syft = tmp_path / "bin" / "syft"
+    syft.write_text("#!/bin/sh\necho 999.0.0\n")
+    syft.chmod(0o755)
+    monkeypatch.setenv("COSIGN_PASSWORD", "")
+    monkeypatch.setenv("TEST_VALVE_SALT", "doctor-test-salt")
+    subprocess.run(
+        ["cosign", "generate-key-pair", "--output-key-prefix", str(tmp_path / "cosign")],
+        check=True,
+        capture_output=True,
+        timeout=30,
+    )
+    path = config / "traust.yaml"
+    settings = yaml.safe_load(path.read_text()) | {
+        "home": str(tmp_path / "store"),
+        "identity": {"trust_local": True},
+        "review": {"valve_salt_env": "TEST_VALVE_SALT"},
+        "process": {"allowed_binaries": ["syft"]},
+        "ledger": {
+            "key_path": str(tmp_path / "cosign.key"),
+            "public_key_path": str(tmp_path / "cosign.pub"),
+            "required": True,
+        },
+    }
+    path.write_text(yaml.safe_dump(settings))
+    load(config).local_issuer.mint("doctor-test", machine=True)
+
+
+BARE_HOME_GAPS = [
+    "syft: not allowed -- add syft to process.allowed_binaries",
+    "syft: not found on PATH (install it at the external-tools.yaml pin, syft >= 1.48.0)",
+    *(
+        f"config: `{key}` is not set -- set it in traust.yaml (copy traust.example.yaml to start)"
+        for key in ("identity", "ledger", "review")
+    ),
+    "traust.yaml: locations.workspace unset",
+    "traust.yaml: locations.analysis_results unset",
+    "traust.yaml: locations.progress_tracker unset",
+    "traust.yaml: ledger.public_key_path unset — layer signatures are not verified",
+]
 
 
 def test_a_reachable_store_and_every_providers_readiness(
@@ -129,6 +177,7 @@ def test_an_unreachable_store_fails_and_skips_the_catalog(
 def test_main_reports_the_core_rows_and_exits_by_failures(
     monkeypatch: pytest.MonkeyPatch, home: Path, gitleaks_on_path: None
 ) -> None:
+    _enable_writers(home, home.parent, monkeypatch)
     asked = stub(monkeypatch, lambda page: SimpleNamespace(items=[]))
     for check in ("check_python", "check_tools", "check_gates"):
         monkeypatch.setattr(doctor, check, lambda results: None)
@@ -160,12 +209,7 @@ def test_a_required_gap_is_a_fail_row_and_a_nonzero_exit(
     (home / "traust.yaml").write_text(yaml.safe_dump({"home": str(tmp_path / "store")}))
     rc, rows = _doctor(home, monkeypatch)
     assert rc == 1
-    assert [r["check"] for r in rows if r["status"] == "FAIL"] == [
-        "traust.yaml: locations.workspace unset",
-        "traust.yaml: locations.analysis_results unset",
-        "traust.yaml: locations.progress_tracker unset",
-        "traust.yaml: ledger.public_key_path unset — layer signatures are not verified",
-    ]
+    assert [r["check"] for r in rows if r["status"] == "FAIL"] == BARE_HOME_GAPS
 
 
 def test_an_unset_feed_key_variable_is_a_fail_row_not_a_crash(
@@ -194,6 +238,15 @@ def _pack_requires(path: Path) -> list[Requirement]:
         for asset in raw["assets"].values()
         if asset.get("enabled") is not False and asset.get("requires")
     ]
+
+
+def test_remediation_alone_refuses_a_missing_writer_ledger(tmp_path: Path) -> None:
+    home = tmp_path / "config"
+    home.mkdir()
+    (home / "traust.yaml").write_text(yaml.safe_dump({"home": str(tmp_path / "store")}))
+    asset = yaml.safe_load(doctor.PACK_ASSETS.read_text())["assets"]["remediate_finding"]
+    with pytest.raises(PreflightError, match="config: `ledger` is not set"):
+        load(home).preflight([Requirement(**asset.get("requires", {}))])
 
 
 PACK_FIXTURE = """\
@@ -259,12 +312,7 @@ def test_a_fresh_home_from_traust_example_yaml_names_exactly_what_is_still_neede
     (home / "model-registry.yaml").write_text((repo / "config" / "model-registry.yaml").read_text())
     rc, rows = _doctor(home, monkeypatch)
     assert rc == 1
-    assert [r["check"] for r in rows if r["status"] == "FAIL"] == [
-        "traust.yaml: locations.workspace unset",
-        "traust.yaml: locations.analysis_results unset",
-        "traust.yaml: locations.progress_tracker unset",
-        "traust.yaml: ledger.public_key_path unset — layer signatures are not verified",
-    ]
+    assert [r["check"] for r in rows if r["status"] == "FAIL"] == BARE_HOME_GAPS
 
     (home / "traust.yaml").write_text(
         (repo / "config" / "traust.example.yaml").read_text()
@@ -279,13 +327,14 @@ def test_a_fresh_home_from_traust_example_yaml_names_exactly_what_is_still_neede
             }
         )
     )
+    _enable_writers(home, tmp_path, monkeypatch)
     rc, rows = _doctor(home, monkeypatch)
     assert rc == 0
     assert "preflight: every enabled asset's requirements are met" in [r["check"] for r in rows]
 
 
 def test_a_missing_gitleaks_fails_for_the_packs_repo_state(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, gitleaks_on_path: None
 ) -> None:
     """repo_state requires gitleaks (core's observation scans each change's patch for
     secrets): a runner without it is a FAIL row naming the install pin — the gap the
@@ -293,15 +342,13 @@ def test_a_missing_gitleaks_fails_for_the_packs_repo_state(
     home = tmp_path / "config"
     home.mkdir()
     _fill(home, tmp_path)
-    empty = tmp_path / "empty-bin"
-    empty.mkdir()
-    monkeypatch.setenv("PATH", str(empty))
+    _enable_writers(home, tmp_path, monkeypatch)
+    (tmp_path / "bin" / "gitleaks").unlink()
     rc, rows = _doctor(home, monkeypatch)
     assert rc == 1
     fails = [r["check"] for r in rows if r["status"] == "FAIL"]
-    assert [
-        c for c in fails if c.startswith("gitleaks: not found on PATH")
-    ] == fails  # the pack's one tool row, and nothing else, on a complete home
+    assert len(fails) == 1
+    assert fails[0].startswith("gitleaks: not found on PATH")
     assert "external-tools.yaml pin" in fails[0]
 
 

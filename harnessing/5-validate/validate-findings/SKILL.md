@@ -408,9 +408,12 @@ python3 harnessing/5-validate/validate-findings/run.py <source>[,<source>...] \
 ```
 
 This runner requires `environment: lab`, an unexpired authorized scope, explicit
-target attestation and current-policy bindings. It establishes a real run UUID
-and start time before execution, passes that typed provenance directly, and calls
-the same record door as the standalone invocation below. This is not the full
+target attestation and current-policy bindings. It establishes provenance at
+execution, not at claim time. When scheduled, pass the literal `--lease-generation N`
+from the skill invocation to `run.py` (or to `validation record` for an existing
+report); leave the run ID inherited. Never fetch a new generation to record old
+evidence. A standalone run omits the flag. The runner calls the same record door
+as the standalone invocation below. This is not the full
 plan24 service port: prepare/plan/authorize/execute still use existing local
 owners and their scope guard. Never use this runner to bypass interactive
 approval outside an explicitly authorized isolated lab.

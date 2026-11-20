@@ -160,11 +160,14 @@ proof that the repository is clean. A re-audit finding that names an already
 recorded finding under another identity is held for a person's rebaseline review.
 Plan 15's decision 5 may change whether `secure_code` recording admits findings.
 
-`reporting record` and `cloud-config record` take `--run-id <order-uuid>` (default:
-`$TRAUST_RUN_ID`, which `traust session run` sets for the agent it starts, along with
-`$TRAUST_CONFIG_HOME` when the session was given `--config-home`). The assessment is then that
-leased order's result: core refuses an order that isn't leased, whose lease expired, or whose
-scope is another repository or none. An ordered `secure-code-audit`, `vuln-scan` or
+`reporting record` and `cloud-config record` accept `--run-id <order-uuid>`
+(default: `$TRAUST_RUN_ID` inside a scheduled session). Bound writes also require
+`--lease-generation <integer>` from the **original claim** and the claiming machine's
+credential. `traust session run` passes the literal generation to the recording skill;
+the skill passes it to the record command. There is no attempt environment variable.
+Standalone writers omit both order and generation. Core refuses stale attempts (including
+after the same worker reclaims an order), expired leases and other repositories.
+An ordered `secure-code-audit`, `vuln-scan` or
 `cloud-config-audit` session succeeds only if this attempt recorded an assessment of the
 skill's kind for its order (an earlier attempt's doesn't count); otherwise it fails with
 `session-output-invalid`, so a session that never recorded can't pass as done. `written`
@@ -333,7 +336,7 @@ It requires recorded packets, OSV API access, a model registry and Claude Code s
 restricted mode and runner-owned permission hooks (verified with 2.1.312).
 
 ```bash
-traust session run --skill dependency-watch --mode below-range --repo https://github.com/example/app --run-id <order-uuid> --worker <claiming-worker>
+traust session run --skill dependency-watch --mode below-range --repo https://github.com/example/app --run-id <order-uuid> --worker <claiming-worker> --lease-generation <generation-from-claim>
 ```
 
 The runner launches from the harness directory. The session reads `task.json`, staged
@@ -353,8 +356,10 @@ traust session record --task /tmp/review-task
 ```
 
 A manual task has a null run ID; its review remains unattributed and its audit entry is
-printed. For an ordered interactive task, give `--run-id` and `--worker` during preparation,
-then the same `--worker` during recording. Missing/invalid output fails with
+printed. For an ordered interactive task, give `--run-id`, `--worker` and the original
+`--lease-generation` during preparation, then the same `--worker` during recording.
+The staged task is bound to that attempt: reclaim requires a newly prepared task,
+not relabeling old output. Missing/invalid output fails with
 `session-output-invalid`; an executor failure retains measured usage and fails with
 `runner-crashed`. Other skill/mode pairs retain their existing command behavior.
 
@@ -917,8 +922,12 @@ assessment/finding/artifact services before recording.
 }
 ```
 
-Use the real run UUID/time, retained for replay; this command never invents a run,
-plan, timestamp, human actor or auto-accept flag. `ValidationArtifact.parse`
+Use the real run UUID/time, retained for replay. When recording for an order,
+the provenance `run_id` must identify that order. Pass its original
+`--lease-generation N` separately and supply `--run-id <order-uuid>` if outside
+the scheduled session. Neither the event time nor reading the current lease can
+authorize old evidence. The command never invents a run, plan, timestamp, human
+actor or auto-accept flag. `ValidationArtifact.parse`
 validates the exact input bytes; `Context.services().validation.record` owns
 assessment/artifact persistence, identity, soundness and machine decisions/review.
 The JSON receipt includes assessment/artifact/evidence IDs and per-finding

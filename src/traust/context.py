@@ -80,6 +80,10 @@ ATLAS_TABLE = _ATTACK / "atlas-techniques.json"  # the pinned MITRE ATLAS releas
 #   A service account's client secret for ``traust auth service-account`` when no
 #   ``--client-secret-file`` is given. Consumed by :func:`oidc_client_secret`.
 #
+# TRAUST_RECORDER_TOKEN_FILE
+#   Owner-only machine bearer file selected by a claim worker instead of the interactive
+#   credential store. Only its pathname, never the bearer, is passed to child processes.
+#
 # HARNESS_INTERNAL_VOCABULARY
 #   The organization vocabulary the pre-publication scrub (``traust admin scan-internal-refs``)
 #   and the config/ hygiene gate read when no ``--vocabulary`` is given. It names internal
@@ -215,16 +219,30 @@ def _register_spend(core: Context, registry: Path, invoices: Path | None) -> Non
 
 
 def load_caller(core: Context) -> Principal:
-    """Who is calling: the stored login (``traust auth``), verified by core's identity service."""
+    """Verify the claim process's credential or, outside a claim, the stored login."""
     if core.identity is None:
         raise ConfigError(
             "no identity: section in traust.yaml; a solo install adds"
             " `identity: {trust_local: true}` to accept its own `traust auth local` tokens"
         )
+    if (path := os.environ.get("TRAUST_RECORDER_TOKEN_FILE")) is not None:
+        token = Path(path).read_text(encoding="utf-8").strip()
+        caller = core.identity.authenticate(Credential(token=token))
+        if not caller.is_verified_machine():
+            raise AuthenticationError("the worker credential must belong to a verified machine")
+        return caller
     login = core.credentials.load()
     if login is None:
         raise AuthenticationError("not logged in: run `traust auth login` or `traust auth local`")
     return core.identity.authenticate(Credential(token=login.grant.access_token))
+
+
+def load_recorder(core: Context) -> Principal:
+    """The verified machine recording a leased order, never the operator's authority."""
+    caller = load_caller(core)
+    if not caller.is_verified_machine():
+        raise AuthenticationError("order recording requires a verified machine identity")
+    return caller
 
 
 def oidc_client_secret() -> str | None:

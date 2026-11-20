@@ -4,6 +4,7 @@ import logging
 import os
 import stat
 from collections.abc import Callable, Mapping, Sequence
+from contextlib import nullcontext
 from dataclasses import dataclass
 from pathlib import Path
 from uuid import UUID
@@ -19,6 +20,7 @@ from traust_core.v1.models.operations import (
     ModelUsage,
     OrderReason,
     OrderState,
+    RunOrder,
     SessionFile,
     SessionOutput,
     SessionRecord,
@@ -29,6 +31,7 @@ from traust_core.v1.models.operations import (
 from traust_core.v1.models.values import HttpsRepoUrl
 from traust_core.v1.models.vocabulary import SourceType
 
+from traust.cli._doors import recording_order_id
 from traust.cli.impact import write_packets
 from traust.paths import HARNESS_ROOT
 
@@ -55,12 +58,12 @@ def _prepare_below_range(services: Services, hosts: Sequence[str], root: Path, r
 
 def _record_below_range(
     services: Services,
-    root: Path,
+    read_input: Callable[[str], bytes],
     doc: ArtifactDocument,
     source: Provenance | None,
     order_id: UUID | None,
 ) -> UUID:
-    index = PacketIndex.model_validate_json(read_file(root, "input/below-range.json"))
+    index = PacketIndex.model_validate_json(read_input("input/below-range.json"))
     if (
         not isinstance(doc, BelowRangeVerdictsArtifact)
         or UUID(doc.packets_assessment_id) != index.packets_assessment_id
@@ -74,7 +77,9 @@ class SessionDoors:
     prepare: Callable[[Services, Sequence[str], Path, str], None]
     output: str
     document: type[ArtifactDocument]
-    record: Callable[[Services, Path, ArtifactDocument, Provenance | None, UUID | None], UUID]
+    record: Callable[
+        [Services, Callable[[str], bytes], ArtifactDocument, Provenance | None, UUID | None], UUID
+    ]
     models: Mapping[str, tuple[str, str | None]]
 
 
@@ -146,6 +151,25 @@ def usage(result: SessionResult) -> tuple[ModelUsage, ...]:
     )
 
 
+def leased_session_order(
+    services: Services, clock: Clock, order_id: UUID, worker: WorkerId, lease_generation: int
+) -> RunOrder:
+    """Preflight the supplied claim; never obtain authority from the order being inspected."""
+    order = services.ops.get(order_id)
+    if (
+        not worker
+        or type(lease_generation) is not int
+        or lease_generation < 1
+        or order.state != OrderState.LEASED
+        or order.lease_holder != worker
+        or order.lease_generation != lease_generation
+        or order.lease_expires_at is None
+        or order.lease_expires_at <= clock.now()
+    ):
+        raise ConflictError("session order is not leased to this worker and generation")
+    return order
+
+
 class SessionRunner:
     def __init__(
         self,
@@ -167,13 +191,16 @@ class SessionRunner:
         order_id: UUID | None = None,
         worker: WorkerId | None = None,
         args: Sequence[str] = (),
-    ) -> SessionTask:
+        *,
+        lease_generation: int | None = None,
+        persist_binding: bool = True,
+    ) -> tuple[SessionTask, SessionRecord]:
         doors = SESSIONS.get((skill, mode))
         if doors is None:
             raise ValidationError("session mode is not registered")
         if self._osv_access == "air-gapped":
             raise ValidationError("below-range requires OSV API access")
-        self._lease(order_id, worker, repo)
+        self._lease(order_id, worker, lease_generation, repo)
         models = {slot: self._resolve(role, tier) for slot, (role, tier) in doors.models.items()}
         root = root.resolve()
         if root.exists() and any(root.iterdir()):
@@ -186,6 +213,7 @@ class SessionRunner:
             {
                 "schema_version": "1",
                 "run_id": str(order_id) if order_id else None,
+                **({"lease_generation": lease_generation} if lease_generation is not None else {}),
                 "skill": skill,
                 "mode": mode,
                 "args": [repo, *args],
@@ -196,6 +224,7 @@ class SessionRunner:
         )
         (root / "task.json").write_bytes(task.payload)
         audit = SessionRecord(
+            lease_generation=lease_generation,
             skill=skill,
             mode=mode,
             executor_session=None,
@@ -204,6 +233,16 @@ class SessionRunner:
             inputs=files,
             output=SessionOutput(path=doors.output, sha256=None, artifact_id=None),
         )
+        if persist_binding and order_id is not None:
+            # Split prepare/record processes share no trusted memory. Pin the complete
+            # staging receipt in the DB; two mutually consistent local files are not proof.
+            assert worker is not None and lease_generation is not None
+            self._services.ops.record_session(
+                order_id, worker, audit, lease_generation=lease_generation
+            )
+        elif order_id is not None:
+            # Fetching inputs can outlast the lease. Do not start an executor on a stale claim.
+            self._lease(order_id, worker, lease_generation, repo)
         (root / AUDIT).write_text(audit.model_dump_json())
         log.info(
             "session staged skill=%s mode=%s files=%d bytes=%d order=%s",
@@ -213,7 +252,7 @@ class SessionRunner:
             sum(f.bytes for f in files),
             order_id,
         )
-        return task
+        return task, audit
 
     def task(self, root: Path) -> tuple[SessionTask, SessionRecord]:
         task = SessionTask.parse(read_file(root, "task.json"))
@@ -223,10 +262,15 @@ class SessionRunner:
             doors is None
             or task.output.path != doors.output
             or task.output.schema != doors.document.schema
+            or audit.output.path != task.output.path
+            or audit.executor_session is not None
+            or audit.output.artifact_id is not None
+            or audit.output.sha256 is not None
         ):
             raise ValidationError("task does not match its registered session mode")
         if (
             digest(task.payload) != audit.task_sha256
+            or task.lease_generation != audit.lease_generation
             or input_files(root) != audit.inputs
             or tuple(task.input) != tuple(f.path for f in audit.inputs)
         ):
@@ -244,9 +288,44 @@ class SessionRunner:
         task, audit = staged if staged is not None else self.task(root)
         failed = failed or (result is not None and result.error is not None)
         order_id = UUID(task.run_id) if task.run_id is not None else None
-        self._lease(order_id, worker, task.args[0] if task.args else None)
+        generation = task.lease_generation
+        repo_id = self._lease(order_id, worker, generation, task.args[0] if task.args else None)
+        if (
+            staged is None
+            and order_id is not None
+            and audit not in self._services.ops.manifest(order_id).sessions
+        ):
+            raise ValidationError("session has no matching staged receipt for this claim")
         measured = usage(result) if result else ()
-        output_digest, artifact_id = None, None
+        output_digest = None
+
+        def read_input(relative: str) -> bytes:
+            # Validate the exact bytes consumed by the record door, not just an earlier
+            # walk of the directory. Files in a split task need not stay put after that walk.
+            data = read_file(root, relative)
+            expected = next((f for f in audit.inputs if f.path == relative), None)
+            if expected is None or digest(data) != expected.sha256:
+                raise ValidationError("staged session input changed")
+            return data
+
+        def receipt(artifact_id: UUID | None) -> None:
+            recorded = SessionRecord(
+                **{
+                    **audit.model_dump(),
+                    "executor_session": result.session if result else None,
+                    "output": SessionOutput(
+                        path=task.output.path, sha256=output_digest, artifact_id=artifact_id
+                    ),
+                }
+            )
+            if order_id is None:
+                print(recorded.model_dump_json())
+            else:
+                assert worker is not None and generation is not None
+                self._services.ops.record_session(
+                    order_id, worker, recorded, lease_generation=generation
+                )
+
         outcome = JobResult.failed(OrderReason.RUNNER_CRASHED)
         try:
             payload = read_file(root, task.output.path)
@@ -266,8 +345,21 @@ class SessionRunner:
                     if order_id
                     else None
                 )
-                artifact_id = doors.record(self._services, root, doc, source, order_id)
-                outcome = JobResult.succeeded(written=(str(artifact_id),))
+                # The domain write and its success receipt share the lease transaction.
+                # No external executor or input staging runs while the order is locked.
+                if order_id is None:
+                    guard = nullcontext()
+                else:
+                    assert repo_id is not None and worker is not None and generation is not None
+                    guard = self._services.ops.bound(
+                        order_id, repo_id, worker=worker, lease_generation=generation
+                    )
+                with guard:
+                    artifact_id = doors.record(self._services, read_input, doc, source, order_id)
+                    receipt(artifact_id)
+                return JobResult.succeeded(written=(str(artifact_id),)).model_copy(
+                    update={"usage": measured}
+                )
         except (OSError, ValidationError) as error:
             if not failed:
                 log.warning(
@@ -276,38 +368,30 @@ class SessionRunner:
                 outcome = JobResult.failed(OrderReason.SESSION_OUTPUT_INVALID)
         except TraustError as error:
             log.error("session recording failed order=%s error=%s", order_id, type(error).__name__)
-        recorded = SessionRecord(
-            **{
-                **audit.model_dump(),
-                "executor_session": result.session if result else None,
-                "output": SessionOutput(
-                    path=task.output.path, sha256=output_digest, artifact_id=artifact_id
-                ),
-            }
-        )
-        if order_id is not None:
-            self._services.ops.record_session(order_id, worker, recorded)
-        else:
-            print(recorded.model_dump_json())
+        receipt(None)
         return outcome.model_copy(update={"usage": measured})
 
-    def _lease(self, order_id: UUID | None, worker: WorkerId | None, repo: str | None) -> None:
+    def _lease(
+        self,
+        order_id: UUID | None,
+        worker: WorkerId | None,
+        lease_generation: int | None,
+        repo: str | None,
+    ) -> UUID | None:
+        if recording_order_id(order_id, lease_generation) != order_id:
+            raise ValidationError("session task must name its scheduled run order")
         if order_id is None:
             if worker is not None:
                 raise ValidationError("manual sessions do not have a worker lease")
-            return
-        if not worker:
-            raise ValidationError("ordered sessions require the claiming worker")
-        order = self._services.ops.get(order_id)
-        if (
-            order.state != OrderState.LEASED
-            or order.lease_holder != worker
-            or order.lease_expires_at is None
-            or order.lease_expires_at <= self._clock.now()
-        ):
-            raise ConflictError("session order is not leased to this worker")
+            return None
+        if not worker or lease_generation is None:
+            raise ValidationError("ordered sessions require the original worker and generation")
+        order = leased_session_order(
+            self._services, self._clock, order_id, worker, lease_generation
+        )
         if order.repository_id is None or not repo:
             raise ValidationError("ordered review requires its repository")
         expected = self._services.portfolio.get_repository(order.repository_id).url
         if HttpsRepoUrl.parse(repo, self._hosts) != HttpsRepoUrl.parse(expected, self._hosts):
             raise ValidationError("session repository differs from the leased order")
+        return order.repository_id

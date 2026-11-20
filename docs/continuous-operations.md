@@ -172,7 +172,7 @@ rows named in the last column are the backstop that makes a dead timer visible.
 | Weekly diff-drain tranche | weekly | timer over the router's drain ordering | *retired*: `diff_scan_quarterly`'s pacing and approval in `packs/security/assets.yaml`, routed by `traust.ops.router`; until the cutover, dispatch from the worklist by lane (see *Standing weekly drain* below) | fail-closed selection (refuses a worklist >48h old or a second tranche per ISO week); dispatching is an operator decision informed by measured cost |
 | Threat-model re-model lanes | rides the router (daily) + the weekly tranche | change (`pr` stamp), major/minor release event, calendar backstop | `traust.ops.router` routes; the pack router schedules (the tranche script is retired); `/threat-model pr\|review` dispatches | **report-only** — no lane auto-applies an `update`. Drift row `threat-model` (held in lockstep with the lane's calendar threshold) is the dead-timer if the quarterly pool stops draining |
 | Remediation lane (`remediate_finding`) | per scheduled fix | core's scheduling door (`POST /v1/remediations`) submits one order naming its work item | `traust session run --skill remediate-finding` → `/remediate-finding`: `traust remediation prepare` and `record` default to the session's order | the report records through the order's lease (`RemediationService.record_order`) on the work item the order names, never another attempt |
-| Verify-remediation treadmill | weekly (worklist rebuilt per sweep) | timer | `traust remediation verify-sweep` → `/verify-remediation full-sweep` | verdicts gated by the verification schema + soundness lint; `traust remediation verify-record` records verdicts as decisions and regressions as findings |
+| Verify-remediation treadmill | weekly per registered repository | `verify_remediation` timer (`dynamic:repo`) | Core checks `verify-sweep` for that repository; only a queued entry starts `/verify-remediation full-sweep --repo-url <url>` | `traust remediation verify-record` needs the repository's lease, verified machine and writer ledger. No eligible work succeeds without a report; a session that runs must leave its order-bound verification. |
 | Rule-mining lane | weekly + post-wave | timer + drift row `rule-mining` (ledger changes >7d newer than the artifact) | python3 -m traust.cli sweep rule-lane, then the scheduled `/mine-ledger` session | never auto-files findings; rule promotion sits behind the mechanical test-and-calibrate gate; sweep hits route to `/triage` |
 | Ledger audit | weekly | timer | python3 -m traust.cli ledger audit (`LedgerService.audit`) | verifies every ledger layer against its stored events and signature, so an edit to stored decision events is found within a week (appends no longer re-verify the layer); a layer that fails or can't be verified degrades the order, never green |
 | CVE-replay FN monitor | operator-selected cadence | operator / orchestrator | `traust sweep cve-replay monitor`; inspect `candidates`, adjudicate with `oracle`, read `trends` | Core retains per-audit source watermarks; failed queries advance nothing. Unknown presence never becomes a confirmed miss; verified-human evidence is required, and no finding or ticket is filed automatically. |
@@ -485,7 +485,8 @@ scope. Intake binds a canonical event digest into each immutable order manifest
 and plans an operator-approved `external_report_audit` plus a distinct
 operator-approved `external_report_validation` that waits for the audit, runs
 `/validate-findings <report> --targets <targets> --auto --replay-only`, and has
-its own outcome. The manifest also binds both input references.
+its own outcome. The manifest binds both input references. Success requires a validation
+recorded for that repository order by its verified lease holder, not a standalone import.
 Methodology events queue a full audit only for P0-tier repos; P1+ catch up through the
 rule-4 ceiling. CVE events queue an immediate `cve_impact` order running
 `/dependency-watch`. Release rows are refused: there is no traust-core release feed yet
@@ -579,8 +580,8 @@ nothing. `traust-engine run` is the loop itself, for after the cutover.
 
 After the cutover, `traust-engine run` plans and admits, and a runner does the
 work. `traust-engine claim $E` leases one queued order of an asset with a `run`
-command, fills its `{run_id}`, `{repo_url}` and `{rule}` (the router rule that
-routed it) tokens from the order, renews the
+command, substitutes `{run_id}`, `{worker}`, `{lease_generation}`, `{repo_url}` and
+`{rule}` (the routing rule) where used, renews the
 lease while the command runs, completes the order with the command's JobResult
 and exits (0 succeeded, 1 failed, 4 degraded, 5 refused; nothing queued is 0).
 It is claim-once, started by an operator or a scheduler, never a daemon.
@@ -594,6 +595,38 @@ assessments prepare --diff`; a refused diff skips it, said on stderr. Its
 outcome is the session's exit. Pass `--feeds` (traust-core's shipped `feeds.yaml`) to every
 `traust-engine` command so core knows the pack's feeds when a run reports one
 degraded.
+
+Scheduled triage records against the order in `TRAUST_RUN_ID`. The recording
+command must also receive the literal `--lease-generation N` from the session's
+invocation; the order ID alone is not enough. The runner checks out the exact
+commit of the selected source assessment outside the harness, passes the checkout
+to `/triage --repo`, and starts a fresh checkpoint. It
+releases the checkout after the session. A reclaim with a completed,
+order-bound triage of that source returns its assessment without another
+model session. Log the runner in as the machine that holds the lease and
+configure the writer's ledger for required signing. A missing login or
+invalid lease fails recording; it does not fall back to a standalone import.
+A session that exits without recording its assessment does not complete the
+order successfully.
+
+**Release gate:** deploy the lease-generation schema, Core writers and engine
+substitution together with the matching CLI and pack. Old and new claim/record
+protocols are not interchangeable. Drain outstanding work before cutover;
+do not attach a new generation to evidence produced under an old claim.
+
+A reclaimed verification sweep rebuilds its worklist before deciding whether
+to run. Core currently records no original sweep manifest, and its
+already-verified test can be satisfied by a single finding at a head. When
+prior output exists, the runner therefore requires verification verdicts on
+the same line and head to cover every finding currently reported on that line,
+including closed or newly reported findings. On reclaim it uses only this
+order's reports; a fresh order can use earlier
+verifications to establish that no work remains. Regressions first reported by
+those same-head reports are not original verification targets; a finding also
+reported elsewhere remains in scope. It fails closed when coverage cannot be
+proved, so this conservative bound can require operator review even when the
+original sweep was complete. These reads are not an atomic snapshot; do not
+rely on this coverage proof while finding records are changing concurrently.
 
 The session's measured usage (Claude Code's JSON result, per model) rides on its
 JobResult, and completing the order records it as the order's spend in the same
@@ -626,7 +659,8 @@ make ops-approve ORDER=<id-prefix>  # approve exactly one awaiting order
 make ops-approve-all # explicitly approve every awaiting order
 make ops-sh          # a shell with the rig's env, for the commands below
 make ops-scan REPO=https://github.com/<you>/<small-repo>   # the workflow by hand
-make ops-smoke       # one bounded cycle with asserts (a manual full-rig check, not CI)
+make ops-smoke-probe # offline integrity diagnostics on disposable Postgres (not acceptance)
+make ops-smoke       # strict manual gate; needs OPS_ENGINE_CHECKOUT and OPS_SDK_CHECKOUT
 make ops-down        # stop Postgres, data kept; ops-reset drops it
 ```
 
@@ -635,6 +669,13 @@ an error before credentials or orders are loaded. A prefix matching multiple
 awaiting orders approves none. Bulk approval requires `ops-approve-all` or
 `scripts/local_ops.sh approve --all`; empty input never requests it. Selectors
 remain literal through Make and the shell, including Make-function syntax.
+
+`ops-up` and `ops-smoke` provision empty Postgres stores the same way: load the
+baseline schema, then run and stamp the upgrade channel. Starting an existing
+rig does not modify its schema. If Core reports that the store is behind or
+predates the channel, inspect it before using `traust-server db upgrade` with
+the rig's config. Bringing a pre-channel store onto the channel stamps it as
+current; it does not add missing columns.
 
 Fresh setup creates the rig's model registry before the configuration installer
 can seed shipped routing. Mythos-class roles use a shipped, approved opus-class
@@ -648,7 +689,31 @@ startup before database/auth continuation. An incomplete existing pair is never
 overwritten: restore the matching public half, or derive it from the existing
 private key with `cosign public-key --key` into a separate file before installing
 it. Keep the private identity; do not regenerate over it. A later successful
-setup upgrades the rig's empty unsigned placeholder, not operator-owned signing.
+setup upgrades an empty unsigned placeholder or adds `required: true` to the
+rig's original key pair if omitted. Operator-owned signing settings are preserved.
+
+`ops-up` refuses symlinks in the path to its home or in issuer files, a configured
+home outside the rig, and an untrusted local issuer.
+It creates a human login only when the rig's home has no existing credential entry.
+It never replaces an existing login, even if it has expired: it cannot distinguish
+a rig-created local login from one the operator chose. Check it with `traust auth status` in `make
+ops-sh`; renew or create a local login explicitly with `traust auth local
+--identity YOUR_IDENTITY`, using the desired identity shown by status, or use
+the external provider's renewal flow. Separately, `ops-up` refreshes the private
+machine credential for `ops-claim`. Only the
+claimant exports `TRAUST_RECORDER_TOKEN_FILE`; the engine leases as that verified
+machine's ref. Re-run `ops-up` to renew the recorder.
+No `recording.start` grant is added: recording a leased order does not authorize
+submitting or approving one. The normal rig binds `full_audit` as the assessment
+predecessor of `sci_triage`; a pre-existing `recording:` policy remains operator-owned.
+Use `scripts/local_ops.sh claim --once` to run just one claim (this can run a paid
+session on a real queue). The engine passes the integer from that claim as an
+argv value. The recorder must pass it unchanged to the write; do not query the
+current order to obtain a generation. Outside a session, pass both
+`--run-id <order-uuid>` and `--lease-generation <generation-from-claim>`
+to a bound record door. Validation provenance retains the original **event**
+time; it must not be set to the lease start. `portfolio observe` and
+`impact manifest-sbom` also take the claiming `--worker` for ordered writes.
 
 The runner's tool grants and Read denials are **not credential isolation**.
 Granted Python/Bash can read inherited environment variables and host files.
@@ -662,15 +727,60 @@ Tokens live in `.local-ops/env` (created with commented placeholders):
 without `GITHUB_TOKEN`, `repo_state` orders fail as `no-credentials`; without
 `ANTHROPIC_API_KEY` (or a login under the config home's `claude-runner`),
 skill sessions fail as `runner-crashed`. Routed lanes (`full_audit`,
-`diff_scan`) queue for approval by design — the smoke never approves, so a
-smoke run exercises the deterministic assets without spend. `make ops-smoke`
-(what the `ops-smoke` workflow runs on demand) asserts the cycle end to
-end over two engine passes: orders drain, `feeds_cache`, `repo_state` and
-`manifest_sbom` complete (degraded on a failing feed source is a pass),
-nothing left running or queued. **The smoke is not CI** (2026-11-04): the
-engine runs and collects real data, so it never runs on push or pull_request
-— the workflow is a manual full-rig check (workflow_dispatch), and the rig
-on a laptop is the integration test.
+`diff_scan`) queue for approval by design. These credentials and lanes belong
+to the ordinary rig, **not** to smoke.
+
+`make ops-smoke-probe` uses a fresh Postgres container, volume, config home,
+and signing key. Set `OPS_PORT` to an unused port if the normal rig is up.
+Install cosign with `bash scripts/install-toolchain.sh ledger-signing`. The
+smoke removes its own temporary resources even on failure. Provisioning the
+container, dependencies, engine and tools can need network; **workload inputs
+do not**. Smoke does not source the operator's env, log in to a forge, approve
+work, refresh a feed or start a model session. Its [smoke pack](../scripts/ops_smoke/assets.yaml)
+is an allowlist, independent of the live security pack.
+
+The first pass observes three fixed repository heads. Only the forge responses
+are simulated. One archive contains a [pinned requirements file](../scripts/ops_smoke/repo/requirements.txt);
+another returns a source error. The third contains only `build/images/Dockerfile`
+with an external `FROM`. The second pass must record a package for the first,
+no SBOM for the failed fetch, and a successful empty SBOM **with the exact
+unresolved Docker path** for the third. The fix-uptake read must report
+`not_observed`, not `module_absent`. A leased recorder submits a [synthetic authored assessment](../scripts/ops_smoke/authored.json);
+on its recorded finding, a locally verified person records `false_positive` and `medium`
+before a leased machine record of `confirmed` and `critical`. Both the machine
+statement and the person's effective verdicts must be present. These inputs
+are ungraded on both sides; the explicit E2/E2 and E2/E3 cases are Core
+model tests, not assertions about grades written by this smoke.
+
+For the authored assessment, triage record and manifest, the rig kills each
+claim process **after** its writer returns, waits for the lease to expire,
+and checks the same order, receipt, durable identities and counts on replay.
+It checks every decision against its signed layer, audits it, then changes one
+event in this disposable DB. The next *scheduled* ledger audit must complete
+as degraded with one failed layer recorded on the order. Unexpected orders,
+unexercised crash points or missing proof fail the probe.
+
+For release evidence use `make ops-smoke`, also the entry point of the manual-only
+workflow. Point `OPS_ENGINE_CHECKOUT` and `OPS_SDK_CHECKOUT` at clean, separate
+Git checkouts outside the CLI tree. The gate compares committed manifests and
+the SDK contracts stamp, rejects dirty inputs (including scripts and fixtures),
+and fetches both candidate SHAs from their canonical HTTPS repositories into
+empty Git repositories. A local path, even `git+file` at a full SHA, is not
+publication evidence. Smoke runs from a fresh checkout of the inspected CLI
+commit with locked dependencies. Unset `PYTHONPATH` and `PYTHONHOME` for strict
+smoke. It checks the editable CLI root, installed engine, Core and contracts,
+and where **that interpreter** resolves their modules, not a server elsewhere.
+
+Before the workload replays, the gate builds proofs from independently fetched
+Core and SDK at those revisions. On SQLite and the smoke's **fresh Postgres**,
+it requires both `test_recording_runner_fails_the_order_after_intake_rollback`
+and `test_sdk_claim_reclaim_recording` to pass, including the named inner Go
+tests. It also runs the SDK's end-to-end harness against that Core, requiring
+`TestE2ERecordingPreservesReportFields` and `TestE2ESCIQueuedScanFeedsTriage`.
+These use local test identities and fixture reports, not a deployed worker.
+Missing, skipped or unnamed results are not a pass. Do not supply a database
+URL or tokens; the strict rig supplies its own. Use `make ops-smoke-probe` for
+work in progress; a local probe or pin comparison alone is never release proof.
 
 A deployment needs the same pieces the rig writes: `process.allowed_binaries`
 in `traust.yaml` includes `syft` for manifest SBOMs and `gitleaks` for observation;
@@ -679,6 +789,10 @@ until `traust.yaml` has a `ledger:` section; a runner from the runtime image
 reads the harness payload (`harnessing/`, `packs/`) from `HARNESS_ROOT`, which the
 image sets. A never-audited repository is observed too: `repo_state` keeps its
 default head, so `manifest_sbom` and below-range cover it before its first audit.
+
+With the rig's own dev ledger key, normal rig commands supply its empty
+cosign passphrase only when `COSIGN_PASSWORD` is unset. Operator key paths
+and explicitly configured passphrases keep their own behavior.
 
 ## Standing weekly drain — orchestrator contract
 

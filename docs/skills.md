@@ -254,11 +254,11 @@ Use when the user wants to record human feedback against audit findings, review 
 
 ## triage
 
-Triage a batch of raw security findings. Verify each is real, keep finding kind separate from verdict, collapse duplicates, re-rank vulnerabilities by derived exploitability, and tag with an owner. Gates the final new report with the shared canonical-write contract. Keep the hardening finding category distinct from CWE software-weakness taxonomy. Takes scanner output or a read-only Core-prepared input and writes <repo>-triage.json + <repo>-triage.md sorted by what actually needs engineering attention. Use when asked to "triage findings", "validate scanner output", "prioritize vulns", or "review the backlog". Runs interactively by default; pass --auto to skip the interview. Scanner source attribution comes from the recorded Core assessment, not a caller-supplied origin flag.
+Triage a batch of raw security findings. Verify each is real, keep finding kind separate from verdict, collapse duplicates, re-rank vulnerabilities by derived exploitability, and tag with an owner. Gates the final new report with the shared canonical-write contract. Keep the hardening finding category distinct from CWE software-weakness taxonomy. Takes scanner output or a read-only Core-prepared input and writes <repo>-triage.json + <repo>-triage.md sorted by what actually needs engineering attention. Use when asked to "triage findings", "validate scanner output", "prioritize vulns", or "review the backlog". Runs interactively by default; pass --auto to skip the interview. Scanner source attribution comes from the recorded Core assessment, not a caller-supplied origin flag. Scheduled triage verifies against a checkout at the source assessment's exact commit.
 
 - **Stage:** ④ Triage
 - **Tier:** `primary`
-- **Invoke:** `/triage` — arguments: `<findings-path> [--prepared-input] [--auto] [--votes N] [--repo PATH] [--fp-rules FILE] [--fresh]`
+- **Invoke:** `/triage` — arguments: `<assessment-id|findings-path> [--prepared-input] [--auto] [--votes N] [--repo PATH] [--fp-rules FILE] [--fresh] [--lease-generation N]`
 - **Skill:** [harnessing/4-triage/triage/SKILL.md](../harnessing/4-triage/triage/SKILL.md)
 - **Produces / consumes:** [Integrations](../harnessing/4-triage/triage/SKILL.md#integrations)
 

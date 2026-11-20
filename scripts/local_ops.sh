@@ -43,8 +43,7 @@ OPS_DB_PASS="${OPS_DB_PASS:-traust}"
 OPS_DB_NAME="${OPS_DB_NAME:-traust}"
 OPS_DSN="postgresql://${OPS_DB_USER}:${OPS_DB_PASS}@localhost:${OPS_PORT}/${OPS_DB_NAME}"
 OPS_EVERY="${OPS_EVERY:-1m}"            # engine --every: minutes, hours or days
-OPS_ENGINE_SRC="${OPS_ENGINE_SRC:-git+https://github.com/traust-security/traust-engine@779471df5b9473bbf31cf0ad78d213f88bda9153}"
-OPS_SMOKE_REPO="${OPS_SMOKE_REPO:-https://github.com/octocat/Hello-World}"
+OPS_ENGINE_SRC="${OPS_ENGINE_SRC:-git+https://github.com/traust-security/traust-engine@56a8064f38720605223679611aba1c2921fcecf9}"
 
 CONFIG_HOME="$REPO_ROOT/$OPS_DIR/config"
 RUN_DIR="$REPO_ROOT/$OPS_DIR/run"
@@ -85,11 +84,16 @@ wait_for_db() {
 }
 
 install_engine() {
-    if uv run --no-sync python -c "import traust_engine" >/dev/null 2>&1; then
-        return 0
+    if [ "${OPS_SIGNED_SMOKE:-}" = 1 ]; then
+        # A working import doesn't identify a build; don't reuse a cached local wheel either.
+        uv pip install --no-deps --reinstall --no-cache "$OPS_ENGINE_SRC" >/dev/null
+    else
+        if uv run --no-sync python -c "import traust_engine" >/dev/null 2>&1; then
+            return 0
+        fi
+        echo "installing traust-engine from $OPS_ENGINE_SRC"
+        uv pip install --no-deps "$OPS_ENGINE_SRC" >/dev/null
     fi
-    echo "installing traust-engine from $OPS_ENGINE_SRC"
-    uv pip install --no-deps "$OPS_ENGINE_SRC" >/dev/null
     uv run --no-sync python -c "import traust_engine"
 }
 
@@ -132,17 +136,55 @@ claim_label_args() {
 source_env() {
     # shellcheck disable=SC1090
     [ -f "$REPO_ROOT/$OPS_DIR/env" ] && . "$REPO_ROOT/$OPS_DIR/env" || true
+    if [ -f "$RUN_DIR/review-salt" ]; then
+        export TRAUST_OPS_VALVE_SALT
+        TRAUST_OPS_VALVE_SALT=$(cat "$RUN_DIR/review-salt")
+    fi
+    # A rig-generated key has an empty passphrase. Without an explicit value
+    # cosign may prompt on the tick/claim host. Leave operator-owned keys alone.
+    local dev_key="$RUN_DIR/ledger/dev-key.key"
+    if [[ ! -v COSIGN_PASSWORD && -f "$dev_key" && -f "$CONFIG_HOME/traust.yaml" ]] &&
+        uv run --no-sync python - "$CONFIG_HOME/traust.yaml" "$dev_key" <<'PY'
+import sys
+from pathlib import Path
+import yaml
+
+ledger = yaml.safe_load(Path(sys.argv[1]).read_text()).get("ledger") or {}
+sys.exit(0 if ledger.get("key_path") == sys.argv[2] else 1)
+PY
+    then
+        export COSIGN_PASSWORD=""
+    fi
     return 0
 }
 
 cmd_up() {
+    umask 077
+    # Refuse redirected rig paths before creating keys, credentials, or config.
+    local part path="$REPO_ROOT"
+    local -a rig_parts
+    IFS='/' read -r -a rig_parts <<< "$OPS_DIR/run/home"
+    for part in "${rig_parts[@]}"; do
+        [ -n "$part" ] || continue
+        path="$path/$part"
+        if [ -L "$path" ]; then
+            echo "local rig path must not contain symlinks: $path" >&2
+            return 1
+        fi
+    done
+    for path in "$RUN_DIR/home/local-key.pem" "$RUN_DIR/home/local-jwks.json"; do
+        if [ -L "$path" ]; then
+            echo "local rig issuer must not use a symlink: $path" >&2
+            return 1
+        fi
+    done
     if ! container_running; then
         if "$CT" ps -a --format '{{.Names}}' 2>/dev/null | grep -qx "$OPS_CONTAINER"; then
             "$CT" start "$OPS_CONTAINER" >/dev/null
         else
             echo "starting $OPS_CONTAINER ($OPS_IMAGE) on 127.0.0.1:$OPS_PORT"
-            "$CT" run --name "$OPS_CONTAINER" -d \
-                -e POSTGRES_USER="$OPS_DB_USER" -e POSTGRES_PASSWORD="$OPS_DB_PASS" \
+            POSTGRES_PASSWORD="$OPS_DB_PASS" "$CT" run --name "$OPS_CONTAINER" -d \
+                -e POSTGRES_USER="$OPS_DB_USER" -e POSTGRES_PASSWORD \
                 -e POSTGRES_DB="$OPS_DB_NAME" \
                 -p "127.0.0.1:${OPS_PORT}:5432" \
                 -v "$OPS_VOLUME:/var/lib/postgresql/data" \
@@ -151,7 +193,7 @@ cmd_up() {
     fi
     wait_for_db
 
-    uv sync --quiet
+    uv sync --locked --quiet
     install_engine
 
     # The deterministic lanes' scanners, both named in the allowlist below:
@@ -270,6 +312,7 @@ EOF
     # that is installed but fails is loud, never a silent unsigned fallback.
     OPS_CONFIG="$CONFIG_HOME/traust.yaml" OPS_LEDGER_DIR="$RUN_DIR/ledger" uv run --no-sync python - <<'PYEOF'
 import os
+import secrets
 import shutil
 import subprocess
 from pathlib import Path
@@ -330,11 +373,35 @@ if ledger in (None, {}) or rig_configured:
     if ledger in (None, {}):
         # Upgrade the rig's unsigned placeholder, never an operator's settings.
         if complete:
-            cfg["ledger"] = {"key_path": str(key), "public_key_path": str(pub)}
+            cfg["ledger"] = {"key_path": str(key), "public_key_path": str(pub), "required": True}
             print("traust.yaml: ledger configured, layers signed by the rig's dev key")
         else:
             cfg["ledger"] = {}
             print("traust.yaml: cosign is not installed; ledger layers deliberately unsigned")
+    elif ledger.get("key_path") == str(key) and ledger.get("public_key_path") == str(pub):
+        # Rigs created before required signing already have both paths. Do not rotate them.
+        ledger.setdefault("required", True)
+if "review" not in cfg:
+    salt = key.parent.parent / "review-salt"
+    salt.parent.mkdir(parents=True, exist_ok=True)
+    if not salt.exists():
+        with os.fdopen(os.open(salt, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "w") as f:
+            f.write(secrets.token_hex(32))
+    cfg["review"] = {"valve_salt_env": "TRAUST_OPS_VALVE_SALT"}
+if cfg.get("home") != str(key.parent.parent / "home") or (
+    (cfg.get("identity") or {}).get("trust_local") is not True
+):
+    raise SystemExit("local rig bootstrap requires its own home and trusted local issuer")
+if os.environ.get("OPS_SIGNED_SMOKE") == "1":
+    if not cfg.get("ledger", {}).get("key_path"):
+        raise SystemExit("ops-smoke requires the rig's cosign key pair")
+    cfg["ledger"]["required"] = True
+else:
+    # Only initialize a missing policy. An operator-supplied allowlist (even empty) owns access.
+    cfg.setdefault("recording", {
+        "assessment": ["full_audit"], "triage": ["sci_triage"],
+        "validation": ["external_report_validation"], "verification": ["verify_remediation"],
+    })
 with open(path, "w") as f:
     yaml.safe_dump(cfg, f, sort_keys=False)
 PYEOF
@@ -395,6 +462,9 @@ PY
       "Read(./.local-ops/env)",
       "Read(**/.local-ops/env)",
       "Read(**/.local-ops/run/ledger/**)",
+      "Read(**/.local-ops/run/recorder.token)",
+      "Read(**/.local-ops/run/home/credentials.json)",
+      "Read(**/.local-ops/run/review-salt)",
       "Read(~/.claude/.credentials.json)",
       "Read(~/.ssh/**)",
       "Read(~/.aws/**)"
@@ -405,16 +475,23 @@ EOF
         echo "claude-runner: scoped tool grants and Read denials configured; environment is not isolated"
     fi
 
-    # Core applies its schema itself only for its local SQLite; a Postgres
-    # deployment applies the contract DDL, so the rig does too (idempotent).
+    # Fresh Postgres needs both the baseline and the channel; Core gates existing stores.
     OPS_DSN="$OPS_DSN" uv run --no-sync python - <<'PYEOF'
 import os
 from traust_core.v1 import contracts
-from traust_core.v1.repositories import apply_schema, create_database_engine
-from traust_core.v1.repositories.sql import contract_dialect
-engine = create_database_engine(os.environ["OPS_DSN"])
-apply_schema(engine, contracts.database_ddl(contract_dialect(engine)))
-print("database contract applied")
+from traust_core.v1.context import Config, Context, DatabaseConfig, StoreState
+from traust_core.v1.repositories import apply_schema, on_driver_connection
+
+context = Context(Config(database=DatabaseConfig(url=os.environ["OPS_DSN"])))
+fresh = context.store_status().state is StoreState.EMPTY
+engine = context.database
+if fresh:
+    dialect = context.dialect
+    apply_schema(engine, contracts.database_ddl(dialect))
+    on_driver_connection(engine, lambda dbapi: contracts.run_db_upgrades(dbapi, dialect))
+    print("database contract applied")
+else:
+    print("database contract already current")
 PYEOF
 
     if [ ! -f "$REPO_ROOT/$OPS_DIR/env" ]; then
@@ -428,10 +505,33 @@ PYEOF
 EOF
     fi
 
-    # A solo install accepts its own local tokens; make one so the traust CLI
-    # can write (onboard, observe, record). Re-running refreshes the token.
-    TRAUST_CONFIG_HOME="$CONFIG_HOME" uv run --no-sync python -m traust.cli auth local \
-        --identity "${USER:-$(id -un)}@local-rig" >/dev/null
+    # The rig's isolated home was checked above. Preserve existing entries,
+    # including dangling symlinks, rather than replacing an operator's login.
+    if [ ! -e "$RUN_DIR/home/credentials.json" ] && \
+        [ ! -L "$RUN_DIR/home/credentials.json" ]; then
+        TRAUST_CONFIG_HOME="$CONFIG_HOME" uv run --no-sync python -m traust.cli auth local \
+            --identity "${USER:-$(id -un)}@local-rig" >/dev/null
+    else
+        echo "human login preserved in the rig home"
+        echo "use make ops-sh and traust auth status; renew or create the login explicitly if needed"
+        echo "for a local login: traust auth local --identity YOUR_IDENTITY; for an external login use its renewal flow"
+    fi
+    if [[ "${OPS_SIGNED_SMOKE:-}" != 1 ]]; then
+        uv run --no-sync python - "$CONFIG_HOME/traust.yaml" "$RUN_DIR" <<'PY'
+import sys
+from pathlib import Path
+from tempfile import NamedTemporaryFile
+
+from traust_core.v1.context import Context
+
+run = Path(sys.argv[2])
+core = Context.from_file(Path(sys.argv[1]))
+credential = core.local_issuer.mint("local-ops-recorder", machine=True)
+with NamedTemporaryFile(dir=run, mode="w", delete=False) as out:
+    out.write(credential.token.get_secret_value())
+Path(out.name).replace(run / "recorder.token")
+PY
+    fi
 
     echo "rig up: Postgres :$OPS_PORT, config home $OPS_DIR/config, overlay pack $OPS_DIR/pack"
     echo "next: make ops-run (pane 1) and make ops-claim (pane 2); or make ops-smoke"
@@ -460,11 +560,24 @@ cmd_reset() {
 }
 
 cmd_run() {
+    source_env
     engine run --router traust.ops.router:SecurityRouter --every "$OPS_EVERY"
 }
 
 cmd_claim() {
     source_env
+    if (( $# > 1 )) || [[ $# == 1 && $1 != --once ]]; then
+        echo "usage: scripts/local_ops.sh claim [--once]" >&2
+        return 2
+    fi
+    export TRAUST_RECORDER_TOKEN_FILE="$RUN_DIR/recorder.token"
+    local worker
+    worker=$(TRAUST_CONFIG_HOME="$CONFIG_HOME" uv run --no-sync python - <<'PY'
+from traust.context import load, load_recorder
+
+print(load_recorder(load()).ref)
+PY
+)
     # The rig claims both executor classes: it is the one claim host that
     # carries the agent harness (claude under the config home's claude-runner),
     # so its claim loop is also the skill lanes' executor — the deployed claim
@@ -472,8 +585,12 @@ cmd_claim() {
     # claim_label_args probes the installed engine for the label opt-in.
     local -a labels=()
     mapfile -t labels < <(claim_label_args)
+    if [[ "${1:-}" == --once ]]; then
+        engine claim --worker "$worker" "${labels[@]}"
+        return
+    fi
     while true; do
-        engine claim "${labels[@]}" || true
+        engine claim --worker "$worker" "${labels[@]}" || true
         sleep 5
     done
 }
@@ -546,6 +663,12 @@ cmd_scan() {
     traust_cli session run --skill vuln-scan --role vuln-scan --repo "$repo" --checkout
 }
 
+installed_revisions() {
+    # Use the interpreter that will run the rig, including the --no-deps
+    # engine. The same checker reads the candidate manifests and PEP 610 data.
+    OPS_ENGINE_SRC="$OPS_ENGINE_SRC" uv run --no-sync python "$SCRIPT_DIR/check_ops_pins.py" "$@"
+}
+
 cmd_doctor() {
     local bad=0
     if container_running; then
@@ -553,81 +676,7 @@ cmd_doctor() {
     else
         echo "Postgres: NOT running (make ops-up)" >&2; bad=1
     fi
-    if uv run --no-sync python -c "import traust_engine" >/dev/null 2>&1; then
-        echo "traust-engine: importable"
-    else
-        echo "traust-engine: NOT importable (make ops-up reinstalls it)" >&2; bad=1
-    fi
-    # The venv is the rig's truth: a `uv sync` between commands can silently
-    # swap traust-core (and strip the engine) to whatever that checkout's lock
-    # held — the 2026-11-02 fleet run observed a pre-fix core this way and its
-    # orders wrote nothing. The doctor asserts what is installed matches what
-    # THIS checkout's lock resolves, the only code the rig claims to run.
-    # The check itself is the `if` condition: a failed revision check sets bad and the
-    # doctor still reaches its remaining diagnostics (set -e would kill it otherwise).
-    if ! OPS_EXPECTED_ENGINE="$OPS_ENGINE_SRC" uv run --no-sync python - <<'PYEOF'
-import json
-import os
-import sys
-import tomllib
-from importlib.metadata import distribution
-from pathlib import Path
-
-bad = 0
-lock = Path("uv.lock")
-expected = {}
-if lock.is_file():
-    doc = tomllib.loads(lock.read_text())
-    for pkg in doc.get("package", []):
-        if pkg["name"] in ("traust-core", "traust-engine"):
-            source = pkg.get("source") or {}
-            rev = source.get("rev") or source.get("git") or ""
-            if "#" in rev:
-                rev = rev.split("#")[-1]
-            elif "?rev=" in rev:
-                rev = rev.split("?rev=")[-1]
-            if rev:
-                expected[pkg["name"]] = rev[:40]
-for name in ("traust-core", "traust-engine"):
-    try:
-        installed = distribution(name)
-    except Exception:
-        print(f"{name}: NOT installed (make ops-up)", file=sys.stderr)
-        bad = 1
-        continue
-    direct = json.loads((Path(installed._path) / "direct_url.json").read_text())
-    commit = (direct.get("vcs_info") or {}).get("commit_id")
-    want = expected.get(name)
-    if want and commit and not commit.startswith(want):
-        print(
-            f"{name}: STALE — venv has {commit[:12]}, this checkout's lock wants {want[:12]};"
-            " a uv sync swapped it (make ops-up restores)",
-            file=sys.stderr,
-        )
-        bad = 1
-    else:
-        print(f"{name}: {commit[:12] if commit else 'installed (no vcs info)'}")
-engine_src = os.environ.get("OPS_EXPECTED_ENGINE", "")
-if engine_src and "@" in engine_src:
-    want = engine_src.split("@", 1)[1][:12]
-    try:
-        installed = distribution("traust-engine")
-        direct = json.loads((Path(installed._path) / "direct_url.json").read_text())
-        commit = (direct.get("vcs_info") or {}).get("commit_id") or ""
-        if not commit.startswith(want):
-            print(
-                f"traust-engine: PIN MISMATCH — venv has {commit[:12]}, the rig pins {want};"
-                " make ops-up reinstalls",
-                file=sys.stderr,
-            )
-            bad = 1
-    except Exception:
-        pass
-sys.exit(bad)
-PYEOF
-    then
-        bad=1
-    fi
+    installed_revisions --doctor || bad=1
     # The DB volume and the artifacts dir age together: a volume that survives
     # a worktree removal holds rows pointing at artifacts that no longer exist
     # (orders refuse not_found; claims can crash on unregistered degraded keys).
@@ -659,59 +708,329 @@ PYEOF
     return $bad
 }
 
-cmd_smoke() {
-    source_env
-    if [ -z "${GITHUB_TOKEN:-}" ] && ! gh auth status >/dev/null 2>&1; then
-        echo "smoke needs forge access: GITHUB_TOKEN or a gh login (repo_state reads the forge)" >&2
-        exit 2
+smoke_sql() {
+    "$CT" exec "$OPS_CONTAINER" psql -X -v ON_ERROR_STOP=1 \
+        -U "$OPS_DB_USER" -d "$OPS_DB_NAME" -tAc "$1"
+}
+
+smoke_expect() {
+    local got
+    got=$(smoke_sql "$2")
+    if [[ "$got" != "$1" ]]; then
+        printf 'smoke: expected <%s>, got <%s> from: %s\n' "$1" "$got" "$2" >&2
+        return 1
     fi
-    cmd_reset
-    cmd_up >/dev/null
-    local repo="${1:-$OPS_SMOKE_REPO}"
-    echo "smoke: onboarding $repo"
-    traust_cli portfolio onboard --product local-rig --label "Local rig" --repo "$repo" >/dev/null
-    # Two passes: the first observes the repository, the second plans what depends on it
-    # (manifest_sbom waits on repo_state).
-    local -a labels=()
-    mapfile -t labels < <(claim_label_args)
-    local pass idle _
-    for pass in 1 2; do
-        echo "smoke: engine pass $pass (applies the schema, plans what is due)"
-        engine run --router traust.ops.router:SecurityRouter --once >/dev/null
-        echo "smoke: claiming until the queue drains"
-        idle=0
-        for _ in $(seq 1 40); do
-            if engine claim "${labels[@]}" | grep -q '"claimed": null'; then
-                idle=$((idle + 1))
-                [ "$idle" -ge 2 ] && break
-            else
-                idle=0
-            fi
-            sleep 2
-        done
+}
+
+smoke_uuid() {
+    [[ "$1" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]] ||
+        { echo "smoke: expected one UUID, got <$1>" >&2; return 1; }
+}
+
+smoke_records() {
+    uv run --no-sync python scripts/ops_smoke/records.py "$@"
+}
+
+smoke_audit() {
+    local finding
+    finding=$(cat "$RUN_DIR/smoke-finding-id")
+    smoke_uuid "$finding"
+    smoke_expect 3 "select count(*) from traust.decision"
+    smoke_expect 3 "select count(*) from traust_ledger.events"
+    smoke_expect 3 "select count(*) from traust.decision d
+        join traust.finding f on f.id = d.finding_id
+        join traust_ledger.events e on e.decision_id = d.id
+        join traust_ledger.layers l on l.id = e.layer_id and l.repository_id = f.repository_id
+        where f.id = '$finding' and l.merkle_root_signature <> ''
+        and convert_from(e.event_payload, 'UTF8')::jsonb ->> 'id' = d.id::text"
+    smoke_expect 1 "select count(*) from traust_ops.run_order where asset='ledger_audit'
+        and state='succeeded' and lease_generation=1 and completed_by='machine:smoke-recorder'
+        and started_at >= (select max(created_at) from traust.decision)"
+    # This fault is visible to the next scheduled claim, never to the normal rig.
+    smoke_sql "begin;
+        alter table traust_ledger.events disable trigger ledger_events_reject_mutation;
+        update traust_ledger.events set event_payload = convert_to('{}', 'UTF8')
+        where decision_id = (select id from traust.decision where finding_id = '$finding' order by id limit 1);
+        alter table traust_ledger.events enable trigger ledger_events_reject_mutation;
+        commit;" >/dev/null
+    # Pass two must run the real audit, record degraded on its order AND persist
+    # the failed-layer count (checked at the end, not inferred from an exit code).
+}
+
+smoke_teardown() {
+    "$CT" rm -f "$OPS_CONTAINER" >/dev/null 2>&1 || true
+    "$CT" volume rm "$OPS_VOLUME" >/dev/null 2>&1 || true
+}
+
+smoke_wait_db() {
+    local description=$1 sql=$2 answer _
+    for _ in $(seq 1 80); do
+        answer=$(smoke_sql "$sql")
+        [[ "$answer" = t ]] && return 0
+        [[ "$answer" = f ]] || { echo "smoke: missing $description" >&2; return 1; }
+        sleep 1
     done
-    echo "smoke: orders by asset and state"
-    "$CT" exec "$OPS_CONTAINER" psql -U "$OPS_DB_USER" -d "$OPS_DB_NAME" \
-        -c "select asset, state, count(*) from traust_ops.run_order group by 1, 2 order by 1, 2"
-    local bad=0
-    "$CT" exec "$OPS_CONTAINER" psql -U "$OPS_DB_USER" -d "$OPS_DB_NAME" -tAc \
-        "select count(*) from traust_ops.run_order where state in ('running', 'queued')" \
-        | grep -qx 0 || { echo "smoke: orders left running or queued" >&2; bad=1; }
-    "$CT" exec "$OPS_CONTAINER" psql -U "$OPS_DB_USER" -d "$OPS_DB_NAME" -tAc \
-        "select count(*) from traust_ops.run_order where asset = 'feeds_cache' and state in ('succeeded', 'degraded')" \
-        | grep -qx 0 && { echo "smoke: no completed feeds_cache order" >&2; bad=1; }
-    "$CT" exec "$OPS_CONTAINER" psql -U "$OPS_DB_USER" -d "$OPS_DB_NAME" -tAc \
-        "select count(*) from traust_ops.run_order where asset = 'repo_state' and state in ('succeeded', 'degraded')" \
-        | grep -qx 0 && { echo "smoke: no completed repo_state order" >&2; bad=1; }
-    "$CT" exec "$OPS_CONTAINER" psql -U "$OPS_DB_USER" -d "$OPS_DB_NAME" -tAc \
-        "select count(*) from traust_ops.run_order where asset = 'manifest_sbom' and state in ('succeeded', 'degraded')" \
-        | grep -qx 0 && { echo "smoke: no completed manifest_sbom order" >&2; bad=1; }
-    if [ "${OPS_TEARDOWN:-0}" = "1" ]; then
-        "$CT" rm -f "$OPS_CONTAINER" >/dev/null 2>&1 || true
-        "$CT" volume rm "$OPS_VOLUME" >/dev/null 2>&1 || true
+    echo "smoke: timed out waiting for $description" >&2; return 1
+}
+
+smoke_snapshot() {
+    local asset=$1 order=$2 sbom
+    if [[ "$asset" = manifest_sbom ]]; then
+        sbom=$(uv run --no-sync python -c \
+            'import json,sys; r=json.load(sys.stdin); [sbom]=r["written"]; sys.exit(1) if r["outcome"]!="succeeded" else print(sbom)' \
+            < "$RUN_DIR/$asset.receipt")
+        smoke_uuid "$sbom" || return 1
+        smoke_sql "select r.id, a.id, s.id, c.id, d.id
+            from traust_ops.run_order o join traust.repository_ref r on r.repository_id=o.repository_id
+            join traust.assessment a on a.id=r.manifest_sbom_assessment_id and a.repository_ref_id=r.id
+                and a.run_order_id=o.id
+            join traust.sbom s on s.id=r.manifest_sbom_id
+            join traust.artifact c on c.assessment_id=a.id and c.kind='manifest-coverage'
+            join traust.dependency d on d.sbom_id=s.id join traust.package p on p.id=d.package_id
+            where o.id='$order' and o.asset='manifest_sbom' and r.is_default and r.sha=repeat('a',40)
+            and a.kind='manifest_sbom' and a.assessor='traust-manifest-coverage' and a.assessor_version='2'
+            and s.id='$sbom' and p.ecosystem='pypi' and p.name='packaging' and d.version='24.2'"
+    elif [[ "$asset" = smoke_authored ]]; then
+        smoke_sql "select a.id, c.id, f.id, x.id, l.id,
+            (select count(*) from traust.assessment where kind='secure_code'),
+            (select count(*) from traust.artifact where digest=c.digest),
+            (select count(*) from traust.finding), (select count(*) from traust.occurrence),
+            (select count(*) from traust.location)
+            from traust_ops.run_order o join traust.assessment a on a.run_order_id=o.id
+            join traust.repository_ref r on r.id=a.repository_ref_id and r.repository_id=o.repository_id
+            join traust.artifact c on c.assessment_id=a.id
+            join traust.occurrence x on x.assessment_id=a.id join traust.finding f on f.id=x.finding_id
+            join traust.location l on l.occurrence_id=x.id
+            where o.id='$order' and o.asset='smoke_authored' and a.kind='secure_code'
+            and r.is_default and r.sha=repeat('a',40) and f.repository_id=r.repository_id
+            and f.title='Synthetic dependency review marker' and x.severity='high'
+            and l.path='requirements.txt' and l.line_start=1"
+    else
+        smoke_sql "select a.id, c.id, d.id, e.id,
+            (select count(*) from traust.assessment where kind='triage'),
+            (select count(*) from traust.artifact where kind='triage'),
+            (select count(*) from traust.decision), (select count(*) from traust_ledger.events)
+            from traust.assessment a join traust.artifact c on c.assessment_id=a.id
+            join traust.decision d on d.assessment_id=a.id and d.artifact_id=c.id
+            join traust_ledger.events e on e.decision_id=d.id
+            where a.run_order_id='$order' and a.kind='triage' and c.kind='triage'
+            and d.validity='confirmed' and d.severity='critical'"
     fi
-    [ "$bad" -eq 0 ] && echo "smoke: OK" || echo "smoke: FAILED" >&2
-    return $bad
+}
+
+smoke_crash() {
+    local asset=$1 order snapshot generation worker
+    order=$(cat "$RUN_DIR/$asset.order")
+    smoke_uuid "$order"
+    generation=$(cat "$RUN_DIR/$asset.generation")
+    worker=$(cat "$RUN_DIR/$asset.worker")
+    smoke_expect "$worker|$generation" "select lease_holder,lease_generation
+        from traust_ops.run_order where id='$order'"
+    smoke_expect 1 "select count(*) from traust_ops.run_order o join traust.repository r
+        on r.id=o.repository_id where o.id='$order' and o.asset='$asset'
+        and r.url='$good' and o.state='leased' and o.finished_at is null"
+    snapshot=$(smoke_snapshot "$asset" "$order")
+    [[ -n "$snapshot" && "$snapshot" != *$'\n'* ]] ||
+        { echo "smoke: $asset has no unique committed record before expiry" >&2; return 1; }
+    printf '%s\n' "$snapshot" > "$RUN_DIR/$asset.before"
+    echo "smoke: $asset committed under lease $order generation $generation; waiting for natural expiry"
+    smoke_wait_db "$asset lease expiry" "select lease_expires_at <= statement_timestamp()
+        from traust_ops.run_order where id='$order' and state='leased'"
+}
+
+smoke_drain() {
+    local crash_asset=$1 worker=$2 stop_after=${3:-} claim rc _
+    for _ in $(seq 1 16); do
+        rc=0
+        claim=$(timeout --kill-after=5s 180s bash "$SCRIPT_DIR/local_ops.sh" smoke-engine \
+            claim --worker "$worker" --lease 1m) || rc=$?
+        case "$rc" in
+            137)
+                [[ -n "$crash_asset" && ! -e "$RUN_DIR/$crash_asset.before" ]] ||
+                    { echo 'smoke: unexpected claim termination' >&2; return 1; }
+                smoke_crash "$crash_asset"
+                ;;
+            0)
+                if [[ "$claim" = '{"claimed": null}' ]]; then return 0; fi
+                echo "smoke: $claim"
+                if [[ -n "$stop_after" && "$(smoke_sql "select state from traust_ops.run_order
+                    where id='$stop_after'")" = succeeded ]]; then return 0; fi
+                ;;
+            1|4)
+                # Only the deliberate source failure and scheduled tamper audit
+                # may finish non-green. Check the persisted subject/reason below.
+                if ! uv run --no-sync python -c '
+import json, sys
+r = json.load(sys.stdin)
+expected = {"1": ("manifest_sbom", "failed", "source_unavailable"), "4": ("ledger_audit", "degraded", None)}
+sys.exit(0 if (r["asset"], r["state"], r["reason"]) == expected[sys.argv[1]] else str(r))
+' "$rc" <<<"$claim"; then
+                    if [[ -s "$RUN_DIR/$crash_asset.stderr" ]]; then cat "$RUN_DIR/$crash_asset.stderr" >&2; fi
+                    return 1
+                fi
+                ;;
+            *) printf 'smoke: claim exited %s: %s\n' "$rc" "$claim" >&2; return 1 ;;
+        esac
+    done
+    echo "smoke: claim limit reached" >&2; return 1
+}
+
+smoke_replayed() {
+    local asset=$1 order generation worker
+    order=$(cat "$RUN_DIR/$asset.order")
+    smoke_uuid "$order"
+    generation=$(cat "$RUN_DIR/$asset.replayed-generation")
+    worker=$(cat "$RUN_DIR/$asset.worker")
+    smoke_expect "succeeded|$worker|$generation" "select state,completed_by,lease_generation
+        from traust_ops.run_order where id='$order' and asset='$asset'"
+    cmp "$RUN_DIR/$asset.order" "$RUN_DIR/$asset.replayed"
+    smoke_snapshot "$asset" "$order" > "$RUN_DIR/$asset.after"
+    cmp "$RUN_DIR/$asset.before" "$RUN_DIR/$asset.after"
+    echo "smoke: reclaimed $asset $order at generation $generation with unchanged receipts, rows and counts"
+}
+
+cmd_smoke() {
+    [[ $# = 0 ]] || { echo "smoke takes no input or target overrides" >&2; return 2; }
+    unset GITHUB_TOKEN GH_TOKEN GITLAB_TOKEN ANTHROPIC_API_KEY OPENAI_API_KEY TRAUST_TOKEN
+    unset TRAUST_RUN_ID TRAUST_RECORDER_TOKEN_FILE
+    if [[ "${OPS_ACCEPTANCE:-0}" = 1 ]]; then
+        if [[ -n "${PYTHONPATH:-}" || -n "${PYTHONHOME:-}" ]]; then
+            echo "smoke: unset PYTHONPATH and PYTHONHOME; acceptance must import the locked build" >&2
+            return 2
+        fi
+        # Fail before creating a DB even when invoked without the Make wrapper.
+        python3 "$SCRIPT_DIR/check_ops_pins.py" --preflight
+    fi
+    command -v cosign >/dev/null || {
+        echo "smoke needs cosign (scripts/install-toolchain.sh ledger-signing)" >&2; return 2;
+    }
+    # Fresh names and config, even if the operator already has an ops-up rig.
+    # An occupied host port fails startup; it never selects the existing DB.
+    OPS_DIR=$(mktemp -d .local-ops-smoke.XXXXXXXX)
+    OPS_CONTAINER="traust-${OPS_DIR#.}"
+    OPS_VOLUME="$OPS_CONTAINER-data"
+    CONFIG_HOME="$REPO_ROOT/$OPS_DIR/config"
+    RUN_DIR="$REPO_ROOT/$OPS_DIR/run"
+    export OPS_DIR OPS_CONTAINER OPS_VOLUME OPS_ENGINE_SRC OPS_PORT
+    trap 'smoke_teardown; rm -rf -- "$OPS_DIR"' EXIT
+    export OPS_SIGNED_SMOKE=1 COSIGN_PASSWORD=""
+    cmd_up >/dev/null
+    if [[ "${OPS_ACCEPTANCE:-0}" = 1 ]]; then
+        installed_revisions
+        TRAUST_TEST_DATABASE_URL="postgresql+psycopg://${OPS_DB_USER}:${OPS_DB_PASS}@127.0.0.1:${OPS_PORT}/${OPS_DB_NAME}" \
+            python3 -m scripts.check_ops_recording
+    else
+        installed_revisions --probe
+    fi
+    source_env
+    export TRAUST_CONFIG_HOME="$CONFIG_HOME" OPS_SMOKE_RUN="$RUN_DIR"
+    export UV_OFFLINE=1
+    export SYFT_CHECK_FOR_APP_UPDATE=false
+    # Core's ProcessRunner otherwise strips the syft setting. Also deny HTTP
+    # fallthrough outside the fixture opener, including from a tool subprocess.
+    export http_proxy=http://127.0.0.1:1 https_proxy=http://127.0.0.1:1
+    export HTTP_PROXY="$http_proxy" HTTPS_PROXY="$https_proxy" ALL_PROXY="$http_proxy"
+    export no_proxy=localhost,127.0.0.1,::1 NO_PROXY=localhost,127.0.0.1,::1
+    uv run --no-sync python - "$CONFIG_HOME/traust.yaml" <<'PY'
+import sys
+from pathlib import Path
+import yaml
+
+path = Path(sys.argv[1])
+cfg = yaml.safe_load(path.read_text())
+cfg["process"]["keep_env"] = [
+    "PATH", "HOME", "LC_ALL", "LANG", "TMPDIR", "SYFT_CHECK_FOR_APP_UPDATE",
+    "http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "no_proxy", "NO_PROXY",
+]
+path.write_text(yaml.safe_dump(cfg, sort_keys=False))
+PY
+    # Only this checked-in allowlist is planned or claimed; no live feeds, router,
+    # checkout, approvals, LLM labels or security sessions. No operator env file.
+    cp scripts/ops_smoke/assets.yaml "$OPS_DIR/pack/assets.yaml"
+    local good=https://github.com/example/smoke-repo failed=https://github.com/example/smoke-failure
+    local partial=https://github.com/example/smoke-containers
+    local worker triage audit
+    uv run --no-sync python scripts/ops_smoke/forge.py portfolio onboard \
+        --product local-rig --label "Local rig" --repo "$good" --repo "$failed" --repo "$partial" |
+        uv run --no-sync python -c 'import json,sys; r=json.load(sys.stdin); sys.exit(0 if len(r["repository_ids"])==3 and not r["skipped"] else str(r))'
+    echo "smoke: first pass observes three fixture heads"
+    timeout --kill-after=5s 180s bash "$SCRIPT_DIR/local_ops.sh" smoke-engine run --once
+    # Leave the first tick's audit queued until it has a signed decision layer
+    # to verify. Observation priority precedes triage, which precedes audit.
+    local i
+    for i in 1 2 3; do
+        timeout --kill-after=5s 180s bash "$SCRIPT_DIR/local_ops.sh" smoke-engine \
+            claim --worker smoke-observer --lease 1m
+    done
+    smoke_expect 3 "select count(*) from traust_ops.run_order where asset='repo_state' and state='succeeded'
+        and completed_by='smoke-observer' and lease_generation=1"
+    smoke_expect 1 "select count(*) from traust_ops.run_order where asset='ledger_audit' and state='queued'
+        and lease_generation=0"
+
+    # Triage depends on the completed authored assessment. Leave the scheduled
+    # ledger audit queued across these two explicitly submitted recording orders.
+    local authored
+    authored=$(smoke_records submit-authored)
+    smoke_uuid "$authored"
+    worker=$(smoke_records worker)
+    smoke_drain smoke_authored "$worker" "$authored"
+    smoke_replayed smoke_authored
+    smoke_expect '1|1|1' "select (select count(*) from traust.finding),
+        (select count(*) from traust.occurrence), (select count(*) from traust.location)"
+    triage=$(smoke_records prepare)
+    smoke_uuid "$triage"
+    smoke_drain smoke_triage "$worker"
+    smoke_expect "$triage" "select id from traust_ops.run_order where asset='smoke_triage'"
+    smoke_replayed smoke_triage
+    smoke_audit
+    smoke_wait_db 'scheduled audit cadence' "select finished_at + interval '1 minute' < statement_timestamp()
+        from traust_ops.run_order where asset='ledger_audit' and state='succeeded'"
+
+    echo "smoke: second pass scans fixture manifests and audits the edited event"
+    timeout --kill-after=5s 180s bash "$SCRIPT_DIR/local_ops.sh" smoke-engine run --once
+    smoke_drain manifest_sbom smoke-manifest
+    smoke_replayed manifest_sbom
+    # Exact order multiset: no unexpected, stuck, refused or extra successful orders.
+    smoke_expect "$(printf '%s\n' 'ledger_audit|degraded|1' 'ledger_audit|succeeded|1' \
+        'manifest_sbom|failed|1' 'manifest_sbom|succeeded|2' 'manifest_sbom|withheld|3' 'repo_state|succeeded|3' \
+        'smoke_authored|succeeded|1' 'smoke_triage|succeeded|1')" \
+        "select asset,state,count(*) from traust_ops.run_order group by 1,2 order by 1,2"
+    smoke_expect 3 "select count(distinct repository_id) from traust_ops.run_order
+        where asset='manifest_sbom' and state='withheld' and reason='upstream-stale' and lease_generation=0"
+    smoke_expect 1 "select count(*) from traust_ops.run_order o join traust.repository r on r.id=o.repository_id
+        where r.url='$failed' and o.asset='manifest_sbom' and o.state='failed' and o.reason='source_unavailable'
+        and o.completed_by='smoke-manifest' and o.lease_generation=1"
+    smoke_expect 1 "select count(*) from traust.repository r join traust.repository_ref h on h.repository_id=r.id
+        where r.url='$failed' and h.is_default and h.sha=repeat('a',40)
+        and h.manifest_sbom_id is null and h.manifest_sbom_assessment_id is null"
+    smoke_expect '2|2|2|1' "select (select count(*) from traust.sbom),
+        (select count(*) from traust.assessment where kind='manifest_sbom'),
+        (select count(*) from traust.artifact where kind='manifest-coverage'),
+        (select count(*) from traust.dependency)"
+    smoke_expect 1 "select count(*) from traust_ops.run_order o join traust.repository r on r.id=o.repository_id
+        join traust.repository_ref h on h.repository_id=r.id and h.is_default
+        join traust.assessment a on a.id=h.manifest_sbom_assessment_id and a.run_order_id=o.id
+        where r.url='$partial' and o.asset='manifest_sbom' and o.state='succeeded'
+        and o.completed_by='smoke-manifest' and o.lease_generation=1"
+    smoke_records verify-coverage
+    audit=$(smoke_sql "select id from traust_ops.run_order where asset='ledger_audit' and state='degraded'
+        and completed_by='smoke-manifest' and lease_generation=1")
+    smoke_uuid "$audit"
+    uv run --no-sync python - "$audit" <<'PY'
+import sys
+from uuid import UUID
+from traust.context import load
+
+degraded = load(None).services().ops.manifest(UUID(sys.argv[1])).degraded
+if degraded != {"failed": 1}:
+    raise SystemExit(f"smoke: expected one failed layer in the audit order manifest, got {degraded}")
+PY
+    smoke_records verify
+    if [[ "${OPS_ACCEPTANCE:-0}" = 1 ]]; then
+        echo "smoke: pinned rig passed all three order replays and ledger/disposition checks"
+    else
+        echo "smoke: diagnostic probes passed (not pin or SDK acceptance)"
+    fi
 }
 
 case "${1:-}" in
@@ -725,5 +1044,6 @@ case "${1:-}" in
     scan) shift; cmd_scan "$@" ;;
     doctor) shift; cmd_doctor "$@" ;;
     smoke) shift; cmd_smoke "$@" ;;
+    smoke-engine) shift; source_env; engine "$@" ;;
     *) sed -n '2,20p' "$0"; exit 2 ;;
 esac

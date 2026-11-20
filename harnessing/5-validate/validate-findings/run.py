@@ -19,9 +19,7 @@ import datetime as dt
 import json
 import sys
 from pathlib import Path
-from uuid import uuid4
 
-from traust_core.v1.models.common import Provenance
 from traust_core.v1.models.validation import (
     TargetAttestation,
     ValidationRecordingPolicy,
@@ -29,6 +27,12 @@ from traust_core.v1.models.validation import (
 )
 from traust_core.v1.models.vocabulary import SourceType
 
+from traust.cli._doors import (
+    add_lease_generation_arg,
+    add_run_order_arg,
+    recording_order_id,
+    report_provenance,
+)
 from traust.cli.validation import record_report
 from traust.context import add_config_home_arg
 
@@ -46,6 +50,8 @@ def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("source", help="findings dir(s), comma-separated")
     add_config_home_arg(ap)
+    add_run_order_arg(ap)
+    add_lease_generation_arg(ap)
     ap.add_argument("--targets", required=True)
     ap.add_argument("--context", action="append", default=[])
     ap.add_argument("--ns", action="append", default=[])
@@ -73,9 +79,8 @@ def main(argv: list[str]) -> int:
     bindings = ValidationRecordInput.model_validate_json(args.record_bindings.read_bytes())
     if bindings.policy != ValidationRecordingPolicy.CURRENT:
         ap.error("new runs require current recording policy")
-    provenance = Provenance(
-        run_id=uuid4(), source=SourceType.VALIDATION_REPORT, occurred_at=dt.datetime.now(dt.UTC)
-    )
+    order_id = recording_order_id(args.run_id, args.lease_generation)
+    provenance = report_provenance(order_id, SourceType.VALIDATION_REPORT)
     finding_assessments = (
         json.loads(args.finding_assessments.read_bytes()) if args.finding_assessments else None
     )
@@ -196,6 +201,8 @@ def main(argv: list[str]) -> int:
         bindings,
         provenance,
         config_home=args.config_home,
+        run_id=order_id,
+        lease_generation=args.lease_generation,
         target_attestation=args.target_attestation,
         install_failure=args.install_failure,
     )
