@@ -341,10 +341,15 @@ assets:
     # serving bound folds on demand until this asset runs again.
     run: [python3, -m, traust.cli, dashboard, refresh, --run-id, "{run_id}", --census]
     trigger: {every: 10m}
-    # Claim the census ahead of per-repository observations (20, 25, 30) but
-    # after the daily feed refresh (10). Otherwise a large observation batch
-    # can delay the census past its serving bound, forcing on-demand folds.
-    # This asset queues one fold per interval, independent of repository count.
+    # Priority 15, not the portfolio lanes' 60 (the concurrent-user lane's p0
+    # starvation fix; the SCI component's copy carries the same change). Claims
+    # drain the lowest number first. A daily repo_state sweep queues work at
+    # p20-30; at p60 the census can miss its serving bound and dashboard viewers
+    # fold it on demand instead. A 10-minute asset whose serving bound is 20m/1h
+    # cannot share a queue position with day-scale ones: 15 sits above the
+    # observation lanes (20, 25, 30) and below the single daily feed refresh
+    # (10). The cost is bounded: this is the only order at this priority, and it
+    # runs once per interval, not once per repository.
     priority: 15
     freshness: {warn: 20m, fail: 1h}
     runner: {labels: [deterministic]}
