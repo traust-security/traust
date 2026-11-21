@@ -25,7 +25,7 @@ mkdir -p "$OUT"
 # fallback below keeps env-stripping + PATH shims and warns loudly —
 # shims are bypassable by absolute paths and are NOT a boundary.
 # Digest-pinned toolchain images (refresh deliberately):
-IMG_GO="${REMEDIATION_IMG_GO:-docker.io/library/golang@sha256:1a6d4452c65dea36aac2e2d606b01b4a029ec90cc1ae53890540ce6173ea77ac}"      # golang:1.24-bookworm 2026-07-24
+IMG_GO="${REMEDIATION_IMG_GO:-docker.io/library/golang@sha256:1a6d4452c65dea36aac2e2d606b01b4a029ec90cc1ae53890540ce6173ea77ac}"      # golang:1.24-bookworm
 IMG_NODE="${REMEDIATION_IMG_NODE:-docker.io/library/node@sha256:5647be709086c696ff32edaaf1c70cd26d1da6ab2b39c32f3c7b4c4a31957e37}"    # node:22-bookworm
 IMG_RUST="${REMEDIATION_IMG_RUST:-docker.io/library/rust@sha256:77fac8b98f9f46062bb680b6d25d5bcaabfc400143952ebc572e924bcbedc3fa}"    # rust:1-bookworm
 IMG_PY="${REMEDIATION_IMG_PY:-docker.io/library/python@sha256:9bed8554e926c07c6f908841d5ee88c33e8df9236b191526bbce81a9062ab43a}"      # python:3.12-bookworm
@@ -58,11 +58,9 @@ in_container() {
     -v "$WORK":/work:Z \
     -v "$WORK/.git":/work/.git:ro,Z \
     -w /work "$CONTAINER_IMG" bash -c "$*"
-  # ^ .git is read-only INSIDE the mount: hostile test code writing a
-  # credential helper / pre-push hook / core.fsmonitor into .git/config
-  # and having the host's later `git push` execute it was a confirmed
-  # container->host escape chain (assessment 2026-07-31 C2). Reads stay
-  # possible (go -buildvcs etc.); writes fail loudly.
+  # A read-only .git prevents hostile tests from planting executable git
+  # configuration or hooks for a later host command. Reads (go -buildvcs
+  # etc.) remain possible; writes fail loudly.
 }
 
 egress_netmode() {
@@ -233,7 +231,7 @@ if [[ ${#CHECKS[@]} -eq 0 ]]; then
   run_check noop "true"
 fi
 
-# --- worktree .git sanitization (assessment 2026-07-31 C2) -----------------
+# --- worktree .git sanitization --------------------------------------------
 # Regardless of leg (the native fallback has no mount boundary), hostile
 # test code may have written executable git configuration. Purge hooks
 # and every code-exec/credential-primitive key BEFORE any host git verb

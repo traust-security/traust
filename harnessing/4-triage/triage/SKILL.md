@@ -332,7 +332,7 @@ Continue with 1b, skipping all (A)/(B)/(C) detection below.
   batches under the existing Phase 6 artifact/recording contract. A
   re-audit candidate that names an already recorded finding under another
   identity is held for a person's rebaseline review rather than opened as
-  a duplicate. (Plan 15's decision 5 may change which kinds admit at recording.)
+  a duplicate.
 
   Retain the original source artifact and receipts. Do not invent an
   audit-intake CLI, synthesize native IDs, silently convert an audit into
@@ -1489,9 +1489,8 @@ the input report** — the resolved findings directory the audit report
 was read from, not the session's working directory.
 `traust_engine.corpus.resolver` resolves triage companions as exact siblings of
 the report; a CWD-written copy is invisible to corpus resolution, the
-census, and every dashboard (docs-verification 2026-07-31, wiring
-F10). A bare `TRIAGE.json` is equally invisible (legacy bare names are
-still read by the validator and `/patch`, never written).
+census, and every dashboard. A bare `TRIAGE.json` is equally invisible
+(legacy bare names are still read by the validator and `/patch`, never written).
 
 For input (A)/(B)/(D), every non-duplicate finding keeps the `fingerprint`
 and `fingerprint_algo` copied in 1b: Core recording refuses a triage whose
@@ -1868,8 +1867,7 @@ point at real call sites) and a sample of FALSE_POSITIVE rejects (the
 
 After this skill's report/artifact is written, declare the run's spend
 against the target so `estimate_scan` can calibrate per-skill cost
-models (contract: docs/model-routing.md; analysis:
-progress-tracker/metrics/estimate-calibration-analysis.md §F5):
+models (contract: docs/model-routing.md):
 
 ```bash
 python3 -m traust.cli registry models spend --skill triage \

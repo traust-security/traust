@@ -38,7 +38,7 @@ BIN_DIR="${HARNESS_BIN_DIR:-$HOME/.local/bin}"
 # Tool → profile mapping (mirrors external-tools.yaml consumers).
 # osv-scanner is deliberately absent: OSV is queried through its API, and an
 # air-gapped deployment installs osv-scanner and its offline database itself
-# (docs/setup.md "Air-gapped OSV scanning"; owner decision 2026-10-20).
+# (docs/setup.md "Air-gapped OSV scanning").
 #
 # A newline-delimited "profile:tools" table rather than `declare -A`, because
 # macOS ships bash 3.2 and associative arrays are bash 4+. Under 3.2 the old

@@ -1,10 +1,7 @@
 # Fleet-fix: add a least-privilege top-level GITHUB_TOKEN permissions
 # block to GitHub Actions workflows that declare none.
 #
-# Pattern: 2026-07 cloud-config Phase-0 sweep, Checkov CKV2_GHA_1
-# (confirmed in 32 repos' *-cloud-config-audit.json; e.g.
-# CCA-acs-fleet-manager-config-001, CCA-releaser-001, CCA-ods-ci-001/-002,
-# CCA-ci-framework-005). A workflow without a top-level `permissions:`
+# Pattern: Checkov CKV2_GHA_1. A workflow without a top-level `permissions:`
 # key receives the repository/org default GITHUB_TOKEN grant — up to
 # write-all under classic defaults (CWE-250 class). Fix: insert
 # `permissions:\n  contents: read` immediately above the top-level
@@ -18,8 +15,7 @@
 # top-level permissions key" (that would double-insert and produce a
 # duplicate-key workflow). Fleet application therefore gates on a
 # deterministic pre-check per repo: apply ONLY to repos whose root
-# workflows uniformly lack a top-level permissions block (15 of the 31
-# clonable fleet repos at apply time); mixed repos are skipped and
+# workflows uniformly lack a top-level permissions block; mixed repos are skipped and
 # recorded for a per-file follow-up. Re-runs must repeat the pre-check —
 # the transform is not idempotent on an already-fixed file. Workflows in
 # nested trees (e.g. contributions' ci/GitHub/*/.github/workflows/) are

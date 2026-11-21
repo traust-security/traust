@@ -29,10 +29,7 @@ allowed-tools:
   - Bash(python3 *traust* -m traust.cli reporting validate:*)
   - Bash(python3 *traust* -m traust.cli reporting record:*)
   - Bash(python3 *traust* -m traust_engine.reporting.render:*)
-  # Confinement added 2026-07-31 (P1 gate rework — the
-  # widened S1 privilege tokens made this skill's missing
-  # allowlist visible; assessment root-cause 3). Never
-  # widen to a bare interpreter — scope scripts individually.
+  # Never widen to a bare interpreter — scope scripts individually.
 ---
 
 # Secure Container Audit
@@ -189,9 +186,7 @@ syft <ref> -o syft-json=/tmp/<name>-sbom.syft.json -o cyclonedx-json=/tmp/<name>
 One run, two files. **The syft JSON drives Phase 3**: it records which
 OS package installed each file (`ownership-by-file-overlap`), and
 CycloneDX drops that. Without it grype matches upstream advisories
-against language packages an RPM installed. On `ubi9/python-311` (measured
-2026-10-20) that added 31 matches, 13 of them High: urllib3, pip,
-requests and setuptools under `/usr/lib/python3.*`, all carrying Red Hat
+against language packages an RPM installed, including packages with vendor
 backports. **The CycloneDX file is for the graph**:
 
 **Persist the SBOM for the portfolio graph**: record it on the audited
@@ -249,7 +244,7 @@ python3 -m traust.cli adapters osv --sbom /tmp/<name>-sbom.syft.json \
 **grype is the primary scanner**: OS packages, with the distribution's
 own data (RHSA for RPMs), and binaries matched by CPE (a bundled `node`
 runtime, for example). **The OSV step adds language-package advisories
-grype's database lacks** (owner decision 2026-10-20). It looks up only
+grype's database lacks**. It looks up only
 language packages no OS package installed (npm, PyPI, Maven, Go modules
 including the Go standard library, Cargo, RubyGems, NuGet), so a Red Hat
 RPM's backported fixes are never second-guessed by an upstream version.
@@ -317,16 +312,9 @@ When the source repo and ref are known (CSV mapping or Phase 1 labels):
 
 ## Precision Gate
 
-Ported from `/secure-code-audit`'s Precision Gate (the v0.143.0 rules
-plus the v0.191.0 re-calibration), adapted to image/SBOM/CVE-match
-semantics. The port closes this skill's measured FP path: the leg-2
-FP-persistence analysis
-(`analysis-results/scan-testing/sxs-2026-07/fp-persistence-analysis.{json,md}`)
-traced **12 of 38** recurring adjudicated FPs to this skill — every one
-an uncapped dependency-CVE re-filing at HIGH/CRITICAL (R1
-dependency-reachability / R5 vendor-applicability classes) that the
-source skill's gate already suppresses. Apply these gates to **every
-candidate finding before filing it** (Phases 1–5 alike). The posture is
+Adapted from `/secure-code-audit`'s Precision Gate for image/SBOM/CVE-match
+semantics. Apply these gates to **every candidate finding before filing it**
+(Phases 1–5 alike). The posture is
 **downgrade-not-drop**: a fired gate moves the observation to
 `dependency_audit`, `negative_results`, or a lower severity with the
 gate's evidence stated — it never silently disappears. When a gate's
@@ -680,8 +668,7 @@ This skill is designed to be driven headlessly (CI job, `Workflow` script, cron)
 
 After this skill's report/artifact is written, declare the run's spend
 against the target so `estimate_scan` can calibrate per-skill cost
-models (contract: docs/model-routing.md; analysis:
-progress-tracker/metrics/estimate-calibration-analysis.md §F5):
+models (contract: docs/model-routing.md):
 
 ```bash
 python3 -m traust.cli registry models spend --skill secure-container-audit \

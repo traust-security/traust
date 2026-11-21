@@ -288,8 +288,7 @@ apply unrelated classifier policies, or recreate retired report writers.
    recording. Use their returned assessment ID with `triage prepare` for
    native findings and any matching precedents; no separate intake receipt is
    required. Canonical `vuln_scan` documents likewise admit their findings when
-   recorded. `benchmark_audit` reports are scored, not admitted. Plan 15's
-   decision 5 may change whether `secure_code` recording admits findings.
+   recorded. `benchmark_audit` reports are scored, not admitted.
    After admission, `findings find <report.json> --label <report-local-id>
    --repo-url <audited-source-url>` is an optional report-label diagnostic:
    exit 0 with `finding_id: null` means no match, not a completed identity check.

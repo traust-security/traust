@@ -5,8 +5,7 @@
 # hostile-contributor territory for an open-source repo — linking is now
 # an explicit, user-run action.
 #
-# Repairs as well as creates. A link can be wrong in three ways, and the
-# 2026-08-26 stage restructure produced all three at once:
+# Repairs as well as creates. A link can be wrong in three ways:
 #
 #   dangling  the target directory is gone (skill moved under a stage dir)
 #   stale     the target directory still exists but holds no SKILL.md —

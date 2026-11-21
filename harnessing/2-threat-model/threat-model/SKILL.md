@@ -33,10 +33,8 @@ allowed-tools:
   - Bash(git rev-parse:*)
   - Bash(git -C:*)
   # git -C fallback: this skill's commands are -C-shaped; prefix-scoped
-  # subcommand grants can't match them until the command shapes are
-  # reworked (P1-W4 residual, sandbox-adoption plan)
+  # subcommand grants can't match them until the command shapes are reworked.
   - Bash(mv:*)
-  # (Bash(find:*) dropped 2026-07-31 P1-W4: Glob covers tree surveys)
   - Bash(ls:*)
   - Bash(cat:*)
   - AskUserQuestion
@@ -148,8 +146,7 @@ point them at the in-repo `validate-findings` skill instead.
 ## Step 0b — Standing product context (auto-discovered, every mode)
 
 Owner-supplied product-context documents persist at a well-known
-location so their inclusion is structural, never remembered
-(convention adopted 2026-07-30, first instance: ARO):
+location so their inclusion is structural, never remembered:
 
 ```
 <inputs>/adhoc/<product>-context/*.md
@@ -264,8 +261,7 @@ unavailable mid-session):
 | Q3 | What are we going to do about it? | section 4 risk rating/status/controls; section 5 deprioritized; section 8 recommended mitigations |
 | Q4 | Did we do a good job? | validate ranking, coverage check, section 6 open questions |
 
-> **Control-coverage completeness (all modes; calibrated by the
-> 2026-07-21 AWX false-negative probe).** A control recorded against a
+> **Control-coverage completeness (all modes).** A control recorded against a
 > threat (Q3/section 4) is only as good as its *coverage of paths*:
 > before recording status `mitigated`/`partial`, enumerate every entry
 > path from section 3 that reaches the threatened asset and verify the
@@ -342,8 +338,7 @@ re-renders.
 Writing the prose first and parsing it back would make an unvalidated
 Markdown table the thing every consumer depends on: the enums, the
 required fields and the column set would go unchecked until something
-downstream tripped over them. That is the state the 2026-09-20 backfill
-had to repair, and it is not how any other artifact works.
+downstream tripped over them.
 
 **Read the schema immediately before you compose the document**, not at
 routing time; in interview mode the gap between routing and emit can be
@@ -413,7 +408,7 @@ technique IDs in `atlas_refs` (for example `["AML.T0051"]`), next to any
 validated against the harness's pinned ATLAS table, and both render as
 optional trailing threats-table columns.
 
-**Findings-tree placement (wiring contract, 2026-07-31).** The checkout
+**Findings-tree placement.** The checkout
 copy alone is invisible to every downstream consumer — `/secure-code-audit`
 (coverage diff), `/vuln-scan`, `/triage`, and `/threat-register` all resolve threat models from the campaign findings
 tree, and target checkouts are disposable. Whenever the target has a
@@ -478,8 +473,7 @@ Then print to the user:
 
 After this skill's report/artifact is written, declare the run's spend
 against the target so `estimate_scan` can calibrate per-skill cost
-models (contract: docs/model-routing.md; analysis:
-progress-tracker/metrics/estimate-calibration-analysis.md §F5):
+models (contract: docs/model-routing.md):
 
 ```bash
 python3 -m traust.cli registry models spend --skill threat-model \
@@ -525,9 +519,8 @@ is dashboard work, not threat-model work.
 Context passes may also emit doc-variance records via
 python3 -m traust.cli ledger doc-variance.
 
-**Scheduled by the continuous-operations router** (re-model cadence
-shipped 2026-08-05 — `docs/continuous-operations.md`, plan
-`progress-tracker/plans/threat-model-cadence-plan.md`). Models are no
+**Scheduled by the continuous-operations router** (see
+`docs/continuous-operations.md`). Models are no
 longer written once at bootstrap and left to age; three router lanes
 re-model them, and the pack router paces each row into the runs
 the orchestrator dispatches headless:

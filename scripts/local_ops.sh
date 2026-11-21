@@ -560,9 +560,8 @@ cmd_doctor() {
     fi
     # The venv is the rig's truth: a `uv sync` between commands can silently
     # swap traust-core (and strip the engine) to whatever that checkout's lock
-    # held — the 2026-11-02 fleet run observed a pre-fix core this way and its
-    # orders wrote nothing. The doctor asserts what is installed matches what
-    # THIS checkout's lock resolves, the only code the rig claims to run.
+    # held. The doctor asserts what is installed matches what this checkout's
+    # lock resolves, the only code the rig claims to run.
     # The check itself is the `if` condition: a failed revision check sets bad and the
     # doctor still reaches its remaining diagnostics (set -e would kill it otherwise).
     if ! OPS_EXPECTED_ENGINE="$OPS_ENGINE_SRC" uv run --no-sync python - <<'PYEOF'

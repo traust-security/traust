@@ -18,9 +18,7 @@ Review how well one multi-tenant **service** — a logical product spanning many
 repositories — keeps its tenants apart. Where `secure-code-audit` carries a
 per-repo isolation section, this skill owns the service-shaped artifact: one
 interface inventory across the whole repo set, one hardening score per
-interface, one posture verdict per service. Campaign design and phasing:
-`plans/peach-isolation-lens-plan.md` under the configured `progress-tracker`
-root (an external workspace artifact, not bundled with this skill).
+interface, one posture verdict per service.
 
 ## Framework citation — PEACH, by reference ONLY (licensing rule)
 
@@ -194,8 +192,7 @@ if nothing supports a score, the score is wrong or the review is incomplete.
 
 After this skill's report/artifact is written, declare the run's spend
 against the target so `estimate_scan` can calibrate per-skill cost
-models (contract: docs/model-routing.md; analysis:
-progress-tracker/metrics/estimate-calibration-analysis.md §F5):
+models (contract: docs/model-routing.md):
 
 ```bash
 python3 -m traust.cli registry models spend --skill isolation-review \
@@ -218,7 +215,4 @@ unattributed run is a calibration gap.
 
 **Emits:** `<service>-isolation-review.{json,md}` under
 `analysis-results/isolation/` — consumed by threat-model
-tenant-boundary rows via `isolation_review_ref` and by
-progress-tracker rollups (A9 exemptions record the current
-human-loop consumers; the threat-register join is the planned
-machine consumer).
+tenant-boundary rows via `isolation_review_ref` and by progress-tracker rollups.
