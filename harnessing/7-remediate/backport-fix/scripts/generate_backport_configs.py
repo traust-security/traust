@@ -175,6 +175,86 @@ def read_triage(path: Path, finding_refs: list[str] | None = None) -> dict:
 # ---------------------------------------------------------------------------
 
 
+def _repo_filter_overrides(repo_path: Path) -> list[str]:
+    """`-c filter.<driver>.*=` for every driver the checkout configures.
+
+    The clone is writable by the container that runs untrusted build code, so
+    a clean/smudge/process driver it defines must not run on the host.
+    """
+    r = subprocess.run(
+        [
+            "git",
+            "-C",
+            str(repo_path),
+            "config",
+            "--local",
+            "--name-only",
+            "--get-regexp",
+            r"^filter\..*\.(clean|smudge|process)$",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    drivers = sorted(
+        {
+            line.split(".")[1]
+            for line in r.stdout.splitlines()
+            if line.startswith("filter.") and line.count(".") >= 2
+        }
+    )
+    overrides: list[str] = []
+    for driver in drivers:
+        for attribute in ("clean", "smudge", "process"):
+            overrides += ["-c", f"filter.{driver}.{attribute}="]
+    return overrides
+
+
+def _identity_overrides(repo_path: Path) -> list[str]:
+    """The author identity git would use, captured before global config is off."""
+    args: list[str] = []
+    for key in ("user.name", "user.email"):
+        r = subprocess.run(
+            ["git", "-C", str(repo_path), "config", "--get", key],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        value = r.stdout.strip()
+        if r.returncode == 0 and value:
+            args += ["-c", f"{key}={value}"]
+    return args
+
+
+def _host_git_args(repo_path: Path) -> list[str]:
+    """Config pinning for host-side git over a pipeline-controlled checkout."""
+    return [
+        *_identity_overrides(repo_path),
+        "-c",
+        "core.hooksPath=/dev/null",
+        "-c",
+        "core.fsmonitor=",
+        "-c",
+        "core.pager=cat",
+        "-c",
+        "commit.gpgsign=false",
+        "-c",
+        "log.showSignature=false",
+        "-c",
+        "diff.external=",
+        *_repo_filter_overrides(repo_path),
+    ]
+
+
+def _host_git_env() -> dict[str, str]:
+    env = os.environ.copy()
+    env["GIT_CONFIG_GLOBAL"] = "/dev/null"
+    env["GIT_CONFIG_NOSYSTEM"] = "1"
+    env["GIT_ATTR_NOSYSTEM"] = "1"
+    env["GIT_TERMINAL_PROMPT"] = "0"
+    return env
+
+
 def apply_patch_as_commit(
     repo_path: Path,
     patch_file: Path,
@@ -192,6 +272,8 @@ def apply_patch_as_commit(
     """
     import tempfile
 
+    git_args = _host_git_args(repo_path)
+    git_env = _host_git_env()
     patch_path = patch_file if patch_file.is_absolute() else Path.cwd() / patch_file
     if not patch_path.is_file():
         log.error("Patch file not found: %s", patch_path)
@@ -199,7 +281,7 @@ def apply_patch_as_commit(
 
     base_ref = f"origin/{source_branch}"
     r = subprocess.run(
-        ["git", "rev-parse", "--verify", "--quiet", f"{base_ref}^{{commit}}"],
+        ["git", *git_args, "rev-parse", "--verify", "--quiet", f"{base_ref}^{{commit}}"],
         cwd=repo_path,
         capture_output=True,
         text=True,
@@ -213,8 +295,9 @@ def apply_patch_as_commit(
     worktree_added = False
     try:
         r = subprocess.run(
-            ["git", "worktree", "add", "--detach", str(wt_dir), base_ref],
+            ["git", *git_args, "worktree", "add", "--detach", str(wt_dir), base_ref],
             cwd=repo_path,
+            env=git_env,
             capture_output=True,
             text=True,
             timeout=120,
@@ -225,8 +308,9 @@ def apply_patch_as_commit(
         worktree_added = True
 
         r = subprocess.run(
-            ["git", "apply", "--stat", str(patch_path)],
+            ["git", *git_args, "apply", "--stat", str(patch_path)],
             cwd=wt_dir,
+            env=git_env,
             capture_output=True,
             text=True,
             timeout=30,
@@ -236,8 +320,9 @@ def apply_patch_as_commit(
             sys.exit(1)
 
         r = subprocess.run(
-            ["git", "apply", str(patch_path)],
+            ["git", *git_args, "apply", str(patch_path)],
             cwd=wt_dir,
+            env=git_env,
             capture_output=True,
             text=True,
             timeout=30,
@@ -249,8 +334,9 @@ def apply_patch_as_commit(
         # Safe here: the worktree is a pristine checkout of base_ref, so there
         # are no unrelated (untracked) files to sweep in.
         subprocess.run(
-            ["git", "add", "-A"],
+            ["git", *git_args, "add", "-A"],
             cwd=wt_dir,
+            env=git_env,
             capture_output=True,
             text=True,
             timeout=30,
@@ -259,8 +345,9 @@ def apply_patch_as_commit(
 
         commit_msg = f"Apply patch: {patch_file.name}"
         r = subprocess.run(
-            ["git", "commit", "-m", commit_msg],
+            ["git", *git_args, "commit", "--no-verify", "-m", commit_msg],
             cwd=wt_dir,
+            env=git_env,
             capture_output=True,
             text=True,
             timeout=30,
@@ -270,8 +357,9 @@ def apply_patch_as_commit(
             sys.exit(1)
 
         r = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
+            ["git", *git_args, "rev-parse", "HEAD"],
             cwd=wt_dir,
+            env=git_env,
             capture_output=True,
             text=True,
             timeout=10,
@@ -283,8 +371,9 @@ def apply_patch_as_commit(
     finally:
         if worktree_added:
             subprocess.run(
-                ["git", "worktree", "remove", "--force", str(wt_dir)],
+                ["git", *git_args, "worktree", "remove", "--force", str(wt_dir)],
                 cwd=repo_path,
+                env=git_env,
                 capture_output=True,
                 text=True,
                 timeout=120,
@@ -297,7 +386,7 @@ def apply_patch_as_commit(
     safe_stem = re.sub(r"[^A-Za-z0-9._-]+", "-", patch_file.stem).strip("-") or "patch"
     anchor = f"backport-fix/patch-input-{safe_stem}"
     subprocess.run(
-        ["git", "branch", "-f", anchor, fix_commit],
+        ["git", *git_args, "branch", "-f", anchor, fix_commit],
         cwd=repo_path,
         capture_output=True,
         text=True,
