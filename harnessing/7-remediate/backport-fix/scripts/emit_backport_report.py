@@ -53,8 +53,14 @@ log = logging.getLogger(__name__)
 
 
 def get_harness_version() -> str:
-    """Harness VERSION from the traust/ sibling (traust-internal has none)."""
-    return harness_version()
+    """Harness version plus its short SHA, for report provenance.
+
+    VERSION is retired upstream and the version is nominal (0.1.0), so the
+    checkout's short SHA is what actually identifies the code that produced
+    the report. Falls back to the plain version when the checkout has no .git
+    (an installed package), which the contract pattern also allows.
+    """
+    return harness_version(with_rev=True)
 
 
 def read_remediation_metadata(path: Path) -> dict:
