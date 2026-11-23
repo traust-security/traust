@@ -1,6 +1,6 @@
 ---
 name: mine-ledger
-description: Mine confirmed dispositions for rule coverage and precision, author and calibrate private candidates, and admit complete mined or adopter packs with sweep intake-rules before installation. Optional additive facts scans are caller actions outside this skill. Admission does not activate rules or prove exploitability.
+description: Mine confirmed findings, author and calibrate private rule candidates, and publish mined or adopter packs through sweep intake-rules after Opengrep validate and strict test. Command grants exclude benchmark writes, adjudication and adapter execution. Admission is not activation or exploitability proof.
 metadata:
   harness.tier: "secondary"
 allowed-tools:
@@ -8,7 +8,18 @@ allowed-tools:
   - Glob
   - Grep
   - Write
-  - Bash(python3 -m traust.cli sweep:*)
+  - Bash(python3 -m traust.cli sweep mine:*)
+  - Bash(python3 -m traust.cli sweep cards:*)
+  - Bash(python3 -m traust.cli sweep regression-drafts:*)
+  - Bash(python3 -m traust.cli sweep verify-draft:*)
+  - Bash(python3 -m traust.cli sweep intake-rules:*)
+  - Bash(python3 -m traust.cli sweep collect:*)
+  - Bash(python3 -m traust.cli sweep draft:*)
+  - Bash(python3 -m traust.cli sweep sweep:*)
+  - Bash(python3 -m traust.cli sweep emit:*)
+  - Bash(python3 -m traust.cli sweep propose-rule:*)
+  - Bash(python3 -m traust.cli sweep check-rules:*)
+  - Bash(python3 -m traust.cli sweep rule-lane:*)
   # Confinement added 2026-07-31 (P1 gate rework — the
   # widened S1 privilege tokens made this skill's missing
   # allowlist visible; assessment root-cause 3). Never
@@ -343,6 +354,8 @@ touches Jira.
 ## Constraints
 
 - Read-only over the findings tree; never edits reports or ledgers.
+- Benchmark target recording, canary creation and adjudication are outside this
+  skill's command grants and require separate permission.
 - The miner is a candidate generator: cluster counts and precision numbers
   route attention, they do not conclude — rule decisions stay with the
   authoring loop and its mechanical calibration gate (delegated for

@@ -476,7 +476,7 @@ Use when the user asks how many lines of code have been scanned/audited, wants a
 
 ## mine-ledger
 
-Mine confirmed dispositions for rule coverage and precision, author and calibrate private candidates, and admit complete mined or adopter packs with sweep intake-rules before installation. Optional additive facts scans are caller actions outside this skill. Admission does not activate rules or prove exploitability.
+Mine confirmed findings, author and calibrate private rule candidates, and publish mined or adopter packs through sweep intake-rules after Opengrep validate and strict test. Command grants exclude benchmark writes, adjudication and adapter execution. Admission is not activation or exploitability proof.
 
 - **Stage:** —
 - **Tier:** `secondary`
