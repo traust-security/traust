@@ -82,4 +82,9 @@ exec env -i \
     -c core.pager=cat \
     -c core.attributesFile=/dev/null \
     -c diff.external= \
+    -c log.showSignature=false \
+    -c gpg.program=/bin/false \
+    -c gpg.openpgp.program=/bin/false \
+    -c gpg.x509.program=/bin/false \
+    -c gpg.ssh.program=/bin/false \
     "$sub" "$@"

@@ -577,3 +577,69 @@ def test_patch_fallback_is_skipped_when_the_verdict_failed(tmp_path):
     assert proc.returncode != 0
     assert not marker.exists()
     assert not (branch_dir / "candidate.patch").exists()
+
+
+def test_safe_git_does_not_verify_signatures_with_a_repo_gpg_program(tmp_path):
+    # `show` honours log.showSignature, and a repo can point gpg.program at a
+    # library-tool lookalike. The wrapper must pin both to harmless values.
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-q", "-b", "main")
+    _git(
+        repo,
+        "-c",
+        "user.email=t@t",
+        "-c",
+        "user.name=t",
+        "commit",
+        "-q",
+        "--allow-empty",
+        "-m",
+        "base",
+    )
+    tree = _git(repo, "rev-parse", "HEAD^{tree}")
+    parent = _git(repo, "rev-parse", "HEAD")
+    fake = (
+        f"tree {tree}\n"
+        f"parent {parent}\n"
+        "author T <t@t> 1700000000 +0000\n"
+        "committer T <t@t> 1700000000 +0000\n"
+        "gpgsig -----BEGIN PGP SIGNATURE-----\n"
+        " \n"
+        " ZmFrZQ==\n"
+        " -----END PGP SIGNATURE-----\n"
+        "\n"
+        "signed-looking\n"
+    )
+    sha = subprocess.run(
+        ["git", "-C", str(repo), "hash-object", "-t", "commit", "-w", "--stdin"],
+        input=fake,
+        text=True,
+        capture_output=True,
+        check=True,
+    ).stdout.strip()
+    _git(repo, "update-ref", "refs/heads/main", sha)
+
+    marker = tmp_path / "GPG_RAN"
+    helper = tmp_path / "gpg-like.sh"
+    helper.write_text(f"#!/bin/sh\ntouch '{marker}'\nexit 1\n")
+    helper.chmod(0o755)
+    _git(repo, "config", "log.showSignature", "true")
+    _git(repo, "config", "gpg.program", str(helper))
+
+    r = subprocess.run(
+        ["bash", str(SKILL / "scripts" / "safe_git.sh"), "-C", str(repo), "show", sha],
+        capture_output=True,
+        text=True,
+    )
+    assert not marker.exists(), "the repo's gpg.program ran during show"
+
+    text = (SKILL / "scripts" / "safe_git.sh").read_text()
+    for flag in (
+        "-c log.showSignature=false",
+        "-c gpg.program=",
+        "-c gpg.openpgp.program=",
+        "-c gpg.x509.program=",
+        "-c gpg.ssh.program=",
+    ):
+        assert flag in text, flag
