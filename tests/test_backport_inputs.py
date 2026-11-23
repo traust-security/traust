@@ -1255,3 +1255,13 @@ def test_banner_names_the_run_commit_not_the_artifact(tmp_path):
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert f"Fix commit: {'c' * 40}" in proc.stdout
     assert f"Fix commit: {'a' * 40}" not in proc.stdout
+
+
+def test_report_harness_version_carries_the_checkout_sha():
+    # VERSION is retired and the number is nominal, so the report's
+    # harness_version includes the checkout's short SHA for provenance.
+    version = emit.get_harness_version()
+    assert re.fullmatch(r"\d+\.\d+\.\d+(-[0-9a-f]{7,40})?", version)
+    checkout = pathlib.Path(__file__).resolve().parents[1]
+    if (checkout / ".git").exists():          # dev checkout, not a wheel
+        assert re.search(r"-[0-9a-f]{7,40}$", version)
