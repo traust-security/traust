@@ -1263,5 +1263,24 @@ def test_report_harness_version_carries_the_checkout_sha():
     version = emit.get_harness_version()
     assert re.fullmatch(r"\d+\.\d+\.\d+(-[0-9a-f]{7,40})?", version)
     checkout = pathlib.Path(__file__).resolve().parents[1]
-    if (checkout / ".git").exists():          # dev checkout, not a wheel
+    if (checkout / ".git").exists():  # dev checkout, not a wheel
         assert re.search(r"-[0-9a-f]{7,40}$", version)
+
+
+def test_published_patches_are_linked_when_results_sit_outside_the_workspace(tmp_path, monkeypatch):
+    # The documented results dir is /tmp/backport-fix/...: build_report cannot
+    # express that path (the contract requires workspace-relative), so publish
+    # must add the link to the file it just copied.
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    monkeypatch.setattr(emit, "workspace_root", lambda: workspace)
+    results = tmp_path / "outside" / "results"
+    _write_branch(results / "release-a", target="origin/release-4.16")
+    report = emit.build_report(results, _NUM_REM)
+    assert "patch_path" not in report["target_branches"][0]
+
+    dest = emit.publish_results(workspace / "analysis-results", results, report, _NUM_REM)
+    assert dest is not None
+    published = json.loads((dest / "r-backport-report.json").read_text())
+    relative = published["target_branches"][0]["patch_path"]
+    assert relative and (workspace / relative).is_file()
