@@ -916,6 +916,25 @@ def default_publish_root() -> Path | None:
     return analysis_results_root()
 
 
+def _dir_branch(branch_dir: Path) -> str:
+    """The report's branch name for a results directory.
+
+    The directory is named with a sanitized slug; result.json (then the config
+    copy) records the real target ref that the report uses.
+    """
+    result_path = branch_dir / "result.json"
+    if result_path.is_file():
+        try:
+            record = json.loads(result_path.read_text())
+        except (OSError, ValueError):
+            record = None
+        if isinstance(record, dict):
+            target = record.get("target_branch")
+            if isinstance(target, str) and target:
+                return target
+    return _config_target(branch_dir) or branch_dir.name
+
+
 def publish_results(
     publish_root: Path,
     results_dir: Path,
@@ -970,6 +989,7 @@ def publish_results(
 
     to_copy: list[tuple[Path, Path]] = []
     patch_map: dict[str, str] = {}
+    branch_patch_map: dict[str, str] = {}
     for entry in sorted(results_dir.iterdir()):
         if entry.is_symlink():
             log.error("Refusing publish: symlinked entry in results dir: %s", entry)
@@ -987,6 +1007,7 @@ def publish_results(
             dst_patch = dest / f"{repo_short}-backport-{entry.name}.patch"
             to_copy.append((patch, dst_patch))
             patch_map[str(patch)] = str(dst_patch)
+            branch_patch_map[_dir_branch(entry)] = str(dst_patch)
 
     delivery = results_dir / "delivery.json"
     if tampered(delivery):
@@ -1006,9 +1027,16 @@ def publish_results(
         # dangle as soon as the results dir was cleaned up.
         published_report = json.loads(json.dumps(report))
         for row in published_report.get("target_branches", []):
-            p = row.get("patch_path")
-            if p and p in patch_map:
-                rel = _workspace_relative(patch_map[p])
+            # The report cannot carry a path that is outside the workspace
+            # (the documented results dir is /tmp/backport-fix/...), so match
+            # the published file by branch instead of relying on the prior
+            # patch_path, which build_report may have omitted.
+            published_path = branch_patch_map.get(str(row.get("branch", "")))
+            if published_path is None:
+                prior = row.get("patch_path")
+                published_path = patch_map.get(prior) if prior else None
+            if published_path:
+                rel = _workspace_relative(published_path)
                 if rel:
                     row["patch_path"] = rel
                 else:
