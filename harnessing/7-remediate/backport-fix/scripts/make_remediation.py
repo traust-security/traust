@@ -104,9 +104,22 @@ def resolve_audit(
 
 
 def patch_block(repo: Path, sha: str, strategy: str, rationale: str) -> dict:
-    """Derive files_changed/diffstat from the commit itself."""
+    """Derive files_changed/diffstat from the commit itself.
+
+    A merge commit's own `git show` is a combined diff and is usually empty
+    even when the merge brings the fix in, so a merge is diffed against its
+    first parent (its effect on the mainline) instead.
+    """
+    parents = git(repo, "rev-list", "--parents", "-n", "1", sha).split()[1:]
+    if len(parents) > 1:
+        name_args = ("diff", "--name-status", f"{sha}^1", sha)
+        num_args = ("diff", "--numstat", f"{sha}^1", sha)
+    else:
+        name_args = ("show", "--name-status", "--format=", sha)
+        num_args = ("show", "--numstat", "--format=", sha)
+
     files: list[dict] = []
-    for line in git(repo, "show", "--name-status", "--format=", sha).splitlines():
+    for line in git(repo, *name_args).splitlines():
         parts = line.split("\t")
         if len(parts) < 2:
             continue
@@ -117,7 +130,7 @@ def patch_block(repo: Path, sha: str, strategy: str, rationale: str) -> dict:
             }
         )
     additions = deletions = 0
-    for line in git(repo, "show", "--numstat", "--format=", sha).splitlines():
+    for line in git(repo, *num_args).splitlines():
         cols = line.split("\t")
         if len(cols) >= 3 and cols[0].isdigit() and cols[1].isdigit():
             additions += int(cols[0])
