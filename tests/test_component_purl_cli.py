@@ -5,12 +5,11 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+from contextlib import contextmanager
 from pathlib import Path
+from types import SimpleNamespace
 
 from traust_core.v1.models.values import HttpsRepoUrl
-
-from contextlib import contextmanager
-from types import SimpleNamespace
 
 from traust.cli import assessment_record, assessments, check_citations, repo, session
 from traust.context import load
@@ -63,10 +62,26 @@ def test_assessments_prepare_resolves_component_purl_and_refuses_unresolved(
     sha = _make_monorepo(
         checkout,
         {
-            "gradle.properties": "version=7.1.0\ngroup=org.springframework\n",
-            "settings.gradle": 'include "spring-beans", "spring-context"\n',
-            "spring-beans/spring-beans.gradle": 'description = "beans"\n',
-            "spring-context/spring-context.gradle": 'description = "context"\n',
+            "pom.xml": (
+                "<project><modelVersion>4.0.0</modelVersion>"
+                "<groupId>org.springframework</groupId>"
+                "<artifactId>spring-framework-parent</artifactId>"
+                "<version>7.1.0</version><packaging>pom</packaging>"
+                "<modules><module>spring-beans</module><module>spring-context</module></modules>"
+                "</project>\n"
+            ),
+            "spring-beans/pom.xml": (
+                "<project><parent><groupId>org.springframework</groupId>"
+                "<artifactId>spring-framework-parent</artifactId>"
+                "<version>7.1.0</version></parent>"
+                "<artifactId>spring-beans</artifactId></project>\n"
+            ),
+            "spring-context/pom.xml": (
+                "<project><parent><groupId>org.springframework</groupId>"
+                "<artifactId>spring-framework-parent</artifactId>"
+                "<version>7.1.0</version></parent>"
+                "<artifactId>spring-context</artifactId></project>\n"
+            ),
         },
         tag="v7.1.0",
     )
@@ -97,7 +112,9 @@ def test_assessments_prepare_resolves_component_purl_and_refuses_unresolved(
     )
     assert rc == 0
     prepared = json.loads(out_path.read_text(encoding="utf-8"))
-    assert prepared["component_target"]["purl"] == "pkg:maven/org.springframework/spring-beans@7.1.0"
+    assert (
+        prepared["component_target"]["purl"] == "pkg:maven/org.springframework/spring-beans@7.1.0"
+    )
     assert prepared["component_target"]["commit"] == sha
     assert prepared["component_target"]["module_path"] == "spring-beans"
 
@@ -154,9 +171,7 @@ def test_reporting_record_and_check_citations_on_three_location_component_report
                 {"name": "@acme/tenant-ids", "version": "1.2.0"}
             ),
             "packages/tenant-ids/src/id.ts": (
-                "export function nextTenantItemId(tenant: string) {\n"
-                '  return "item-1";\n'
-                "}\n"
+                'export function nextTenantItemId(tenant: string) {\n  return "item-1";\n}\n'
             ),
             "apps/api-server/package.json": json.dumps(
                 {"name": "@acme/api-server", "private": True, "version": "1.2.0"}
@@ -306,10 +321,26 @@ def test_repo_checkout_shared_and_session_run_purl_resolution(
     sha = _make_monorepo(
         checkout,
         {
-            "gradle.properties": "version=7.1.0\ngroup=org.springframework\n",
-            "settings.gradle": 'include "spring-beans", "spring-context"\n',
-            "spring-beans/spring-beans.gradle": 'description = "beans"\n',
-            "spring-context/spring-context.gradle": 'description = "context"\n',
+            "pom.xml": (
+                "<project><modelVersion>4.0.0</modelVersion>"
+                "<groupId>org.springframework</groupId>"
+                "<artifactId>spring-framework-parent</artifactId>"
+                "<version>7.1.0</version><packaging>pom</packaging>"
+                "<modules><module>spring-beans</module><module>spring-context</module></modules>"
+                "</project>\n"
+            ),
+            "spring-beans/pom.xml": (
+                "<project><parent><groupId>org.springframework</groupId>"
+                "<artifactId>spring-framework-parent</artifactId>"
+                "<version>7.1.0</version></parent>"
+                "<artifactId>spring-beans</artifactId></project>\n"
+            ),
+            "spring-context/pom.xml": (
+                "<project><parent><groupId>org.springframework</groupId>"
+                "<artifactId>spring-framework-parent</artifactId>"
+                "<version>7.1.0</version></parent>"
+                "<artifactId>spring-context</artifactId></project>\n"
+            ),
         },
         tag="v7.1.0",
     )
