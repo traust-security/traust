@@ -11,6 +11,8 @@ description: Triage a batch of raw security findings. Verify each is real,
   or "review the backlog". Runs interactively by default; pass --auto to
   skip the interview. Scanner source attribution comes from the recorded Core
   assessment, not a caller-supplied origin flag.
+  A finding backed by a published CVE with a CVSS score keeps that score's
+  band unless recorded evidence bound to the finding shows otherwise.
 argument-hint: "<findings-path> [--prepared-input] [--auto] [--votes N] [--repo PATH] [--fp-rules FILE] [--fresh]"
 user-invocable: true
 metadata:
@@ -1321,6 +1323,18 @@ name, and judge the scanner's claimed severity separately. Only `confirmed[]`
 enters this phase; `hardening[]` never does. Verification and severity are
 independent judgments; "this is real" must not inflate into "this is critical."
 
+**Advisory-backed findings keep the published score.** A finding that cites
+a published advisory (CVE, GHSA or another OSV id) with a CVSS score keeps
+the band of the advisory's selected authority score ([Severity
+authoring](../../../docs/report-structure.md#severity-authoring)). Steps 2
+and 3 below never set its severity, up or down: precondition counts, access
+level, threat-model matches and deployment context are inference. Its
+severity changes only on recorded evidence bound to this finding, its commit
+and its dependency version: an `/impact-analysis` classification, a vendor
+not-affected statement or fixed NVR, or a live-validation result. The rank
+rationale cites that artifact. Without one, `severity` is the advisory band
+whatever the derivation says.
+
 ### 4a. Ranking prompt
 
 Spawn one Task per confirmed finding (`subagent_type: "general-purpose"`,
@@ -1344,6 +1358,9 @@ FINDING:
   file:      {file}:{line}
   category:  {category}
   claimed severity: {severity}
+  advisory:  {advisory id, selected authority, score and band; or none}
+  evidence:  {impact-analysis, vendor or validation artifacts bound to this
+              finding; or none}
   reachability evidence: {first_links from Phase 3}
   verifier rationale: {rationale from Phase 3}
 
@@ -1353,7 +1370,11 @@ Be concrete: required auth state, configuration, prior request, race
 window, attacker position. Then state the minimum ACCESS LEVEL required
 (unauthenticated remote / authenticated / local / physical).
 
-STEP 2: Derive severity from the precondition count and access level:
+STEP 2: Derive severity from the precondition count and access level.
+If ADVISORY is not none, skip this derivation and step 3 for severity:
+SEVERITY is the advisory band unless EVIDENCE names an artifact that shows
+otherwise, and RANK_RATIONALE cites it. Preconditions still go in the
+rationale; inference never changes an advisory's severity.
 
   | Preconditions | Access required          | Severity |
   |---------------|--------------------------|----------|
@@ -1399,7 +1420,7 @@ Respond with ONLY this block:
   PRECONDITIONS:
   - <one per line>
   ACCESS_LEVEL: <unauthenticated_remote|authenticated|local|physical>
-  SEVERITY: <HIGH|MEDIUM|LOW>
+  SEVERITY: <CRITICAL|HIGH|MEDIUM|LOW>  (CRITICAL only as an advisory band)
   SEVERITY_LABEL: <per scoring standard>
   THREAT_MATCH: <matched threat-model entry, or none>
   SEVERITY_ALIGNMENT: <-5..+5>

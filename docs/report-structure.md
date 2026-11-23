@@ -134,6 +134,40 @@ judgment; subsequent judgments use Core's existing decision doors.
 Triage artifact verdicts are a separate contract and are unchanged by
 these rules.
 
+## Severity authoring
+
+A finding's `severity` is the band of a score, never a judgment. These rules
+apply to new reports; historical reports are not rewritten.
+
+- **First-party code finding:** `severity` is the FIRST band of the CVSS Base
+  vector in the finding's `cvss` (critical 9.0–10.0, high 7.0–8.9, medium
+  4.0–6.9, low 0.1–3.9). Score the vector for what the code allows. An
+  unscored posture or hygiene observation is `informational` and carries no
+  `cvss`.
+- **Advisory-backed finding** (a published CVE, GHSA or other OSV advisory
+  matched to a dependency, package or image): `severity` is the band of the
+  advisory's selected authority score, and `cvss` carries that score and
+  vector. For a Red Hat product, the selected score is Red Hat's CVSS for that
+  product when Red Hat publishes one. Otherwise the order is NIST (NVD
+  Primary), GitHub (GHSA), the CVE's CNA, ADP, Red Hat, then the scanner. A
+  3.x score comes before 4.0; 4.0 is used only when no source has 3.x. Red
+  Hat's severity word (Important, Moderate) is never a score. Quote every
+  authority's score you have, with its source, in the description.
+- **The audit never changes a severity.** Reachability, deployment context,
+  restricted SCCs, a compensating control elsewhere, a required prior
+  compromise or plain uncertainty never lower it. A Precision Gate decides
+  only whether a candidate is filed: with affirmative evidence it moves to
+  `dependency_audit` or `negative_results`; otherwise the finding is filed at
+  its band, with the open question named in the description for `/triage`.
+- **Who changes it later:** only `/impact-analysis`, `/triage` and live
+  validation (`/validate-findings` and its siblings), through Core's decision
+  doors, never by editing the report. Changing the severity of an
+  advisory-backed finding needs recorded evidence bound to that finding: an
+  impact-analysis classification (for example `version_not_in_range` or
+  symbol-level `not_observed`), a vendor not-affected statement or fixed NVR,
+  or a validation result. Inference and prose are not evidence. The report's
+  `severity` is never rewritten.
+
 ## Remediation authoring
 
 These rules apply to newly authored findings and roadmap items across all
@@ -193,7 +227,10 @@ apply unrelated classifier policies, or recreate retired report writers.
   all four scanning skills: `crit_high_evaluated` counts every critical/high
   candidate (filed or gated) and `fired[]` lists each gate that changed a
   candidate's disposition
-  (`{candidate, gate, action: downgraded|negative_results|dependency_audit}`).
+  (`{candidate, gate, action}`). New reports use `negative_results` or
+  `dependency_audit`: a gate never changes severity
+  ([Severity authoring](#severity-authoring)); `downgraded` stays readable in
+  historical reports.
   An empty `fired` list is legitimate; a report that files crit/high findings
   with **no** block is an incomplete run — the same contract as
   `deterministic_steps`. `/vuln-scan` stamps it on its supplement scans.

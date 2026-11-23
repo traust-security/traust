@@ -16,6 +16,7 @@ description: >-
   building, running, or network. Use when asked to "scan for vulns",
   "review this code for security issues", "find bugs in <dir>", "re-sweep
   an audited repo", or as the step between /threat-model and /triage.
+  Gates lower confidence, never severity.
 argument-hint: "<target-dir> [--diff [--since <commit>] [--baseline-assessment <id>]] [--focus <area>] [--single] [--extra <file>] [--no-score]"
 user-invocable: true
 metadata:
@@ -693,9 +694,14 @@ DO-NOT-REPORT list is the measured FP-prevention record (zero
 triage-refuted FPs historically) and **stays authoritative where it
 overlaps** — nothing below duplicates or weakens it. Consistent with
 this skill's contract ("this skill never drops a finding"), a fired
-gate **downgrades severity** (and lowers confidence) with the gate's
-evidence appended to the finding description — downgrade-not-drop,
-exactly the source skill's posture; removal remains `/triage`'s job.
+gate **never changes severity**: it lowers `confidence` and appends the
+gate's evidence to the finding description and `confidence_reason`.
+Severity stays what the SEVERITY scale gave it — for an advisory-backed
+finding, the selected authority score's band ([Severity
+authoring](../../../docs/report-structure.md#severity-authoring)). Only
+`/impact-analysis`, `/triage` and live validation change it later, and
+for an advisory-backed finding only on recorded evidence; removal
+remains `/triage`'s job.
 
 Apply to every candidate still rated critical or high after Step 3:
 
@@ -704,28 +710,30 @@ Apply to every candidate still rated critical or high after Step 3:
    under RPC stubs, ingress validators, sibling middleware/plugins,
    response/event filters, and shipped deployment manifests in this
    repo. Grep the enforcement primitive by name before claiming
-   absence. A control located in-repo → downgrade with the citation; a
-   control that exists only cross-repo → medium
-   (deployment-contingent). A control that is OFF in shipped default
+   absence. A control located in-repo → lower confidence with the
+   citation; a control that exists only cross-repo → lower confidence,
+   naming the control (deployment-contingent). A control that is OFF in shipped default
    config does **not** defuse the finding.
 2. **Privilege-delta test** — state what the attacker's prerequisite
    position already grants and verify the finding adds capability.
    Confused deputies gated as strongly as the deputized action,
    admin-only config sinks, and repo-write→code-exec preconditions fail
    this test. Audit-evasion, persistence, and cross-tenant movement are
-   real deltas. Uncertain equivalence → medium, not suppression.
+   real deltas. Uncertain equivalence → lower confidence with the
+   question named, never severity.
 3. **By-design / opt-in check** — privilege that is the component's
    documented core function (with an in-repo README/manifest/doc
    citation — "looks intentional" is insufficient), and insecure
    behavior behind an explicit admin-set flag that defaults secure and
-   is documented, downgrade to `informational` hardening notes. The
+   is documented, lower confidence and name it a by-design candidate
+   for `/triage`. The
    severity floor stays when the insecure mode is ON by default in
    shipped config, settable by a less-privileged principal than those
    endangered, a silent fallback, or a cross-tenant boundary violation.
 4. **Chain completion at critical** — a critical must show every
    mandatory step of its chain succeeding at the scanned ref. A broken
-   step downgrades to medium — never below what the surviving evidence
-   supports, and never suppresses a demonstrated defect. **Severity
+   step lowers confidence, naming the step — never severity, and never
+   suppresses a demonstrated defect. **Severity
    floors (identical to `/secure-code-audit`'s)**:
    **verification-disable** (TLS/certificate verification disabled or
    skippable, signature/checksum verification bypassed, authentication
@@ -752,7 +760,7 @@ Do not rewrite the scan artifact or invent another intake command.
 verification routing and subsequent adjudication. Human-countersigned
 matches reduce votes but never skip verification; machine matches are
 context only with full votes. A match never supplies an automatic
-false-positive verdict. Any supported downgrade-not-drop decision is
+false-positive verdict. Any supported severity or disposition change is
 recorded in the new triage determination after independent verification,
 not by retroactively changing this scan's findings or gate metadata.
 Do not add an `"fp-precedent"` entry to `precision_gates.fired`.
@@ -764,19 +772,16 @@ contract as `/secure-code-audit`'s:
 "precision_gates": {
   "crit_high_evaluated": 4,
   "fired": [
-    {"candidate": "<finding id or title>",
-     "gate": "<rule name from this step>",
-     "action": "downgraded"}
   ]
 }
 ```
 
-`crit_high_evaluated` counts every critical/high candidate (kept or
-downgraded); `fired` lists each rule that changed a disposition (an
-empty list is a legitimate value). In this skill's shape the only
-`action` is `"downgraded"` — nothing is dropped or rerouted (the
+`crit_high_evaluated` counts every critical/high candidate the gates
+examined. `fired` lists each rule that changed a disposition, so in this
+skill it stays empty: nothing is dropped, rerouted or re-rated (the
 source skill's `negative_results`/`dependency_audit` actions have no
-section in this output). A scan that emits crit/high findings with no
+section in this output). A gate that fired is recorded on its finding,
+in `confidence_reason`. A scan that emits crit/high findings with no
 `precision_gates` block is incomplete.
 
 **Coverage-note precision** (the source skill's `negative_results` rule,

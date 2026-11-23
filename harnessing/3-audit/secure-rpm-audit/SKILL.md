@@ -1,6 +1,6 @@
 ---
 name: secure-rpm-audit
-description: Use when the user asks to perform a security audit, security review, or vulnerability assessment of an RPM packaging repository (CentOS Stream / Fedora / RHEL dist-git) — a repo containing a .spec file, downstream patches, and a sources lookaside manifest — using OWASP ASVS, the SEI CERT C/C++ Coding Standards, Fedora Packaging Guidelines, SLSA, and OpenSSF Scorecard. Omits unauthored validity answers; authors canonical remediation sizes or explicit unknowns, independent blocking, and explicit roadmap priorities through Core's report record door.
+description: Use when the user asks to perform a security audit, security review, or vulnerability assessment of an RPM packaging repository (CentOS Stream / Fedora / RHEL dist-git) — a repo containing a .spec file, downstream patches, and a sources lookaside manifest — using OWASP ASVS, the SEI CERT C/C++ Coding Standards, Fedora Packaging Guidelines, SLSA, and OpenSSF Scorecard. Omits unauthored validity answers; authors canonical remediation sizes or explicit unknowns, independent blocking, and explicit roadmap priorities through Core's report record door. Severity is the band of the finding's score (its CVSS vector, or a published advisory's selected authority score); no gate re-rates it.
 metadata:
   harness.tier: "primary"
 ---
@@ -163,12 +163,15 @@ prepared source tree. Measured basis: the leg-2 FP-persistence analysis
 traced 1 of 38 recurring adjudicated FPs to this skill, and the
 sibling-skill portage gap was the dominant recurrence path overall
 (19/38). Apply these gates to **every candidate finding before filing
-it**. The posture is **downgrade-not-drop**: a fired gate moves the
-observation to `dependency_audit`, `negative_results`, or a lower
-severity with the gate's evidence stated — it never silently
+it**. The posture is **file-or-drop, never re-rate**: a gate decides whether a
+candidate is filed, never its severity. A gate that fires on affirmative
+evidence moves the observation to `dependency_audit` or
+`negative_results` with that evidence stated — it never silently
 disappears. When a gate's precondition cannot be established within
-budget, file at reduced severity with the uncertainty named rather than
-suppressing.
+budget, file the finding at its severity with the open question named for
+`/triage`. Severity is always the band of the finding's score
+([Severity authoring](../../../docs/report-structure.md#severity-authoring)); only `/impact-analysis`, `/triage` and live validation change it
+later, and for an advisory-backed finding only on recorded evidence.
 
 **Gate-application record (mandatory).** Every report records
 `metadata.additional.precision_gates` — the same contract as
@@ -180,7 +183,7 @@ suppressing.
   "fired": [
     {"candidate": "<short title or finding id>",
      "gate": "<gate name from this section>",
-     "action": "downgraded|negative_results|dependency_audit"}
+     "action": "negative_results|dependency_audit"}
   ]
 }
 ```
@@ -221,16 +224,16 @@ Before filing any dependency/version-match finding at critical/high:
    erratum is not safety.
 3. **Manifest-only lint** — a finding whose only location is a lock
    file, the `sources` manifest, or a `SourceN:`/`Provides: bundled()`
-   line is a `dependency_audit` entry, never a crit/high finding on its
-   own. (RPM06 integrity failures — digest mismatch, unlisted tarball —
+   line is a `dependency_audit` entry, not a finding on its own, and
+   never a finding at a lower severity. (RPM06 integrity failures — digest mismatch, unlisted tarball —
    are not version matches; their mandated severities stand.)
 
 Boundaries this gate must NOT suppress: symbol-reachable CVE-grade
 defects including algorithmic-complexity DoS; **known-CVE bundled
 libraries with no downstream patch** — once vendored, a bundled library
 is first-party shipped code and its advisory-lag keeps severity
-(RPM08); reachability-undeterminable cases (file medium with the
-reachability question stated).
+(RPM08); reachability-undeterminable cases (file at the advisory's band
+with the reachability question stated).
 
 ### Scoped-shipment reachability (packaging analog of scoped-baseline)
 
@@ -239,9 +242,10 @@ closure; the packaging analog is the **built-RPM closure**. A defect in
 upstream source that provably never reaches any built subpackage — the
 file is deleted or excluded in `%prep`/`%install`, appears in no
 `%files` list, is compiled only for an arch/OS this stream does not
-build, or is removed by a downstream patch — files as an **upstream
-note at informational** with the exclusion cited (spec line, patch
-hunk), never deleted: it stays valid for the upstream cut. Guardrail:
+build, or is removed by a downstream patch — is a `negative_results`
+entry with the exclusion cited (spec line, patch hunk), naming the
+defect and that it stands for the upstream cut: never deleted, and
+never filed at a lower severity. Guardrail:
 "probably not shipped" is not evidence — this gate needs the
 affirmative spec/patch citation; when the closure cannot be established
 within budget, keep the finding at severity with the question named.
@@ -252,8 +256,8 @@ A file that ships can still have a non-production execution context:
 upstream CI/test/example content packaged only into `-tests`/`-doc`
 subpackages, dev-mode-gated paths, or dead code with zero production
 callers (verify with a caller search, not by naming convention). Any of
-these → downgrade to `informational` with the gating condition or
-caller-search result cited. Boundaries that keep full severity, as in
+these → a `negative_results` entry citing the gating condition or
+caller-search result, never a lower-rated finding. Boundaries that keep full severity, as in
 the source skill: a dev toggle enable-able in production by a
 less-privileged principal, a silent/undocumented fallback into the dev
 path, and "dev" artifacts that in fact ship in the main package.
@@ -271,7 +275,7 @@ Every critical/high candidate must pass all of:
    unit sandboxing shipped in this repo before claiming a control
    absent. A control located = `negative_results` entry citing it; a
    control living outside this package (kernel, crypto-policies, SELinux
-   policy) = downgrade to medium (deployment-contingent) and note the
+   policy) = file at its severity (deployment-contingent) and note the
    ownership routing (see the crypto-analysis section's
    `resolved_owner`). A control OFF in shipped default config does
    **not** defuse the finding.
@@ -280,12 +284,14 @@ Every critical/high candidate must pass all of:
    controls (a world-writable path consumed by `%post`, an unvalidated
    symlink target), not merely "the scriptlet runs commands as root".
    Env vars and CLI flags are operator-controlled. Uncertain
-   equivalence → medium, not suppression.
+   equivalence → file at its severity with the question named, not
+   suppression.
 3. **By-design / opt-in check** — packaging constructs sanctioned by
    the Fedora Packaging Guidelines with an in-repo citation (a
    documented setuid helper carrying a guideline exception, `%caps`
-   grants that are the package's documented function) are hardening
-   notes (`informational`), not vulnerabilities — "looks intentional"
+   grants that are the package's documented function) are not
+   vulnerabilities: a `negative_results` entry or an unscored
+   `informational` hardening note, never a lower-rated vulnerability. "Looks intentional"
    is insufficient. The severity floor stays when the insecure mode is
    ON by default in shipped config, settable by a less-privileged
    principal than those endangered, a silent fallback, or a
@@ -294,19 +300,23 @@ Every critical/high candidate must pass all of:
    mandatory step of its chain succeeding at the pinned dist-git ref:
    for prepared-source findings, a traced untrusted flow to the sink in
    code that ships; for RPM09 build-time findings, the network/privilege
-   actually exercised in the build path. A broken step downgrades to
-   medium — never suppresses a demonstrated defect.
+   actually exercised in the build path. A step you cannot show is
+   named in the description for `/triage`; it never lowers severity. A
+   step affirmatively refuted means the chain is not real: record it in
+   `negative_results` with the evidence, and file any defect that
+   remains as its own finding at its own band — never suppress a
+   demonstrated defect.
    **Non-applicability**: for packaging-configuration findings whose
    evidence is the spec construct itself (RPM02 modes/capabilities,
    RPM03 hardening overrides, RPM04 unit hardening, RPM06 integrity)
    the construct IS the complete evidence — no chain demand applies,
-   and this rule must not be used to downgrade them.
+   and this rule must not be used to drop them.
 5. **No investigation leads as findings** — "should be
    checked/reviewed" rationales and hypothetical-caller misuse are
    audit leads. A finding requires a traced untrusted flow to the sink
    in the prepared tree, or the concrete spec/patch construct.
-   High-value sink with plausible-but-untraced input → medium,
-   omit `validation_status`, with the untraced hop named.
+   High-value sink with plausible-but-untraced input → file at its
+   vector's band, omit `validation_status`, with the untraced hop named.
 
 **Severity floors (identical to `/secure-code-audit`'s)** —
 **verification-disable** (a downstream patch removing certificate,
@@ -360,7 +370,7 @@ Do not require a pre-filing match, downgrade on an
 unavailable match, or add an `"fp-precedent"` entry to
 `precision_gates.fired`. Human-countersigned matches reduce triage votes,
 never skip verification; machine matches are context only with full votes.
-Any supported downgrade-not-drop decision belongs in the new triage
+Any supported severity or disposition change belongs in the new triage
 determination after independent verification, not in a retroactive edit
 to this audit's findings, `dependency_audit` or gate metadata. A match
 never supplies an automatic false-positive verdict.

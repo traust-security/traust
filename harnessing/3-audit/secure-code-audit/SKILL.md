@@ -1,6 +1,6 @@
 ---
 name: secure-code-audit
-description: Use when the user asks to perform a security audit, security review, vulnerability assessment, or code analysis of a GitHub repository, operator, or batch of repositories using OWASP ASVS, OWASP Kubernetes Top 10, CIS Kubernetes Benchmark, DISA STIG, SLSA, OpenSSF Scorecard, SEI CERT coding standards (Java, C/C++), or PEACH tenant-isolation frameworks. Authors canonical remediation sizes or explicit unknowns, independently evidenced blocking, and explicit roadmap priorities for Core-recorded reports. Keeps authored finding kind separate from validity and execution proof.
+description: Use when the user asks to perform a security audit, security review, vulnerability assessment, or code analysis of a GitHub repository, operator, or batch of repositories using OWASP ASVS, OWASP Kubernetes Top 10, CIS Kubernetes Benchmark, DISA STIG, SLSA, OpenSSF Scorecard, SEI CERT coding standards (Java, C/C++), or PEACH tenant-isolation frameworks. Authors canonical remediation sizes or explicit unknowns, independently evidenced blocking, and explicit roadmap priorities for Core-recorded reports. Keeps authored finding kind separate from validity and execution proof. Severity is the band of the finding's score (its CVSS vector, or a published advisory's selected authority score); no gate re-rates it.
 metadata:
   harness.tier: "primary"
 allowed-tools:
@@ -328,11 +328,15 @@ re-calibrated 2026-07-27 from the leg-2 FP-persistence measurement (38/62
 adjudicated FPs recurred in the P5 matrix) plus 22 newly countersigned FPs
 (taxonomy: `analysis-results/scan-testing/sxs-2026-07/fp-persistence-analysis.{json,md}`).
 Apply these gates to **every candidate finding before filing it**. The
-posture is **downgrade-not-drop**: when a gate fires, the observation
-moves to `dependency_audit`, `negative_results`, or a lower severity with
-the gate's evidence stated — it never silently disappears. When a gate's
-precondition cannot be established within budget, file at reduced
-severity with the uncertainty named rather than suppressing.
+posture is **file-or-drop, never re-rate**: a gate decides whether a
+candidate is filed, never its severity. When a gate fires on affirmative
+evidence, the observation moves to `dependency_audit` or
+`negative_results` with that evidence stated — it never silently
+disappears. When a gate's precondition cannot be established within
+budget, file the finding at its severity with the open question named for
+`/triage`. Severity is always the band of the finding's score
+([Severity authoring](../../../docs/report-structure.md#severity-authoring)); only `/impact-analysis`, `/triage` and live validation change it
+later, and for an advisory-backed finding only on recorded evidence.
 
 **Gate-application record (mandatory).** The leg-2 measurement showed the
 gates are skipped silently when nothing makes their application
@@ -346,7 +350,7 @@ with zero gate evidence). Every report therefore records
   "fired": [
     {"candidate": "<short title or finding id>",
      "gate": "<gate name from this section>",
-     "action": "downgraded|negative_results|dependency_audit"}
+     "action": "negative_results|dependency_audit"}
   ]
 }
 ```
@@ -380,7 +384,7 @@ subsequent adjudication. Do not require a pre-filing match, downgrade on
 an unavailable match, or add an `"fp-precedent"` entry to
 `precision_gates.fired`. Human-countersigned matches reduce triage votes,
 never skip verification; machine matches are context only with full votes.
-Any supported downgrade-not-drop decision belongs in the new triage
+Any supported severity or disposition change belongs in the new triage
 determination after independent verification, not in a retroactive edit
 to this audit's severity, evidence or gate metadata. A match never supplies
 an automatic false-positive verdict.
@@ -388,7 +392,9 @@ an automatic false-positive verdict.
 ### Dependency and advisory gate
 
 The largest measured FP class (22 of 69). Before filing any
-dependency/base-image CVE or version-match finding at critical/high:
+dependency/base-image CVE or version-match finding, at any severity. The
+gate decides only whether to file; a filed finding takes the advisory's
+selected authority band ([Severity authoring](../../../docs/report-structure.md#severity-authoring)):
 
 1. **Artifact reachability** — the affected symbols/subpackage/feature
    must actually be in what this repo ships: govulncheck symbol mode for
@@ -402,16 +408,19 @@ dependency/base-image CVE or version-match finding at critical/high:
    statements, EUS backports behind old version strings, and platform
    qualifiers (`GOOS`) defeat NVR matching. Suppress only on
    **affirmative** vendor evidence; absence of an erratum is not safety.
-3. **Manifest-only lint** — a finding whose only location is a manifest
-   or lockfile (`go.mod`, `package-lock.json`, `requirements*.txt`,
+3. **Manifest-only lint** — a candidate whose only evidence is a manifest
+   or lockfile line (`go.mod`, `package-lock.json`, `requirements*.txt`,
    `rpms.lock.yaml`, a Dockerfile `FROM`) is a `dependency_audit` entry,
-   never a crit/high finding on its own.
+   not a finding, until evidence ties the vulnerable package to what this
+   repo ships (an import, a built binary, an impact-analysis
+   classification of `affected`, `likely_affected` or `inconclusive`).
+   It is never filed at a lower severity instead.
 
 Boundaries that must NOT be suppressed by this gate: symbol-reachable
 CVE-grade defects including algorithmic-complexity DoS; **advisory-lag in
 the repository's OWN forked/vendored-upstream code** (that is first-party
 shipped code, not a dependency); reachability-undeterminable cases (file
-medium with the reachability question stated).
+at the advisory's band with the reachability question stated).
 
 ### Scoped-baseline reachability
 
@@ -427,10 +436,11 @@ for its API client).
 Before filing crit/high on a shared repo in a scoped tree, check
 reachability from the scoping product: is the component enabled in the
 product's deployment manifests, and is the flagged package in an import
-path the product actually uses? If provably not, file the observation as
-an **upstream note at informational** with the scope-NA rationale cited —
-never delete it: the finding remains valid for the upstream/general cut
-and must survive for it. Guardrail: "probably unused" is not evidence —
+path the product actually uses? If provably not, record a
+`negative_results` entry for this product's scope with the scope-NA
+citation, naming the defect and that it stands for the upstream/general
+cut — never delete it, and never file it at a lower severity.
+Guardrail: "probably unused" is not evidence —
 this gate needs an affirmative citation (deployment config disabling the
 component, or an import/dependency query showing the package unreferenced);
 when the closure cannot be established within budget, keep the finding at
@@ -446,35 +456,42 @@ Every critical/high candidate must pass all of:
    middleware/plugins, response/event filters, and shipped deployment
    manifests in this repo. Grep the enforcement primitive by name before
    claiming absence. A control located = `negative_results` entry citing
-   it; a control that exists only cross-repo = downgrade to medium
-   (deployment-contingent). A control that is OFF in shipped default
+   it; a control that exists only cross-repo = file at its severity,
+   naming the control and where it lives (deployment-contingent), for
+   `/triage`. A control that is OFF in shipped default
    config does **not** defuse the finding.
 2. **Privilege-delta test** (6/69) — state what the attacker's
    prerequisite position already grants and verify the finding adds
    capability. Confused deputies gated as strongly as the deputized
    action, admin-only config sinks, and repo-write→code-exec
    preconditions fail this test. Audit-evasion, persistence, and
-   cross-tenant movement are real deltas. Uncertain equivalence →
-   medium, not suppression.
+   cross-tenant movement are real deltas. Uncertain equivalence → file
+   at its severity with the equivalence question named, not suppression.
 3. **By-design / opt-in check** (15/69) — privilege that is the
    component's documented core function (with an in-repo
    README/manifest/doc citation — "looks intentional" is insufficient),
    and insecure behavior behind an explicit admin-set flag that defaults
-   secure and is documented, are hardening notes (`informational`), not
-   vulnerabilities. The severity floor stays when the insecure mode is ON
+   secure and is documented, are not vulnerabilities: record a
+   `negative_results` entry with the citation, or an unscored
+   `informational` hardening note when the recommendation stands on its
+   own — never a lower-rated vulnerability. The severity floor stays when the insecure mode is ON
    by default in shipped config, settable by a less-privileged principal
    than those endangered, a silent fallback, or a cross-tenant boundary
    violation.
 4. **Chain completion at critical** (2/69) — a critical must show every
-   mandatory step of its chain succeeding at the pinned ref. A broken
-   step downgrades to medium — never suppresses a demonstrated defect.
+   mandatory step of its chain succeeding at the pinned ref. A step you
+   cannot show is named in the description for `/triage`; it never
+   lowers severity. A step affirmatively refuted means the chain is not
+   real: record it in `negative_results` with the evidence, and file any
+   defect that remains as its own finding, scored on its own vector —
+   never suppress a demonstrated defect.
    Verification-disable and credential-transport classes are exempt from
    full-PoC demands (severity floor).
 5. **No investigation leads as findings** (4/69) — "should be
    checked/reviewed" rationales and hypothetical-caller misuse are audit
    leads. A finding requires a traced untrusted flow to the sink in THIS
-   repo. High-value sink with plausible-but-untraced input → medium,
-   omit `validation_status`, with the untraced hop named.
+   repo. High-value sink with plausible-but-untraced input → file at its
+   vector's band, omit `validation_status`, with the untraced hop named.
 
 ### Shipped-artifact and mechanism checks
 
@@ -503,13 +520,13 @@ Every critical/high candidate must pass all of:
    `*_MODE=development`); CI-only tooling (lint/e2e/presubmit scripts,
    CI-only Dockerfiles) that never reaches a production artifact; or
    dead code (exported but with zero production callers — verify with a
-   caller search, not by naming convention). Any of these → downgrade to
-   `informational` with the gating condition or caller-search result
-   cited. Boundaries that keep full severity: a dev-mode toggle that a
+   caller search, not by naming convention). Any of these → a
+   `negative_results` entry citing the gating condition or caller-search
+   result, never a lower-rated finding. Boundaries that keep full severity: a dev-mode toggle that a
    less-privileged principal can enable in a production deployment, a
    silent/undocumented fallback into the dev path, and "dev" artifacts
    that are in fact shipped into production images. "Looks like dev
-   code" without the citation is insufficient to downgrade.
+   code" without the citation is insufficient to drop it.
 
 ### Do-not-report classes
 
@@ -882,7 +899,7 @@ grype db status
 Use the output as follows:
 
 - **`dependency_audit`** — one entry per grype match: `package`, `version`, `status` (`vulnerable` / `fix-available` / `wont-fix` per upstream data), and `notes` naming the CVE/GHSA ID and the fixed-in version. Matches with no fix or negligible severity may be summarized in `prose` rather than enumerated.
-- **Findings** — promote a grype match to a finding **only** when the vulnerable code is plausibly reachable from this repository's usage (check the import/call actually exists — a match in an unused transitive module is `dependency_audit`-only), and only after the promotion passes the **Precision Gate → Dependency and advisory gate** (artifact reachability, vendor applicability, manifest-only lint). Categorize as `supply-chain`, cite OWASP K07 for operator repos, and omit unauthored `validation_status` — a version match is not execution evidence. When a portfolio impact artifact covers the CVE (`analysis-results/impact/<cve>-impact-analysis.json`, from `/impact-analysis`), cite this repo's classification and evidence block: `affected` (symbol-reachable) strengthens promotion, `not_observed` at symbol level is documented dismissal evidence, and manifest-level classifications are context only — record the artifact path in the finding's `evidence`.
+- **Findings** — promote a grype match to a finding **only** when the vulnerable code is plausibly reachable from this repository's usage (check the import/call actually exists — a match in an unused transitive module is `dependency_audit`-only), and only after the promotion passes the **Precision Gate → Dependency and advisory gate** (artifact reachability, vendor applicability, manifest-only lint). A promoted match files at the advisory's selected authority band ([Severity authoring](../../../docs/report-structure.md#severity-authoring)), never lower. Categorize as `supply-chain`, cite OWASP K07 for operator repos, and omit unauthored `validation_status` — a version match is not execution evidence. When a portfolio impact artifact covers the CVE (`analysis-results/impact/<cve>-impact-analysis.json`, from `/impact-analysis`), cite this repo's classification and evidence block: `affected` (symbol-reachable) strengthens promotion, `not_observed` at symbol level is documented dismissal evidence, and manifest-level classifications are context only — record the artifact path in the finding's `evidence`.
 - **`metadata.tools`** — append `syft <version>` and `grype <version> (db <built-date>)` so the scan is reproducible against a stated DB state. The SBOM and grype JSON are intermediates; do not place them in `findings/`.
 
 #### Deterministic dependency pre-scan (OSV API)
@@ -1591,7 +1608,7 @@ New triage represents a verified gap as `verdict: true_positive, kind: weakness`
 Never emit historical `hardening` as a new triage verdict. This does not rewrite
 the audit report's `validation_status`; cumulative-file rebuilds are retired.
 
-**CVSS** — required on every `critical`/`high`/`medium`/`low` finding. **Omit** for `informational` findings (posture and hygiene observations are not scored — the validator errors on an informational finding carrying CVSS ≥ 7.0 and warns below that). **Severity may sit below the CVSS band only with a stated reason**: when the score is an upstream advisory's base score and the audit judges contextual severity lower (unreachable in deployment, restricted SCC, requires prior compromise), the `description` MUST name the downgrade and its rationale — e.g. *"CVSS base 7.0, but rated low in this deployment context: exploitation requires write access to a directory on $PATH inside a restricted-SCC container."* The validator warns on a ≥2-band gap with no such rationale. Never encode the downgrade only in the severity field.
+**CVSS** — required on every `critical`/`high`/`medium`/`low` finding. **Omit** for `informational` findings (posture and hygiene observations are not scored — the validator errors on an informational finding carrying CVSS ≥ 7.0 and warns below that). **Severity is the band of the score** ([Severity authoring](../../../docs/report-structure.md#severity-authoring)): the Base vector's band for a code finding, the selected authority score's band for an advisory-backed finding. It never sits below that band. Deployment context (unreachable in deployment, restricted SCC, requires prior compromise) goes in the `description` for `/triage`; it does not change `severity`. Only `/impact-analysis`, `/triage` and live validation change a severity later, and for an advisory-backed finding only on recorded evidence, never inference.
 
 **Severity floor (verification-disable and credential-transport classes)** — findings in these two classes are rated `high` at minimum, regardless of exploitation-chain completeness (2026-07 error-correction measurement: these classes were systematically under-rated and under-reported; they are exempt from the Precision Gate's chain-completion demand):
 
