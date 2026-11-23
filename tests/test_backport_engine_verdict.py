@@ -120,6 +120,10 @@ def test_nonzero_engine_exit_overrides_success_shaped_artifacts(tmp_path):
             "--output",
             str(report_path),
             "--no-publish",
+            # The contract schema ships with the traust-contracts PR; CI pins
+            # an older release until that merges. Validation is covered by the
+            # bundled-schema tests and returns with the pin bump.
+            "--no-schema",
             "--repository",
             "https://github.com/o/r",
             "--logical-product",
