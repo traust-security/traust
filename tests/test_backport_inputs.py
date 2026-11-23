@@ -1406,3 +1406,51 @@ def test_explicit_audit_supplies_cwes_without_a_source_id(tmp_path):
     finding = report["source_findings"][0]
     assert finding["cwes"] == ["CWE-79"]
     assert finding["locations"][0]["path"] == "src/auth.go"
+
+
+def test_patch_mode_never_runs_checkout_hooks_or_filters(tmp_path):
+    # The clone is mounted rw into the container that runs untrusted build
+    # code, so its hooks and clean/smudge filters are hostile. Apply on the
+    # host with hooks off and the repo's filter drivers disabled.
+    gen = _load("generate_backport_configs.py")
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    def git(*args: str) -> None:
+        subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True, text=True)
+
+    identity = ("-c", "user.email=t@t", "-c", "user.name=t")
+    git("init", "-q", "-b", "main")
+    # The hardened commit runs without global config; identity must be local.
+    git("config", "user.name", "t")
+    git("config", "user.email", "t@t")
+    (repo / "base.txt").write_text("base\n")
+    (repo / ".gitattributes").write_text("* filter=evil\n")
+    git("add", ".")
+    git(*identity, "commit", "-qm", "base")
+    git("branch", "origin/main")
+
+    marker = tmp_path / "RAN"
+    helper = tmp_path / "helper.sh"
+    helper.write_text(f"#!/bin/sh\ntouch '{marker}'\ncat\n")
+    helper.chmod(0o755)
+    git("config", "filter.evil.clean", str(helper))
+    git("config", "filter.evil.smudge", str(helper))
+    for hook in ("post-checkout", "pre-commit", "commit-msg", "post-commit"):
+        path = repo / ".git" / "hooks" / hook
+        path.write_text(f"#!/bin/sh\ntouch '{marker}'\n")
+        path.chmod(0o755)
+
+    patch = tmp_path / "fix.patch"
+    patch.write_text(
+        "diff --git a/new.txt b/new.txt\n"
+        "new file mode 100644\n"
+        "--- /dev/null\n"
+        "+++ b/new.txt\n"
+        "@@ -0,0 +1 @@\n"
+        "+hello\n"
+    )
+
+    sha = gen.apply_patch_as_commit(repo, patch, "main")
+    assert re.fullmatch(r"[0-9a-f]{40}", sha)
+    assert not marker.exists(), "a clone-controlled hook or filter ran on the host"
