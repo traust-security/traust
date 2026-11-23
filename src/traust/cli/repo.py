@@ -4,7 +4,9 @@ session (``traust session run --checkout``) releases its own when it ends."""
 
 from __future__ import annotations
 
-from traust_core.v1.context import CheckoutRequest
+from pathlib import Path
+
+from traust_core.v1.context import CheckoutRequest, Workspace
 from traust_core.v1.models.values import GitSha, HttpsRepoUrl, LocalRepoUrl
 
 from traust.cli._doors import parser, run
@@ -24,9 +26,9 @@ def checkout(argv: list[str] | None = None) -> int:
         "repo",
         "checkout",
         "Print the path of a commit's checked-out workspace, through core's checkout service "
-        "(the mirror cache), for skills and hand runs. The workspace is the caller's to use "
-        "and remove when done (a plain directory); a session (`traust session run --checkout`) "
-        "releases its own when it ends.",
+        "(the mirror cache), for skills and hand runs. Release a `--shared` workspace with "
+        "`traust repo release --shared` when done (do not manually delete shared worktrees); "
+        "a session (`traust session run --checkout`) releases its own when it ends.",
     )
     ap.add_argument("url", help="https URL or local path of the repository")
     ap.add_argument("--ref", required=True, help="the commit's full sha")
@@ -64,5 +66,42 @@ def checkout(argv: list[str] | None = None) -> int:
             keep=tuple(args.keep) if args.keep else None,
         )
         return str(core.services().checkouts.checkout(request).data.path)
+
+    return run(call)
+
+
+def release(argv: list[str] | None = None) -> int:
+    ap = parser(
+        "repo",
+        "release",
+        "Release a workspace acquired through `traust repo checkout` (decrementing the "
+        "ref-count for `--shared` checkouts and removing the worktree on the last release).",
+    )
+    ap.add_argument("url", help="https URL or local path of the repository")
+    ap.add_argument("--ref", required=True, help="the commit's full sha")
+    ap.add_argument("--path", required=True, type=Path, help="workspace path printed by checkout")
+    ap.add_argument(
+        "--shared",
+        action="store_true",
+        help="release a ref-counted shared read-only worktree",
+    )
+    args = ap.parse_args(argv)
+
+    def call() -> None:
+        core = load(args.config_home)
+        is_https = args.url.startswith("https://")
+        repo = (
+            HttpsRepoUrl.parse(args.url, core.config.forge_hosts)
+            if is_https
+            else LocalRepoUrl.parse(args.url)
+        )
+        workspace = Workspace(
+            repo=repo,
+            sha=GitSha.parse(args.ref),
+            path=args.path,
+            provider="git-mirror" if is_https else "git-local",
+            shared=args.shared,
+        )
+        core.services().checkouts.release(workspace)
 
     return run(call)

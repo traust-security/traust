@@ -23,7 +23,8 @@ from traust_core.v1.models.artifacts import (
 )
 from traust_core.v1.models.assessment import AssessmentKind
 from traust_core.v1.models.common import Provenance
-from traust_core.v1.models.values import HttpsRepoUrl
+from traust_core.v1.models.component_target import canonical_component_purl
+from traust_core.v1.models.values import GitSha, HttpsRepoUrl
 from traust_core.v1.models.vocabulary import SourceType
 
 from traust.cli._doors import add_branch_arg, add_run_order_arg, parser, register_commit, run, when
@@ -77,19 +78,41 @@ def main(argv: list[str] | None = None) -> int:
 
     def call() -> dict:
         doc = artifact.parse(args.document.read_bytes())
+        core = load(args.config_home)
+        url = HttpsRepoUrl.parse(args.repo_url, core.config.forge_hosts)
+        sha = GitSha.parse(args.sha)
+        target = getattr(getattr(doc, "metadata", None), "target", None)
+        if target is not None and args.purl is None:
+            raise ValidationError(
+                "component report carrying metadata.target requires --purl matching target.purl"
+            )
         if args.purl is not None:
-            target = getattr(getattr(doc, "metadata", None), "target", None)
             actual_purl = getattr(target, "purl", None) if target is not None else None
-            if actual_purl != args.purl:
+            if actual_purl is None:
                 raise ValidationError(
                     f"report metadata.target.purl ({actual_purl!r}) does not match "
                     f"--purl {args.purl!r}"
                 )
-        core = load(args.config_home)
+            if canonical_component_purl(actual_purl) != canonical_component_purl(args.purl):
+                raise ValidationError(
+                    f"report metadata.target.purl ({actual_purl!r}) does not match "
+                    f"--purl {args.purl!r}"
+                )
+            actual_commit = (getattr(target, "commit", "") or "").strip().lower()
+            if actual_commit != str(sha).lower():
+                raise ValidationError(
+                    f"report metadata.target.commit ({actual_commit!r}) does not match "
+                    f"--sha {sha!s}"
+                )
+            actual_repo = (getattr(target, "repository", "") or "").strip().rstrip("/")
+            if actual_repo != str(url).rstrip("/"):
+                raise ValidationError(
+                    f"report metadata.target.repository ({actual_repo!r}) does not match "
+                    f"--repo-url {url!s}"
+                )
         services = core.services()
-        url = HttpsRepoUrl.parse(args.repo_url, core.config.forge_hosts)
         repo = services.portfolio.register_repository(url, args.public)
-        ref = register_commit(services, repo.id, args.sha, args.branch)
+        ref = register_commit(services, repo.id, str(sha), args.branch)
         assessment = services.assessment.record(
             doc,
             ref.id,

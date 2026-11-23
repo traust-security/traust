@@ -9,7 +9,9 @@ from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
 
-from traust_core.v1.models.values import HttpsRepoUrl
+import pytest
+from traust_core.v1.models.values import GitSha, HttpsRepoUrl
+from traust_core.v1.models.vocabulary import RefKind
 
 from traust.cli import assessment_record, assessments, check_citations, repo, session
 from traust.context import load
@@ -415,6 +417,7 @@ def test_repo_checkout_shared_and_session_run_purl_resolution(
     assert f"--commit {sha}" in prompt_arg
     assert "--module-path spring-beans" in prompt_arg
     assert "--release-ref v7.1.0" in prompt_arg
+    assert "--target-json " in prompt_arg
 
     # 4. Unresolvable PURL in session run refuses with unresolved-target without launching agent.
     seen_commands.clear()
@@ -493,3 +496,309 @@ def test_repo_checkout_shared_and_session_run_purl_resolution(
     out_norepo = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
     assert out_norepo["outcome"] == "refused"
     assert out_norepo["reason"] == "unresolved-target"
+
+    # 7. Regression: --sha without --checkout or --purl fails fast with argparse error.
+    with pytest.raises(SystemExit) as exc_info:
+        session.run(
+            [
+                "--config-home",
+                str(home),
+                "--skill",
+                "secure-code-audit",
+                "--role",
+                "audit",
+                "--repo",
+                repo_url,
+                "--sha",
+                sha,
+            ]
+        )
+    assert exc_info.value.code == 2
+
+
+def test_qodo_regressions_prepare_record_release_and_session_target_gate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    home = _config_home(tmp_path)
+    checkout = tmp_path / "spring"
+    sha = _make_monorepo(
+        checkout,
+        {
+            "pom.xml": (
+                "<project>\n"
+                "  <groupId>org.springframework</groupId>\n"
+                "  <artifactId>spring-framework</artifactId>\n"
+                "  <version>7.1.0</version>\n"
+                "</project>\n"
+            ),
+            "spring-beans/pom.xml": (
+                "<project>\n"
+                "  <parent>\n"
+                "    <groupId>org.springframework</groupId>\n"
+                "    <artifactId>spring-framework</artifactId>\n"
+                "    <version>7.1.0</version>\n"
+                "  </parent>\n"
+                "  <artifactId>spring-beans</artifactId>\n"
+                "</project>\n"
+            ),
+        },
+        tag="v7.1.0",
+    )
+    repo_url = "https://github.com/spring-projects/spring-framework"
+    other_sha = "b" * 40
+    core = load(home)
+    services = core.services()
+    registered = services.portfolio.register_repository(
+        HttpsRepoUrl.parse(repo_url, core.config.forge_hosts), True
+    )
+    ref = services.portfolio.register_ref(registered.id, GitSha.parse(sha), "v7.1.0", RefKind.TAG)
+    # 1. Orphaned --release-ref / --module-path without --purl fail closed in assessments.prepare.
+    for extra_flag in (["--release-ref", "v7.1.0"], ["--module-path", "spring-beans"]):
+        rc = assessments.prepare(
+            [
+                "--config-home",
+                str(home),
+                "--repo-url",
+                repo_url,
+                "--sha",
+                sha,
+                "--kind",
+                "secure-code",
+                *extra_flag,
+            ]
+        )
+        assert rc != 0
+
+    # 2. assessment_record rejects component report without --purl, wrong --sha, or wrong --repo-url.
+    report_doc = {
+        "title": "Spring Beans Component Security Audit",
+        "metadata": {
+            "date": "2026-11-22",
+            "scope": "Component PURL audit of spring-beans@7.1.0 in pinned monorepo",
+            "repository": repo_url,
+            "commit": sha,
+            "ref": "v7.1.0",
+            "ref_kind": "tag",
+            "audit_profile": "code",
+            "target": {
+                "purl": "pkg:maven/org.springframework/spring-beans@7.1.0",
+                "repository": repo_url,
+                "commit": sha,
+                "module_path": "spring-beans",
+                "release_ref": "v7.1.0",
+                "verification": {
+                    "strategy": "shared_release",
+                    "manifest_paths": ["pom.xml", "spring-beans/pom.xml"],
+                },
+            },
+        },
+        "executive_summary": {
+            "prose": (
+                "Focused component PURL security audit of spring-beans at the pinned release "
+                "commit with no findings."
+            ),
+            "severity_counts": {
+                "critical": 0,
+                "high": 0,
+                "medium": 0,
+                "low": 0,
+                "informational": 0,
+            },
+        },
+        "severity_criteria": [
+            {"level": "critical", "definition": "Unauthenticated remote code execution."},
+            {"level": "high", "definition": "Privilege escalation or cross-tenant data leak."},
+            {"level": "medium", "definition": "Scoped security weakness under preconditions."},
+            {"level": "low", "definition": "Defense-in-depth hardening gap."},
+        ],
+        "findings": [],
+        "findings_summary": [
+            {"severity": "critical", "count": 0, "finding_ids": []},
+            {"severity": "high", "count": 0, "finding_ids": []},
+            {"severity": "medium", "count": 0, "finding_ids": []},
+            {"severity": "low", "count": 0, "finding_ids": []},
+        ],
+        "remediation_roadmap": [
+            {
+                "priority": "p3",
+                "addresses": ["NONE"],
+                "action": "No remediation required for this clean component audit fixture.",
+                "effort": "xs",
+            }
+        ],
+    }
+    report_path = tmp_path / "beans-report.json"
+    report_path.write_text(json.dumps(report_doc), encoding="utf-8")
+    capsys.readouterr()
+    assert (
+        assessment_record.main(
+            [
+                "--config-home",
+                str(home),
+                str(report_path),
+                "--kind",
+                "secure_code",
+                "--repo-url",
+                repo_url,
+                "--sha",
+                sha,
+            ]
+        )
+        != 0
+    )
+    assert "requires --purl" in capsys.readouterr().err
+    assert (
+        assessment_record.main(
+            [
+                "--config-home",
+                str(home),
+                str(report_path),
+                "--kind",
+                "secure_code",
+                "--repo-url",
+                repo_url,
+                "--sha",
+                other_sha,
+                "--purl",
+                "pkg:maven/org.springframework/spring-beans@7.1.0",
+            ]
+        )
+        != 0
+    )
+    assert "does not match --sha" in capsys.readouterr().err
+    assert (
+        assessment_record.main(
+            [
+                "--config-home",
+                str(home),
+                str(report_path),
+                "--kind",
+                "secure_code",
+                "--repo-url",
+                "https://github.com/other/repo",
+                "--sha",
+                sha,
+                "--purl",
+                "pkg:maven/org.springframework/spring-beans@7.1.0",
+            ]
+        )
+        != 0
+    )
+    assert "does not match --repo-url" in capsys.readouterr().err
+
+    # 3. traust repo checkout + release over real providers preserves unrelated directories.
+    unrelated = tmp_path / "do-not-delete"
+    unrelated.mkdir()
+    sentinel = unrelated / "keep.txt"
+    sentinel.write_text("precious\n", encoding="utf-8")
+
+    # Refuses unrelated path on both local repo and HTTPS mirror origins without deleting it.
+    for origin in (str(checkout), repo_url):
+        for extra_flags in (["--shared"], []):
+            rc_forged = repo.release(
+                [
+                    "--config-home",
+                    str(home),
+                    origin,
+                    "--ref",
+                    sha,
+                    "--path",
+                    str(unrelated),
+                    *extra_flags,
+                ]
+            )
+            assert rc_forged != 0
+            assert unrelated.is_dir()
+            assert sentinel.read_text(encoding="utf-8") == "precious\n"
+
+    # Real checkout -> release lifecycle removes only the real worktree.
+    capsys.readouterr()
+    assert (
+        repo.checkout(
+            [
+                "--config-home",
+                str(home),
+                str(checkout),
+                "--ref",
+                sha,
+            ]
+        )
+        == 0
+    )
+    wt_path = Path(capsys.readouterr().out.strip().splitlines()[-1])
+    assert wt_path.is_dir()
+    assert (
+        repo.release(
+            [
+                "--config-home",
+                str(home),
+                str(checkout),
+                "--ref",
+                sha,
+                "--path",
+                str(wt_path),
+            ]
+        )
+        == 0
+    )
+    assert not wt_path.exists()
+    assert sentinel.read_text(encoding="utf-8") == "precious\n"
+
+    # 4. session._recorded requires matching target_purl + commit + repo in PURL mode.
+    from types import SimpleNamespace as _NS
+    from uuid import uuid4
+
+    from traust_core.v1.models.assessment import AssessmentKind
+    from traust_core.v1.models.component_target import (
+        ComponentTarget,
+        ComponentTargetVerification,
+    )
+    from traust_core.v1.models.vocabulary import ComponentTargetStrategy
+
+    expected = ComponentTarget(
+        purl="pkg:maven/org.springframework/spring-beans@7.1.0",
+        repository=repo_url,
+        commit=sha,
+        module_path="spring-beans",
+        release_ref="v7.1.0",
+        verification=ComponentTargetVerification(
+            strategy=ComponentTargetStrategy.SHARED_RELEASE,
+            manifest_paths=("pom.xml", "spring-beans/pom.xml"),
+        ),
+    )
+    wrong_whole = _NS(
+        id=uuid4(),
+        kind=AssessmentKind.SECURE_CODE_CANONICAL,
+        target_purl=None,
+        repository_ref_id=ref.id,
+    )
+    wrong_sibling = _NS(
+        id=uuid4(),
+        kind=AssessmentKind.SECURE_CODE_CANONICAL,
+        target_purl="pkg:maven/org.springframework/spring-context@7.1.0",
+        repository_ref_id=ref.id,
+    )
+    right_target = _NS(
+        id=uuid4(),
+        kind=AssessmentKind.SECURE_CODE_CANONICAL,
+        target_purl="pkg:maven/org.springframework/spring-beans@7.1.0",
+        repository_ref_id=ref.id,
+    )
+    ns = _NS(config_home=home)
+    monkeypatch.setattr(session, "order_assessments", lambda _oid, _h: [wrong_whole, wrong_sibling])
+    assert (
+        session._recorded(
+            uuid4(), AssessmentKind.SECURE_CODE_CANONICAL, ns, expected_target=expected
+        )
+        == set()
+    )
+    monkeypatch.setattr(
+        session, "order_assessments", lambda _oid, _h: [wrong_whole, wrong_sibling, right_target]
+    )
+    assert session._recorded(
+        uuid4(), AssessmentKind.SECURE_CODE_CANONICAL, ns, expected_target=expected
+    ) == {str(right_target.id)}
+    # Whole-repo mode excludes component-scoped assessments too.
+    assert session._recorded(uuid4(), AssessmentKind.SECURE_CODE_CANONICAL, ns) == {
+        str(wrong_whole.id)
+    }

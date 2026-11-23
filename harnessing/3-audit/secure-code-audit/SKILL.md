@@ -124,9 +124,11 @@ When a full local checkout is required for deep analysis (e.g. running static an
 
 ```bash
 traust repo checkout <github-url> --ref <commit-sha> --history 1 [--shared]
+# When done with a --shared checkout, release your reference instead of rm -rf:
+traust repo release <github-url> --ref <commit-sha> --path <local-path> --shared
 ```
 
-Pass `--shared` for pinned component PURL audits so the pinned tree is checked out once and reused read-only across sibling child PURLs at the same commit.
+Pass `--shared` for pinned component PURL audits so the pinned tree is checked out once and reused read-only across sibling child PURLs at the same commit; end your hold with `traust repo release --shared` when finished.
 The command prints the checkout's path (`<local-path>` below). If the input names a branch rather than a commit SHA, resolve it to its head SHA first (the GitHub MCP tools, or `gh api repos/{org}/{repo}/commits/{branch} --jq '.sha'`).
 
 **Always analyze the branch or commit ref specified in the input data**, not the repository default branch. The ref represents the exact code shipped in the operator version being assessed.
@@ -1525,7 +1527,7 @@ findings/multicluster-engine/kube-rbac-proxy/kube-rbac-proxy-security-audit.json
 
 ### Report File Name
 
-Each whole-repository report file must be named `<repo-name>-security-audit.json`. Each component PURL report file must be named `<repo-name>--<package-slug>-security-audit.json` (where `<package-slug>` normalizes the PURL namespace/name to `[A-Za-z0-9._-]`) so two child PURLs at the same commit never overwrite each other.
+Each whole-repository report file must be named `<repo-name>-security-audit.json`. Each component PURL report file must be named `<repo-name>--<purl-slug>-security-audit.json` (where `<purl-slug>` normalizes the full versioned PURL after `pkg:` — type, namespace, name, and `@version` — to `[A-Za-z0-9._-]`, e.g. `spring-framework--maven-org.springframework-spring-beans-7.1.0-security-audit.json`) so two child PURLs or two versions of the same package never overwrite each other.
 ### Finding IDs
 
 Every finding `id` must be **globally unique across the entire campaign**, not just within its own report, so that a finding can be located by ID alone without first knowing which repository it belongs to. Use the canonical format:
@@ -1573,7 +1575,7 @@ missing size or priority semantics.
 
 Key profile obligations for this skill:
 - Set `metadata.audit_profile: "code"`.
-- On component PURL audits, stamp `metadata.target` verbatim from Core's `assessments prepare` output — or, in headless worker runs, from the read-only staged target JSON file named in the prompt (`purl`, `repository`, `commit`, `module_path`, optional `release_ref`, and `verification`); never reconstruct or alter verification fields. Omit `metadata.target` on whole-repository audits.
+- On component PURL audits, stamp `metadata.target` verbatim from Core's `assessments prepare` output — or, in headless/worker runs, from the read-only staged target JSON file named in the prompt (`--target-json <path>` or worker staged file containing `purl`, `repository`, `commit`, `module_path`, optional `release_ref`, and `verification`); never reconstruct or alter verification fields. Omit `metadata.target` on whole-repository audits.
 - Always emit `peach_isolation_review` (`applicable: false` + rationale for single-tenant).
 - Always emit `review_surface_coverage`: one entry per review surface ([`review-surfaces.md` → Recording coverage](review-surfaces.md#recording-coverage)). Required from traust 0.20.0; the validator checks every `finding_ids`, `negative` and `not_assessed` entry against the rest of the report.
 - Include `metadata.loc_breakdown` on all new reports.

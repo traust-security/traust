@@ -46,7 +46,11 @@ from traust_core.v1.errors import (
 )
 from traust_core.v1.models.assessment import Assessment, AssessmentKind, DiffRefused
 from traust_core.v1.models.base import Dto
-from traust_core.v1.models.component_target import ComponentTargetRequest
+from traust_core.v1.models.component_target import (
+    ComponentTarget,
+    ComponentTargetRequest,
+    canonical_component_purl,
+)
 from traust_core.v1.models.operations import (
     JobResult,
     ModelName,
@@ -270,7 +274,10 @@ def run(argv: list[str] | None = None) -> int:
     ap.add_argument(
         "--checkout",
         action="store_true",
-        help="pass a checkout of --repo's observed default head (the order's commit), not its URL",
+        help=(
+            "pass a checkout of --repo at --sha (or its observed default head when --sha is "
+            "omitted), not its URL"
+        ),
     )
     ap.add_argument(
         "--mode", help="the skill's mode token, before the repository (e.g. threat-model review)"
@@ -285,6 +292,8 @@ def run(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     split = argv.index("--") if "--" in argv else len(argv)
     args, extra = ap.parse_args(argv[:split]), argv[split + 1 :]
+    if args.sha and not (args.checkout or args.purl):
+        ap.error("--sha needs --checkout or --purl")
     if (args.skill, args.mode) in SESSIONS:
         return artifact_run(
             args.skill,
@@ -363,9 +372,11 @@ def run(argv: list[str] | None = None) -> int:
         if (args.checkout or args.purl)
         else nullcontext(None)
     )
+    resolved_target: ComponentTarget | None = None
     try:
         with entered as workspace:
             target_args: list[str] = []
+            target_json_path: Path | None = None
             if args.purl:
                 if workspace is None:
                     print(
@@ -376,7 +387,7 @@ def run(argv: list[str] | None = None) -> int:
                     return answer(JobResult.refused(OrderReason.UNRESOLVED_TARGET))
                 core = load(args.config_home)
                 try:
-                    resolved = core.services().component_targets.resolve(
+                    resolved_target = core.services().component_targets.resolve(
                         ComponentTargetRequest(
                             purl=args.purl,
                             repository=args.repo,
@@ -392,16 +403,27 @@ def run(argv: list[str] | None = None) -> int:
                         file=sys.stderr,
                     )
                     return answer(JobResult.refused(OrderReason.UNRESOLVED_TARGET))
+                fd, tmp_name = tempfile.mkstemp(prefix="traust-target-", suffix=".json")
+                target_json_path = Path(tmp_name)
+                try:
+                    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                        handle.write(resolved_target.model_dump_json(indent=2) + "\n")
+                    target_json_path.chmod(0o444)
+                except BaseException:
+                    target_json_path.unlink(missing_ok=True)
+                    raise
                 target_args = [
                     "--purl",
-                    resolved.purl,
+                    resolved_target.purl,
                     "--commit",
-                    resolved.commit,
+                    resolved_target.commit,
                     "--module-path",
-                    resolved.module_path,
+                    resolved_target.module_path,
+                    "--target-json",
+                    str(target_json_path),
                 ]
-                if resolved.release_ref:
-                    target_args.extend(["--release-ref", resolved.release_ref])
+                if resolved_target.release_ref:
+                    target_args.extend(["--release-ref", resolved_target.release_ref])
             target = (
                 [str(workspace.path)]
                 if workspace is not None
@@ -422,6 +444,13 @@ def run(argv: list[str] | None = None) -> int:
             except (OSError, ServiceError, subprocess.CalledProcessError) as e:
                 print(f"run {args.run_id}: {OrderReason.RUNNER_CRASHED}: {e}", file=sys.stderr)
                 return answer(_spent(JobResult.failed(OrderReason.RUNNER_CRASHED), usage))
+            finally:
+                if target_json_path is not None:
+                    try:
+                        target_json_path.chmod(0o600)
+                        target_json_path.unlink(missing_ok=True)
+                    except OSError:
+                        pass
     except (ValidationError, NotFoundError, ServiceError) as e:
         print(f"run {args.run_id}: {OrderReason.NOT_FOUND}: {e}", file=sys.stderr)
         return answer(JobResult.refused(OrderReason.NOT_FOUND))
@@ -450,7 +479,7 @@ def run(argv: list[str] | None = None) -> int:
         return answer(_spent(JobResult.succeeded(written=(str(reported),)), usage))
     if order_id is not None and kind is not None:
         try:
-            recorded = _recorded(order_id, kind, args)
+            recorded = _recorded(order_id, kind, args, expected_target=resolved_target)
         except SystemExit:
             print(f"run {args.run_id}: {OrderReason.BAD_REQUEST}: configuration", file=sys.stderr)
             return answer(_spent(JobResult.failed(OrderReason.BAD_REQUEST), usage))
@@ -479,9 +508,34 @@ def order_assessments(order_id: UUID, config_home: Path | None) -> list[Assessme
     return load(config_home).services().assessment.list_for_order(order_id)
 
 
-def _recorded(order_id: UUID, kind: AssessmentKind, args: argparse.Namespace) -> set[str]:
-    """The ids of the order's assessments of `kind`."""
-    return {str(a.id) for a in order_assessments(order_id, args.config_home) if a.kind == kind}
+def _recorded(
+    order_id: UUID,
+    kind: AssessmentKind,
+    args: argparse.Namespace,
+    *,
+    expected_target: ComponentTarget | None = None,
+) -> set[str]:
+    """The ids of the order's assessments of `kind` matching the session's target scope."""
+    assessments = order_assessments(order_id, args.config_home)
+    if expected_target is None:
+        return {str(a.id) for a in assessments if a.kind == kind and a.target_purl is None}
+    expected_purl = canonical_component_purl(expected_target.purl)
+    expected_commit = expected_target.commit.strip().lower()
+    expected_repo = expected_target.repository.strip().rstrip("/")
+    services = load(args.config_home).services()
+    matched: set[str] = set()
+    for a in assessments:
+        if a.kind != kind or not a.target_purl:
+            continue
+        if canonical_component_purl(a.target_purl) != expected_purl:
+            continue
+        ref, repo = services.portfolio.inventory.resolve(a.repository_ref_id)
+        if (
+            ref.sha.strip().lower() == expected_commit
+            and repo.url.strip().rstrip("/") == expected_repo
+        ):
+            matched.add(str(a.id))
+    return matched
 
 
 def _ordered_work_item(order_id: UUID, args: argparse.Namespace) -> UUID:

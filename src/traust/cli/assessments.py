@@ -79,6 +79,8 @@ def prepare(argv: list[str] | None = None) -> int:
             raise ValidationError("--since and --baseline-assessment need --diff")
         if args.purl is None and not args.sha:
             raise ValidationError("--sha is required unless --purl resolves a pinned commit")
+        if args.purl is None and (args.release_ref or args.module_path):
+            raise ValidationError("--release-ref and --module-path require --purl")
         if args.purl is not None and args.diff is not None:
             raise ValidationError("--purl component audits are initial source audits, not diffs")
         if args.purl is not None and args.checkout is None:
