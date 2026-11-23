@@ -105,7 +105,10 @@ git clone "$FORGE/progress-tracker.git"        # metrics tree (name is the deplo
 cd traust && uv sync
 ```
 
-No `uv`? `pip install --require-hashes -r requirements.lock`.
+Use `uv sync` for the harness installation: it applies the single source pin in
+`pyproject.toml`. Plain `pip install .` does not apply `[tool.uv.sources]`;
+`requirements.lock` installs auxiliary Python dependencies, not the pinned harness
+and Core stack.
 
 `uv sync` installs `traust-core` at the commit selected in `pyproject.toml` and
 resolved in `uv.lock`. Contracts and ledger come through core's pins, rather than

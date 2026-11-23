@@ -60,11 +60,9 @@ def test_flagship_has_allowlist_and_core_skills_have_doctrine():
 
 
 def test_lockfile_exists_and_is_hashed():
-    """E1: docs point at a hash-locked install."""
+    """E1: the dependency lock retains artifact hashes."""
     lock = (_ROOT / "requirements.lock").read_text()
     assert lock.count("--hash=sha256:") > 100
-    for doc in ("docs/setup.md", "docs/getting-started.md"):
-        assert "--require-hashes -r requirements.lock" in (_ROOT / doc).read_text(), doc
 
 
 def test_containerfile_base_cannot_float():

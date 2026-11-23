@@ -476,7 +476,7 @@ Use when the user asks how many lines of code have been scanned/audited, wants a
 
 ## mine-ledger
 
-Use when the user asks to mine the disposition ledger for confirmed true positives, build or refresh the rule-calibration corpus, find rule-pack coverage gaps, check per-rule precision, or produce the opengrep rule-authoring backlog — e.g. "mine the ledger", "what TP clusters have no rule", "how precise are the traust rules", "refresh the rule-mining report". Runs out-of-band from audits; audits themselves feed it via structured scanner_correlation entries. Authored rules require the shared native validation and strict fixture gate plus semantic review before promotion. Portfolio/ledger mining remains available; adopter-authored rules are an additional source, not its replacement.
+Mine confirmed findings, author and calibrate private rule candidates, and publish mined or adopter packs through sweep intake-rules after Opengrep validate and strict test. Command grants exclude benchmark writes, adjudication and adapter execution. Admission is not activation or exploitability proof.
 
 - **Stage:** —
 - **Tier:** `secondary`
