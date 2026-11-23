@@ -182,6 +182,31 @@ is_denied_env() {
   return 1
 }
 
+# A private HOME for local runs: the caller's ~/.config/gh, ~/.git-credentials,
+# ~/.ssh and cloud CLI credentials must not be readable by the target's
+# build/test commands or the agent shell. Only the git identity is copied, so
+# commits still work without global config.
+RUN_HOME=""
+
+local_home() {
+  if [[ -z "$RUN_HOME" ]]; then
+    RUN_HOME="$(mktemp -d "${TMPDIR:-/tmp}/backport-fix-home.XXXXXX")"
+    if name="$(git config --global user.name 2>/dev/null)" && [[ -n "$name" ]]; then
+      git config --file "$RUN_HOME/.gitconfig" user.name "$name" || true
+    fi
+    if email="$(git config --global user.email 2>/dev/null)" && [[ -n "$email" ]]; then
+      git config --file "$RUN_HOME/.gitconfig" user.email "$email" || true
+    fi
+  fi
+}
+
+cleanup_run_home() {
+  if [[ -n "${RUN_HOME:-}" && -d "$RUN_HOME" ]]; then
+    rm -rf "$RUN_HOME"
+  fi
+}
+trap cleanup_run_home EXIT
+
 run_amalgamator() {
   local config_file="$1"
   local log_file="$2"
@@ -429,6 +454,8 @@ with open(dst, "w") as f:
       keep_env+=("${extra_env[@]}")
     fi
 
+    local_home
+    local run_home="$RUN_HOME"
     local -a env_pairs=()
     local var
     for var in "${keep_env[@]}"; do
@@ -439,10 +466,27 @@ with open(dst, "w") as f:
         fi
         continue
       fi
+      if [[ "$var" == "HOME" ]]; then
+        env_pairs+=("HOME=$run_home")
+        continue
+      fi
       if [[ -n "${!var+x}" ]]; then
         env_pairs+=("$var=${!var}")
       fi
     done
+    env_pairs+=(
+      "XDG_CONFIG_HOME=$run_home/.config"
+      "XDG_CACHE_HOME=$run_home/.cache"
+      "XDG_DATA_HOME=$run_home/.local/share"
+    )
+    # Vertex ADC: global default discovery now points at the private HOME, so
+    # name the one credential file explicitly when the caller used the default.
+    if $use_vertex && [[ -z "${GOOGLE_APPLICATION_CREDENTIALS:-}" ]]; then
+      local default_adc="$HOME/.config/gcloud/application_default_credentials.json"
+      if [[ -f "$default_adc" ]]; then
+        env_pairs+=("GOOGLE_APPLICATION_CREDENTIALS=$default_adc")
+      fi
+    fi
     if [[ ${#env_pairs[@]} -eq 0 ]]; then
       env_pairs=("PATH=${PATH:-/usr/bin:/bin}")
     fi

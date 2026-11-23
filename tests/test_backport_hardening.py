@@ -643,3 +643,71 @@ def test_safe_git_does_not_verify_signatures_with_a_repo_gpg_program(tmp_path):
         "-c gpg.ssh.program=",
     ):
         assert flag in text, flag
+
+
+def test_local_mode_runs_with_a_private_home(tmp_path):
+    # The caller's HOME holds ~/.config/gh/hosts.yml, ~/.git-credentials and
+    # ~/.ssh; the target's build/test and the agent shell must not see them.
+    repo, _results, sha = _valid_result(tmp_path)
+    cfg = tmp_path / "cfg" / "release-a.yaml"
+    cfg.parent.mkdir()
+    cfg.write_text(
+        f"issue_id: backport-x\nbug_description: t\n"
+        f"repository: {{source_path: {repo}, workdir: {tmp_path}/wd}}\n"
+        "branches: {source: origin/main, target: origin/release-a}\n"
+        f"fix: {{commit: {sha}}}\nbuild: {{command: '', test_command: ''}}\n"
+    )
+
+    fake_home = tmp_path / "caller-home"
+    (fake_home / ".config" / "gh").mkdir(parents=True)
+    (fake_home / ".config" / "gh" / "hosts.yml").write_text("oauth_token: secret\n")
+    (fake_home / ".ssh").mkdir()
+    (fake_home / ".ssh" / "id_ed25519").write_text("PRIVATE KEY\n")
+    (fake_home / ".git-credentials").write_text("https://tok@github.com\n")
+    (fake_home / ".gitconfig").write_text(
+        "[user]\n\tname = Caller\n\temail = caller@example.test\n"
+    )
+
+    seen = tmp_path / "engine_env.json"
+    pkg = tmp_path / "fake_engine" / "auto_bug_fix"
+    pkg.mkdir(parents=True)
+    (pkg / "__init__.py").write_text("")
+    (pkg / "run_bug_fix.py").write_text(
+        "import json, os, subprocess, sys\n"
+        "env = dict(os.environ)\n"
+        "env['_git_email'] = subprocess.run(\n"
+        "    ['git', 'config', '--global', 'user.email'],\n"
+        "    capture_output=True, text=True).stdout.strip()\n"
+        f"json.dump(env, open({str(seen)!r}, 'w'))\n"
+        "sys.exit(1)\n"
+    )
+
+    env = os.environ.copy()
+    env.pop("GITHUB_TOKEN", None)
+    env.update(
+        {
+            "PATH": f"{pathlib.Path(sys.executable).parent}:{env['PATH']}",
+            "PYTHONPATH": str(tmp_path / "fake_engine"),
+            "HOME": str(fake_home),
+        }
+    )
+    proc = subprocess.run(
+        ["bash", str(RUNNER), "--config", str(cfg), "--output-dir", str(tmp_path / "res")],
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    assert seen.exists(), proc.stdout + proc.stderr
+    engine_env = json.loads(seen.read_text())
+
+    private_home = engine_env["HOME"]
+    assert private_home != str(fake_home)
+    assert "backport-fix-home" in private_home
+    assert not os.path.exists(os.path.join(private_home, ".config", "gh", "hosts.yml"))
+    assert not os.path.exists(os.path.join(private_home, ".ssh"))
+    assert not os.path.exists(os.path.join(private_home, ".git-credentials"))
+    assert engine_env["XDG_CONFIG_HOME"].startswith(private_home)
+    # Identity is copied so commits still work without global config.
+    assert engine_env["_git_email"] == "caller@example.test"
+    # The private HOME is removed when the run ends.
+    assert not os.path.isdir(private_home)
