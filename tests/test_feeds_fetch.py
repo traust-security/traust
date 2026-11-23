@@ -341,3 +341,34 @@ def test_a_store_failure_reading_the_names_degrades_the_run_and_the_feeds_still_
         "advisory documents error_type=RepositoryError operation=linked advisories "
         "cause=TimeoutError: the store is unreachable"
     ) in caplog.text
+
+
+def test_a_failed_cvss_build_degrades_the_run_and_names_each_failed_source(
+    home: Path, documents: dict, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The documents refreshed but ranking them failed on the store: the build and every failed
+    source count as `error`, each logged; the whole-file feeds still count."""
+    from traust_core.v1.errors import RepositoryError
+    from traust_core.v1.models.feed_documents import AdvisoryCvssNotBuilt, AdvisoryDocumentsRefresh
+    from traust_core.v1.services.exposure import ExposureService
+
+    link_advisory(home)
+    kept = AdvisoryDocumentsRefresh(source="cve-list", requested=1)
+    lost = AdvisoryDocumentsRefresh(source="nvd", requested=1, error="HTTP 503")
+
+    def not_built(self: ExposureService, run_order_id: object = None) -> object:
+        try:
+            raise RepositoryError("the store is unreachable", operation="put")
+        except RepositoryError as cause:
+            raise AdvisoryCvssNotBuilt(
+                "advisory-cvss not built (RepositoryError: the store is unreachable); "
+                "the documents were kept",
+                [kept, lost],
+            ) from cause
+
+    monkeypatch.setattr(ExposureService, "refresh_advisory_documents", not_built)
+    rc, result = fetch(home)
+    assert (rc, result["outcome"], result["degraded"]) == (4, "degraded", {"error": 2})
+    assert payload(home, "kev") is not None
+    assert "advisory-cvss not built" in caplog.text and "cause=RepositoryError" in caplog.text
+    assert "nvd documents: HTTP 503" in caplog.text

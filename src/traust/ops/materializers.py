@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import tempfile
 from collections import Counter
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from http import HTTPStatus
 from pathlib import Path
 from typing import Any
@@ -24,6 +24,7 @@ from traust_core.v1.errors import (
 )
 from traust_core.v1.models.below_range import BelowRangeStatus
 from traust_core.v1.models.dependencies import FeedName
+from traust_core.v1.models.feed_documents import AdvisoryCvssNotBuilt, AdvisoryDocumentsRefresh
 from traust_core.v1.models.insight import RenderedView, ViewFilter, ViewName
 from traust_core.v1.models.observation import ComparisonStatus
 from traust_core.v1.models.operations import AssetRequest, DegradedKey, JobResult, OrderReason
@@ -233,10 +234,16 @@ class FeedsCacheMaterializer:
         )
 
     def _documents(self, run_id: str, order: UUID | None) -> dict[str, int]:
-        """The advisory documents' refresh. A failed source counts as `error` (the contracts'
-        degraded-key vocabulary: a document source is no registered feed); each one is logged."""
+        """The advisory documents' refresh and the CVSS build it ends with. A failed source, or a
+        failed build, counts as `error` (the contracts' degraded-key vocabulary); each is logged."""
         try:
             outcomes = self._exposure.refresh_advisory_documents(order)
+        except (
+            AdvisoryCvssNotBuilt
+        ) as e:  # the documents refreshed; ranking them failed on the store
+            cause = type(e.__cause__).__name__ if e.__cause__ is not None else None
+            log.error("run %s advisory documents: %s (cause=%s)", run_id, e, cause)
+            return {DegradedKey.ERROR.value: 1 + self._failed(run_id, e.outcomes)}
         except ServiceError as e:  # every source asked failed: an outage, still only degraded
             log.warning("run %s advisory documents: %s", run_id, e)
             return {DegradedKey.ERROR.value: 1}
@@ -248,10 +255,15 @@ class FeedsCacheMaterializer:
                 run_id, type(e).__name__, getattr(e, "operation", None), cause, e,
             )  # fmt: skip
             return {DegradedKey.ERROR.value: 1}
+        failed = self._failed(run_id, outcomes)
+        return {DegradedKey.ERROR.value: failed} if failed else {}
+
+    @staticmethod
+    def _failed(run_id: str, outcomes: Sequence[AdvisoryDocumentsRefresh]) -> int:
         failed = [o for o in outcomes if not o.ok]
         for outcome in failed:
             log.warning("run %s %s documents: %s", run_id, outcome.source, outcome.error)
-        return {DegradedKey.ERROR.value: len(failed)} if failed else {}
+        return len(failed)
 
 
 class LedgerAuditMaterializer:

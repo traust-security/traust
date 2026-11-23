@@ -1581,9 +1581,9 @@ requires-dist = [
     { name = "pyyaml" },
     { name = "referencing" },
     { name = "sigstore", marker = "extra == 'signing'", specifier = ">=4.0,<5.0" },
-    { name = "traust-core", git = "https://github.com/traust-security/traust-core.git?rev=1f3561d51f57eaca123cac460eb403bb27400886" },
-    { name = "traust-core", extras = ["postgres"], marker = "extra == 'postgres'", git = "https://github.com/traust-security/traust-core.git?rev=1f3561d51f57eaca123cac460eb403bb27400886" },
-    { name = "traust-core", extras = ["s3"], marker = "extra == 's3'", git = "https://github.com/traust-security/traust-core.git?rev=1f3561d51f57eaca123cac460eb403bb27400886" },
+    { name = "traust-core", git = "https://github.com/traust-security/traust-core.git?rev=e5be092818f168216fa1a2dcd5da82be35689e7e" },
+    { name = "traust-core", extras = ["postgres"], marker = "extra == 'postgres'", git = "https://github.com/traust-security/traust-core.git?rev=e5be092818f168216fa1a2dcd5da82be35689e7e" },
+    { name = "traust-core", extras = ["s3"], marker = "extra == 's3'", git = "https://github.com/traust-security/traust-core.git?rev=e5be092818f168216fa1a2dcd5da82be35689e7e" },
 ]
 provides-extras = ["postgres", "s3", "signing"]
 
@@ -1597,7 +1597,7 @@ dev = [
 [[package]]
 name = "traust-contracts"
 version = "0.1.0"
-source = { git = "https://github.com/traust-security/traust-contracts.git?rev=db6f30525ed1d3cbf30199da00a888a1ee786a00#db6f30525ed1d3cbf30199da00a888a1ee786a00" }
+source = { git = "https://github.com/traust-security/traust-contracts.git?rev=7f1867a266a61bba80e29f5b3dfd23f98d21fa67#7f1867a266a61bba80e29f5b3dfd23f98d21fa67" }
 dependencies = [
     { name = "jsonschema", extra = ["format-nongpl"] },
     { name = "pydantic" },
@@ -1607,7 +1607,7 @@ dependencies = [
 [[package]]
 name = "traust-core"
 version = "0.1.0"
-source = { git = "https://github.com/traust-security/traust-core.git?rev=1f3561d51f57eaca123cac460eb403bb27400886#1f3561d51f57eaca123cac460eb403bb27400886" }
+source = { git = "https://github.com/traust-security/traust-core.git?rev=e5be092818f168216fa1a2dcd5da82be35689e7e#e5be092818f168216fa1a2dcd5da82be35689e7e" }
 dependencies = [
     { name = "cvss" },
     { name = "jsonschema", extra = ["format-nongpl"] },
