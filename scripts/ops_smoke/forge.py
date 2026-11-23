@@ -59,7 +59,9 @@ class FixtureForge(BaseHandler):
 
 if __name__ == "__main__":
     if sys.argv[1:3] not in (
-        ["portfolio", "onboard"], ["portfolio", "observe"], ["impact", "manifest-sbom"]
+        ["portfolio", "onboard"],
+        ["portfolio", "observe"],
+        ["impact", "manifest-sbom"],
     ):
         raise SystemExit("expected fixture onboard, observe or manifest-sbom")
     # In particular, syft must not read a caller's per-user scanner configuration.

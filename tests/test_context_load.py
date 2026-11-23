@@ -64,9 +64,9 @@ def test_the_context_sees_every_registered_provider(core: Context, provider: str
 
 def test_the_context_is_the_only_loader() -> None:
     loaders = {n for n in vars(context) if n.startswith("load")}
-    # load_caller is identity; load_spend_core is load() that requires the model registry
-    # (exit 2 without it).
-    assert loaders == {"load", "load_caller", "load_spend_core"}
+    # load_caller and load_recorder are identity; load_spend_core is load() that requires the
+    # model registry (exit 2 without it).
+    assert loaders == {"load", "load_caller", "load_recorder", "load_spend_core"}
 
 
 def test_normal_app_docs_command_fetches_registered_product_guides(

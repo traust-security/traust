@@ -244,9 +244,9 @@ def test_up_preserves_existing_login_and_explains_expiry_recovery(
         issued = datetime.now(UTC) - 2 * LOCAL_TOKEN_LIFETIME
         if kind == "local":
             issuer = LocalIssuer(login_path.parent, SimpleNamespace(now=lambda: issued))
-            login["grant"]["access_token"] = (
-                issuer.mint(login["client_id"]).token.get_secret_value()
-            )
+            login["grant"]["access_token"] = issuer.mint(
+                login["client_id"]
+            ).token.get_secret_value()
         else:
             login["issuer"] = "https://operator.example/issuer"
             login["client_id"] = "operator-chosen"
@@ -268,7 +268,9 @@ def test_up_preserves_existing_login_and_explains_expiry_recovery(
 
 
 @pytest.mark.parametrize("entry", ["missing", "existing", "dangling-symlink"])
-def test_up_refuses_an_operator_home_without_changing_its_login(rig: LocalOpsRig, entry: str) -> None:
+def test_up_refuses_an_operator_home_without_changing_its_login(
+    rig: LocalOpsRig, entry: str
+) -> None:
     setup = rig.run("up")
     assert setup.returncode == 0, setup.stderr
     operator_home = rig.root / "operator-home"
@@ -296,6 +298,7 @@ def test_up_refuses_an_operator_home_without_changing_its_login(rig: LocalOpsRig
         assert login_path.is_symlink() and not login_path.exists()
     else:
         assert not login_path.exists()
+
 
 @pytest.mark.parametrize(
     "component",
