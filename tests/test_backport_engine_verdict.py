@@ -4,6 +4,7 @@ Runs the real run_backport.sh collection path against the mock engine wrapped
 to exit 1 *after* writing a success summary and candidate.patch, then checks
 that the persisted verdict, the emitter and the delivery gate all honour it.
 """
+
 from __future__ import annotations
 
 import json
@@ -37,15 +38,31 @@ def test_nonzero_engine_exit_overrides_success_shaped_artifacts(tmp_path):
     configs = work / "configs"
     results = work / "results"
 
-    subprocess.run(["bash", str(FIXTURE), str(work)],
-                   check=True, capture_output=True, text=True, env=_env())
     subprocess.run(
-        [sys.executable, str(SKILL / "scripts" / "generate_backport_configs.py"),
-         "--remediation", str(rem), "--repo", str(repo),
-         "--skip-scan", "--branches", "release-a",
-         "--build-cmd", "true", "--test-cmd", "true",
-         "--output-dir", str(configs)],
-        check=True, capture_output=True, text=True, env=_env(),
+        ["bash", str(FIXTURE), str(work)], check=True, capture_output=True, text=True, env=_env()
+    )
+    subprocess.run(
+        [
+            sys.executable,
+            str(SKILL / "scripts" / "generate_backport_configs.py"),
+            "--remediation",
+            str(rem),
+            "--repo",
+            str(repo),
+            "--skip-scan",
+            "--branches",
+            "release-a",
+            "--build-cmd",
+            "true",
+            "--test-cmd",
+            "true",
+            "--output-dir",
+            str(configs),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+        env=_env(),
     )
 
     # Fake engine: the real mock writes success artifacts, then we force exit 1.
@@ -61,15 +78,24 @@ def test_nonzero_engine_exit_overrides_success_shaped_artifacts(tmp_path):
     env = _env(PYTHONPATH=str(work / "fake_engine"))
 
     proc = subprocess.run(
-        ["bash", str(SKILL / "scripts" / "run_backport.sh"),
-         "--config-dir", str(configs), "--output-dir", str(results)],
-        capture_output=True, text=True, env=env, cwd=str(work),
+        [
+            "bash",
+            str(SKILL / "scripts" / "run_backport.sh"),
+            "--config-dir",
+            str(configs),
+            "--output-dir",
+            str(results),
+        ],
+        capture_output=True,
+        text=True,
+        env=env,
+        cwd=str(work),
     )
     assert proc.returncode != 0, proc.stdout + proc.stderr
 
     bd = results / "release-a"
     summary = json.loads((bd / "summary.json").read_text())
-    assert summary["targets"][0]["outcome"] == "success"      # success-shaped
+    assert summary["targets"][0]["outcome"] == "success"  # success-shaped
     assert (bd / "candidate.patch").is_file()
 
     rec = json.loads((bd / "result.json").read_text())
@@ -82,16 +108,27 @@ def test_nonzero_engine_exit_overrides_success_shaped_artifacts(tmp_path):
     batch = json.loads((results / "run_summary.json").read_text())
     assert [row["branch"] for row in batch["branches"]] == ["release-a"]
     assert batch["branches"][0]["status"] == "failed"
-    assert (batch["total"], batch["passed"], batch["failed"],
-            batch["skipped"]) == (1, 0, 1, 0)
+    assert (batch["total"], batch["passed"], batch["failed"], batch["skipped"]) == (1, 0, 1, 0)
 
     report_path = work / "report.json"
     subprocess.run(
-        [sys.executable, str(SKILL / "scripts" / "emit_backport_report.py"),
-         "--results-dir", str(results), "--output", str(report_path),
-         "--no-publish", "--repository", "https://github.com/o/r",
-         "--logical-product", "p"],
-        check=True, capture_output=True, text=True, env=_env(),
+        [
+            sys.executable,
+            str(SKILL / "scripts" / "emit_backport_report.py"),
+            "--results-dir",
+            str(results),
+            "--output",
+            str(report_path),
+            "--no-publish",
+            "--repository",
+            "https://github.com/o/r",
+            "--logical-product",
+            "p",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+        env=_env(),
     )
     report = json.loads(report_path.read_text())
     row = report["target_branches"][0]

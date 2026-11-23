@@ -19,6 +19,7 @@ one test surface. Import path: these scripts are run directly, so their own
 directory is sys.path[0]; importlib-based loaders (the unit tests) must add
 it, which both scripts do before importing this module.
 """
+
 from __future__ import annotations
 
 import os
@@ -105,6 +106,7 @@ def checkout_version(root: Path) -> str:
         return ""
     try:
         import tomllib
+
         data = tomllib.loads(pyproject.read_text())
     except (OSError, ValueError):
         return ""
@@ -160,7 +162,10 @@ def harness_version(*, with_rev: bool = False) -> str:
     try:
         sha = subprocess.run(
             ["git", "-C", str(harness), "rev-parse", "--short=7", "HEAD"],
-            capture_output=True, text=True, timeout=10, check=True,
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=True,
         ).stdout.strip()
     except (OSError, subprocess.SubprocessError):
         return version

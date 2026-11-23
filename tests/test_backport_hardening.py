@@ -3,6 +3,7 @@ actually needs, and a git wrapper that rejects exec-path dispatch.
 
 Run: ../traust/.venv/bin/python -m pytest tests/test_backport_hardening.py
 """
+
 from __future__ import annotations
 
 import json
@@ -23,14 +24,15 @@ pytest.importorskip("yaml")
 REPO = pathlib.Path(__file__).resolve().parents[1]
 SKILL = REPO / "harnessing" / "7-remediate" / "backport-fix"
 RUNNER = SKILL / "scripts" / "run_backport.sh"
-GIT = subprocess.run(["sh", "-c", "command -v git"], capture_output=True,
-                     text=True).stdout.strip()
+GIT = subprocess.run(["sh", "-c", "command -v git"], capture_output=True, text=True).stdout.strip()
 
 
 def _git(repo: pathlib.Path, *args: str) -> str:
     return subprocess.run(
-        ["git", "-C", str(repo), *args], check=True,
-        capture_output=True, text=True,
+        ["git", "-C", str(repo), *args],
+        check=True,
+        capture_output=True,
+        text=True,
     ).stdout.strip()
 
 
@@ -43,24 +45,53 @@ def _valid_result(tmp_path: pathlib.Path):
     repo = tmp_path / "repo"
     repo.mkdir()
     _git(repo, "init", "-q", "-b", "main")
-    _git(repo, "-c", "user.email=t@t", "-c", "user.name=t",
-         "commit", "-q", "--allow-empty", "-m", "fix")
+    _git(
+        repo,
+        "-c",
+        "user.email=t@t",
+        "-c",
+        "user.name=t",
+        "commit",
+        "-q",
+        "--allow-empty",
+        "-m",
+        "fix",
+    )
     sha = _git(repo, "rev-parse", "HEAD")
     _git(repo, "branch", "amalgamator/backport-x")
 
     results = tmp_path / "results" / "release-a"
     results.mkdir(parents=True)
     (results / "candidate.patch").write_text(
-        "diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1 +1 @@\n-a\n+b\n")
+        "diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1 +1 @@\n-a\n+b\n"
+    )
     (results / "config.yaml").write_text(
         f"repository:\n  source_path: {repo}\nfix:\n  commit: {sha}\n"
-        "branches:\n  source: origin/main\n  target: origin/release-a\n")
-    (results / "summary.json").write_text(json.dumps({"targets": [{
-        "outcome": "success", "issue_id": "backport-x",
-        "target_branch": "origin/release-a"}]}))
-    (results / "result.json").write_text(json.dumps({
-        "issue_id": "backport-x", "target_branch": "release-a",
-        "outcome": "success", "head_sha": sha}))
+        "branches:\n  source: origin/main\n  target: origin/release-a\n"
+    )
+    (results / "summary.json").write_text(
+        json.dumps(
+            {
+                "targets": [
+                    {
+                        "outcome": "success",
+                        "issue_id": "backport-x",
+                        "target_branch": "origin/release-a",
+                    }
+                ]
+            }
+        )
+    )
+    (results / "result.json").write_text(
+        json.dumps(
+            {
+                "issue_id": "backport-x",
+                "target_branch": "release-a",
+                "outcome": "success",
+                "head_sha": sha,
+            }
+        )
+    )
     return repo, tmp_path / "results", sha
 
 
@@ -76,10 +107,13 @@ def _container_plan(tmp_path, extra_env, extra_args=(), labeled=False):
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     podman_log = tmp_path / "podman.log"
-    _exec(bin_dir / "podman", f"""#!/usr/bin/env bash
+    _exec(
+        bin_dir / "podman",
+        f"""#!/usr/bin/env bash
 printf '%s\\n' "$*" >> "{podman_log}"
 case "$1" in cp) exit 1 ;; *) exit 0 ;; esac
-""")
+""",
+    )
 
     cfg = tmp_path / "cfg" / "release-a.yaml"
     cfg.parent.mkdir()
@@ -87,43 +121,69 @@ case "$1" in cp) exit 1 ;; *) exit 0 ;; esac
         f"issue_id: backport-x\nbug_description: t\n"
         f"repository: {{source_path: {repo}, workdir: {tmp_path}/wd}}\n"
         "branches: {source: origin/main, target: origin/release-a}\n"
-        f"fix: {{commit: {sha}}}\nbuild: {{command: '', test_command: ''}}\n")
+        f"fix: {{commit: {sha}}}\nbuild: {{command: '', test_command: ''}}\n"
+    )
 
     env = os.environ.copy()
-    for k in ("ANTHROPIC_API_KEY", "GOOGLE_APPLICATION_CREDENTIALS",
-              "CLAUDE_CODE_USE_VERTEX", "ANTHROPIC_VERTEX_PROJECT_ID",
-              "CLOUD_ML_REGION", "BACKPORT_SELINUX"):
+    for k in (
+        "ANTHROPIC_API_KEY",
+        "GOOGLE_APPLICATION_CREDENTIALS",
+        "CLAUDE_CODE_USE_VERTEX",
+        "ANTHROPIC_VERTEX_PROJECT_ID",
+        "CLOUD_ML_REGION",
+        "BACKPORT_SELINUX",
+    ):
         env.pop(k, None)
-    env.update({
-        "HOME": str(home),
-        "PATH": f"{bin_dir}:{pathlib.Path(sys.executable).parent}:{env['PATH']}",
-        "PYTHONPATH": str(SKILL / "test-data" / "mock" / "mock_amalgamator"),
-    })
+    env.update(
+        {
+            "HOME": str(home),
+            "PATH": f"{bin_dir}:{pathlib.Path(sys.executable).parent}:{env['PATH']}",
+            "PYTHONPATH": str(SKILL / "test-data" / "mock" / "mock_amalgamator"),
+        }
+    )
     env.update(extra_env)
     if labeled:
         real_stat = shutil.which("stat") or "/usr/bin/stat"
-        _exec(bin_dir / "stat", f"""#!/usr/bin/env bash
+        _exec(
+            bin_dir / "stat",
+            f"""#!/usr/bin/env bash
 if [[ "${{1:-}}" == "-c" && "${{2:-}}" == "%C" ]]; then
   echo "system_u:object_r:container_file_t:s0"
   exit 0
 fi
 exec {real_stat} "$@"
-""")
+""",
+        )
     proc = subprocess.run(
-        ["bash", str(RUNNER), "--config", str(cfg), "--output-dir",
-         str(tmp_path / "res"), "--container-image", "example:latest",
-         "--repo", str(repo), *extra_args],
-        capture_output=True, text=True, env=env,
+        [
+            "bash",
+            str(RUNNER),
+            "--config",
+            str(cfg),
+            "--output-dir",
+            str(tmp_path / "res"),
+            "--container-image",
+            "example:latest",
+            "--repo",
+            str(repo),
+            *extra_args,
+        ],
+        capture_output=True,
+        text=True,
+        env=env,
     )
     plan = podman_log.read_text() if podman_log.exists() else ""
     return plan, explicit, proc
 
 
 def test_container_mounts_only_the_explicit_adc_file(tmp_path):
-    plan, explicit, _proc = _container_plan(tmp_path, {
-        "CLAUDE_CODE_USE_VERTEX": "1",
-        "GOOGLE_APPLICATION_CREDENTIALS": str(tmp_path / "svc-key.json"),
-    })
+    plan, explicit, _proc = _container_plan(
+        tmp_path,
+        {
+            "CLAUDE_CODE_USE_VERTEX": "1",
+            "GOOGLE_APPLICATION_CREDENTIALS": str(tmp_path / "svc-key.json"),
+        },
+    )
     # The explicit ADC wins over the default gcloud directory...
     assert f"-v {explicit}:/workspace/adc.json:ro" in plan
     assert "GOOGLE_APPLICATION_CREDENTIALS=/workspace/adc.json" in plan
@@ -133,11 +193,14 @@ def test_container_mounts_only_the_explicit_adc_file(tmp_path):
 
 
 def test_vertex_mode_does_not_forward_the_api_key(tmp_path):
-    plan, _, _ = _container_plan(tmp_path, {
-        "CLAUDE_CODE_USE_VERTEX": "1",
-        "ANTHROPIC_API_KEY": "sk-ant-must-not-be-forwarded",
-        "GOOGLE_APPLICATION_CREDENTIALS": str(tmp_path / "svc-key.json"),
-    })
+    plan, _, _ = _container_plan(
+        tmp_path,
+        {
+            "CLAUDE_CODE_USE_VERTEX": "1",
+            "ANTHROPIC_API_KEY": "sk-ant-must-not-be-forwarded",
+            "GOOGLE_APPLICATION_CREDENTIALS": str(tmp_path / "svc-key.json"),
+        },
+    )
     assert "/workspace/adc.json" in plan
     # Only the mechanism in use is forwarded.
     assert "-e ANTHROPIC_API_KEY" not in plan
@@ -145,10 +208,13 @@ def test_vertex_mode_does_not_forward_the_api_key(tmp_path):
 
 
 def test_api_key_mode_does_not_mount_adc(tmp_path):
-    plan, _, _ = _container_plan(tmp_path, {
-        "ANTHROPIC_API_KEY": "sk-ant-test",
-        "GOOGLE_APPLICATION_CREDENTIALS": str(tmp_path / "svc-key.json"),
-    })
+    plan, _, _ = _container_plan(
+        tmp_path,
+        {
+            "ANTHROPIC_API_KEY": "sk-ant-test",
+            "GOOGLE_APPLICATION_CREDENTIALS": str(tmp_path / "svc-key.json"),
+        },
+    )
     assert "-e ANTHROPIC_API_KEY" in plan
     assert "/workspace/adc.json" not in plan
 
@@ -157,13 +223,24 @@ def test_safe_git_rejects_global_option_overrides(tmp_path):
     repo = tmp_path / "repo"
     repo.mkdir()
     _git(repo, "init", "-q", "-b", "main")
-    _git(repo, "-c", "user.email=t@t", "-c", "user.name=t",
-         "commit", "-q", "--allow-empty", "-m", "x")
+    _git(
+        repo,
+        "-c",
+        "user.email=t@t",
+        "-c",
+        "user.name=t",
+        "commit",
+        "-q",
+        "--allow-empty",
+        "-m",
+        "x",
+    )
     wrapper = SKILL / "scripts" / "safe_git.sh"
 
     ok = subprocess.run(
         ["bash", str(wrapper), "-C", str(repo), "rev-parse", "--short", "HEAD"],
-        capture_output=True, text=True,
+        capture_output=True,
+        text=True,
     )
     assert ok.returncode == 0 and ok.stdout.strip(), ok.stderr
 
@@ -172,12 +249,13 @@ def test_safe_git_rejects_global_option_overrides(tmp_path):
         ["--exec-path=/tmp", "rev-parse"],
         ["rev-parse", "-c", "core.pager=sh"],
         ["rev-parse", "--git-dir=/tmp"],
-        ["push", "origin"],            # not a read-only subcommand
+        ["push", "origin"],  # not a read-only subcommand
     )
     for args in rejected:
         r = subprocess.run(
             ["bash", str(wrapper), "-C", str(repo), *args],
-            capture_output=True, text=True,
+            capture_output=True,
+            text=True,
         )
         assert r.returncode == 2, (args, r.stdout, r.stderr)
 
@@ -189,8 +267,7 @@ def test_safe_git_never_runs_repository_diff_helpers(tmp_path):
     (repo / ".gitattributes").write_text("*.txt diff=evil\n")
     (repo / "f.txt").write_text("hi\n")
     _git(repo, "add", ".gitattributes", "f.txt")
-    _git(repo, "-c", "user.email=t@t", "-c", "user.name=t",
-         "commit", "-q", "-m", "x")
+    _git(repo, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "x")
 
     marker = tmp_path / "HELPER_RAN"
     helper = tmp_path / "helper.sh"
@@ -202,7 +279,8 @@ def test_safe_git_never_runs_repository_diff_helpers(tmp_path):
 
     ok = subprocess.run(
         ["bash", str(wrapper), "-C", str(repo), "show", "HEAD:f.txt"],
-        capture_output=True, text=True,
+        capture_output=True,
+        text=True,
     )
     assert ok.returncode == 0, ok.stderr
     assert not marker.exists(), "textconv ran without being requested"
@@ -219,7 +297,8 @@ def test_safe_git_never_runs_repository_diff_helpers(tmp_path):
     for args in refused:
         r = subprocess.run(
             ["bash", str(wrapper), "-C", str(repo), *args],
-            capture_output=True, text=True,
+            capture_output=True,
+            text=True,
         )
         assert r.returncode == 2, (args, r.stdout, r.stderr)
         assert not marker.exists(), (args, "repository helper executed")
@@ -229,8 +308,7 @@ def test_safe_git_never_runs_repository_diff_helpers(tmp_path):
 
 
 def test_selinux_enforcing_refuses_unlabeled_host_mounts(tmp_path):
-    plan, _explicit, proc = _container_plan(
-        tmp_path, {"BACKPORT_SELINUX": "enforcing"})
+    plan, _explicit, proc = _container_plan(tmp_path, {"BACKPORT_SELINUX": "enforcing"})
     assert proc.returncode == 2, proc.stderr
     assert "not labeled container_file_t" in proc.stderr
     assert plan == "", "podman must not run with an unlabeled mount"
@@ -240,9 +318,11 @@ def test_selinux_relabel_flag_labels_user_mounts(tmp_path):
     explicit = tmp_path / "svc-key.json"
     plan, explicit, proc = _container_plan(
         tmp_path,
-        {"BACKPORT_SELINUX": "enforcing",
-         "CLAUDE_CODE_USE_VERTEX": "1",
-         "GOOGLE_APPLICATION_CREDENTIALS": str(explicit)},
+        {
+            "BACKPORT_SELINUX": "enforcing",
+            "CLAUDE_CODE_USE_VERTEX": "1",
+            "GOOGLE_APPLICATION_CREDENTIALS": str(explicit),
+        },
         extra_args=("--selinux-relabel",),
     )
     assert "--selinux-relabel" in proc.stderr
@@ -254,9 +334,11 @@ def test_selinux_enforcing_accepts_prelabeled_mounts(tmp_path):
     explicit = tmp_path / "svc-key.json"
     plan, explicit, proc = _container_plan(
         tmp_path,
-        {"BACKPORT_SELINUX": "enforcing",
-         "CLAUDE_CODE_USE_VERTEX": "1",
-         "GOOGLE_APPLICATION_CREDENTIALS": str(explicit)},
+        {
+            "BACKPORT_SELINUX": "enforcing",
+            "CLAUDE_CODE_USE_VERTEX": "1",
+            "GOOGLE_APPLICATION_CREDENTIALS": str(explicit),
+        },
         labeled=True,
     )
     assert "not labeled container_file_t" not in proc.stderr
@@ -268,8 +350,7 @@ def test_selinux_enforcing_accepts_prelabeled_mounts(tmp_path):
 
 
 def test_selinux_disabled_does_not_label_mounts(tmp_path):
-    plan, _explicit, proc = _container_plan(
-        tmp_path, {"BACKPORT_SELINUX": "disabled"})
+    plan, _explicit, proc = _container_plan(tmp_path, {"BACKPORT_SELINUX": "disabled"})
     assert "not labeled container_file_t" not in proc.stderr
     assert ",z" not in plan
 
@@ -282,25 +363,31 @@ def _abort_env(tmp_path, running, log):
         f"issue_id: backport-x\nbug_description: t\n"
         f"repository: {{source_path: {repo}, workdir: {tmp_path}/wd}}\n"
         "branches: {source: origin/main, target: origin/release-a}\n"
-        f"fix: {{commit: {sha}}}\nbuild: {{command: '', test_command: ''}}\n")
+        f"fix: {{commit: {sha}}}\nbuild: {{command: '', test_command: ''}}\n"
+    )
 
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
-    _exec(bin_dir / "podman", f"""#!/usr/bin/env bash
+    _exec(
+        bin_dir / "podman",
+        f"""#!/usr/bin/env bash
 printf '%s\\n' "$*" >> "{log}"
 case "$1" in
   run) touch "{running}"; sleep 60 ;;
   cp) exit 1 ;;
   *) exit 0 ;;
 esac
-""")
+""",
+    )
     env = os.environ.copy()
     env.pop("GITHUB_TOKEN", None)
-    env.update({
-        "HOME": str(tmp_path / "home"),
-        "PATH": f"{bin_dir}:{pathlib.Path(sys.executable).parent}:{env['PATH']}",
-        "BACKPORT_SELINUX": "disabled",
-    })
+    env.update(
+        {
+            "HOME": str(tmp_path / "home"),
+            "PATH": f"{bin_dir}:{pathlib.Path(sys.executable).parent}:{env['PATH']}",
+            "BACKPORT_SELINUX": "disabled",
+        }
+    )
     (tmp_path / "home").mkdir(exist_ok=True)
     return repo, cfg, env
 
@@ -311,11 +398,22 @@ def test_container_abort_cleans_up_container_and_temp_config(tmp_path):
     repo, cfg, env = _abort_env(tmp_path, running, log)
 
     proc = subprocess.Popen(
-        ["bash", str(RUNNER), "--config", str(cfg), "--output-dir",
-         str(tmp_path / "res"), "--container-image", "example:latest",
-         "--repo", str(repo)],
-        start_new_session=True, env=env,
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        [
+            "bash",
+            str(RUNNER),
+            "--config",
+            str(cfg),
+            "--output-dir",
+            str(tmp_path / "res"),
+            "--container-image",
+            "example:latest",
+            "--repo",
+            str(repo),
+        ],
+        start_new_session=True,
+        env=env,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
     )
     try:
         for _ in range(100):
@@ -337,8 +435,7 @@ def test_container_abort_cleans_up_container_and_temp_config(tmp_path):
 
 
 def test_container_normal_path_cleans_up(tmp_path):
-    plan, _explicit, _proc = _container_plan(
-        tmp_path, {"BACKPORT_SELINUX": "disabled"})
+    plan, _explicit, _proc = _container_plan(tmp_path, {"BACKPORT_SELINUX": "disabled"})
     assert "rm -f backport-" in plan, plan
     match = re.search(r"-v (\S+):/workspace/configs", plan)
     assert match, plan
@@ -353,7 +450,8 @@ def test_local_mode_drops_github_credentials_even_when_allowlisted(tmp_path):
         f"issue_id: backport-x\nbug_description: t\n"
         f"repository: {{source_path: {repo}, workdir: {tmp_path}/wd}}\n"
         "branches: {source: origin/main, target: origin/release-a}\n"
-        f"fix: {{commit: {sha}}}\nbuild: {{command: '', test_command: ''}}\n")
+        f"fix: {{commit: {sha}}}\nbuild: {{command: '', test_command: ''}}\n"
+    )
 
     seen = tmp_path / "engine_env.json"
     pkg = tmp_path / "fake_engine" / "auto_bug_fix"
@@ -362,21 +460,25 @@ def test_local_mode_drops_github_credentials_even_when_allowlisted(tmp_path):
     (pkg / "run_bug_fix.py").write_text(
         "import json, os, sys\n"
         f"json.dump(dict(os.environ), open({str(seen)!r}, 'w'))\n"
-        "sys.exit(1)\n")
+        "sys.exit(1)\n"
+    )
 
     env = os.environ.copy()
     env.pop("GITHUB_TOKEN", None)
-    env.update({
-        "PATH": f"{pathlib.Path(sys.executable).parent}:{env['PATH']}",
-        "PYTHONPATH": str(tmp_path / "fake_engine"),
-        "GH_TOKEN": "must-not-leak",
-        "GITHUB_AGENT_TOKEN_X": "must-not-leak-either",
-        "BACKPORT_ENV_ALLOW": "GH_TOKEN GITHUB_AGENT_TOKEN_X",
-    })
+    env.update(
+        {
+            "PATH": f"{pathlib.Path(sys.executable).parent}:{env['PATH']}",
+            "PYTHONPATH": str(tmp_path / "fake_engine"),
+            "GH_TOKEN": "must-not-leak",
+            "GITHUB_AGENT_TOKEN_X": "must-not-leak-either",
+            "BACKPORT_ENV_ALLOW": "GH_TOKEN GITHUB_AGENT_TOKEN_X",
+        }
+    )
     proc = subprocess.run(
-        ["bash", str(RUNNER), "--config", str(cfg),
-         "--output-dir", str(tmp_path / "res")],
-        capture_output=True, text=True, env=env,
+        ["bash", str(RUNNER), "--config", str(cfg), "--output-dir", str(tmp_path / "res")],
+        capture_output=True,
+        text=True,
+        env=env,
     )
     assert seen.exists(), proc.stdout + proc.stderr
     engine_env = json.loads(seen.read_text())
@@ -388,8 +490,11 @@ def test_local_mode_drops_github_credentials_even_when_allowlisted(tmp_path):
 def test_container_never_forwards_github_credentials(tmp_path):
     plan, _explicit, _proc = _container_plan(
         tmp_path,
-        {"BACKPORT_SELINUX": "disabled",
-         "GH_TOKEN": "must-not-leak", "GITHUB_TOKEN": "must-not-leak"},
+        {
+            "BACKPORT_SELINUX": "disabled",
+            "GH_TOKEN": "must-not-leak",
+            "GITHUB_TOKEN": "must-not-leak",
+        },
     )
     assert "GH_TOKEN" not in plan
     assert "GITHUB_TOKEN" not in plan
@@ -423,7 +528,8 @@ def _fallback_fixture(tmp_path, *, engine_exit):
         f"repository:\n  source_path: {wt}\n  workdir: {workdir}\n"
         "branches:\n  source: origin/main\n  target: origin/release-a\n"
         f"fix:\n  commit: {_git(wt, 'rev-parse', 'HEAD')}\n"
-        "build:\n  command: ''\n  test_command: ''\n")
+        "build:\n  command: ''\n  test_command: ''\n"
+    )
 
     pkg = tmp_path / "engine" / "auto_bug_fix"
     pkg.mkdir(parents=True)
@@ -444,9 +550,11 @@ def _fallback_fixture(tmp_path, *, engine_exit):
     # Adversarial: a hostile parent process could export this too.
     env["GIT_EXTERNAL_DIFF"] = str(driver)
     proc = subprocess.run(
-        ["bash", str(RUNNER), "--config-dir", str(configs),
-         "--output-dir", str(results)],
-        capture_output=True, text=True, env=env, cwd=str(tmp_path),
+        ["bash", str(RUNNER), "--config-dir", str(configs), "--output-dir", str(results)],
+        capture_output=True,
+        text=True,
+        env=env,
+        cwd=str(tmp_path),
     )
     return proc, branch_dir, marker
 

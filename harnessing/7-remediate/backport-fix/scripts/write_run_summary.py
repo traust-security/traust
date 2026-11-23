@@ -14,6 +14,7 @@ crafted name corrupt or forge the document.
 Prints "total passed failed skipped" for the calling shell to reuse, so the
 printed counts, the file and the exit status stay in agreement.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -54,9 +55,10 @@ def label(output_dir: Path, name: str) -> str:
 
 
 def build(output_dir: Path, branches: list[str], image: str | None) -> dict:
-    rows = [{"branch": label(output_dir, name),
-             "status": verdict(output_dir / name)}
-            for name in branches]
+    rows = [
+        {"branch": label(output_dir, name), "status": verdict(output_dir / name)}
+        for name in branches
+    ]
     counts = {"total": len(rows), "passed": 0, "failed": 0, "skipped": 0}
     for row in rows:
         if row["status"] in PASSED:
@@ -78,11 +80,8 @@ def main() -> None:
     args = parser.parse_args()
 
     summary = build(args.output_dir, args.branch, args.container_image or None)
-    (args.output_dir / "run_summary.json").write_text(
-        json.dumps(summary, indent=2) + "\n"
-    )
-    print(summary["total"], summary["passed"], summary["failed"],
-          summary["skipped"])
+    (args.output_dir / "run_summary.json").write_text(json.dumps(summary, indent=2) + "\n")
+    print(summary["total"], summary["passed"], summary["failed"], summary["skipped"])
 
 
 if __name__ == "__main__":

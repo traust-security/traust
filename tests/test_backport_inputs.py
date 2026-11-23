@@ -1,5 +1,6 @@
 """Input-artifact helpers for backport-fix: remediation synthesis from a
 finding (make_remediation.py) and impact-artifact metadata (emitter)."""
+
 import importlib.util
 import json
 import pathlib
@@ -9,7 +10,13 @@ import sys
 
 import pytest
 
-_SKILL = pathlib.Path(__file__).resolve().parent.parent / "harnessing" / "7-remediate" / "backport-fix" / "scripts"
+_SKILL = (
+    pathlib.Path(__file__).resolve().parent.parent
+    / "harnessing"
+    / "7-remediate"
+    / "backport-fix"
+    / "scripts"
+)
 
 
 def _load(name):
@@ -24,12 +31,15 @@ pytest.importorskip("yaml")
 emit = _load("emit_backport_report.py")
 
 
-@pytest.mark.parametrize("raw,want", [
-    ("https://github.com/cri-o/cri-o.git", "https://github.com/cri-o/cri-o"),
-    ("https://github.com/cri-o/cri-o", "https://github.com/cri-o/cri-o"),
-    ("git@github.com:cri-o/cri-o.git", "https://github.com/cri-o/cri-o"),
-    ("git@gitlab.cee.redhat.com:grp/proj.git", "https://gitlab.cee.redhat.com/grp/proj"),
-])
+@pytest.mark.parametrize(
+    "raw,want",
+    [
+        ("https://github.com/cri-o/cri-o.git", "https://github.com/cri-o/cri-o"),
+        ("https://github.com/cri-o/cri-o", "https://github.com/cri-o/cri-o"),
+        ("git@github.com:cri-o/cri-o.git", "https://github.com/cri-o/cri-o"),
+        ("git@gitlab.cee.redhat.com:grp/proj.git", "https://gitlab.cee.redhat.com/grp/proj"),
+    ],
+)
 def test_normalize_repo_url(raw, want):
     assert mk.normalize_repo_url(raw) == want
 
@@ -72,24 +82,35 @@ def test_change_type_map_covers_git_status_letters():
     assert mk._CHANGE_TYPE["R"] == "renamed"
 
 
-@pytest.mark.parametrize("raw,want", [
-    ("repo:github.com/example/myrepo", "github.com/example/myrepo"),
-    ("https://github.com/example/myrepo.git", "github.com/example/myrepo"),
-    ("git@github.com:example/myrepo.git", "github.com/example/myrepo"),
-    ("github.com/example/myrepo/", "github.com/example/myrepo"),
-])
+@pytest.mark.parametrize(
+    "raw,want",
+    [
+        ("repo:github.com/example/myrepo", "github.com/example/myrepo"),
+        ("https://github.com/example/myrepo.git", "github.com/example/myrepo"),
+        ("git@github.com:example/myrepo.git", "github.com/example/myrepo"),
+        ("github.com/example/myrepo/", "github.com/example/myrepo"),
+    ],
+)
 def test_emitter_normalizes_repo_ids(raw, want):
     assert emit._norm_repo_id(raw) == want
 
 
 def test_impact_metadata_single_repo(tmp_path):
     art = tmp_path / "cve-2026-4242-impact-analysis.json"
-    art.write_text(json.dumps({
-        "metadata": {"cve": "CVE-2026-4242", "module": "google.golang.org/grpc",
-                     "fixed_version": "1.71.3"},
-        "repos": [{"repo": "repo:github.com/example/myrepo",
-                   "products": ["example-product"]}],
-    }))
+    art.write_text(
+        json.dumps(
+            {
+                "metadata": {
+                    "cve": "CVE-2026-4242",
+                    "module": "google.golang.org/grpc",
+                    "fixed_version": "1.71.3",
+                },
+                "repos": [
+                    {"repo": "repo:github.com/example/myrepo", "products": ["example-product"]}
+                ],
+            }
+        )
+    )
     meta = emit.read_impact_metadata(art, None)
     assert meta["finding_refs"] == ["CVE-2026-4242"]
     assert meta["repository"] == "https://github.com/example/myrepo"
@@ -100,10 +121,14 @@ def test_impact_metadata_single_repo(tmp_path):
 
 def test_impact_metadata_preserves_repo_case(tmp_path):
     art = tmp_path / "case-impact-analysis.json"
-    art.write_text(json.dumps({
-        "metadata": {"cve": "CVE-2026-1"},
-        "repos": [{"repo": "repo:gitlab.cee.redhat.com/Org/Proj"}],
-    }))
+    art.write_text(
+        json.dumps(
+            {
+                "metadata": {"cve": "CVE-2026-1"},
+                "repos": [{"repo": "repo:gitlab.cee.redhat.com/Org/Proj"}],
+            }
+        )
+    )
     meta = emit.read_impact_metadata(art, "gitlab.cee.redhat.com/org/proj")
     # matching is case-insensitive; the emitted URL keeps the entry's casing
     assert meta["repository"] == "https://gitlab.cee.redhat.com/Org/Proj"
@@ -113,9 +138,7 @@ def test_resolve_from_configs_rejects_mixed_runs(tmp_path):
     for branch, sha in (("release-1", "a" * 40), ("release-2", "b" * 40)):
         d = tmp_path / branch
         d.mkdir()
-        (d / "config.yaml").write_text(
-            f"fix:\n  commit: {sha}\nbranches:\n  source: origin/main\n"
-        )
+        (d / "config.yaml").write_text(f"fix:\n  commit: {sha}\nbranches:\n  source: origin/main\n")
     with pytest.raises(SystemExit):
         emit.resolve_from_configs(tmp_path)
 
@@ -133,10 +156,14 @@ def test_resolve_from_configs_agreeing_runs(tmp_path):
 
 def test_impact_metadata_requires_repo_selector_when_ambiguous(tmp_path):
     art = tmp_path / "multi-impact-analysis.json"
-    art.write_text(json.dumps({
-        "metadata": {"cve": "CVE-2026-4242"},
-        "repos": [{"repo": "repo:github.com/a/one"}, {"repo": "repo:github.com/b/two"}],
-    }))
+    art.write_text(
+        json.dumps(
+            {
+                "metadata": {"cve": "CVE-2026-4242"},
+                "repos": [{"repo": "repo:github.com/a/one"}, {"repo": "repo:github.com/b/two"}],
+            }
+        )
+    )
     with pytest.raises(SystemExit):
         emit.read_impact_metadata(art, None)
     meta = emit.read_impact_metadata(art, "github.com/b/two")
@@ -146,17 +173,19 @@ def test_impact_metadata_requires_repo_selector_when_ambiguous(tmp_path):
 def _branch_repo(tmp_path, branch="amalgamator/backport-cri-o-f001-release-a"):
     """A source clone with the preserved branch, as the Amalgamator leaves it."""
     import subprocess
+
     repo = tmp_path / "repo"
     repo.mkdir()
+
     def g(*a):
-        subprocess.run(["git", "-C", str(repo), *a], check=True,
-                       capture_output=True, text=True)
+        subprocess.run(["git", "-C", str(repo), *a], check=True, capture_output=True, text=True)
+
     g("init", "-q", "-b", "main")
-    g("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q",
-      "--allow-empty", "-m", "fix")
+    g("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "fix")
     g("branch", branch)
-    head = subprocess.run(["git", "-C", str(repo), "rev-parse", branch],
-                          check=True, capture_output=True, text=True).stdout.strip()
+    head = subprocess.run(
+        ["git", "-C", str(repo), "rev-parse", branch], check=True, capture_output=True, text=True
+    ).stdout.strip()
     return repo, head
 
 
@@ -164,14 +193,15 @@ def _result_dir(tmp_path, repo, *, tracker=None, outcome="success"):
     d = tmp_path / "results" / "release-a"
     d.mkdir(parents=True)
     (d / "config.yaml").write_text(
-        "repository:\n  source_path: " + str(repo)
-        + "\nfix:\n  commit: " + "c" * 40
+        "repository:\n  source_path: "
+        + str(repo)
+        + "\nfix:\n  commit: "
+        + "c" * 40
         + "\nbranches:\n  source: origin/main\n"
     )
-    (d / "summary.json").write_text(json.dumps(
-        {"targets": [{"outcome": outcome,
-                      "issue_id": "backport-cri-o-f001-release-a"}]}
-    ))
+    (d / "summary.json").write_text(
+        json.dumps({"targets": [{"outcome": outcome, "issue_id": "backport-cri-o-f001-release-a"}]})
+    )
     if tracker is not None:
         (d / "tracker.json").write_text(json.dumps(tracker))
     return d
@@ -208,17 +238,26 @@ def test_failed_outcome_never_gets_a_commit(tmp_path):
 # mixed-run refusal with an artifact, run-only reporting, published paths.
 # ---------------------------------------------------------------------------
 
-def _write_branch(d, *, target="origin/release-4.16", outcome="success",
-                  commit="c" * 40, summary_extra=None, result=None):
+
+def _write_branch(
+    d,
+    *,
+    target="origin/release-4.16",
+    outcome="success",
+    commit="c" * 40,
+    summary_extra=None,
+    result=None,
+):
     d.mkdir(parents=True, exist_ok=True)
     (d / "candidate.patch").write_text(
-        "diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1 +1 @@\n-a\n+b\n")
+        "diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1 +1 @@\n-a\n+b\n"
+    )
     (d / "config.yaml").write_text(
         "repository:\n  source_path: /nonexistent\n"
         f"fix:\n  commit: {commit}\n"
-        f"branches:\n  source: origin/main\n  target: {target}\n")
-    target_row = {"outcome": outcome, "issue_id": "backport-x",
-                  "target_branch": target}
+        f"branches:\n  source: origin/main\n  target: {target}\n"
+    )
+    target_row = {"outcome": outcome, "issue_id": "backport-x", "target_branch": target}
     if summary_extra:
         target_row.update(summary_extra)
     (d / "summary.json").write_text(json.dumps({"targets": [target_row]}))
@@ -227,19 +266,23 @@ def _write_branch(d, *, target="origin/release-4.16", outcome="success",
     else:
         # Collection-time provenance is the normal case; without it the
         # emitter refuses a successful row.
-        (d / "result.json").write_text(json.dumps({
-            "issue_id": "backport-x",
-            "target_branch": target.removeprefix("origin/"),
-            "outcome": outcome,
-            "head_sha": commit,
-        }))
+        (d / "result.json").write_text(
+            json.dumps(
+                {
+                    "issue_id": "backport-x",
+                    "target_branch": target.removeprefix("origin/"),
+                    "outcome": outcome,
+                    "head_sha": commit,
+                }
+            )
+        )
 
 
 def test_branch_keeps_the_real_target_name(tmp_path):
-    d = tmp_path / "release-4-16"      # sanitized directory slug
+    d = tmp_path / "release-4-16"  # sanitized directory slug
     _write_branch(d)
     row = emit.read_branch_result(d)
-    assert row["branch"] == "release-4.16"   # not the slug
+    assert row["branch"] == "release-4.16"  # not the slug
 
 
 def test_build_and_test_are_omitted_when_not_evidenced(tmp_path):
@@ -260,8 +303,15 @@ def test_build_and_test_are_kept_when_the_summary_reports_them(tmp_path):
 def test_recorded_head_wins_over_the_moved_branch(tmp_path):
     d = tmp_path / "release-a"
     recorded = "a" * 40
-    _write_branch(d, result={"issue_id": "backport-x", "head_sha": recorded,
-                             "target_branch": "release-a", "outcome": "success"})
+    _write_branch(
+        d,
+        result={
+            "issue_id": "backport-x",
+            "head_sha": recorded,
+            "target_branch": "release-a",
+            "outcome": "success",
+        },
+    )
     row = emit.read_branch_result(d)
     assert row["backport_commit"] == recorded
 
@@ -271,13 +321,20 @@ def test_mixed_runs_are_refused_even_with_an_artifact(tmp_path):
     # agreement check (the bug let two runs be attributed to one fix).
     results = tmp_path / "results"
     _write_branch(results / "release-a", commit="a" * 40)
-    _write_branch(results / "release-b", target="origin/release-4.17",
-                  commit="b" * 40)
+    _write_branch(results / "release-b", target="origin/release-4.17", commit="b" * 40)
     rem = {
-        "seam": "remediation", "audit_report_path": "", "repository": "https://github.com/o/r",
-        "logical_product": "p", "language": "", "fix_commit": "a" * 40,
-        "fix_branch_name": "", "base_ref": "main", "fork_url": "",
-        "cwes": [], "finding_refs": [], "remediation_path": "",
+        "seam": "remediation",
+        "audit_report_path": "",
+        "repository": "https://github.com/o/r",
+        "logical_product": "p",
+        "language": "",
+        "fix_commit": "a" * 40,
+        "fix_branch_name": "",
+        "base_ref": "main",
+        "fork_url": "",
+        "cwes": [],
+        "finding_refs": [],
+        "remediation_path": "",
     }
     with pytest.raises(SystemExit):
         emit.build_report(results, rem)
@@ -288,10 +345,18 @@ def test_artifact_commit_does_not_override_the_run_commit(tmp_path):
     run_commit = "c" * 40
     _write_branch(results / "release-a", commit=run_commit)
     rem = {
-        "seam": "remediation", "audit_report_path": "", "repository": "https://github.com/o/r",
-        "logical_product": "p", "language": "", "fix_commit": "d" * 40,
-        "fix_branch_name": "", "base_ref": "main", "fork_url": "",
-        "cwes": [], "finding_refs": [], "remediation_path": "",
+        "seam": "remediation",
+        "audit_report_path": "",
+        "repository": "https://github.com/o/r",
+        "logical_product": "p",
+        "language": "",
+        "fix_commit": "d" * 40,
+        "fix_branch_name": "",
+        "base_ref": "main",
+        "fork_url": "",
+        "cwes": [],
+        "finding_refs": [],
+        "remediation_path": "",
     }
     report = emit.build_report(results, rem)
     assert report["source_fix"]["commit"] == run_commit
@@ -311,14 +376,14 @@ def test_publish_rewrites_patch_paths_to_the_published_files(tmp_path, monkeypat
     results = tmp_path / "results"
     d = results / "release-a"
     _write_branch(d)
-    report = {"target_branches": [
-        {"branch": "release-a", "status": "success",
-         "patch_path": str(d / "candidate.patch")},
-    ]}
-    rem = {"repository": "https://github.com/o/r", "logical_product": "p",
-           "fix_commit": "c" * 40}
+    report = {
+        "target_branches": [
+            {"branch": "release-a", "status": "success", "patch_path": str(d / "candidate.patch")},
+        ]
+    }
+    rem = {"repository": "https://github.com/o/r", "logical_product": "p", "fix_commit": "c" * 40}
     dest = emit.publish_results(tmp_path / "pub", results, report, rem)
-    assert dest.name == "backport-cccccccccccc"      # one namespace per fix
+    assert dest.name == "backport-cccccccccccc"  # one namespace per fix
     assert dest is not None
     published = json.loads((dest / "r-backport-report.json").read_text())
     path = published["target_branches"][0]["patch_path"]
@@ -329,8 +394,15 @@ def test_publish_rewrites_patch_paths_to_the_published_files(tmp_path, monkeypat
 def test_tracker_cannot_override_the_recorded_head(tmp_path):
     d = tmp_path / "release-a"
     recorded = "a" * 40
-    _write_branch(d, result={"issue_id": "backport-x", "head_sha": recorded,
-                             "target_branch": "release-a", "outcome": "success"})
+    _write_branch(
+        d,
+        result={
+            "issue_id": "backport-x",
+            "head_sha": recorded,
+            "target_branch": "release-a",
+            "outcome": "success",
+        },
+    )
     (d / "tracker.json").write_text(json.dumps({"backport_commit": "b" * 40}))
     row = emit.read_branch_result(d)
     assert row["backport_commit"] == recorded
@@ -338,17 +410,26 @@ def test_tracker_cannot_override_the_recorded_head(tmp_path):
 
 def test_empty_recorded_head_does_not_fall_back_to_the_mutable_branch(tmp_path):
     import subprocess
-    repo = tmp_path / "repo"; repo.mkdir()
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
     def g(*a):
-        subprocess.run(["git", "-C", str(repo), *a], check=True,
-                       capture_output=True, text=True)
+        subprocess.run(["git", "-C", str(repo), *a], check=True, capture_output=True, text=True)
+
     g("init", "-q", "-b", "main")
-    g("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q",
-      "--allow-empty", "-m", "fix")
+    g("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "fix")
     g("branch", "amalgamator/backport-x")
     d = tmp_path / "release-a"
-    _write_branch(d, result={"issue_id": "backport-x", "head_sha": "",
-                             "target_branch": "release-a", "outcome": "success"})
+    _write_branch(
+        d,
+        result={
+            "issue_id": "backport-x",
+            "head_sha": "",
+            "target_branch": "release-a",
+            "outcome": "success",
+        },
+    )
     row = emit.read_branch_result(d, repo)
     # result.json exists, so no tracker/branch substitution may fabricate one.
     assert "backport_commit" not in row
@@ -358,30 +439,43 @@ def test_verification_hint_prefers_the_commit_over_the_branch(tmp_path):
     results = tmp_path / "results"
     sha = "c" * 40
     _write_branch(results / "release-a", commit=sha)
-    (results / "release-a" / "result.json").write_text(json.dumps(
-        {"issue_id": "backport-x", "head_sha": sha,
-         "target_branch": "release-a", "outcome": "success"}))
+    (results / "release-a" / "result.json").write_text(
+        json.dumps(
+            {
+                "issue_id": "backport-x",
+                "head_sha": sha,
+                "target_branch": "release-a",
+                "outcome": "success",
+            }
+        )
+    )
     rem = {
-        "seam": "remediation", "audit_report_path": "", "repository": "https://github.com/o/r",
-        "logical_product": "p", "language": "", "fix_commit": sha,
-        "fix_branch_name": "", "base_ref": "main", "fork_url": "",
-        "cwes": [], "finding_refs": [], "remediation_path": "",
+        "seam": "remediation",
+        "audit_report_path": "",
+        "repository": "https://github.com/o/r",
+        "logical_product": "p",
+        "language": "",
+        "fix_commit": sha,
+        "fix_branch_name": "",
+        "base_ref": "main",
+        "fork_url": "",
+        "cwes": [],
+        "finding_refs": [],
+        "remediation_path": "",
     }
     report = emit.build_report(results, rem)
     hint = report["verification_hint"]
-    assert "command" not in hint          # inputs only; no command line
+    assert "command" not in hint  # inputs only; no command line
     branch = hint["branches"][0]
     assert branch["target_branch"] == "release-a"
     assert branch["backport_commit"] == sha
-
 
 
 def test_worklist_skips_succeeded_without_a_patch():
     wl = _load("emit_backport_worklist.py")
     report = {
         "metadata": {"repository": "https://github.com/o/r"},
-        "source_fix": {"finding_refs": ["t#f001"], "commit": "a" * 40,
-                       "branch": "main"},
+        "source_fix": {"finding_refs": ["t#f001"], "commit": "a" * 40, "branch": "main"},
         "target_branches": [
             {"branch": "release-1", "status": "succeeded", "has_patch": False},
             {"branch": "release-2", "status": "succeeded", "has_patch": True},
@@ -398,11 +492,18 @@ def test_worklist_selects_the_emitted_succeeded_status(tmp_path):
     results = tmp_path / "results"
     _write_branch(results / "release-a")
     rem = {
-        "seam": "remediation", "audit_report_path": "",
-        "repository": "https://github.com/o/r", "logical_product": "p",
-        "language": "", "fix_commit": "c" * 40, "fix_branch_name": "",
-        "base_ref": "main", "fork_url": "", "cwes": [],
-        "finding_refs": ["t#f001"], "remediation_path": "",
+        "seam": "remediation",
+        "audit_report_path": "",
+        "repository": "https://github.com/o/r",
+        "logical_product": "p",
+        "language": "",
+        "fix_commit": "c" * 40,
+        "fix_branch_name": "",
+        "base_ref": "main",
+        "fork_url": "",
+        "cwes": [],
+        "finding_refs": ["t#f001"],
+        "remediation_path": "",
     }
     report = emit.build_report(results, rem)
     assert report["target_branches"][0]["status"] == "succeeded"
@@ -423,11 +524,9 @@ def test_worklist_ignores_failed_and_skipped(tmp_path):
     wl = _load("emit_backport_worklist.py")
     report = {
         "metadata": {"repository": "https://github.com/o/r"},
-        "source_fix": {"finding_refs": ["t#f001"], "commit": "a" * 40,
-                       "branch": "main"},
+        "source_fix": {"finding_refs": ["t#f001"], "commit": "a" * 40, "branch": "main"},
         "target_branches": [
-            {"branch": "release-1", "status": "failed",
-             "stop_reason": "error", "has_patch": True},
+            {"branch": "release-1", "status": "failed", "stop_reason": "error", "has_patch": True},
             {"branch": "release-2", "status": "skipped"},
         ],
     }
@@ -438,10 +537,8 @@ def test_publish_failure_keeps_the_previous_publication(tmp_path, monkeypatch):
     results = tmp_path / "results"
     for b in ("release-a", "release-b"):
         _write_branch(results / b, target=f"origin/{b}")
-    rem = {"repository": "https://github.com/o/r", "logical_product": "p",
-           "fix_commit": "c" * 40}
-    dest = emit.publish_results(tmp_path / "pub", results,
-                                {"target_branches": []}, rem)
+    rem = {"repository": "https://github.com/o/r", "logical_product": "p", "fix_commit": "c" * 40}
+    dest = emit.publish_results(tmp_path / "pub", results, {"target_branches": []}, rem)
     assert dest is not None
     before = {p.name: p.read_text() for p in dest.iterdir()}
 
@@ -453,12 +550,20 @@ def test_publish_failure_keeps_the_previous_publication(tmp_path, monkeypatch):
         return False if calls["n"] == 2 else real(src, dst)
 
     monkeypatch.setattr(emit, "_copy_untrusted_file", flaky)
-    report = {"target_branches": [
-        {"branch": "release-a", "status": "success",
-         "patch_path": str(results / "release-a" / "candidate.patch")},
-        {"branch": "release-b", "status": "success",
-         "patch_path": str(results / "release-b" / "candidate.patch")},
-    ]}
+    report = {
+        "target_branches": [
+            {
+                "branch": "release-a",
+                "status": "success",
+                "patch_path": str(results / "release-a" / "candidate.patch"),
+            },
+            {
+                "branch": "release-b",
+                "status": "success",
+                "patch_path": str(results / "release-b" / "candidate.patch"),
+            },
+        ]
+    }
     assert emit.publish_results(tmp_path / "pub", results, report, rem) is None
     after = {p.name: p.read_text() for p in dest.iterdir()}
     assert after == before
@@ -467,12 +572,19 @@ def test_publish_failure_keeps_the_previous_publication(tmp_path, monkeypatch):
 def test_success_row_without_provenance_is_refused(tmp_path):
     results = tmp_path / "results"
     _write_branch(results / "release-a")
-    (results / "release-a" / "result.json").unlink()   # no collection record
+    (results / "release-a" / "result.json").unlink()  # no collection record
     rem = {
-        "seam": "remediation", "audit_report_path": "",
-        "repository": "https://github.com/o/r", "logical_product": "p",
-        "language": "", "fix_commit": "c" * 40, "fix_branch_name": "",
-        "base_ref": "main", "fork_url": "", "cwes": [], "finding_refs": [],
+        "seam": "remediation",
+        "audit_report_path": "",
+        "repository": "https://github.com/o/r",
+        "logical_product": "p",
+        "language": "",
+        "fix_commit": "c" * 40,
+        "fix_branch_name": "",
+        "base_ref": "main",
+        "fork_url": "",
+        "cwes": [],
+        "finding_refs": [],
         "remediation_path": "",
     }
     with pytest.raises(SystemExit):
@@ -484,16 +596,30 @@ def test_engine_failure_overrides_a_success_shaped_summary(tmp_path):
     # exited nonzero; the recorded verdict must decide the report.
     results = tmp_path / "results"
     _write_branch(results / "release-a")
-    (results / "release-a" / "result.json").write_text(json.dumps({
-        "issue_id": "backport-x", "target_branch": "release-a",
-        "outcome": "failed", "summary_outcome": "success",
-        "engine_exit_code": 1, "head_sha": "c" * 40,
-    }))
+    (results / "release-a" / "result.json").write_text(
+        json.dumps(
+            {
+                "issue_id": "backport-x",
+                "target_branch": "release-a",
+                "outcome": "failed",
+                "summary_outcome": "success",
+                "engine_exit_code": 1,
+                "head_sha": "c" * 40,
+            }
+        )
+    )
     rem = {
-        "seam": "remediation", "audit_report_path": "",
-        "repository": "https://github.com/o/r", "logical_product": "p",
-        "language": "", "fix_commit": "c" * 40, "fix_branch_name": "",
-        "base_ref": "main", "fork_url": "", "cwes": [], "finding_refs": [],
+        "seam": "remediation",
+        "audit_report_path": "",
+        "repository": "https://github.com/o/r",
+        "logical_product": "p",
+        "language": "",
+        "fix_commit": "c" * 40,
+        "fix_branch_name": "",
+        "base_ref": "main",
+        "fork_url": "",
+        "cwes": [],
+        "finding_refs": [],
         "remediation_path": "",
     }
     report = emit.build_report(results, rem)
@@ -504,12 +630,15 @@ def test_engine_failure_overrides_a_success_shaped_summary(tmp_path):
     assert report["summary"]["succeeded"] == 0
 
 
-@pytest.mark.parametrize("payload", [
-    "[]",                      # top-level array
-    "null",                    # top-level null
-    '{"targets": [null]}',     # target entry is not an object
-    '{"targets": "nope"}',     # targets is not an array
-])
+@pytest.mark.parametrize(
+    "payload",
+    [
+        "[]",  # top-level array
+        "null",  # top-level null
+        '{"targets": [null]}',  # target entry is not an object
+        '{"targets": "nope"}',  # targets is not an array
+    ],
+)
 def test_malformed_summary_is_a_branch_error(tmp_path, payload):
     results = tmp_path / "results"
     d = results / "release-a"
@@ -521,10 +650,17 @@ def test_malformed_summary_is_a_branch_error(tmp_path, payload):
     assert "summary.json" in row["error"]
 
     rem = {
-        "seam": "remediation", "audit_report_path": "",
-        "repository": "https://github.com/o/r", "logical_product": "p",
-        "language": "", "fix_commit": "c" * 40, "fix_branch_name": "",
-        "base_ref": "main", "fork_url": "", "cwes": [], "finding_refs": [],
+        "seam": "remediation",
+        "audit_report_path": "",
+        "repository": "https://github.com/o/r",
+        "logical_product": "p",
+        "language": "",
+        "fix_commit": "c" * 40,
+        "fix_branch_name": "",
+        "base_ref": "main",
+        "fork_url": "",
+        "cwes": [],
+        "finding_refs": [],
         "remediation_path": "",
     }
     report = emit.build_report(results, rem)
@@ -542,10 +678,17 @@ _SECRET = "ghp_doNotLeak0123456789"
 
 def _credential_rem(**overrides):
     rem = {
-        "seam": "remediation", "audit_report_path": "",
-        "repository": "https://github.com/o/r", "logical_product": "p",
-        "language": "", "fix_commit": "c" * 40, "fix_branch_name": "",
-        "base_ref": "main", "fork_url": "", "cwes": [], "finding_refs": [],
+        "seam": "remediation",
+        "audit_report_path": "",
+        "repository": "https://github.com/o/r",
+        "logical_product": "p",
+        "language": "",
+        "fix_commit": "c" * 40,
+        "fix_branch_name": "",
+        "base_ref": "main",
+        "fork_url": "",
+        "cwes": [],
+        "finding_refs": [],
         "remediation_path": "",
     }
     rem.update(overrides)
@@ -555,9 +698,7 @@ def _credential_rem(**overrides):
 def test_repository_userinfo_never_reaches_the_report(tmp_path):
     results = tmp_path / "results"
     _write_branch(results / "release-a")
-    rem = _credential_rem(
-        repository=f"https://x-access-token:{_SECRET}@github.com/o/r"
-    )
+    rem = _credential_rem(repository=f"https://x-access-token:{_SECRET}@github.com/o/r")
     report = emit.build_report(results, rem)
     assert report["metadata"]["repository"] == "https://github.com/o/r"
     assert report["title"] == "Backport Report: r"
@@ -578,8 +719,15 @@ def test_credential_bearing_origin_is_stripped_for_a_run_only_report(tmp_path):
     clone = tmp_path / "clone"
     subprocess.run(["git", "init", "-q", str(clone)], check=True)
     subprocess.run(
-        ["git", "-C", str(clone), "remote", "add", "origin",
-         f"https://x-access-token:{_SECRET}@github.com/o/r"],
+        [
+            "git",
+            "-C",
+            str(clone),
+            "remote",
+            "add",
+            "origin",
+            f"https://x-access-token:{_SECRET}@github.com/o/r",
+        ],
         check=True,
     )
     results = tmp_path / "results"
@@ -597,13 +745,19 @@ def test_credential_bearing_origin_is_stripped_for_a_run_only_report(tmp_path):
 
 def test_impact_artifact_userinfo_is_stripped(tmp_path):
     impact = tmp_path / "x-impact-analysis.json"
-    impact.write_text(json.dumps({
-        "metadata": {"cve": "CVE-2026-1234"},
-        "repos": [{
-            "repo": f"repo:https://x-access-token:{_SECRET}@github.com/o/r",
-            "products": ["p"],
-        }],
-    }))
+    impact.write_text(
+        json.dumps(
+            {
+                "metadata": {"cve": "CVE-2026-1234"},
+                "repos": [
+                    {
+                        "repo": f"repo:https://x-access-token:{_SECRET}@github.com/o/r",
+                        "products": ["p"],
+                    }
+                ],
+            }
+        )
+    )
     meta = emit.read_impact_metadata(impact, None)
     assert meta["repository"] == "https://github.com/o/r"
     assert _SECRET not in json.dumps(meta)
@@ -623,11 +777,20 @@ def test_cli_output_and_report_never_contain_repository_credentials(tmp_path):
     _write_branch(results / "release-a")
     out = tmp_path / "report.json"
     proc = subprocess.run(
-        [sys.executable, str(_SKILL / "emit_backport_report.py"),
-         "--results-dir", str(results), "--output", str(out),
-         "--repository", f"https://x-access-token:{_SECRET}@github.com/o/r",
-         "--no-schema", "--no-publish"],
-        capture_output=True, text=True,
+        [
+            sys.executable,
+            str(_SKILL / "emit_backport_report.py"),
+            "--results-dir",
+            str(results),
+            "--output",
+            str(out),
+            "--repository",
+            f"https://x-access-token:{_SECRET}@github.com/o/r",
+            "--no-schema",
+            "--no-publish",
+        ],
+        capture_output=True,
+        text=True,
     )
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert _SECRET not in proc.stdout
@@ -641,24 +804,34 @@ def test_cli_output_and_report_never_contain_repository_credentials(tmp_path):
 # ---------------------------------------------------------------------------
 
 _NUM_REM = {
-    "seam": "remediation", "audit_report_path": "",
-    "repository": "https://github.com/o/r", "logical_product": "p",
-    "language": "", "fix_commit": "c" * 40, "fix_branch_name": "",
-    "base_ref": "main", "fork_url": "", "cwes": [], "finding_refs": [],
+    "seam": "remediation",
+    "audit_report_path": "",
+    "repository": "https://github.com/o/r",
+    "logical_product": "p",
+    "language": "",
+    "fix_commit": "c" * 40,
+    "fix_branch_name": "",
+    "base_ref": "main",
+    "fork_url": "",
+    "cwes": [],
+    "finding_refs": [],
     "remediation_path": "",
 }
 
 
-@pytest.mark.parametrize("summary", [
-    {"targets": [{"outcome": "success", "cost_usd": "1.25"}]},
-    {"targets": [{"outcome": "success", "duration_s": None}]},
-    {"targets": [{"outcome": "success", "cost_usd": -1}]},
-    {"targets": [{"outcome": "success", "cost_usd": True}]},
-    {"status": "success", "cost_usd": "nope"},
-    {"status": "success", "duration_seconds": [1]},
-    {"status": "success", "tokens_used": "12"},
-    {"status": "success", "tokens_used": 1.5},
-])
+@pytest.mark.parametrize(
+    "summary",
+    [
+        {"targets": [{"outcome": "success", "cost_usd": "1.25"}]},
+        {"targets": [{"outcome": "success", "duration_s": None}]},
+        {"targets": [{"outcome": "success", "cost_usd": -1}]},
+        {"targets": [{"outcome": "success", "cost_usd": True}]},
+        {"status": "success", "cost_usd": "nope"},
+        {"status": "success", "duration_seconds": [1]},
+        {"status": "success", "tokens_used": "12"},
+        {"status": "success", "tokens_used": 1.5},
+    ],
+)
 def test_malformed_numeric_summary_field_is_a_branch_error(tmp_path, summary):
     # A string/null/NaN cost or duration used to reach sum() in build_report
     # and abort the whole report before validation.
@@ -677,12 +850,17 @@ def test_malformed_numeric_summary_field_is_a_branch_error(tmp_path, summary):
     assert emitted["stop_reason"] == "error"
 
 
-@pytest.mark.parametrize("summary,cost,duration", [
-    ({"targets": [{"outcome": "success", "cost_usd": 1.25, "duration_s": 120}]},
-     1.25, 120.0),
-    ({"status": "success", "cost_usd": 0.5, "duration_seconds": 30,
-      "tokens_used": 7}, 0.5, 30.0),
-])
+@pytest.mark.parametrize(
+    "summary,cost,duration",
+    [
+        ({"targets": [{"outcome": "success", "cost_usd": 1.25, "duration_s": 120}]}, 1.25, 120.0),
+        (
+            {"status": "success", "cost_usd": 0.5, "duration_seconds": 30, "tokens_used": 7},
+            0.5,
+            30.0,
+        ),
+    ],
+)
 def test_valid_numeric_summary_fields_are_kept(tmp_path, summary, cost, duration):
     results = tmp_path / "results"
     branch = results / "release-a"
@@ -700,8 +878,7 @@ def test_two_directories_for_one_branch_are_refused(tmp_path, caplog):
     # emitting both would double-count the branch in the summary.
     results = tmp_path / "results"
     _write_branch(results / "release-a", target="origin/release-4.16")
-    _write_branch(results / "release-4-16", target="origin/release-4.16",
-                  outcome="failed")
+    _write_branch(results / "release-4-16", target="origin/release-4.16", outcome="failed")
     with pytest.raises(SystemExit):
         emit.build_report(results, _NUM_REM)
     assert "both resolve to target branch 'release-4.16'" in caplog.text
@@ -713,9 +890,7 @@ def test_two_distinct_branches_are_kept(tmp_path):
     _write_branch(results / "release-a", target="origin/release-4.16")
     _write_branch(results / "release-b", target="origin/release-4.17")
     report = emit.build_report(results, _NUM_REM)
-    assert [r["branch"] for r in report["target_branches"]] == [
-        "release-4.16", "release-4.17"
-    ]
+    assert [r["branch"] for r in report["target_branches"]] == ["release-4.16", "release-4.17"]
     assert report["summary"]["total"] == 2
 
 
@@ -728,24 +903,37 @@ def test_run_summary_uses_the_canonical_verdict(tmp_path):
     wrs = _load("write_run_summary.py")
     results = tmp_path / "results"
     branch = results / "release-a"
-    _write_branch(branch)                      # success-shaped summary.json
-    (branch / "result.json").write_text(json.dumps({
-        "outcome": "failed", "summary_outcome": "success", "engine_exit_code": 1,
-    }))
+    _write_branch(branch)  # success-shaped summary.json
+    (branch / "result.json").write_text(
+        json.dumps(
+            {
+                "outcome": "failed",
+                "summary_outcome": "success",
+                "engine_exit_code": 1,
+            }
+        )
+    )
     summary = wrs.build(results, ["release-a"], "img:1")
     assert summary["branches"] == [{"branch": "release-a", "status": "failed"}]
-    assert (summary["total"], summary["passed"], summary["failed"],
-            summary["skipped"]) == (1, 0, 1, 0)
+    assert (summary["total"], summary["passed"], summary["failed"], summary["skipped"]) == (
+        1,
+        0,
+        1,
+        0,
+    )
     assert summary["container_image"] == "img:1"
 
 
-@pytest.mark.parametrize("payload", [
-    None,                # no record at all
-    "{not json",         # unreadable
-    "[]",                # not an object
-    '{"outcome": 5}',    # wrong type
-    '{"outcome": ""}',   # empty
-])
+@pytest.mark.parametrize(
+    "payload",
+    [
+        None,  # no record at all
+        "{not json",  # unreadable
+        "[]",  # not an object
+        '{"outcome": 5}',  # wrong type
+        '{"outcome": ""}',  # empty
+    ],
+)
 def test_run_summary_falls_back_to_unknown(tmp_path, payload):
     wrs = _load("write_run_summary.py")
     results = tmp_path / "results"
@@ -766,9 +954,16 @@ def test_run_summary_cli_keeps_a_hostile_branch_name_as_data(tmp_path):
     (results / name).mkdir(parents=True)
     (results / name / "result.json").write_text('{"outcome": "failed"}')
     proc = subprocess.run(
-        [sys.executable, str(_SKILL / "write_run_summary.py"),
-         "--output-dir", str(results), "--branch", name],
-        capture_output=True, text=True,
+        [
+            sys.executable,
+            str(_SKILL / "write_run_summary.py"),
+            "--output-dir",
+            str(results),
+            "--branch",
+            name,
+        ],
+        capture_output=True,
+        text=True,
     )
     assert proc.returncode == 0, proc.stderr
     assert proc.stdout.split() == ["1", "0", "1", "0"]
@@ -803,20 +998,25 @@ def test_publishing_two_fixes_preserves_the_shared_directory(tmp_path, monkeypat
     monkeypatch.setattr(emit, "workspace_root", lambda: tmp_path)
     results = tmp_path / "results"
     _write_branch(results / "release-a")
-    report = {"target_branches": [
-        {"branch": "release-a", "status": "succeeded",
-         "patch_path": str(results / "release-a" / "candidate.patch")},
-    ]}
+    report = {
+        "target_branches": [
+            {
+                "branch": "release-a",
+                "status": "succeeded",
+                "patch_path": str(results / "release-a" / "candidate.patch"),
+            },
+        ]
+    }
     rem = {"repository": "https://github.com/o/r", "logical_product": "p"}
 
     shared = tmp_path / "pub" / "remediations" / "p" / "r"
     shared.mkdir(parents=True)
     (shared / "r-remediation.json").write_text('{"other": "producer"}')
 
-    first = emit.publish_results(tmp_path / "pub", results, report,
-                                 {**rem, "fix_commit": "a" * 40})
-    second = emit.publish_results(tmp_path / "pub", results, report,
-                                  {**rem, "fix_commit": "b" * 40})
+    first = emit.publish_results(tmp_path / "pub", results, report, {**rem, "fix_commit": "a" * 40})
+    second = emit.publish_results(
+        tmp_path / "pub", results, report, {**rem, "fix_commit": "b" * 40}
+    )
     assert first is not None and second is not None and first != second
     assert (shared / "r-remediation.json").read_text() == '{"other": "producer"}'
     assert (first / "r-backport-report.json").is_file()
@@ -834,8 +1034,7 @@ def test_failed_publish_keeps_other_fixes_and_producers(tmp_path, monkeypatch):
     shared = tmp_path / "pub" / "remediations" / "p" / "r"
     shared.mkdir(parents=True)
     (shared / "r-remediation.json").write_text('{"other": "producer"}')
-    first = emit.publish_results(tmp_path / "pub", results, report,
-                                 {**rem, "fix_commit": "a" * 40})
+    first = emit.publish_results(tmp_path / "pub", results, report, {**rem, "fix_commit": "a" * 40})
     assert first is not None
     before = {p.name: p.read_text() for p in first.iterdir()}
 
@@ -847,8 +1046,10 @@ def test_failed_publish_keeps_other_fixes_and_producers(tmp_path, monkeypatch):
         return False if calls["n"] == 1 else real(src, dst)
 
     monkeypatch.setattr(emit, "_copy_untrusted_file", flaky)
-    assert emit.publish_results(tmp_path / "pub", results, report,
-                                {**rem, "fix_commit": "b" * 40}) is None
+    assert (
+        emit.publish_results(tmp_path / "pub", results, report, {**rem, "fix_commit": "b" * 40})
+        is None
+    )
     assert (shared / "r-remediation.json").read_text() == '{"other": "producer"}'
     assert {p.name: p.read_text() for p in first.iterdir()} == before
     assert not (shared / "backport-bbbbbbbbbbbb").exists()
@@ -859,12 +1060,15 @@ def test_failed_publish_keeps_other_fixes_and_producers(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("raw", [
-    "https://x-access-token:ghp_SECRET@github.com/o/r.git",
-    "ssh://deploy:ghp_SECRET@github.com/o/r.git",
-    "tok@github.com:o/r",
-    "https://token@github.com/o/r",
-])
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "https://x-access-token:ghp_SECRET@github.com/o/r.git",
+        "ssh://deploy:ghp_SECRET@github.com/o/r.git",
+        "tok@github.com:o/r",
+        "https://token@github.com/o/r",
+    ],
+)
 def test_normalize_repo_url_strips_credentials(raw):
     cleaned = mk.normalize_repo_url(raw)
     assert cleaned == "https://github.com/o/r"
@@ -885,24 +1089,65 @@ def test_make_remediation_writes_no_credential(tmp_path):
     (repo / "x").write_text("x\n")
     subprocess.run(["git", "-C", str(repo), "add", "x"], check=True)
     subprocess.run(
-        ["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t",
-         "commit", "-qm", "fix"],
+        [
+            "git",
+            "-C",
+            str(repo),
+            "-c",
+            "user.email=t@t",
+            "-c",
+            "user.name=t",
+            "commit",
+            "-qm",
+            "fix",
+        ],
         check=True,
     )
     triage = tmp_path / "triage.json"
-    triage.write_text(json.dumps({"findings": [{
-        "id": "f001", "title": "t", "file": "x", "line": 1,
-        "severity": "high", "cwes": ["CWE-79"],
-    }]}))
+    triage.write_text(
+        json.dumps(
+            {
+                "findings": [
+                    {
+                        "id": "f001",
+                        "title": "t",
+                        "file": "x",
+                        "line": 1,
+                        "severity": "high",
+                        "cwes": ["CWE-79"],
+                    }
+                ]
+            }
+        )
+    )
     out = tmp_path / "rem.json"
     secret = "https://x-access-token:ghp_SECRET@github.com/o/r"
     proc = subprocess.run(
-        [sys.executable, str(_SKILL / "make_remediation.py"),
-         "--triage", str(triage), "--finding", "f001", "--repo", str(repo),
-         "--fix-commit", "HEAD", "--repo-url", secret,
-         "--fork-url", f"{secret}.git", "--build-cmd", "true",
-         "--cwe", "CWE-79", "--out", str(out), "--no-validate"],
-        capture_output=True, text=True,
+        [
+            sys.executable,
+            str(_SKILL / "make_remediation.py"),
+            "--triage",
+            str(triage),
+            "--finding",
+            "f001",
+            "--repo",
+            str(repo),
+            "--fix-commit",
+            "HEAD",
+            "--repo-url",
+            secret,
+            "--fork-url",
+            f"{secret}.git",
+            "--build-cmd",
+            "true",
+            "--cwe",
+            "CWE-79",
+            "--out",
+            str(out),
+            "--no-validate",
+        ],
+        capture_output=True,
+        text=True,
     )
     assert proc.returncode == 0, proc.stdout + proc.stderr
     text = out.read_text()
@@ -925,8 +1170,9 @@ def test_run_summary_names_the_real_target_branch(tmp_path):
     results = tmp_path / "results"
     branch = results / "release-4-16"
     branch.mkdir(parents=True)
-    (branch / "result.json").write_text(json.dumps({
-        "outcome": "success", "target_branch": "release-4.16"}))
+    (branch / "result.json").write_text(
+        json.dumps({"outcome": "success", "target_branch": "release-4.16"})
+    )
     summary = wrs.build(results, ["release-4-16"], None)
     assert summary["branches"] == [{"branch": "release-4.16", "status": "success"}]
 
@@ -934,14 +1180,17 @@ def test_run_summary_names_the_real_target_branch(tmp_path):
     assert missing["branches"] == [{"branch": "not-a-run", "status": "unknown"}]
 
 
-@pytest.mark.parametrize("summary", [
-    {"targets": [{"outcome": "success", "error": {"message": "x"}}]},
-    {"targets": [{"outcome": "success", "error": ["x"]}]},
-    {"status": "success", "error": {"message": "x"}},
-    {"status": "success", "phase_reached": ["Phase 4"]},
-    {"targets": [{"outcome": {"message": "x"}}]},
-    {"status": {"weird": True}},
-])
+@pytest.mark.parametrize(
+    "summary",
+    [
+        {"targets": [{"outcome": "success", "error": {"message": "x"}}]},
+        {"targets": [{"outcome": "success", "error": ["x"]}]},
+        {"status": "success", "error": {"message": "x"}},
+        {"status": "success", "phase_reached": ["Phase 4"]},
+        {"targets": [{"outcome": {"message": "x"}}]},
+        {"status": {"weird": True}},
+    ],
+)
 def test_non_string_pipeline_field_is_a_branch_error(tmp_path, summary):
     # A non-string error/outcome would fail the schema for the WHOLE report;
     # classify it as the branch that wrote it.
@@ -962,29 +1211,46 @@ def test_absent_error_field_stays_absent(tmp_path):
     results = tmp_path / "results"
     branch = results / "release-a"
     _write_branch(branch)
-    (branch / "summary.json").write_text(json.dumps({
-        "targets": [{"outcome": "success", "error": None, "phase_reached": None}],
-    }))
+    (branch / "summary.json").write_text(
+        json.dumps(
+            {
+                "targets": [{"outcome": "success", "error": None, "phase_reached": None}],
+            }
+        )
+    )
     row = emit.read_branch_result(branch, emit._source_repo(branch))
     assert row["status"] != "error"
 
 
 def test_banner_names_the_run_commit_not_the_artifact(tmp_path):
     results = tmp_path / "results"
-    _write_branch(results / "release-a")          # config/result carry c*40
+    _write_branch(results / "release-a")  # config/result carry c*40
     remediation = tmp_path / "rem.json"
-    remediation.write_text(json.dumps({
-        "metadata": {"repository": "https://github.com/o/r",
-                     "logical_product": "p"},
-        "fork": {"fix_commit": "a" * 40},          # stale artifact value
-        "source_findings": [],
-    }))
+    remediation.write_text(
+        json.dumps(
+            {
+                "metadata": {"repository": "https://github.com/o/r", "logical_product": "p"},
+                "fork": {"fix_commit": "a" * 40},  # stale artifact value
+                "source_findings": [],
+            }
+        )
+    )
     out = tmp_path / "report.json"
     proc = subprocess.run(
-        [sys.executable, str(_SKILL / "emit_backport_report.py"),
-         "--results-dir", str(results), "--remediation", str(remediation),
-         "--output", str(out), "--no-schema", "--no-publish"],
-        capture_output=True, text=True,
+        [
+            sys.executable,
+            str(_SKILL / "emit_backport_report.py"),
+            "--results-dir",
+            str(results),
+            "--remediation",
+            str(remediation),
+            "--output",
+            str(out),
+            "--no-schema",
+            "--no-publish",
+        ],
+        capture_output=True,
+        text=True,
     )
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert f"Fix commit: {'c' * 40}" in proc.stdout
