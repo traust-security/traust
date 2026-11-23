@@ -557,6 +557,6 @@ steps here are token-free.
 ### Schema ownership
 
 `backport-report.schema.json` is a first-class artifact contract in
-`traust-contracts` (`schemas/v1/`), resolved from the installed package or a
+`traust-contracts` (`artifacts_schema/v1/`), resolved from the installed package or a
 sibling checkout. This repository does **not** vendor it.
 
