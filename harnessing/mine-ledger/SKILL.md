@@ -1,6 +1,6 @@
 ---
 name: mine-ledger
-description: Mine confirmed findings, author and calibrate private rule candidates, and publish mined or adopter packs through sweep intake-rules after Opengrep validate and strict test. Command grants exclude benchmark writes, adjudication and adapter execution. Admission is not activation or exploitability proof.
+description: Mine confirmed findings, author and calibrate private rule candidates, and publish mined or adopter packs through sweep intake-rules after Opengrep validate and strict test. Reviewed accepted packs support facts and registered scanner/audit coverage. Command grants exclude benchmark writes, adjudication and adapter execution. Admission is not activation or exploitability proof.
 metadata:
   harness.tier: "secondary"
 allowed-tools:
@@ -150,8 +150,9 @@ python3 -m traust.cli sweep verify-draft <rule-drafts>/<draft> \
 python3 -m traust.cli sweep intake-rules <private-complete-pack> \
     --into <new-accepted-pack-directory>
 # 4. after admission, semantic review and recorded-scan calibration, explicitly
-#    activate the immutable accepted directory using the intended facts-scan
-#    location or select explicit IDs through overrides.rule_pack_allowlist.
+#    activate the immutable accepted directory using locations.opengrep_adopter_rules
+#    for facts AND registered scanner/audit coverage, or select explicit IDs
+#    through overrides.rule_pack_allowlist.
 #    Never overwrite an installed pack; admit a new version to a new path.
 ```
 
@@ -172,6 +173,10 @@ Runtime supplements also retain their full-pack checks and fail closed when inva
 
 ## Adopter rule intake
 
+Use the [custom-rule adopter guide](../../docs/custom-opengrep-rules.md) for
+copy/paste rule and fixture files, setup, mandatory admission and activation.
+This supplements portfolio/ledger mining; it does not replace it.
+
 Keep submitted local files/directories or pinned HTTPS Git sources and fixtures
 private until the deterministic publisher accepts them:
 
@@ -190,14 +195,16 @@ can replace this pre-write gate.
 
 Semantic review and recorded-scan calibration remain required before explicit
 activation. Set `locations.opengrep_adopter_rules` to the accepted directory for
-default Opengrep facts scans only, not registered artifact scanners. Never point
-it at private drafts. Outside this skill, a caller with its own execution permission
+both default Opengrep facts scans and registered Opengrep scanner/audit artifacts.
+Never point it at private drafts. Outside this skill, a caller with its own execution permission
 can request an optional additive facts scan with
 `python3 -m traust.cli adapters opengrep <checkout> --add-rules <source>`.
 This skill grants no adapter execution permission. Each scan checks actual bytes
-again. Refused optional additions do not run; the report is degraded
-and preserves baseline and supplement facts. Admission is not activation and a
-match is not a finding verdict.
+again. Refused optional additions do not run; the facts report is degraded
+and preserves baseline and supplement facts. Registered artifacts instead fail
+with a typed scanner error on configured adopter-rule refusal or incomplete
+required coverage, matching enabled supplements' fail-closed policy; they never
+silently omit that coverage. Admission is not activation and a match is not a finding verdict.
 Language-inapplicable rules appear in `additive_rules.skipped`, not `refused`, and
 do not alone degrade a scan. Target parse/timeout warnings preserve healthy
 matches and remain visible in the report's `errors`.

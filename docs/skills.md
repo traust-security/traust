@@ -476,7 +476,7 @@ Use when the user asks how many lines of code have been scanned/audited, wants a
 
 ## mine-ledger
 
-Mine confirmed findings, author and calibrate private rule candidates, and publish mined or adopter packs through sweep intake-rules after Opengrep validate and strict test. Command grants exclude benchmark writes, adjudication and adapter execution. Admission is not activation or exploitability proof.
+Mine confirmed findings, author and calibrate private rule candidates, and publish mined or adopter packs through sweep intake-rules after Opengrep validate and strict test. Reviewed accepted packs support facts and registered scanner/audit coverage. Command grants exclude benchmark writes, adjudication and adapter execution. Admission is not activation or exploitability proof.
 
 - **Stage:** —
 - **Tier:** `secondary`

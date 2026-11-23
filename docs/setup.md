@@ -38,6 +38,16 @@ warning the run carries on past. Flags for CI: `--yes --config-home DIR
 --toolchain PROFILE` (`--no-toolchain`, `--no-profile-write`, `--force` also
 available). The full contract: [config/README.md](../config/README.md).
 
+### Custom Opengrep rules
+
+Follow [Custom Opengrep rules](custom-opengrep-rules.md) for a copy/paste rule and
+fixture, automatic native validation/tests through the mandatory
+`sweep intake-rules` publisher, and `locations.opengrep_adopter_rules` configuration.
+Reviewed accepted packs add to baseline/supplement coverage in both default facts
+scans and registered Opengrep scanner/audit artifacts. Facts may explicitly
+degrade; registered artifacts fail typed rather than hide refused or incomplete
+configured coverage. Language-inapplicable rules are normal skips.
+
 ### Official product documentation
 
 Register a product in the record store first (`traust products add`; `traust products list`
