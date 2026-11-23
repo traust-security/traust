@@ -12,6 +12,7 @@ from traust_core.v1.context import Context
 from traust_core.v1.context.tool_reports import opengrep_quality_report, opengrep_report
 from traust_core.v1.context.tools import load_rule_allowlist
 from traust_core.v1.errors import (
+    ConfigError,
     DeploymentConfigMissing,
     NotFoundError,
     TraustError,
@@ -493,9 +494,17 @@ def add_intake_rules_args(ap: argparse.ArgumentParser) -> None:
 
 
 def call_intake_rules(args: argparse.Namespace) -> int:
-    from traust_core.v1.context.tool_reports import intake_opengrep_rules
-
     def call() -> int:
+        from traust_core.v1.context import tool_reports
+
+        try:
+            intake_opengrep_rules = tool_reports.intake_opengrep_rules
+        except AttributeError as e:
+            raise ConfigError(
+                "installed traust-core lacks intake_opengrep_rules; "
+                "install a traust-core version with rule intake support"
+            ) from e
+
         report = intake_opengrep_rules(
             load(args.config_home),
             args.sources,

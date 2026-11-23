@@ -176,13 +176,35 @@ def test_intake_success_is_reported_only_for_admitted_publication(
     assert json.loads(capsys.readouterr().out) == receipts
 
 
+@pytest.mark.parametrize("error_type", [ImportError, AttributeError])
+def test_intake_does_not_translate_unrelated_errors(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, error_type: type[Exception]
+) -> None:
+    parser = argparse.ArgumentParser()
+    sweep.add_intake_rules_args(parser)
+    destination = tmp_path / "accepted"
+    args = parser.parse_args(["adopter", "--into", str(destination)])
+    args.config_home = None
+    monkeypatch.setattr(sweep, "load", lambda _: object())
+    error = error_type("unrelated intake implementation failure")
+
+    def report(*_args, **_kwargs):
+        raise error
+
+    monkeypatch.setattr(tool_reports, "intake_opengrep_rules", report)
+    with pytest.raises(error_type) as raised:
+        sweep.call_intake_rules(args)
+    assert raised.value is error
+    assert not destination.exists()
+
+
 @pytest.mark.parametrize(
     ("arguments", "exit_code"),
     [
         (["--help"], 0),
         (["adapters", "opengrep", "--help"], 0),
         (["sweep", "intake-rules", "--help"], 0),
-        (["sweep", "intake-rules", "draft", "--into", "accepted"], 1),
+        (["sweep", "intake-rules", "draft", "--into", "accepted"], 2),
     ],
 )
 def test_missing_intake_api_does_not_break_unrelated_cli_startup(
@@ -215,7 +237,11 @@ def test_missing_intake_api_does_not_break_unrelated_cli_startup(
     )
     assert result.returncode == exit_code, result.stderr
     if exit_code:
-        assert "ImportError" in result.stderr
+        assert result.stderr.startswith("ERROR: ")
+        assert "installed traust-core lacks" in result.stderr
+        assert "Traceback" not in result.stderr
+        assert "ImportError" not in result.stderr
+        assert not result.stdout
         assert "intake_opengrep_rules" in result.stderr
         assert not (tmp_path / "accepted").exists()
     else:
