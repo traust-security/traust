@@ -1320,3 +1320,89 @@ def test_patch_block_reads_a_merge_commit_by_its_mainline_effect(tmp_path):
     paths = {entry["path"] for entry in block["files_changed"]}
     assert "fix.txt" in paths
     assert block["diffstat"]["additions"] >= 1
+
+
+def test_explicit_audit_supplies_cwes_without_a_source_id(tmp_path):
+    # --audit was loaded but only consulted when the triage finding's `source`
+    # carried a #<id> suffix, so an explicit audit could not supply CWEs.
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    (repo / "x").write_text("x\n")
+    subprocess.run(["git", "-C", str(repo), "add", "x"], check=True)
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(repo),
+            "-c",
+            "user.email=t@t",
+            "-c",
+            "user.name=t",
+            "commit",
+            "-qm",
+            "fix",
+        ],
+        check=True,
+    )
+    triage = tmp_path / "triage.json"
+    triage.write_text(
+        json.dumps(
+            {
+                "findings": [
+                    {
+                        "id": "f001",
+                        "title": "t",
+                        "file": "x",
+                        "line": 1,
+                        "severity": "high",
+                    }
+                ]
+            }
+        )
+    )
+    audit = tmp_path / "audit.json"
+    audit.write_text(
+        json.dumps(
+            {
+                "findings": [
+                    {
+                        "id": "f001",
+                        "cwes": ["CWE-79"],
+                        "locations": [{"path": "src/auth.go", "lines": "40-52"}],
+                    }
+                ]
+            }
+        )
+    )
+    out = tmp_path / "rem.json"
+    proc = subprocess.run(
+        [
+            sys.executable,
+            str(_SKILL / "make_remediation.py"),
+            "--triage",
+            str(triage),
+            "--finding",
+            "f001",
+            "--repo",
+            str(repo),
+            "--fix-commit",
+            "HEAD",
+            "--audit",
+            str(audit),
+            "--repo-url",
+            "https://github.com/o/r",
+            "--build-cmd",
+            "true",
+            "--out",
+            str(out),
+            "--no-validate",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    report = json.loads(out.read_text())
+    finding = report["source_findings"][0]
+    assert finding["cwes"] == ["CWE-79"]
+    assert finding["locations"][0]["path"] == "src/auth.go"

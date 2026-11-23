@@ -100,7 +100,17 @@ def resolve_audit(
     if path is None or not path.is_file():
         return None, audit_id
     with Path(path).open() as f:
-        return json.load(f), audit_id
+        audit = json.load(f)
+    if not audit_id:
+        # An explicit --audit names the report but not the entry: join on the
+        # finding id (the same id the audit uses), or take the sole finding of
+        # a per-finding audit. Without this the file was loaded and ignored.
+        findings = audit.get("findings") if isinstance(audit, dict) else None
+        if isinstance(findings, list) and len(findings) == 1:
+            audit_id = str(findings[0].get("id") or triage_finding.get("id", "")).strip()
+        else:
+            audit_id = str(triage_finding.get("id", "")).strip()
+    return audit, audit_id
 
 
 def patch_block(repo: Path, sha: str, strategy: str, rationale: str) -> dict:
