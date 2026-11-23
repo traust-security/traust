@@ -8,6 +8,7 @@ Two holes this pins shut:
   planted in a target checkout. Agents only call `prepare_backport_fork.sh`,
   which invokes ensure_fork itself, so that grant must not exist.
 """
+
 from __future__ import annotations
 
 import pathlib
@@ -47,7 +48,7 @@ def test_ensure_fork_is_not_granted():
 
 def test_script_grants_are_exact_paths():
     for grant in _grants():
-        inner = grant[len("Bash("):-1]
+        inner = grant[len("Bash(") : -1]
         if not inner.startswith(("bash ", "python3 ")):
             continue
         if inner.startswith("python3 -m traust.cli reporting validate"):

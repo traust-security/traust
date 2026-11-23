@@ -18,6 +18,7 @@ Usage:
         --remediation <path-to-remediation.json> \
         --output <repo>-backport-report.json
 """
+
 from __future__ import annotations
 
 import argparse
@@ -41,8 +42,11 @@ import yaml
 # Sibling module in this same directory. Direct execution puts it on sys.path;
 # importlib-based loaders (tests) do not, hence the explicit insert.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _harness_paths import (  # noqa: E402
-    analysis_results_root, contracts_schema_path, harness_version, workspace_root,
+from _harness_paths import (
+    analysis_results_root,
+    contracts_schema_path,
+    harness_version,
+    workspace_root,
 )
 
 log = logging.getLogger(__name__)
@@ -55,7 +59,7 @@ def get_harness_version() -> str:
 
 def read_remediation_metadata(path: Path) -> dict:
     """Extract metadata from a remediation JSON."""
-    with open(path) as f:
+    with Path(path).open() as f:
         data = json.load(f)
 
     metadata = data.get("metadata", {})
@@ -132,9 +136,18 @@ def _branch_head(repo_path: Path, branch: str) -> str:
     """Head SHA of a local branch, or "" — read-only, no fetch."""
     try:
         r = subprocess.run(
-            ["git", "-C", str(repo_path), "rev-parse", "--verify", "--quiet",
-             f"refs/heads/{branch}"],
-            capture_output=True, text=True, timeout=15,
+            [
+                "git",
+                "-C",
+                str(repo_path),
+                "rev-parse",
+                "--verify",
+                "--quiet",
+                f"refs/heads/{branch}",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=15,
         )
     except (OSError, subprocess.SubprocessError):
         return ""
@@ -148,7 +161,7 @@ def _source_repo(branch_dir: Path) -> Path | None:
     if not cfg.is_file():
         return None
     try:
-        with open(cfg) as f:
+        with Path(cfg).open() as f:
             data = yaml.safe_load(f) or {}
         source = (data.get("repository") or {}).get("source_path") or ""
     except (OSError, yaml.YAMLError, AttributeError):
@@ -164,7 +177,7 @@ def _config_target(branch_dir: Path) -> str:
     if not cfg.is_file():
         return ""
     try:
-        with open(cfg) as f:
+        with Path(cfg).open() as f:
             data = yaml.safe_load(f) or {}
         target = (data.get("branches") or {}).get("target") or ""
     except (OSError, yaml.YAMLError, AttributeError):
@@ -204,15 +217,13 @@ def read_branch_result(branch_dir: Path, repo_path: Path | None = None) -> dict:
     summary_failed = False
     if summary_path.exists():
         try:
-            with open(summary_path) as f:
+            with Path(summary_path).open() as f:
                 summary = json.load(f)
             if not isinstance(summary, dict):
-                raise ValueError(
-                    f"expected a JSON object, got {type(summary).__name__}"
-                )
+                raise ValueError(f"expected a JSON object, got {type(summary).__name__}")
 
             # Handle both Amalgamator summary formats:
-            # Format A (multi-target): {total_targets, succeeded, targets: [{outcome, cost_usd, ...}]}
+            # Format A (multi-target): {total_targets, succeeded, targets: [...]}
             # Format B (flat): {status, cost_usd, duration_seconds, ...}
             targets = summary.get("targets")
             if isinstance(targets, list):
@@ -253,18 +264,20 @@ def read_branch_result(branch_dir: Path, repo_path: Path | None = None) -> dict:
                 for key in ("build_passed", "test_passed"):
                     if isinstance(summary.get(key), bool):
                         result[key] = summary[key]
-                result["cost_usd"] = _summary_number(
-                    summary.get("cost_usd", 0.0), "cost_usd"
-                )
+                result["cost_usd"] = _summary_number(summary.get("cost_usd", 0.0), "cost_usd")
                 result["duration_seconds"] = _summary_number(
                     summary.get("duration_seconds", 0), "duration_seconds"
                 )
-                result["tokens_used"] = _summary_int(
-                    summary.get("tokens_used", 0), "tokens_used"
-                )
+                result["tokens_used"] = _summary_int(summary.get("tokens_used", 0), "tokens_used")
                 result["error"] = _summary_text(summary.get("error"), "error")
-        except (OSError, json.JSONDecodeError, ValueError, KeyError,
-                AttributeError, TypeError) as e:
+        except (
+            OSError,
+            json.JSONDecodeError,
+            ValueError,
+            KeyError,
+            AttributeError,
+            TypeError,
+        ) as e:
             # Pipeline-written JSON can be structurally wrong but still parse.
             # Make it this branch's error; never abort the whole report.
             result["status"] = "error"
@@ -289,7 +302,7 @@ def read_branch_result(branch_dir: Path, repo_path: Path | None = None) -> dict:
     recorded_exit = None
     if has_record:
         try:
-            with open(result_path) as f:
+            with Path(result_path).open() as f:
                 rd = json.load(f)
             if isinstance(rd, dict):
                 sha = str(rd.get("head_sha") or "")
@@ -330,16 +343,19 @@ def read_branch_result(branch_dir: Path, repo_path: Path | None = None) -> dict:
         tracker = branch_dir / "tracker.json"
         if tracker.is_file():
             try:
-                with open(tracker) as f:
+                with Path(tracker).open() as f:
                     td = json.load(f)
                 if isinstance(td, dict):
-                    result["backport_commit"] = (
-                        td.get("backport_commit", "") or td.get("final_commit", "")
+                    result["backport_commit"] = td.get("backport_commit", "") or td.get(
+                        "final_commit", ""
                     )
             except (OSError, json.JSONDecodeError):
                 pass
-        if (not result["backport_commit"] and repo_path is not None
-                and result.get("backport_branch")):
+        if (
+            not result["backport_commit"]
+            and repo_path is not None
+            and result.get("backport_branch")
+        ):
             result["backport_commit"] = _branch_head(repo_path, result["backport_branch"])
     # If result.json exists but carries no SHA, report no commit: substituting
     # the current (mutable) branch would fabricate provenance.
@@ -381,7 +397,7 @@ def read_impact_metadata(path: Path, impact_repo: str | None) -> dict:
     *-impact-analysis.json (Seam A). The advisory carries no fix commit or
     source branch — both are resolved from the run's configs.
     """
-    with open(path) as f:
+    with Path(path).open() as f:
         data = json.load(f)
     meta = data.get("metadata", {})
     cve = meta.get("cve", "")
@@ -402,7 +418,8 @@ def read_impact_metadata(path: Path, impact_repo: str | None) -> dict:
     else:
         log.error(
             "%d repos[] entries in %s — pass --impact-repo <id> to pick this run's repo",
-            len(entries), path,
+            len(entries),
+            path,
         )
         sys.exit(1)
 
@@ -461,9 +478,7 @@ def _to_https(url: str) -> str:
     return u
 
 
-def read_run_metadata(
-    results_dir: Path, repository: str = "", logical_product: str = ""
-) -> dict:
+def read_run_metadata(results_dir: Path, repository: str = "", logical_product: str = "") -> dict:
     """Seam C: no input artifact at all — read the run's own records.
 
     A patch-file run (and any manual run) has no *-remediation.json or
@@ -481,7 +496,9 @@ def read_run_metadata(
                 continue
             r = subprocess.run(
                 ["git", "-C", str(src), "remote", "get-url", "origin"],
-                capture_output=True, text=True, timeout=15,
+                capture_output=True,
+                text=True,
+                timeout=15,
             )
             if r.returncode == 0 and r.stdout.strip():
                 repo = _to_https(r.stdout.strip())
@@ -536,7 +553,7 @@ def resolve_from_configs(results_dir: Path) -> dict:
                 sys.exit(1)
             continue
         try:
-            with open(cfg_candidate) as f:
+            with Path(cfg_candidate).open() as f:
                 cfg = yaml.safe_load(f) or {}
         except (OSError, yaml.YAMLError):
             log.error("Unreadable config copy %s — refusing to emit.", cfg_candidate)
@@ -623,7 +640,9 @@ def build_report(
                     "Results directories %r and %r both resolve to target "
                     "branch %r — refusing to emit two rows for one branch; "
                     "use a fresh --output-dir per backport run",
-                    previous, entry.name, row["branch"],
+                    previous,
+                    entry.name,
+                    row["branch"],
                 )
                 sys.exit(1)
             branch_sources[row["branch"]] = entry.name
@@ -637,7 +656,8 @@ def build_report(
             log.error(
                 "Branch %s is reported successful but has no recorded commit "
                 "(result.json, tracker, or preserved branch) — refusing to "
-                "emit fabricated provenance", r["branch"],
+                "emit fabricated provenance",
+                r["branch"],
             )
             sys.exit(1)
 
@@ -649,8 +669,7 @@ def build_report(
         cstatus, reason = _contract_status(r["status"])
         error = r.get("error", "")
         if cstatus == "succeeded" and (
-            not r.get("has_patch")
-            or not (r.get("backport_commit") or r.get("backport_branch"))
+            not r.get("has_patch") or not (r.get("backport_commit") or r.get("backport_branch"))
         ):
             cstatus, reason = "failed", "error"
             error = error or "no candidate patch or preserved commit"
@@ -659,8 +678,14 @@ def build_report(
             row["stop_reason"] = reason
         if r.get("phase_reached"):
             row["phase_reached"] = r["phase_reached"]
-        for key in ("cost_usd", "duration_seconds", "tokens_used",
-                    "has_patch", "patch_sha256", "patch_files_changed"):
+        for key in (
+            "cost_usd",
+            "duration_seconds",
+            "tokens_used",
+            "has_patch",
+            "patch_sha256",
+            "patch_files_changed",
+        ):
             value = r.get(key)
             if value not in (None, ""):
                 row[key] = value
@@ -677,8 +702,10 @@ def build_report(
         contract_rows.append(row)
 
     if not contract_rows:
-        log.error("Results dir has no branch results — refusing to emit an "
-                  "empty report (the contract requires at least one branch)")
+        log.error(
+            "Results dir has no branch results — refusing to emit an "
+            "empty report (the contract requires at least one branch)"
+        )
         sys.exit(1)
 
     succeeded = sum(1 for r in contract_rows if r["status"] == "succeeded")
@@ -701,7 +728,8 @@ def build_report(
             "Input artifact names fix commit %s but the run used %s — using the "
             "run's commit (the artifact can be stale; a patch input creates a "
             "new commit)",
-            fix_commit[:12], cfg_meta["fix_commit"][:12],
+            fix_commit[:12],
+            cfg_meta["fix_commit"][:12],
         )
         fix_commit = cfg_meta["fix_commit"]
     fix_commit = fix_commit or cfg_meta["fix_commit"]
@@ -718,22 +746,28 @@ def build_report(
 
     source_branch = (
         cfg_meta["source_branch"]
-        or rem_meta["base_ref"] or rem_meta["fix_branch_name"]
+        or rem_meta["base_ref"]
+        or rem_meta["fix_branch_name"]
         or "unknown"
     )
     artifact_branch = rem_meta["base_ref"] or rem_meta["fix_branch_name"]
-    if artifact_branch and cfg_meta["source_branch"] and artifact_branch != cfg_meta["source_branch"]:
+    if (
+        artifact_branch
+        and cfg_meta["source_branch"]
+        and artifact_branch != cfg_meta["source_branch"]
+    ):
         log.warning(
-            "Input artifact says source branch %r but the run used %r — using the "
-            "run's value",
-            artifact_branch, cfg_meta["source_branch"],
+            "Input artifact says source branch %r but the run used %r — using the run's value",
+            artifact_branch,
+            cfg_meta["source_branch"],
         )
 
     repository = _strip_url_credentials(rem_meta.get("repository", ""))
     if not re.match(r"^(https://|ssh://)", repository):
         log.error(
             "metadata.repository must be an https:// or ssh:// clone URL, got %r "
-            "(pass --repository for a run-only report)", repository,
+            "(pass --repository for a run-only report)",
+            repository,
         )
         sys.exit(1)
 
@@ -760,8 +794,7 @@ def build_report(
     refs = [r for r in (rem_meta.get("finding_refs") or []) if r]
     if refs:
         source_fix["finding_refs"] = refs
-    cwes = [c for c in (rem_meta.get("cwes") or [])
-            if re.fullmatch(r"CWE-\d{1,5}", str(c))]
+    cwes = [c for c in (rem_meta.get("cwes") or []) if re.fullmatch(r"CWE-\d{1,5}", str(c))]
     if cwes:
         source_fix["cwes"] = cwes
 
@@ -789,10 +822,16 @@ def build_report(
             "branches": [
                 {
                     "target_branch": r["branch"],
-                    **({"backport_commit": r["backport_commit"]}
-                       if r.get("backport_commit") else {}),
-                    **({"backport_branch": r["backport_branch"]}
-                       if r.get("backport_branch") else {}),
+                    **(
+                        {"backport_commit": r["backport_commit"]}
+                        if r.get("backport_commit")
+                        else {}
+                    ),
+                    **(
+                        {"backport_branch": r["backport_branch"]}
+                        if r.get("backport_branch")
+                        else {}
+                    ),
                 }
                 for r in successful
             ],
@@ -819,7 +858,7 @@ def validate_against_schema(report: dict, schema_path: Path) -> bool:
         )
         return False
 
-    with open(schema_path) as f:
+    with Path(schema_path).open() as f:
         schema = json.load(f)
 
     try:
@@ -849,12 +888,13 @@ def _copy_untrusted_file(src: Path, dst: Path) -> bool:
         st = os.fstat(fd)
         if not stat.S_ISREG(st.st_mode) or st.st_nlink != 1:
             log.error(
-                "Refusing publish: %s is not a regular single-link file "
-                "(nlink=%d)", src, st.st_nlink,
+                "Refusing publish: %s is not a regular single-link file (nlink=%d)",
+                src,
+                st.st_nlink,
             )
             return False
         fsrc = os.fdopen(fd, "rb")
-        with open(dst, "wb") as fdst:
+        with Path(dst).open("wb") as fdst:
             shutil.copyfileobj(fsrc, fdst)
         return True
     finally:
@@ -884,7 +924,8 @@ def publish_results(
     """
     repo_short = (
         rem_meta["repository"].rstrip("/").rsplit("/", 1)[-1].removesuffix(".git")
-        if rem_meta["repository"] else ""
+        if rem_meta["repository"]
+        else ""
     )
     logical = rem_meta["logical_product"] or repo_short
     # JSON-derived path components: campaign charset only, no dot-runs.
@@ -897,8 +938,9 @@ def publish_results(
     # *-remediation.json here and other fixes for the same repo publish here
     # too. Each fix owns one namespace, and only that namespace is replaced,
     # so unrelated artifacts survive both a success and a failure.
-    fix_commit = str((report.get("source_fix") or {}).get("commit")
-                     or rem_meta.get("fix_commit") or "")
+    fix_commit = str(
+        (report.get("source_fix") or {}).get("commit") or rem_meta.get("fix_commit") or ""
+    )
     fix_short = fix_commit[:12]
     if not _PATH_TOKEN_RE.match(fix_short):
         log.error(
@@ -966,7 +1008,7 @@ def publish_results(
                 else:
                     row.pop("patch_path", None)
 
-        with open(staging / f"{repo_short}-backport-report.json", "w") as f:
+        with Path(staging / f"{repo_short}-backport-report.json").open("w") as f:
             json.dump(published_report, f, indent=2)
         published = 1
         for src, dst in to_copy:
@@ -997,65 +1039,82 @@ def publish_results(
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Emit a backport report from Amalgamator results."
+    parser = argparse.ArgumentParser(description="Emit a backport report from Amalgamator results.")
+    parser.add_argument(
+        "--results-dir",
+        "-d",
+        required=True,
+        type=Path,
+        help="Directory containing per-branch result subdirectories",
     )
     parser.add_argument(
-        "--results-dir", "-d", required=True, type=Path,
-        help="Directory containing per-branch result subdirectories"
+        "--remediation",
+        "-r",
+        type=Path,
+        default=None,
+        help="Seam B input: path to *-remediation.json",
     )
     parser.add_argument(
-        "--remediation", "-r", type=Path, default=None,
-        help="Seam B input: path to *-remediation.json"
-    )
-    parser.add_argument(
-        "--impact", type=Path, default=None,
+        "--impact",
+        type=Path,
+        default=None,
         help="Seam A input: path to *-impact-analysis.json (no remediation "
-             "JSON needed; fix commit and source branch come from the run's "
-             "config copies)"
+        "JSON needed; fix commit and source branch come from the run's "
+        "config copies)",
     )
     parser.add_argument(
-        "--impact-repo", type=str, default=None,
-        help="repos[] id to select when the impact analysis covers several repos"
+        "--impact-repo",
+        type=str,
+        default=None,
+        help="repos[] id to select when the impact analysis covers several repos",
     )
     parser.add_argument(
-        "--repository", type=str, default="",
+        "--repository",
+        type=str,
+        default="",
         help="Repository URL for a run-only report (default: the source "
-             "clone's origin); ignored with --remediation/--impact"
+        "clone's origin); ignored with --remediation/--impact",
     )
     parser.add_argument(
-        "--logical-product", type=str, default="",
-        help="logical_product for a run-only report (default: the repo name)"
+        "--logical-product",
+        type=str,
+        default="",
+        help="logical_product for a run-only report (default: the repo name)",
     )
     parser.add_argument(
-        "--output", "-o", required=True, type=Path,
-        help="Output path for the backport report JSON"
+        "--output", "-o", required=True, type=Path, help="Output path for the backport report JSON"
     )
     parser.add_argument(
-        "--schema", "-s", type=Path, default=None,
+        "--schema",
+        "-s",
+        type=Path,
+        default=None,
         help="Schema for validation (default: the bundled "
-             "the traust-contracts backport-report schema; validation is ON)"
+        "the traust-contracts backport-report schema; validation is ON)",
     )
     parser.add_argument(
-        "--no-schema", action="store_true",
-        help="Skip schema validation (not recommended)"
+        "--no-schema", action="store_true", help="Skip schema validation (not recommended)"
     )
     parser.add_argument(
-        "--publish-root", type=Path, default=None,
+        "--publish-root",
+        type=Path,
+        default=None,
         help="analysis-results checkout root (default: AUDIT_RESULTS_ROOT "
-             "or the ../analysis-results sibling). Publishing is ON by "
-             "default: the report, per-branch candidate patches, and the "
-             "delivery record land under remediations/<logical_product>/"
-             "<repo>/backport-<fix12>/ (no token needed; only that namespace "
-             "is replaced)"
+        "or the ../analysis-results sibling). Publishing is ON by "
+        "default: the report, per-branch candidate patches, and the "
+        "delivery record land under remediations/<logical_product>/"
+        "<repo>/backport-<fix12>/ (no token needed; only that namespace "
+        "is replaced)",
     )
     parser.add_argument(
-        "--no-publish", action="store_true",
-        help="Skip publishing into analysis-results (report is still "
-             "written to --output)"
+        "--no-publish",
+        action="store_true",
+        help="Skip publishing into analysis-results (report is still written to --output)",
     )
     parser.add_argument(
-        "--verbose", "-v", action="store_true",
+        "--verbose",
+        "-v",
+        action="store_true",
     )
     args = parser.parse_args()
 
@@ -1069,9 +1128,11 @@ def main():
         log.error("Results directory not found: %s", args.results_dir)
         sys.exit(1)
     if args.remediation and args.impact:
-        log.error("Provide at most one of --remediation (Seam B) or --impact "
-                  "(Seam A); with neither, the report is built from the run's "
-                  "own config copies.")
+        log.error(
+            "Provide at most one of --remediation (Seam B) or --impact "
+            "(Seam A); with neither, the report is built from the run's "
+            "own config copies."
+        )
         sys.exit(1)
     if args.remediation and args.impact_repo:
         log.error("--impact-repo only applies to --impact mode.")
@@ -1094,11 +1155,11 @@ def main():
     elif args.impact:
         rem_meta = read_impact_metadata(args.impact, args.impact_repo)
     else:
-        log.info("No --remediation/--impact given — building from the run's "
-                 "config copies (patch/manual input)")
-        rem_meta = read_run_metadata(
-            args.results_dir, args.repository, args.logical_product
+        log.info(
+            "No --remediation/--impact given — building from the run's "
+            "config copies (patch/manual input)"
         )
+        rem_meta = read_run_metadata(args.results_dir, args.repository, args.logical_product)
     report = build_report(args.results_dir, rem_meta)
 
     # Validation is ON by default: the skill promises validated reports, and
@@ -1129,7 +1190,7 @@ def main():
             )
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    with open(args.output, "w") as f:
+    with Path(args.output).open("w") as f:
         json.dump(report, f, indent=2)
     if not schema_ok:
         sys.exit(1)
@@ -1146,9 +1207,7 @@ def main():
             )
         elif not publish_root.is_dir():
             if args.publish_root:
-                log.error(
-                    "Publish root not found or not a directory: %s", publish_root
-                )
+                log.error("Publish root not found or not a directory: %s", publish_root)
                 sys.exit(1)
             log.warning(
                 "analysis-results not found at %s — skipping publish "
@@ -1156,9 +1215,7 @@ def main():
                 publish_root,
             )
         else:
-            published_dir = publish_results(
-                publish_root, args.results_dir, report, rem_meta
-            )
+            published_dir = publish_results(publish_root, args.results_dir, report, rem_meta)
             if published_dir is None:
                 sys.exit(1)
 

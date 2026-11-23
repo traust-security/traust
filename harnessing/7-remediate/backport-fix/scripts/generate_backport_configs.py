@@ -36,6 +36,7 @@ Usage:
         --build-cmd "make build" --test-cmd "make test" \
         --output-dir /tmp/backport-fix/configs
 """
+
 from __future__ import annotations
 
 import argparse
@@ -53,7 +54,7 @@ import yaml
 
 # Sibling module in this same directory; see the note in emit_backport_report.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import _harness_paths as _paths  # noqa: E402
+import _harness_paths as _paths
 
 log = logging.getLogger(__name__)
 
@@ -77,16 +78,16 @@ def _scanner_invocation() -> tuple[str, dict]:
     if ws is not None:
         root = ws / "amalgamator"
         env = base_env.copy()
-        env["PYTHONPATH"] = os.pathsep.join(
-            p for p in (str(root), env.get("PYTHONPATH", "")) if p
-        )
+        env["PYTHONPATH"] = os.pathsep.join(p for p in (str(root), env.get("PYTHONPATH", "")) if p)
         candidates.append((str(root / ".venv" / "bin" / "python"), env))
     candidates.append((sys.executable, base_env))
     for exe, env in candidates:
         try:
             r = subprocess.run(
                 [exe, "-c", "import backport_scanner.run_scanner"],
-                capture_output=True, timeout=60, env=env,
+                capture_output=True,
+                timeout=60,
+                env=env,
             )
         except (OSError, subprocess.SubprocessError):
             continue
@@ -99,9 +100,10 @@ def _scanner_invocation() -> tuple[str, dict]:
 # Harness artifact readers
 # ---------------------------------------------------------------------------
 
+
 def read_remediation(path: Path) -> dict:
     """Read a *-remediation.json and extract fields needed for backporting."""
-    with open(path) as f:
+    with Path(path).open() as f:
         data = json.load(f)
 
     fork = data.get("fork", {})
@@ -152,7 +154,7 @@ def read_triage(path: Path, finding_refs: list[str] | None = None) -> dict:
     pick THAT finding: a multi-finding triage file otherwise contributes an
     unrelated vulnerability's title to bug_description.
     """
-    with open(path) as f:
+    with Path(path).open() as f:
         data = json.load(f)
 
     findings = data.get("findings", [])
@@ -171,6 +173,7 @@ def read_triage(path: Path, finding_refs: list[str] | None = None) -> dict:
 # ---------------------------------------------------------------------------
 # Patch file application
 # ---------------------------------------------------------------------------
+
 
 def apply_patch_as_commit(
     repo_path: Path,
@@ -197,11 +200,13 @@ def apply_patch_as_commit(
     base_ref = f"origin/{source_branch}"
     r = subprocess.run(
         ["git", "rev-parse", "--verify", "--quiet", f"{base_ref}^{{commit}}"],
-        cwd=repo_path, capture_output=True, text=True, timeout=10,
+        cwd=repo_path,
+        capture_output=True,
+        text=True,
+        timeout=10,
     )
     if r.returncode != 0:
-        log.error("Base ref %s does not resolve in %s (fetch it first)",
-                  base_ref, repo_path)
+        log.error("Base ref %s does not resolve in %s (fetch it first)", base_ref, repo_path)
         sys.exit(1)
 
     wt_dir = Path(tempfile.mkdtemp(prefix="backport-fix-patch-"))
@@ -209,7 +214,10 @@ def apply_patch_as_commit(
     try:
         r = subprocess.run(
             ["git", "worktree", "add", "--detach", str(wt_dir), base_ref],
-            cwd=repo_path, capture_output=True, text=True, timeout=120,
+            cwd=repo_path,
+            capture_output=True,
+            text=True,
+            timeout=120,
         )
         if r.returncode != 0:
             log.error("git worktree add failed: %s", r.stderr.strip())
@@ -218,7 +226,10 @@ def apply_patch_as_commit(
 
         r = subprocess.run(
             ["git", "apply", "--stat", str(patch_path)],
-            cwd=wt_dir, capture_output=True, text=True, timeout=30,
+            cwd=wt_dir,
+            capture_output=True,
+            text=True,
+            timeout=30,
         )
         if r.returncode != 0:
             log.error("Patch does not apply cleanly:\n%s", r.stderr.strip())
@@ -226,7 +237,10 @@ def apply_patch_as_commit(
 
         r = subprocess.run(
             ["git", "apply", str(patch_path)],
-            cwd=wt_dir, capture_output=True, text=True, timeout=30,
+            cwd=wt_dir,
+            capture_output=True,
+            text=True,
+            timeout=30,
         )
         if r.returncode != 0:
             log.error("git apply failed:\n%s", r.stderr.strip())
@@ -236,13 +250,20 @@ def apply_patch_as_commit(
         # are no unrelated (untracked) files to sweep in.
         subprocess.run(
             ["git", "add", "-A"],
-            cwd=wt_dir, capture_output=True, text=True, timeout=30, check=True,
+            cwd=wt_dir,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=True,
         )
 
         commit_msg = f"Apply patch: {patch_file.name}"
         r = subprocess.run(
             ["git", "commit", "-m", commit_msg],
-            cwd=wt_dir, capture_output=True, text=True, timeout=30,
+            cwd=wt_dir,
+            capture_output=True,
+            text=True,
+            timeout=30,
         )
         if r.returncode != 0:
             log.error("git commit failed (patch may be empty):\n%s", r.stderr.strip())
@@ -250,7 +271,10 @@ def apply_patch_as_commit(
 
         r = subprocess.run(
             ["git", "rev-parse", "HEAD"],
-            cwd=wt_dir, capture_output=True, text=True, timeout=10,
+            cwd=wt_dir,
+            capture_output=True,
+            text=True,
+            timeout=10,
         )
         fix_commit = r.stdout.strip()
         if not re.fullmatch(r"[0-9a-f]{7,40}", fix_commit):
@@ -260,7 +284,10 @@ def apply_patch_as_commit(
         if worktree_added:
             subprocess.run(
                 ["git", "worktree", "remove", "--force", str(wt_dir)],
-                cwd=repo_path, capture_output=True, text=True, timeout=120,
+                cwd=repo_path,
+                capture_output=True,
+                text=True,
+                timeout=120,
             )
         shutil.rmtree(wt_dir, ignore_errors=True)
 
@@ -271,7 +298,10 @@ def apply_patch_as_commit(
     anchor = f"backport-fix/patch-input-{safe_stem}"
     subprocess.run(
         ["git", "branch", "-f", anchor, fix_commit],
-        cwd=repo_path, capture_output=True, text=True, timeout=30,
+        cwd=repo_path,
+        capture_output=True,
+        text=True,
+        timeout=30,
     )
     log.info("Patch applied as commit %s on branch %s", fix_commit, anchor)
     return fix_commit
@@ -280,6 +310,7 @@ def apply_patch_as_commit(
 # ---------------------------------------------------------------------------
 # Branch scanning
 # ---------------------------------------------------------------------------
+
 
 def _bucket_scan_status(status) -> str:
     """
@@ -379,9 +410,8 @@ def scan_branches_subprocess(
         scan_yaml["scan"]["branch_pattern"] = branch_pattern
 
     import tempfile
-    with tempfile.NamedTemporaryFile(
-        mode="w", suffix=".yaml", delete=False
-    ) as tmp:
+
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as tmp:
         yaml.dump(scan_yaml, tmp, default_flow_style=False)
         cfg_path = Path(tmp.name)
     report_path = cfg_path.with_suffix(".json")
@@ -391,9 +421,13 @@ def scan_branches_subprocess(
         try:
             result = subprocess.run(
                 [
-                    scanner_py, "-m", "backport_scanner.run_scanner",
-                    "--config", str(cfg_path),
-                    "--output", str(report_path),
+                    scanner_py,
+                    "-m",
+                    "backport_scanner.run_scanner",
+                    "--config",
+                    str(cfg_path),
+                    "--output",
+                    str(report_path),
                 ],
                 capture_output=True,
                 text=True,
@@ -408,7 +442,8 @@ def scan_branches_subprocess(
         if result.returncode not in (0, 1, 3):
             log.error(
                 "Branch scanner failed (exit %d):\n%s",
-                result.returncode, result.stderr.strip(),
+                result.returncode,
+                result.stderr.strip(),
             )
             sys.exit(1)
         if not report_path.is_file():
@@ -426,8 +461,8 @@ def scan_branches_subprocess(
         errors = (report.get("summary") or {}).get("errors", 0)
         if errors:
             log.error(
-                "Branch scanner reported %s ref error(s) — refusing to bucket a "
-                "partial scan", errors,
+                "Branch scanner reported %s ref error(s) — refusing to bucket a partial scan",
+                errors,
             )
             sys.exit(1)
         refs = report.get("refs", [])
@@ -454,6 +489,7 @@ def scan_branches_subprocess(
 # branch, and branch selection is version-based, not patch-id based.
 # ---------------------------------------------------------------------------
 
+
 def _norm_repo_url(u: str) -> str:
     """Normalize a repo identifier (graph id, git URL) for matching.
 
@@ -471,7 +507,7 @@ def _norm_repo_url(u: str) -> str:
 
 def read_impact(path: Path, repo_path: Path, impact_repo: str | None) -> dict:
     """Read a *-impact-analysis.json and select this clone's repos[] entry."""
-    with open(path) as f:
+    with Path(path).open() as f:
         data = json.load(f)
     meta = data.get("metadata", {})
     cve = meta.get("cve", "")
@@ -499,7 +535,10 @@ def read_impact(path: Path, repo_path: Path, impact_repo: str | None) -> dict:
     try:
         r = subprocess.run(
             ["git", "remote", "get-url", "origin"],
-            cwd=repo_path, capture_output=True, text=True, timeout=10,
+            cwd=repo_path,
+            capture_output=True,
+            text=True,
+            timeout=10,
         )
         if r.returncode == 0:
             origin = r.stdout.strip()
@@ -517,7 +556,8 @@ def read_impact(path: Path, repo_path: Path, impact_repo: str | None) -> dict:
         log.error(
             "No repos[] entry in %s matches this clone (origin=%s). "
             "Pass --impact-repo with the entry's repo id.",
-            path, _paths.strip_url_credentials(origin) or "<unknown>",
+            path,
+            _paths.strip_url_credentials(origin) or "<unknown>",
         )
         sys.exit(1)
 
@@ -540,9 +580,7 @@ def read_impact(path: Path, repo_path: Path, impact_repo: str | None) -> dict:
         "module": module,
         "fixed_version": fixed_version,
         "classification": entry.get("classification", ""),
-        "repo_id": _paths.strip_url_credentials(
-            str(entry.get("repo", ""))
-        ).removeprefix("repo:"),
+        "repo_id": _paths.strip_url_credentials(str(entry.get("repo", ""))).removeprefix("repo:"),
     }
 
 
@@ -599,7 +637,7 @@ def _module_version_from_modules_txt(text: str, module: str) -> str | None:
         if "=>" in toks:
             # Only a trailing version after "=>" counts: never the
             # replaced-away LHS version, never a vanity path (vitess.io/…).
-            after = toks[toks.index("=>") + 1:]
+            after = toks[toks.index("=>") + 1 :]
             if len(after) >= 2 and after[-1].startswith("v"):
                 return after[-1]
             return "path"
@@ -649,7 +687,7 @@ def _module_version_from_gomod(text: str, module: str) -> str | None:
         if "=>" not in body:
             continue
         arrow = body.index("=>")
-        left, right = body[:arrow], body[arrow + 1:]
+        left, right = body[:arrow], body[arrow + 1 :]
         if not left or left[0] != module:
             continue
         lhs_version = left[1] if len(left) >= 2 and left[1].startswith("v") else None
@@ -684,7 +722,10 @@ def module_version_at(repo_path: Path, ref: str, module: str):
     try:
         r = subprocess.run(
             ["git", "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}"],
-            cwd=repo_path, capture_output=True, text=True, timeout=30,
+            cwd=repo_path,
+            capture_output=True,
+            text=True,
+            timeout=30,
         )
     except subprocess.TimeoutExpired:
         log.error("git rev-parse timed out validating ref %s", ref)
@@ -701,14 +742,20 @@ def module_version_at(repo_path: Path, ref: str, module: str):
         # (vendoring is optional); an unreadable one is not.
         exists = subprocess.run(
             ["git", "cat-file", "-e", f"{ref}:{fname}"],
-            cwd=repo_path, capture_output=True, text=True, timeout=30,
+            cwd=repo_path,
+            capture_output=True,
+            text=True,
+            timeout=30,
         )
         if exists.returncode != 0:
             continue
         try:
             r = subprocess.run(
                 ["git", "show", f"{ref}:{fname}"],
-                cwd=repo_path, capture_output=True, text=True, timeout=30,
+                cwd=repo_path,
+                capture_output=True,
+                text=True,
+                timeout=30,
             )
         except subprocess.TimeoutExpired:
             log.error("git show timed out reading %s at %s", fname, ref)
@@ -749,9 +796,11 @@ def list_release_branches(
     pattern = branch_pattern or "release-*"
     try:
         r = subprocess.run(
-            ["git", "for-each-ref", "--format=%(refname:short)",
-             f"refs/remotes/origin/{pattern}"],
-            cwd=repo_path, capture_output=True, text=True, timeout=30,
+            ["git", "for-each-ref", "--format=%(refname:short)", f"refs/remotes/origin/{pattern}"],
+            cwd=repo_path,
+            capture_output=True,
+            text=True,
+            timeout=30,
         )
     except subprocess.TimeoutExpired:
         log.error("git for-each-ref timed out listing branches")
@@ -773,8 +822,7 @@ def scan_branches_by_version(
 ) -> dict:
     """Classify branches by effective module version vs fixed_version
     (patch-ids can't match an independently-bumped branch)."""
-    result = {"needs_fix": [], "already_fixed": [], "not_affected": [],
-              "ambiguous": [], "total": 0}
+    result = {"needs_fix": [], "already_fixed": [], "not_affected": [], "ambiguous": [], "total": 0}
     for br in list_release_branches(repo_path, branch_pattern, branches):
         result["total"] += 1
         status, ver = module_version_at(repo_path, f"origin/{br}", module)
@@ -795,7 +843,10 @@ def scan_branches_by_version(
 
 
 def find_bump_commit(
-    repo_path: Path, source_ref: str, module: str, fixed_version: str,
+    repo_path: Path,
+    source_ref: str,
+    module: str,
+    fixed_version: str,
     max_walk: int = 400,
 ) -> tuple[str, str | None]:
     """
@@ -819,44 +870,63 @@ def find_bump_commit(
 
     try:
         r = subprocess.run(
-            ["git", "rev-list", f"--max-count={max_walk}", source_ref,
-             "--", "go.mod", "vendor/modules.txt"],
-            cwd=repo_path, capture_output=True, text=True, timeout=60,
+            [
+                "git",
+                "rev-list",
+                f"--max-count={max_walk}",
+                source_ref,
+                "--",
+                "go.mod",
+                "vendor/modules.txt",
+            ],
+            cwd=repo_path,
+            capture_output=True,
+            text=True,
+            timeout=60,
         )
     except subprocess.TimeoutExpired:
         log.error("git rev-list timed out while locating the bump commit")
         return ("not_located", None)
     for sha in r.stdout.split():  # newest -> oldest
         st_c, v_c = module_version_at(repo_path, sha, module)
-        if not (st_c == "found" and v_c is not None
-                and go_version_lt(v_c, fixed_version) is False):
+        if not (st_c == "found" and v_c is not None and go_version_lt(v_c, fixed_version) is False):
             continue
 
         parent_ref = f"{sha}~1"
-        has_parent = subprocess.run(
-            ["git", "rev-parse", "--verify", "--quiet", f"{parent_ref}^{{commit}}"],
-            cwd=repo_path, capture_output=True, text=True, timeout=15,
-        ).returncode == 0
+        has_parent = (
+            subprocess.run(
+                ["git", "rev-parse", "--verify", "--quiet", f"{parent_ref}^{{commit}}"],
+                cwd=repo_path,
+                capture_output=True,
+                text=True,
+                timeout=15,
+            ).returncode
+            == 0
+        )
         if not has_parent:
-            return ("found", sha)          # root commit introduced the module
+            return ("found", sha)  # root commit introduced the module
 
         st_p, v_p = module_version_at(repo_path, parent_ref, module)
         if st_p == "absent":
-            return ("found", sha)          # module introduced by this commit
+            return ("found", sha)  # module introduced by this commit
         if st_p != "found" or v_p is None:
             log.warning(
-                "Parent %s of %s is %s — cannot prove it was vulnerable; "
-                "pass --fix-commit", parent_ref, sha, st_p,
+                "Parent %s of %s is %s — cannot prove it was vulnerable; pass --fix-commit",
+                parent_ref,
+                sha,
+                st_p,
             )
             return ("not_located", None)
         lt_p = go_version_lt(v_p, fixed_version)
         if lt_p is True:
             return ("found", sha)
         if lt_p is False:
-            continue                       # parent already fixed; keep walking
+            continue  # parent already fixed; keep walking
         log.warning(
             "Parent %s version %r is not comparable with %s; pass --fix-commit",
-            parent_ref, v_p, fixed_version,
+            parent_ref,
+            v_p,
+            fixed_version,
         )
         return ("not_located", None)
     return ("not_located", None)
@@ -866,12 +936,16 @@ def find_bump_commit(
 # Config generation
 # ---------------------------------------------------------------------------
 
+
 def get_default_branch(repo_path: Path) -> str:
     """Discover the default branch of the remote."""
     try:
         result = subprocess.run(
             ["git", "symbolic-ref", "refs/remotes/origin/HEAD", "--short"],
-            cwd=repo_path, capture_output=True, text=True, timeout=10,
+            cwd=repo_path,
+            capture_output=True,
+            text=True,
+            timeout=10,
         )
         if result.returncode == 0:
             return result.stdout.strip().removeprefix("origin/")
@@ -945,7 +1019,7 @@ def safe_slug(branch: str, used: set[str] | None = None) -> str:
         digest = hashlib.sha256(branch.encode()).hexdigest()[:8]
         slug = f"{base}-{digest}"
         n = 1
-        while slug in used:          # a crafted name can collide here too
+        while slug in used:  # a crafted name can collide here too
             n += 1
             slug = f"{base}-{digest}-{n}"
     used.add(slug)
@@ -1001,7 +1075,7 @@ def make_config_yaml(
 def write_config(data: dict, path: Path) -> None:
     """Write an Amalgamator config YAML to disk."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w") as f:
+    with Path(path).open("w") as f:
         yaml.dump(data, f, default_flow_style=False, sort_keys=False)
     log.info("Written config: %s", path)
 
@@ -1010,6 +1084,7 @@ def write_config(data: dict, path: Path) -> None:
 # Mode setup — each returns the common context the shared scan/generate
 # tail consumes.
 # ---------------------------------------------------------------------------
+
 
 def setup_from_remediation(args) -> dict:
     """Seam B: a *-remediation.json from remediate-finding."""
@@ -1020,7 +1095,9 @@ def setup_from_remediation(args) -> dict:
     # fixes into refs/remotes/fork/<branch>, so try that remote first — the
     # upstream origin/<branch> is exactly what an embargoed fix is NOT on.
     if not rem["fix_commit"] and rem["fix_branch"]:
-        log.info("fix_commit not in remediation JSON, resolving from fix_branch: %s", rem["fix_branch"])
+        log.info(
+            "fix_commit not in remediation JSON, resolving from fix_branch: %s", rem["fix_branch"]
+        )
         candidates = [
             f"refs/remotes/fork/{rem['fix_branch']}",
             f"refs/remotes/origin/{rem['fix_branch']}",
@@ -1030,7 +1107,10 @@ def setup_from_remediation(args) -> dict:
         for ref in candidates:
             r = subprocess.run(
                 ["git", "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}"],
-                cwd=args.repo, capture_output=True, text=True, timeout=10,
+                cwd=args.repo,
+                capture_output=True,
+                text=True,
+                timeout=10,
             )
             if r.returncode == 0:
                 rem["fix_commit"] = r.stdout.strip()
@@ -1039,7 +1119,8 @@ def setup_from_remediation(args) -> dict:
         else:
             log.error(
                 "Could not resolve fix_branch %s from any of: %s",
-                rem["fix_branch"], ", ".join(candidates),
+                rem["fix_branch"],
+                ", ".join(candidates),
             )
             sys.exit(1)
 
@@ -1067,7 +1148,8 @@ def setup_from_remediation(args) -> dict:
         "title": triage_info.get("title") or rem["finding_title"] or "Security fix backport",
         "repo_slug": (
             rem["repo_url"].rstrip("/").rsplit("/", 1)[-1].removesuffix(".git")
-            if rem["repo_url"] else args.repo.name
+            if rem["repo_url"]
+            else args.repo.name
         ),
         "module": None,
         "fixed_version": None,
@@ -1128,7 +1210,9 @@ def setup_from_impact(args) -> dict:
     imp = read_impact(args.impact, args.repo, args.impact_repo)
     log.info(
         "CVE %s — module %s, fixed_version %s",
-        imp["cve"], imp["module"], imp["fixed_version"],
+        imp["cve"],
+        imp["module"],
+        imp["fixed_version"],
     )
     source_branch = get_default_branch(args.repo)
     if args.fix_commit:
@@ -1138,7 +1222,9 @@ def setup_from_impact(args) -> dict:
             sys.exit(1)
         check = subprocess.run(
             ["git", "cat-file", "-e", f"{fix_commit}^{{commit}}"],
-            cwd=args.repo, capture_output=True, timeout=10,
+            cwd=args.repo,
+            capture_output=True,
+            timeout=10,
         )
         if check.returncode != 0:
             log.error("--fix-commit %s is not a commit in %s", fix_commit, args.repo)
@@ -1146,8 +1232,11 @@ def setup_from_impact(args) -> dict:
         log.info("Using --fix-commit override: %s", fix_commit)
     else:
         status, fix_commit = find_bump_commit(
-            args.repo, f"origin/{source_branch}",
-            imp["module"], imp["fixed_version"], max_walk=args.max_walk,
+            args.repo,
+            f"origin/{source_branch}",
+            imp["module"],
+            imp["fixed_version"],
+            max_walk=args.max_walk,
         )
         if status == "not_fixed":
             log.error(
@@ -1155,7 +1244,9 @@ def setup_from_impact(args) -> dict:
                 "is not fixed, so there is nothing to backport. Bump first "
                 "(remediate-finding dependency-bump / fleet-fix), then re-run. "
                 "(bump-first, fail closed)",
-                source_branch, imp["module"], imp["fixed_version"],
+                source_branch,
+                imp["module"],
+                imp["fixed_version"],
             )
             sys.exit(1)
         if status == "not_located":
@@ -1164,7 +1255,10 @@ def setup_from_impact(args) -> dict:
                 "located within the newest %d go.mod-touching commits — pass "
                 "--fix-commit <sha> or raise --max-walk. (This is NOT the "
                 "bump-first case.)",
-                source_branch, imp["module"], imp["fixed_version"], args.max_walk,
+                source_branch,
+                imp["module"],
+                imp["fixed_version"],
+                args.max_walk,
             )
             sys.exit(1)
         log.info("Bump commit on origin/%s: %s", source_branch, fix_commit)
@@ -1178,9 +1272,7 @@ def setup_from_impact(args) -> dict:
         "finding_refs": [imp["cve"]],
         "cwes": [],
         "title": f"bump {imp['module']} to {imp['fixed_version']} for {imp['cve']}",
-        "repo_slug": (
-            _norm_repo_url(imp["repo_id"]).rsplit("/", 1)[-1] or args.repo.name
-        ),
+        "repo_slug": (_norm_repo_url(imp["repo_id"]).rsplit("/", 1)[-1] or args.repo.name),
         "module": imp["module"],
         "fixed_version": imp["fixed_version"],
     }
@@ -1190,98 +1282,131 @@ def setup_from_impact(args) -> dict:
 # Main
 # ---------------------------------------------------------------------------
 
+
 def main():
     parser = argparse.ArgumentParser(
         description="Generate Amalgamator configs from harness remediation artifacts."
     )
     parser.add_argument(
-        "--remediation", "-r", type=Path, default=None,
-        help="Seam B input: path to *-remediation.json from remediate-finding"
+        "--remediation",
+        "-r",
+        type=Path,
+        default=None,
+        help="Seam B input: path to *-remediation.json from remediate-finding",
     )
     parser.add_argument(
-        "--impact", type=Path, default=None,
+        "--impact",
+        type=Path,
+        default=None,
         help="Seam A input: path to *-impact-analysis.json (dependency CVE); "
-             "branch selection becomes version-based and the fix commit is "
-             "located as the bump commit on the source branch (fail-closed "
-             "bump-first when absent)"
+        "branch selection becomes version-based and the fix commit is "
+        "located as the bump commit on the source branch (fail-closed "
+        "bump-first when absent)",
     )
     parser.add_argument(
-        "--impact-repo", type=str, default=None,
+        "--impact-repo",
+        type=str,
+        default=None,
         help="repos[] id to select from the impact analysis when the clone's "
-             "origin URL does not match (e.g. repo:github.com/org/name)"
+        "origin URL does not match (e.g. repo:github.com/org/name)",
     )
     parser.add_argument(
-        "--triage", "-t", type=Path, default=None,
+        "--triage",
+        "-t",
+        type=Path,
+        default=None,
         help="Path to *-triage.json from triage (optional, enriches bug "
-             "description; --remediation mode only)"
+        "description; --remediation mode only)",
     )
     parser.add_argument(
-        "--fix-commit", type=str, default=None,
+        "--fix-commit",
+        type=str,
+        default=None,
         help="Seam A only: explicit bump-commit SHA, bypassing history "
-             "search (use when the bump is older than --max-walk)"
+        "search (use when the bump is older than --max-walk)",
     )
     parser.add_argument(
-        "--max-walk", type=int, default=400,
+        "--max-walk",
+        type=int,
+        default=400,
         help="Seam A only: how many go.mod-touching commits to walk when "
-             "locating the bump commit (default: 400)"
+        "locating the bump commit (default: 400)",
     )
     parser.add_argument(
-        "--build-cmd", type=str, default="",
+        "--build-cmd",
+        type=str,
+        default="",
         help="Build command for the generated configs (overrides the "
-             "remediation checks in Seam B; required knowledge in Seam A "
-             "unless left for manual fill-in)"
+        "remediation checks in Seam B; required knowledge in Seam A "
+        "unless left for manual fill-in)",
     )
     parser.add_argument(
-        "--test-cmd", type=str, default="",
-        help="Test command for the generated configs (see --build-cmd)"
+        "--test-cmd",
+        type=str,
+        default="",
+        help="Test command for the generated configs (see --build-cmd)",
     )
     parser.add_argument(
-        "--repo", type=Path, required=True,
-        help="Path to local clone of the repository"
+        "--repo", type=Path, required=True, help="Path to local clone of the repository"
     )
     parser.add_argument(
-        "--output-dir", "-o", type=Path, default=Path("/tmp/backport-fix/configs"),
-        help="Directory to write generated YAML configs"
+        "--output-dir",
+        "-o",
+        type=Path,
+        default=Path("/tmp/backport-fix/configs"),
+        help="Directory to write generated YAML configs",
     )
     parser.add_argument(
-        "--branch-pattern", type=str, default=None,
-        help="Glob pattern for branch discovery (e.g. 'release-*')"
+        "--branch-pattern",
+        type=str,
+        default=None,
+        help="Glob pattern for branch discovery (e.g. 'release-*')",
     )
     parser.add_argument(
-        "--branches", nargs="+", default=None,
-        help="Explicit list of branches to check"
+        "--branches", nargs="+", default=None, help="Explicit list of branches to check"
     )
     parser.add_argument(
-        "--scan-only", action="store_true",
-        help="Only scan branches, do not generate configs"
+        "--scan-only", action="store_true", help="Only scan branches, do not generate configs"
     )
     parser.add_argument(
-        "--skip-scan", action="store_true",
-        help="Skip branch scanning — treat all --branches as NEEDS_FIX and generate configs directly"
+        "--skip-scan",
+        action="store_true",
+        help="Skip branch scanning — treat all --branches as NEEDS_FIX "
+        "and generate configs directly",
     )
     parser.add_argument(
-        "--model", type=str, default="claude-opus-4-6",
-        help="Model name for Amalgamator config (default: claude-opus-4-6)"
+        "--model",
+        type=str,
+        default="claude-opus-4-6",
+        help="Model name for Amalgamator config (default: claude-opus-4-6)",
     )
     parser.add_argument(
-        "--max-retries", type=int, default=3,
-        help="Max build/test recovery attempts in Phase 4a (default: 3)"
+        "--max-retries",
+        type=int,
+        default=3,
+        help="Max build/test recovery attempts in Phase 4a (default: 3)",
     )
     parser.add_argument(
-        "--patch-file", type=Path, default=None,
+        "--patch-file",
+        type=Path,
+        default=None,
         help="Path to a .patch file to apply as the fix. The patch is "
-             "committed locally on --source-branch, creating a fix_commit "
-             "for the backport pipeline. Can be combined with --remediation "
-             "for CWE/finding context, or used standalone with --build-cmd "
-             "and --branches."
+        "committed locally on --source-branch, creating a fix_commit "
+        "for the backport pipeline. Can be combined with --remediation "
+        "for CWE/finding context, or used standalone with --build-cmd "
+        "and --branches.",
     )
     parser.add_argument(
-        "--source-branch", type=str, default=None,
+        "--source-branch",
+        type=str,
+        default=None,
         help="Branch to apply the patch to (default: base_ref from "
-             "remediation JSON, or 'main'). Only used with --patch-file."
+        "remediation JSON, or 'main'). Only used with --patch-file.",
     )
     parser.add_argument(
-        "--verbose", "-v", action="store_true",
+        "--verbose",
+        "-v",
+        action="store_true",
     )
     args = parser.parse_args()
 
@@ -1382,8 +1507,7 @@ def main():
         # "nothing needs fixing". Default the pattern instead.
         if not args.branches and not branch_pattern:
             branch_pattern = "release-*"
-            log.info("No --branches/--branch-pattern given — defaulting to %r",
-                     branch_pattern)
+            log.info("No --branches/--branch-pattern given — defaulting to %r", branch_pattern)
         log.info("Scanning branches...")
         scan_result = scan_branches(
             repo_path=args.repo,
@@ -1464,10 +1588,7 @@ def main():
     # --- Generate configs ---
     bug_desc = ctx["title"]
     cwes_str = ", ".join(ctx["cwes"]) if ctx["cwes"] else ""
-    if cwes_str:
-        bug_desc = f"Backport: {bug_desc} ({cwes_str})"
-    else:
-        bug_desc = f"Backport: {bug_desc}"
+    bug_desc = f"Backport: {bug_desc} ({cwes_str})" if cwes_str else f"Backport: {bug_desc}"
 
     used_slugs: set[str] = set()
     for branch in scan_result["needs_fix"]:
@@ -1495,7 +1616,10 @@ def main():
         print(f"  build.test_command: {ctx['test_cmd'] or '(empty)'}")
     else:
         print("  build/test commands are empty — review and fill in manually.")
-    print("  Run: bash harnessing/7-remediate/backport-fix/scripts/run_backport.sh --config-dir", args.output_dir)
+    print(
+        "  Run: bash harnessing/7-remediate/backport-fix/scripts/run_backport.sh --config-dir",
+        args.output_dir,
+    )
 
     # Ambiguous branches were not configured — incomplete, not a success.
     if scan_result["ambiguous"]:

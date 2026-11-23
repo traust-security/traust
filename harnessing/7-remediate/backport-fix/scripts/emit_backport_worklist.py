@@ -17,13 +17,14 @@ Usage:
         --backport-report <repo>-backport-report.json \\
         [--output <repo>-backport-worklist.json] [--dry-run]
 """
+
 from __future__ import annotations
 
 import argparse
 import json
 import logging
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 log = logging.getLogger(__name__)
@@ -66,7 +67,7 @@ def build_worklist(report: dict, report_path: str) -> dict:
         rows.append(row)
 
     return {
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "generated_at": datetime.now(UTC).isoformat(),
         "generated_from": report_path,
         "repository": report.get("metadata", {}).get("repository", ""),
         "note": (
@@ -83,16 +84,16 @@ def main():
         description="Emit an advisory disposition worklist from a backport report."
     )
     parser.add_argument(
-        "--backport-report", "-b", required=True, type=Path,
-        help="Path to *-backport-report.json"
+        "--backport-report", "-b", required=True, type=Path, help="Path to *-backport-report.json"
     )
     parser.add_argument(
-        "--output", "-o", type=Path, default=None,
-        help="Output path (default: <report>-backport-worklist.json "
-             "beside the report)"
+        "--output",
+        "-o",
+        type=Path,
+        default=None,
+        help="Output path (default: <report>-backport-worklist.json beside the report)",
     )
-    parser.add_argument("--dry-run", action="store_true",
-                        help="Print without writing")
+    parser.add_argument("--dry-run", action="store_true", help="Print without writing")
     parser.add_argument("--verbose", "-v", action="store_true")
     args = parser.parse_args()
 
@@ -106,12 +107,13 @@ def main():
         log.error("Backport report not found: %s", args.backport_report)
         sys.exit(1)
 
-    with open(args.backport_report) as f:
+    with Path(args.backport_report).open() as f:
         report = json.load(f)
 
     worklist = build_worklist(report, str(args.backport_report))
-    log.info("Generated %d worklist entr(ies) from %s",
-             len(worklist["entries"]), args.backport_report)
+    log.info(
+        "Generated %d worklist entr(ies) from %s", len(worklist["entries"]), args.backport_report
+    )
 
     if args.dry_run:
         print(json.dumps(worklist, indent=2))
@@ -124,7 +126,7 @@ def main():
         suffix = "-backport-report.json"
         if name.endswith(suffix):
             output = args.backport_report.with_name(
-                name[:-len(suffix)] + "-backport-worklist.json"
+                name[: -len(suffix)] + "-backport-worklist.json"
             )
         else:
             output = args.backport_report.with_name(name + "-backport-worklist.json")
@@ -132,7 +134,7 @@ def main():
         log.error("Refusing to overwrite the input report: %s", output)
         sys.exit(1)
     output.parent.mkdir(parents=True, exist_ok=True)
-    with open(output, "w") as f:
+    with Path(output).open("w") as f:
         json.dump(worklist, f, indent=2)
     log.info("Written: %s", output)
 

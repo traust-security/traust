@@ -5,6 +5,7 @@ skill already moved one tier deeper once, and every depth-based lookup broke
 silently (publish-by-default landed inside the checkout; VERSION reads always
 missed). Run: ../traust/.venv/bin/python -m pytest tests/test_backport_paths.py
 """
+
 from __future__ import annotations
 
 import importlib.util
@@ -133,9 +134,7 @@ def test_harness_version_reads_pyproject_when_version_is_retired(monkeypatch, tm
     ws = tmp_path / "ws"
     harness = ws / "traust"
     harness.mkdir(parents=True)
-    (harness / "pyproject.toml").write_text(
-        '[project]\nname = "traust"\nversion = "0.1.0"\n'
-    )
+    (harness / "pyproject.toml").write_text('[project]\nname = "traust"\nversion = "0.1.0"\n')
     monkeypatch.setenv("HARNESS_WORKSPACE", str(ws))
     assert paths.harness_root() == harness
     assert paths.harness_version() == "0.1.0"

@@ -22,6 +22,7 @@ Usage:
         --repo /path/to/clone \
         --out cri-o.f001-remediation.json
 """
+
 from __future__ import annotations
 
 import argparse
@@ -36,7 +37,7 @@ from pathlib import Path
 
 # Sibling module in this same directory; see the NOTE in emit_backport_report.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import _harness_paths as _paths  # noqa: E402
+import _harness_paths as _paths
 
 log = logging.getLogger(__name__)
 
@@ -44,9 +45,18 @@ _SEVERITIES = ("critical", "high", "medium", "low", "informational")
 _CHANGE_TYPE = {"A": "added", "M": "modified", "D": "deleted", "R": "renamed"}
 # schema/remediation.schema.json $defs.fix_strategy
 _STRATEGIES = (
-    "input-validation", "bound-resource", "rbac-scope-down", "auth-add",
-    "tls-enforce", "url-allowlist", "digest-pin", "config-default-harden",
-    "api-restrict", "remove-feature", "dependency-bump", "other",
+    "input-validation",
+    "bound-resource",
+    "rbac-scope-down",
+    "auth-add",
+    "tls-enforce",
+    "url-allowlist",
+    "digest-pin",
+    "config-default-harden",
+    "api-restrict",
+    "remove-feature",
+    "dependency-bump",
+    "other",
 )
 _CWE_RE = re.compile(r"^CWE-\d{1,5}$")
 
@@ -55,10 +65,12 @@ def git(repo: Path, *args: str) -> str:
     try:
         r = subprocess.run(
             ["git", "-C", str(repo), *args],
-            capture_output=True, text=True, timeout=30,
+            capture_output=True,
+            text=True,
+            timeout=30,
         )
     except subprocess.TimeoutExpired:
-        raise SystemExit(f"git {' '.join(args)} timed out in {repo}")
+        raise SystemExit(f"git {' '.join(args)} timed out in {repo}") from None
     if r.returncode != 0:
         raise RuntimeError(f"git {' '.join(args)} failed: {r.stderr.strip()}")
     return r.stdout.strip()
@@ -68,11 +80,15 @@ def find_entry(report: dict, finding_id: str) -> dict:
     for f in report.get("findings", []):
         if str(f.get("id", "")) == finding_id:
             return f
-    raise SystemExit(f"finding {finding_id!r} not found (ids: "
-                     f"{[f.get('id') for f in report.get('findings', [])][:10]})")
+    raise SystemExit(
+        f"finding {finding_id!r} not found (ids: "
+        f"{[f.get('id') for f in report.get('findings', [])][:10]})"
+    )
 
 
-def resolve_audit(triage_path: Path, triage_finding: dict, explicit: Path | None) -> tuple[dict | None, str]:
+def resolve_audit(
+    triage_path: Path, triage_finding: dict, explicit: Path | None
+) -> tuple[dict | None, str]:
     """Locate the audit report backing a triage finding; returns (audit, audit_finding_id)."""
     source = str(triage_finding.get("source", ""))
     audit_id = source.rsplit("#", 1)[-1] if "#" in source else ""
@@ -83,7 +99,7 @@ def resolve_audit(triage_path: Path, triage_finding: dict, explicit: Path | None
             path = candidate
     if path is None or not path.is_file():
         return None, audit_id
-    with open(path) as f:
+    with Path(path).open() as f:
         return json.load(f), audit_id
 
 
@@ -94,10 +110,12 @@ def patch_block(repo: Path, sha: str, strategy: str, rationale: str) -> dict:
         parts = line.split("\t")
         if len(parts) < 2:
             continue
-        files.append({
-            "path": parts[-1],
-            "change_type": _CHANGE_TYPE.get(parts[0][:1], "modified"),
-        })
+        files.append(
+            {
+                "path": parts[-1],
+                "change_type": _CHANGE_TYPE.get(parts[0][:1], "modified"),
+            }
+        )
     additions = deletions = 0
     for line in git(repo, "show", "--numstat", "--format=", sha).splitlines():
         cols = line.split("\t")
@@ -125,14 +143,19 @@ def _validator_python() -> str | None:
     documented convention is ../traust/.venv/bin/python — the harness is a
     sibling checkout, so its dependencies are not in ours).
     """
-    for exe in (sys.executable, *(
-        [str(_paths.harness_root() / ".venv" / "bin" / "python")]
-        if _paths.harness_root() is not None else []
-    )):
+    for exe in (
+        sys.executable,
+        *(
+            [str(_paths.harness_root() / ".venv" / "bin" / "python")]
+            if _paths.harness_root() is not None
+            else []
+        ),
+    ):
         try:
             r = subprocess.run(
                 [exe, "-c", "from traust.cli import reporting"],
-                capture_output=True, timeout=60,
+                capture_output=True,
+                timeout=60,
             )
         except (OSError, subprocess.SubprocessError):
             continue
@@ -190,7 +213,7 @@ def normalize_repo_url(url: str) -> str:
 
 
 def build(args) -> dict:
-    with open(args.triage) as f:
+    with Path(args.triage).open() as f:
         triage = json.load(f)
     tf = find_entry(triage, args.finding)
     audit, audit_id = resolve_audit(args.triage, tf, args.audit)
@@ -208,13 +231,12 @@ def build(args) -> dict:
     if not cwes:
         where = (
             "the resolved audit finding carries none"
-            if af else
-            "no audit finding was resolved (triage `source` missing or not "
+            if af
+            else "no audit finding was resolved (triage `source` missing or not "
             "'<audit>.json#<id>')"
         )
         raise SystemExit(
-            f"no CWEs: {where} — pass --cwe CWE-NNN (repeatable) or "
-            "--audit <security-audit.json>"
+            f"no CWEs: {where} — pass --cwe CWE-NNN (repeatable) or --audit <security-audit.json>"
         )
 
     locations = af.get("locations") or []
@@ -228,8 +250,11 @@ def build(args) -> dict:
         locations = [loc]
 
     severity = str(
-        args.severity or tf.get("severity") or tf.get("claimed_severity")
-        or af.get("severity") or "medium"
+        args.severity
+        or tf.get("severity")
+        or tf.get("claimed_severity")
+        or af.get("severity")
+        or "medium"
     ).lower()
     if severity not in _SEVERITIES:
         severity = "medium"
@@ -238,21 +263,21 @@ def build(args) -> dict:
     try:
         fix_commit = git(args.repo, "rev-parse", f"{args.fix_commit}^{{commit}}")
     except RuntimeError as e:
-        raise SystemExit(f"--fix-commit not resolvable in {args.repo}: {e}")
+        raise SystemExit(f"--fix-commit not resolvable in {args.repo}: {e}") from e
     if args.repo_url:
         repo_url = _paths.strip_url_credentials(args.repo_url)
     else:
         try:
             repo_url = normalize_repo_url(git(args.repo, "remote", "get-url", "origin"))
         except RuntimeError:
-            raise SystemExit(
-                f"{args.repo} has no 'origin' remote — pass --repo-url"
-            )
+            raise SystemExit(f"{args.repo} has no 'origin' remote — pass --repo-url") from None
 
     base_ref = args.base_ref
     if not base_ref:
         try:
-            base_ref = git(args.repo, "symbolic-ref", "refs/remotes/origin/HEAD", "--short").removeprefix("origin/")
+            base_ref = git(
+                args.repo, "symbolic-ref", "refs/remotes/origin/HEAD", "--short"
+            ).removeprefix("origin/")
         except Exception:
             base_ref = "main"
 
@@ -267,7 +292,9 @@ def build(args) -> dict:
     if args.build_cmd:
         checks.append({"name": "build", "command": args.build_cmd, "outcome": args.check_outcome})
     if args.test_cmd:
-        checks.append({"name": "unit-tests", "command": args.test_cmd, "outcome": args.check_outcome})
+        checks.append(
+            {"name": "unit-tests", "command": args.test_cmd, "outcome": args.check_outcome}
+        )
     if not checks:
         raise SystemExit("--build-cmd and/or --test-cmd is required (backport-fix reads them)")
 
@@ -315,9 +342,12 @@ def build(args) -> dict:
             "upstream_remote": repo_url,
         },
         "patch": patch_block(
-            args.repo, fix_commit, args.strategy,
-            args.rationale or f"Existing fix {fix_commit[:10]} closes {args.finding}; "
-                              "recorded for propagation to release branches.",
+            args.repo,
+            fix_commit,
+            args.strategy,
+            args.rationale
+            or f"Existing fix {fix_commit[:10]} closes {args.finding}; "
+            "recorded for propagation to release branches.",
         ),
         "checks": checks,
         "summary": {
@@ -331,54 +361,92 @@ def build(args) -> dict:
 def main() -> None:
     p = argparse.ArgumentParser(
         description="Synthesize a schema-valid remediation JSON from a triage finding "
-                    "plus an existing fix commit."
+        "plus an existing fix commit."
     )
     p.add_argument("--triage", required=True, type=Path, help="*-triage.json")
     p.add_argument("--finding", required=True, help="triage finding id (e.g. f001)")
     p.add_argument("--fix-commit", required=True, help="existing commit containing the fix")
     p.add_argument("--repo", required=True, type=Path, help="local clone holding the fix commit")
-    p.add_argument("--audit", type=Path, default=None,
-                   help="*-security-audit.json for CWEs/locations "
-                        "(default: resolved from the triage finding's source field)")
-    p.add_argument("--cwe", action="append", default=[], help="CWE-NNN (repeatable); overrides the audit")
+    p.add_argument(
+        "--audit",
+        type=Path,
+        default=None,
+        help="*-security-audit.json for CWEs/locations "
+        "(default: resolved from the triage finding's source field)",
+    )
+    p.add_argument(
+        "--cwe", action="append", default=[], help="CWE-NNN (repeatable); overrides the audit"
+    )
     p.add_argument("--title", default="", help="override the finding title")
-    p.add_argument("--severity", default="",
-                   choices=("", "critical", "high", "medium", "low", "informational"),
-                   help="override the triage/audit severity")
-    p.add_argument("--audited-commit", default="",
-                   help="commit the finding was found at (default: the fix commit's parent)")
+    p.add_argument(
+        "--severity",
+        default="",
+        choices=("", "critical", "high", "medium", "low", "informational"),
+        help="override the triage/audit severity",
+    )
+    p.add_argument(
+        "--audited-commit",
+        default="",
+        help="commit the finding was found at (default: the fix commit's parent)",
+    )
     p.add_argument("--out", "-o", type=Path, required=True)
     p.add_argument("--repo-url", default="", help="override the repository URL (default: origin)")
-    p.add_argument("--fork-url", default="", help="private mirror URL (default: the repository URL)")
+    p.add_argument(
+        "--fork-url", default="", help="private mirror URL (default: the repository URL)"
+    )
     p.add_argument("--visibility", default="public", choices=("public", "private", "internal"))
     p.add_argument("--base-ref", default="", help="branch the fix lives on (default: origin/HEAD)")
     p.add_argument("--fix-branch", default="", help="default: ex-wing/<finding>")
-    p.add_argument("--strategy", default="other", choices=_STRATEGIES,
-                   help="patch strategy (schema fix_strategy enum)")
+    p.add_argument(
+        "--strategy",
+        default="other",
+        choices=_STRATEGIES,
+        help="patch strategy (schema fix_strategy enum)",
+    )
     p.add_argument("--rationale", default="", help="why the fix closes the root cause")
     p.add_argument("--build-cmd", default="", help="build command backport-fix will run per branch")
     p.add_argument("--test-cmd", default="", help="test command backport-fix will run per branch")
-    p.add_argument("--check-outcome", default="skip", choices=("pass", "fail", "skip", "error"),
-                   help="outcome recorded for the checks (default: skip — not run here)")
-    p.add_argument("--status", default="patched",
-                   choices=("candidate", "forked", "patched", "checks_passed", "checks_failed",
-                            "revalidated_fixed", "revalidated_still_vulnerable", "pr_opened",
-                            "merged", "abandoned"))
+    p.add_argument(
+        "--check-outcome",
+        default="skip",
+        choices=("pass", "fail", "skip", "error"),
+        help="outcome recorded for the checks (default: skip — not run here)",
+    )
+    p.add_argument(
+        "--status",
+        default="patched",
+        choices=(
+            "candidate",
+            "forked",
+            "patched",
+            "checks_passed",
+            "checks_failed",
+            "revalidated_fixed",
+            "revalidated_still_vulnerable",
+            "pr_opened",
+            "merged",
+            "abandoned",
+        ),
+    )
     p.add_argument("--product", default="", help="logical_product (default: repo name)")
     p.add_argument("--language", default="")
     p.add_argument("--operator", default="make-remediation")
     p.add_argument("--date", default="", help="YYYY-MM-DD (default: today)")
-    p.add_argument("--no-validate", action="store_true",
-                   help="skip schema validation")
-    p.add_argument("--schema", type=Path, default=None,
-                   help="remediation contract schema (default: resolved from "
-                        "the installed contracts package or a sibling checkout)")
+    p.add_argument("--no-validate", action="store_true", help="skip schema validation")
+    p.add_argument(
+        "--schema",
+        type=Path,
+        default=None,
+        help="remediation contract schema (default: resolved from "
+        "the installed contracts package or a sibling checkout)",
+    )
     p.add_argument("--verbose", "-v", action="store_true")
     args = p.parse_args()
 
     logging.basicConfig(
         level=logging.DEBUG if args.verbose else logging.INFO,
-        format="%(asctime)s [%(levelname)s] %(message)s", datefmt="%H:%M:%S",
+        format="%(asctime)s [%(levelname)s] %(message)s",
+        datefmt="%H:%M:%S",
     )
     if not args.triage.is_file():
         raise SystemExit(f"triage JSON not found: {args.triage}")
@@ -387,7 +455,7 @@ def main() -> None:
 
     report = build(args)
     args.out.parent.mkdir(parents=True, exist_ok=True)
-    with open(args.out, "w") as f:
+    with Path(args.out).open("w") as f:
         json.dump(report, f, indent=2)
     log.info("Wrote %s", args.out)
 
@@ -397,8 +465,16 @@ def main() -> None:
         schema = resolve_schema(args.schema)
         python = _validator_python()
         if schema is not None and python is not None:
-            cmd = [python, "-m", "traust.cli", "reporting", "validate",
-                   "--schema", str(schema), str(args.out)]
+            cmd = [
+                python,
+                "-m",
+                "traust.cli",
+                "reporting",
+                "validate",
+                "--schema",
+                str(schema),
+                str(args.out),
+            ]
         else:
             cmd = None
 
@@ -407,15 +483,18 @@ def main() -> None:
                 r = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
             except subprocess.TimeoutExpired:
                 args.out.unlink(missing_ok=True)
-                raise SystemExit("validation timed out — output removed")
+                raise SystemExit("validation timed out — output removed") from None
             print(r.stdout.strip().splitlines()[-1] if r.stdout.strip() else "")
             if r.returncode != 0:
                 log.error("Schema validation FAILED:\n%s", r.stdout or r.stderr)
                 args.out.unlink(missing_ok=True)
                 sys.exit(1)
         else:
-            missing = "the remediation schema" if schema is None \
+            missing = (
+                "the remediation schema"
+                if schema is None
                 else "a validator (traust.cli / the harness venv)"
+            )
             log.error(
                 "%s could not be found — refusing to emit an unvalidated "
                 "remediation JSON. Install the contracts package, set "
@@ -428,8 +507,12 @@ def main() -> None:
     print(f"  finding_ref: {report['source_findings'][0]['finding_ref']}")
     print(f"  fix_commit:  {report['fork']['fix_commit']}")
     print(f"  files:       {report['patch']['diffstat']}")
-    print(f"\n  Next: python3 harnessing/7-remediate/backport-fix/scripts/generate_backport_configs.py "
-          f"--remediation {args.out} --repo {args.repo} --branch-pattern 'release-*' --scan-only")
+    print(
+        "\n  Next: python3 "
+        "harnessing/7-remediate/backport-fix/scripts/generate_backport_configs.py "
+        f"--remediation {args.out} --repo {args.repo} "
+        "--branch-pattern 'release-*' --scan-only"
+    )
 
 
 if __name__ == "__main__":

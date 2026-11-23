@@ -21,12 +21,14 @@ Extra safety assertion for the harness contract: refuses to run if
 GITHUB_TOKEN leaked into the pipeline environment (run_backport.sh must
 strip it).
 """
+
 import json
 import os
 import shutil
 import subprocess
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from pathlib import Path
 
 import yaml
 
@@ -48,13 +50,15 @@ def fail(msg: str) -> None:
 def main() -> None:
     for leaked in ("GITHUB_TOKEN", "GITHUB_AGENT_TOKEN_GLASSWING"):
         if leaked in os.environ:
-            fail(f"{leaked} is present in the pipeline environment — "
-                 "run_backport.sh failed to strip it")
+            fail(
+                f"{leaked} is present in the pipeline environment — "
+                "run_backport.sh failed to strip it"
+            )
 
     if len(sys.argv) < 2:
         fail("config path must be positional argv[1] (the real pipeline has no --config flag)")
     cfg_path = sys.argv[1]
-    with open(cfg_path) as f:
+    with Path(cfg_path).open() as f:
         cfg = yaml.safe_load(f)
 
     # --- input placement checks (mirrors config_loader requirements) ---
@@ -66,57 +70,83 @@ def main() -> None:
     target = cfg["branches"].get("target") or fail("branches.target missing")
     fix_commit = cfg["fix"].get("commit") or fail("fix.commit missing")
 
-    for ref, what in ((fix_commit + "^{commit}", "fix.commit"),
-                      (source, "branches.source"), (target, "branches.target")):
-        r = subprocess.run(["git", "rev-parse", "--verify", "--quiet", ref],
-                           cwd=src, capture_output=True)
+    for ref, what in (
+        (fix_commit + "^{commit}", "fix.commit"),
+        (source, "branches.source"),
+        (target, "branches.target"),
+    ):
+        r = subprocess.run(
+            ["git", "rev-parse", "--verify", "--quiet", ref], cwd=src, capture_output=True
+        )
         if r.returncode != 0:
             fail(f"{what} ({ref}) not resolvable in source repo {src}")
 
     sanitized = target.removeprefix("origin/").replace("/", "_")
     outcome = outcomes_from_env().get(sanitized, "success")
-    ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-    base = os.path.basename(cfg_path)
+    ts = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
+    base = Path(cfg_path).name
     base = base[:-5] if base.endswith(".yaml") else base
 
     # CWD-relative runs/ — deliberately identical to the real pipeline
-    run_dir = os.path.join("runs", f"{base}_{ts}")
-    tdir = os.path.join(run_dir, sanitized)
-    os.makedirs(tdir, exist_ok=True)
+    run_dir = Path("runs") / f"{base}_{ts}"
+    tdir = run_dir / sanitized
+    tdir.mkdir(parents=True, exist_ok=True)
 
-    with open(os.path.join(tdir, "dossier.md"), "w") as f:
+    with (tdir / "dossier.md").open("w") as f:
         f.write(f"# Mock dossier — {cfg['issue_id']}\noutcome: {outcome}\n")
-    with open(os.path.join(tdir, "run_log.txt"), "w") as f:
+    with (tdir / "run_log.txt").open("w") as f:
         f.write("mock pipeline run\n")
-    with open(os.path.join(tdir, f"{cfg['issue_id']}_{ts}.json"), "w") as f:
-        json.dump({"run_id": "mock", "issue_id": cfg["issue_id"],
-                   "outcome": outcome, "total_cost_usd": 0.42,
-                   "backport_commit": fix_commit}, f)
+    with (tdir / f"{cfg['issue_id']}_{ts}.json").open("w") as f:
+        json.dump(
+            {
+                "run_id": "mock",
+                "issue_id": cfg["issue_id"],
+                "outcome": outcome,
+                "total_cost_usd": 0.42,
+                "backport_commit": fix_commit,
+            },
+            f,
+        )
 
     if outcome in ("success", "partial_success"):
         # candidate.patch lands in the per-target run dir, like the real
         # pipeline (git format-patch bytes)
-        with open(os.path.join(tdir, "candidate.patch"), "w") as f:
-            f.write("From mock Mon Sep 17 00:00:00 2001\n"
-                    "Subject: [PATCH] mock backport\n\n"
-                    "diff --git a/mock b/mock\n--- a/mock\n+++ b/mock\n"
-                    "@@ -1 +1 @@\n-old\n+new\n")
+        with (tdir / "candidate.patch").open("w") as f:
+            f.write(
+                "From mock Mon Sep 17 00:00:00 2001\n"
+                "Subject: [PATCH] mock backport\n\n"
+                "diff --git a/mock b/mock\n--- a/mock\n+++ b/mock\n"
+                "@@ -1 +1 @@\n-old\n+new\n"
+            )
         # preservation branch in the source clone, like the real pipeline
         subprocess.run(
             ["git", "branch", "-f", f"amalgamator/{cfg['issue_id']}", fix_commit],
-            cwd=src, check=True, capture_output=True,
+            cwd=src,
+            check=True,
+            capture_output=True,
         )
         # workdir worktree so run_backport.sh's fallback path is exercised
         wd = cfg["repository"].get("workdir", "")
         if wd:
             shutil.rmtree(wd, ignore_errors=True)
-            os.makedirs(wd, exist_ok=True)
-            wt = os.path.join(wd, "worktree")
+            Path(wd).mkdir(parents=True, exist_ok=True)
+            wt = Path(wd) / "worktree"
             subprocess.run(["git", "clone", "-q", src, wt], check=True)
             subprocess.run(
-                ["git", "-c", "user.email=m@m", "-c", "user.name=mock",
-                 "checkout", "-q", "-b", "mock-backport", fix_commit],
-                cwd=wt, check=True,
+                [
+                    "git",
+                    "-c",
+                    "user.email=m@m",
+                    "-c",
+                    "user.name=mock",
+                    "checkout",
+                    "-q",
+                    "-b",
+                    "mock-backport",
+                    fix_commit,
+                ],
+                cwd=wt,
+                check=True,
             )
 
     summary = {
@@ -125,18 +155,20 @@ def main() -> None:
         "failed": 0 if outcome == "success" else 1,
         "total_duration_s": 1.2,
         "total_cost_usd": 0.42,
-        "targets": [{
-            "target_branch": target,
-            "issue_id": cfg["issue_id"],
-            "outcome": outcome,
-            "duration_s": 1.2,
-            "cost_usd": 0.42,
-            "dossier_path": f"{sanitized}/dossier.md",
-            "tracker_path": f"{sanitized}/{cfg['issue_id']}_{ts}.json",
-            "error": "" if outcome == "success" else f"mock {outcome}",
-        }],
+        "targets": [
+            {
+                "target_branch": target,
+                "issue_id": cfg["issue_id"],
+                "outcome": outcome,
+                "duration_s": 1.2,
+                "cost_usd": 0.42,
+                "dossier_path": f"{sanitized}/dossier.md",
+                "tracker_path": f"{sanitized}/{cfg['issue_id']}_{ts}.json",
+                "error": "" if outcome == "success" else f"mock {outcome}",
+            }
+        ],
     }
-    with open(os.path.join(run_dir, "summary.json"), "w") as f:
+    with (run_dir / "summary.json").open("w") as f:
         json.dump(summary, f, indent=1)
 
     print(f"Run directory: {run_dir}")
