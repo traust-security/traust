@@ -1284,3 +1284,39 @@ def test_published_patches_are_linked_when_results_sit_outside_the_workspace(tmp
     published = json.loads((dest / "r-backport-report.json").read_text())
     relative = published["target_branches"][0]["patch_path"]
     assert relative and (workspace / relative).is_file()
+
+
+def test_patch_block_reads_a_merge_commit_by_its_mainline_effect(tmp_path):
+    # `git show <merge>` is a combined diff and is usually empty even when the
+    # merge brings the fix in; the fix's files must still be listed.
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    def git(*args: str) -> None:
+        subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True, text=True)
+
+    identity = ("-c", "user.email=t@t", "-c", "user.name=t")
+    git("init", "-q", "-b", "main")
+    (repo / "a.txt").write_text("a\n")
+    git("add", ".")
+    git(*identity, "commit", "-qm", "base")
+    git("checkout", "-qb", "feature")
+    (repo / "fix.txt").write_text("fix\n")
+    git("add", ".")
+    git(*identity, "commit", "-qm", "fix")
+    git("checkout", "-q", "main")
+    (repo / "main.txt").write_text("main\n")
+    git("add", ".")
+    git(*identity, "commit", "-qm", "main work")
+    git(*identity, "merge", "--no-ff", "-qm", "merge feature", "feature")
+    sha = subprocess.run(
+        ["git", "-C", str(repo), "rev-parse", "HEAD"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+    block = mk.patch_block(repo, sha, "other", "r")
+    paths = {entry["path"] for entry in block["files_changed"]}
+    assert "fix.txt" in paths
+    assert block["diffstat"]["additions"] >= 1
