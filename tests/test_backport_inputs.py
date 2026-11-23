@@ -1425,7 +1425,7 @@ def test_patch_mode_never_runs_checkout_hooks_or_filters(tmp_path):
     git("config", "user.name", "t")
     git("config", "user.email", "t@t")
     (repo / "base.txt").write_text("base\n")
-    (repo / ".gitattributes").write_text("* filter=evil\n")
+    (repo / ".gitattributes").write_text("* filter=evil.driver\n")
     git("add", ".")
     git(*identity, "commit", "-qm", "base")
     git("branch", "origin/main")
@@ -1434,8 +1434,9 @@ def test_patch_mode_never_runs_checkout_hooks_or_filters(tmp_path):
     helper = tmp_path / "helper.sh"
     helper.write_text(f"#!/bin/sh\ntouch '{marker}'\ncat\n")
     helper.chmod(0o755)
-    git("config", "filter.evil.clean", str(helper))
-    git("config", "filter.evil.smudge", str(helper))
+    # Driver names may contain dots; the override must disable the whole name.
+    git("config", "filter.evil.driver.clean", str(helper))
+    git("config", "filter.evil.driver.smudge", str(helper))
     for hook in ("post-checkout", "pre-commit", "commit-msg", "post-commit"):
         path = repo / ".git" / "hooks" / hook
         path.write_text(f"#!/bin/sh\ntouch '{marker}'\n")
@@ -1450,6 +1451,9 @@ def test_patch_mode_never_runs_checkout_hooks_or_filters(tmp_path):
         "@@ -0,0 +1 @@\n"
         "+hello\n"
     )
+
+    overrides = gen._repo_filter_overrides(repo)
+    assert "filter.evil.driver.clean=" in overrides
 
     sha = gen.apply_patch_as_commit(repo, patch, "main")
     assert re.fullmatch(r"[0-9a-f]{40}", sha)
