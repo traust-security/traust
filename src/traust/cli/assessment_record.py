@@ -11,6 +11,7 @@ from datetime import UTC, date, datetime, time
 from importlib.metadata import version
 from pathlib import Path
 
+from traust_core.v1.errors import ValidationError
 from traust_core.v1.models.artifacts import (
     ArtifactDocument,
     FuzzReportArtifact,
@@ -20,11 +21,11 @@ from traust_core.v1.models.artifacts import (
     ThreatModelArtifact,
     VulnFindingsArtifact,
 )
-from traust_core.v1.errors import ValidationError
 from traust_core.v1.models.assessment import AssessmentKind
 from traust_core.v1.models.common import Provenance
 from traust_core.v1.models.values import HttpsRepoUrl
 from traust_core.v1.models.vocabulary import SourceType
+
 from traust.cli._doors import add_branch_arg, add_run_order_arg, parser, register_commit, run, when
 from traust.context import load
 

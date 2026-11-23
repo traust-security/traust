@@ -247,6 +247,7 @@ def checkout(
         except TraustError as e:
             print(f"workspace release failed, left at {workspace.path}: {e}", file=sys.stderr)
 
+
 def prompt(skill: str, args: list[str]) -> str:
     return " ".join([f"/{skill}", *args])
 
@@ -348,7 +349,8 @@ def run(argv: list[str] | None = None) -> int:
     usage: tuple[ModelUsage, ...] = ()
     if args.purl and (not args.sha or not args.repo):
         print(
-            f"run {args.run_id}: {OrderReason.UNRESOLVED_TARGET}: --purl requires --repo and --sha pin",
+            f"run {args.run_id}: {OrderReason.UNRESOLVED_TARGET}: "
+            "--purl requires --repo and --sha pin",
             file=sys.stderr,
         )
         return answer(JobResult.refused(OrderReason.UNRESOLVED_TARGET))

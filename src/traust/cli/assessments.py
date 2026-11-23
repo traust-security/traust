@@ -33,6 +33,7 @@ from traust_core.v1.models.component_target import ComponentTarget, ComponentTar
 from traust_core.v1.models.inventory import RepositoryFilter
 from traust_core.v1.models.values import GitSha, HttpsRepoUrl
 from traust_core.v1.models.vocabulary import RefKind, ThreatStatus
+
 from traust.cli._doors import parser, run
 from traust.context import load
 
@@ -119,9 +120,7 @@ def prepare(argv: list[str] | None = None) -> int:
                 )
             except UnresolvedTargetError as e:
                 refused = e
-                return json.dumps(
-                    {"unresolved": True, "reason": str(e.reason), "detail": e.detail}
-                )
+                return json.dumps({"unresolved": True, "reason": str(e.reason), "detail": e.detail})
             commit_sha = component_target.commit
             if component_target.release_ref:
                 ref_name = component_target.release_ref
