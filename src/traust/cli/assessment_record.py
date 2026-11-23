@@ -20,11 +20,11 @@ from traust_core.v1.models.artifacts import (
     ThreatModelArtifact,
     VulnFindingsArtifact,
 )
+from traust_core.v1.errors import ValidationError
 from traust_core.v1.models.assessment import AssessmentKind
 from traust_core.v1.models.common import Provenance
 from traust_core.v1.models.values import HttpsRepoUrl
 from traust_core.v1.models.vocabulary import SourceType
-
 from traust.cli._doors import add_branch_arg, add_run_order_arg, parser, register_commit, run, when
 from traust.context import load
 
@@ -64,6 +64,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--repo-url", required=True, help="https URL of the audited repository")
     ap.add_argument("--sha", required=True, help="the audited commit")
     ap.add_argument("--public", action="store_true", help="the repository is public")
+    ap.add_argument(
+        "--purl",
+        help="expected versioned component PURL; refuses recording if metadata.target.purl differs",
+    )
     add_branch_arg(ap)
     add_run_order_arg(ap)
     args = ap.parse_args(argv)
@@ -72,6 +76,14 @@ def main(argv: list[str] | None = None) -> int:
 
     def call() -> dict:
         doc = artifact.parse(args.document.read_bytes())
+        if args.purl is not None:
+            target = getattr(getattr(doc, "metadata", None), "target", None)
+            actual_purl = getattr(target, "purl", None) if target is not None else None
+            if actual_purl != args.purl:
+                raise ValidationError(
+                    f"report metadata.target.purl ({actual_purl!r}) does not match "
+                    f"--purl {args.purl!r}"
+                )
         core = load(args.config_home)
         services = core.services()
         url = HttpsRepoUrl.parse(args.repo_url, core.config.forge_hosts)

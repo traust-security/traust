@@ -42,6 +42,11 @@ def checkout(argv: list[str] | None = None) -> int:
         help="the history the workspace must hold: a depth, or the anchor sha it must reach",
     )
     ap.add_argument("--writable", action="store_true", help="a workspace the run may write to")
+    ap.add_argument(
+        "--shared",
+        action="store_true",
+        help="reuse a ref-counted read-only worktree for this (repo, sha)",
+    )
     args = ap.parse_args(argv)
 
     def call() -> str:
@@ -55,6 +60,7 @@ def checkout(argv: list[str] | None = None) -> int:
             ref=GitSha.parse(args.ref),
             history=_history(args.history),
             writable=args.writable,
+            shared=args.shared,
             keep=tuple(args.keep) if args.keep else None,
         )
         return str(core.services().checkouts.checkout(request).data.path)

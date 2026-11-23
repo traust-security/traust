@@ -37,9 +37,16 @@ from uuid import UUID
 import pydantic
 from pydantic import Field
 from traust_core.v1.context import TRAUST_CONFIG_HOME_ENV, CheckoutRequest, Context, Workspace
-from traust_core.v1.errors import NotFoundError, ServiceError, TraustError, ValidationError
+from traust_core.v1.errors import (
+    NotFoundError,
+    ServiceError,
+    TraustError,
+    UnresolvedTargetError,
+    ValidationError,
+)
 from traust_core.v1.models.assessment import Assessment, AssessmentKind, DiffRefused
 from traust_core.v1.models.base import Dto
+from traust_core.v1.models.component_target import ComponentTargetRequest
 from traust_core.v1.models.operations import (
     JobResult,
     ModelName,
@@ -203,22 +210,32 @@ def diff_anchor(url: str, clone: Path) -> str:
 
 
 @contextmanager
-def checkout(url: str, config_home: Path | None) -> Iterator[Workspace]:
-    """The order's commit — the head its repo_state observation recorded, not the branch's
-    current tip — through the checkout service, released when the session ends. The mirror's
-    worktree holds the history a diff scan anchors at (the anchor itself only resolves once
-    the checkout exists, so the request names no bound)."""
+def checkout(
+    url: str,
+    config_home: Path | None,
+    *,
+    sha: str | None = None,
+    shared: bool = False,
+) -> Iterator[Workspace]:
+    """Check out an explicit pinned commit (`sha`) or the order's observed default head through
+    the checkout service, released when the session ends."""
     core = load(config_home)
     services = core.services()
     parsed = HttpsRepoUrl.parse(url, core.config.forge_hosts)
-    repo = services.portfolio.find_repository(parsed)
-    if repo is None or repo.id is None:
-        raise NotFoundError(f"{url}: not in the inventory (`traust portfolio observe` records it)")
-    head = services.portfolio.default_ref(repo.id)
-    if head is None:
-        raise NotFoundError(f"{url}: no observed default head to check out")
+    if sha is not None:
+        commit = GitSha.parse(sha)
+    else:
+        repo = services.portfolio.find_repository(parsed)
+        if repo is None or repo.id is None:
+            raise NotFoundError(
+                f"{url}: not in the inventory (`traust portfolio observe` records it)"
+            )
+        head = services.portfolio.default_ref(repo.id)
+        if head is None:
+            raise NotFoundError(f"{url}: no observed default head to check out")
+        commit = GitSha.parse(head.sha)
     workspace = services.checkouts.checkout(
-        CheckoutRequest(repo=parsed, ref=GitSha.parse(head.sha))
+        CheckoutRequest(repo=parsed, ref=commit, shared=shared)
     ).data
     try:
         yield workspace
@@ -229,7 +246,6 @@ def checkout(url: str, config_home: Path | None) -> Iterator[Workspace]:
             services.checkouts.release(workspace)
         except TraustError as e:
             print(f"workspace release failed, left at {workspace.path}: {e}", file=sys.stderr)
-
 
 def prompt(skill: str, args: list[str]) -> str:
     return " ".join([f"/{skill}", *args])
@@ -261,6 +277,10 @@ def run(argv: list[str] | None = None) -> int:
     ap.add_argument("--run-id", default="manual", help="the run order this session is for")
     ap.add_argument("--worker", help="the engine worker holding the order's lease")
     ap.add_argument("--rule", help="the router rule that routed the order")
+    ap.add_argument("--purl", help="versioned component PURL target for a pinned monorepo audit")
+    ap.add_argument("--sha", help="immutable 40-char commit SHA pinning the audit target")
+    ap.add_argument("--release-ref", help="optional release tag pinning the component PURL")
+    ap.add_argument("--module-path", help="optional module path hint verified against manifests")
     argv = sys.argv[1:] if argv is None else argv
     split = argv.index("--") if "--" in argv else len(argv)
     args, extra = ap.parse_args(argv[:split]), argv[split + 1 :]
@@ -326,15 +346,71 @@ def run(argv: list[str] | None = None) -> int:
     if args.config_home is not None:
         env[TRAUST_CONFIG_HOME_ENV] = str(args.config_home)
     usage: tuple[ModelUsage, ...] = ()
-    entered = checkout(args.repo, args.config_home) if args.checkout else nullcontext(None)
+    if args.purl and (not args.sha or not args.repo):
+        print(
+            f"run {args.run_id}: {OrderReason.UNRESOLVED_TARGET}: --purl requires --repo and --sha pin",
+            file=sys.stderr,
+        )
+        return answer(JobResult.refused(OrderReason.UNRESOLVED_TARGET))
+    entered = (
+        (
+            checkout(args.repo, args.config_home, sha=args.sha, shared=bool(args.purl))
+            if args.sha or args.purl
+            else checkout(args.repo, args.config_home)
+        )
+        if (args.checkout or args.purl)
+        else nullcontext(None)
+    )
     try:
         with entered as workspace:
+            target_args: list[str] = []
+            if args.purl:
+                if workspace is None:
+                    print(
+                        f"run {args.run_id}: {OrderReason.UNRESOLVED_TARGET}: "
+                        "component PURL run requires a pinned checkout",
+                        file=sys.stderr,
+                    )
+                    return answer(JobResult.refused(OrderReason.UNRESOLVED_TARGET))
+                core = load(args.config_home)
+                try:
+                    resolved = core.services().component_targets.resolve(
+                        ComponentTargetRequest(
+                            purl=args.purl,
+                            repository=args.repo,
+                            commit=args.sha,
+                            release_ref=args.release_ref,
+                            module_path=args.module_path,
+                        ),
+                        workspace.path,
+                    )
+                except UnresolvedTargetError as e:
+                    print(
+                        f"run {args.run_id}: {OrderReason.UNRESOLVED_TARGET}: {e}",
+                        file=sys.stderr,
+                    )
+                    return answer(JobResult.refused(OrderReason.UNRESOLVED_TARGET))
+                target_args = [
+                    "--purl",
+                    resolved.purl,
+                    "--commit",
+                    resolved.commit,
+                    "--module-path",
+                    resolved.module_path,
+                ]
+                if resolved.release_ref:
+                    target_args.extend(["--release-ref", resolved.release_ref])
             target = (
                 [str(workspace.path)]
                 if workspace is not None
                 else ([args.repo] if args.repo else [])
             )
-            command = [*AGENT, "--model", model, prompt(args.skill, [*mode, *target, *extra])]
+            command = [
+                *AGENT,
+                "--model",
+                model,
+                prompt(args.skill, [*mode, *target, *target_args, *extra]),
+            ]
             try:
                 done, usage = session(command, args.skill, env)
                 if done.returncode == 0 and pr_model:

@@ -20,7 +20,7 @@ from uuid import UUID
 
 import pydantic
 from traust_core.v1.context import Context
-from traust_core.v1.errors import NotFoundError, ValidationError
+from traust_core.v1.errors import NotFoundError, UnresolvedTargetError, ValidationError
 from traust_core.v1.models.assessment import (
     AssessmentFilter,
     AssessmentKind,
@@ -29,10 +29,10 @@ from traust_core.v1.models.assessment import (
     ThreatFilter,
 )
 from traust_core.v1.models.common import every_item
+from traust_core.v1.models.component_target import ComponentTarget, ComponentTargetRequest
 from traust_core.v1.models.inventory import RepositoryFilter
 from traust_core.v1.models.values import GitSha, HttpsRepoUrl
-from traust_core.v1.models.vocabulary import ThreatStatus
-
+from traust_core.v1.models.vocabulary import RefKind, ThreatStatus
 from traust.cli._doors import parser, run
 from traust.context import load
 
@@ -52,8 +52,17 @@ def _repositories(core: Context) -> dict[UUID, str]:
 def prepare(argv: list[str] | None = None) -> int:
     ap = parser("assessments", "prepare", "Print what an assessment of one commit starts from.")
     ap.add_argument("--repo-url", required=True, help="https URL of the registered repository")
-    ap.add_argument("--sha", required=True, help="the commit to assess (the checkout's HEAD)")
+    ap.add_argument("--sha", help="the commit to assess (required unless --purl + --release-ref)")
     ap.add_argument("--kind", required=True, choices=[k.value for k in AssessmentKind])
+    ap.add_argument("--purl", help="versioned component PURL to audit within the pinned repo")
+    ap.add_argument("--release-ref", help="release tag pinning the component PURL")
+    ap.add_argument("--module-path", help="optional module path hint verified against manifests")
+    ap.add_argument(
+        "--checkout",
+        type=Path,
+        metavar="CHECKOUT",
+        help="pinned local checkout for deterministic component PURL resolution",
+    )
     ap.add_argument("--diff", type=Path, metavar="CHECKOUT", help="diff mode over this checkout")
     ap.add_argument("--since", help="diff mode: the commit the diff starts from (override)")
     ap.add_argument(
@@ -61,12 +70,18 @@ def prepare(argv: list[str] | None = None) -> int:
     )
     ap.add_argument("-o", "--out", type=Path, help="write the JSON here instead of stdout")
     args = ap.parse_args(argv)
-    refused: DiffRefused | None = None
+    refused: DiffRefused | UnresolvedTargetError | None = None
 
     def call() -> str | None:
         nonlocal refused
         if args.diff is None and (args.since or args.baseline_assessment):
             raise ValidationError("--since and --baseline-assessment need --diff")
+        if args.purl is None and not args.sha:
+            raise ValidationError("--sha is required unless --purl resolves a pinned commit")
+        if args.purl is not None and args.diff is not None:
+            raise ValidationError("--purl component audits are initial source audits, not diffs")
+        if args.purl is not None and args.checkout is None:
+            raise ValidationError("--purl requires --checkout pointing at the pinned tree")
         try:
             diff = (
                 DiffRequest(
@@ -85,10 +100,42 @@ def prepare(argv: list[str] | None = None) -> int:
         repo = services.portfolio.find_repository(url)
         if repo is None or repo.id is None:
             raise NotFoundError(f"repository {args.repo_url} is not registered")
-        ref = services.portfolio.register_ref(repo.id, GitSha.parse(args.sha), None, None)
+        component_target: ComponentTarget | None = None
+        commit_sha = args.sha
+        ref_name: str | None = None
+        ref_kind: RefKind | None = None
+        if args.purl is not None:
+            assert args.checkout is not None
+            try:
+                component_target = services.component_targets.resolve(
+                    ComponentTargetRequest(
+                        purl=args.purl,
+                        repository=str(url),
+                        commit=args.sha,
+                        release_ref=args.release_ref,
+                        module_path=args.module_path,
+                    ),
+                    args.checkout,
+                )
+            except UnresolvedTargetError as e:
+                refused = e
+                return json.dumps(
+                    {"unresolved": True, "reason": str(e.reason), "detail": e.detail}
+                )
+            commit_sha = component_target.commit
+            if component_target.release_ref:
+                ref_name = component_target.release_ref
+                ref_kind = RefKind.TAG
+        assert commit_sha is not None
+        ref = services.portfolio.register_ref(repo.id, GitSha.parse(commit_sha), ref_name, ref_kind)
         assert ref.id is not None
         try:
-            prepared = services.assessment.prepare(ref.id, AssessmentKind(args.kind), diff)
+            if component_target is not None:
+                prepared = services.assessment.prepare(
+                    ref.id, AssessmentKind(args.kind), diff, component_target=component_target
+                )
+            else:
+                prepared = services.assessment.prepare(ref.id, AssessmentKind(args.kind), diff)
         except DiffRefused as e:
             refused = e
             return json.dumps({"refuse": True, "recommend": e.recommend, "reason": e.reason})
