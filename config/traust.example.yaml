@@ -21,7 +21,7 @@
 #     # access_key_env: TRAUST_S3_ACCESS_KEY       # optional pair; default: SDK credentials
 #     # secret_key_env: TRAUST_S3_SECRET_KEY       # optional pair; default: workload identity
 
-# Decision-writing lanes need verified identity, an audit-valve salt and working ledger keys.
+# # Decision-writing lanes need verified identity, an audit-valve salt and working ledger keys.
 # identity:                     # absent: no caller can be verified
 #   trust_local: true           # solo only: bootstrap the local issuer with `traust auth local`
 #                               # before startup; shared deployments configure OIDC `issuers`
