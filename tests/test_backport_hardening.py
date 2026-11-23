@@ -627,7 +627,7 @@ def test_safe_git_does_not_verify_signatures_with_a_repo_gpg_program(tmp_path):
     _git(repo, "config", "log.showSignature", "true")
     _git(repo, "config", "gpg.program", str(helper))
 
-    r = subprocess.run(
+    subprocess.run(
         ["bash", str(SKILL / "scripts" / "safe_git.sh"), "-C", str(repo), "show", sha],
         capture_output=True,
         text=True,
@@ -703,11 +703,12 @@ def test_local_mode_runs_with_a_private_home(tmp_path):
     private_home = engine_env["HOME"]
     assert private_home != str(fake_home)
     assert "backport-fix-home" in private_home
-    assert not os.path.exists(os.path.join(private_home, ".config", "gh", "hosts.yml"))
-    assert not os.path.exists(os.path.join(private_home, ".ssh"))
-    assert not os.path.exists(os.path.join(private_home, ".git-credentials"))
+    home = pathlib.Path(private_home)
+    assert not (home / ".config" / "gh" / "hosts.yml").exists()
+    assert not (home / ".ssh").exists()
+    assert not (home / ".git-credentials").exists()
     assert engine_env["XDG_CONFIG_HOME"].startswith(private_home)
     # Identity is copied so commits still work without global config.
     assert engine_env["_git_email"] == "caller@example.test"
     # The private HOME is removed when the run ends.
-    assert not os.path.isdir(private_home)
+    assert not home.is_dir()
