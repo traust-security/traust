@@ -29,7 +29,7 @@ jobs:
         with:
           repository: traust-security/traust-engine
           persist-credentials: false
-          ref: 56a8064f38720605223679611aba1c2921fcecf9
+          ref: 1367be60c6fe2026c3351ea3d6ece6cdab16a681
           path: traust-engine
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
