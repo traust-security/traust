@@ -87,16 +87,45 @@ def workspace_root(*, required: bool = False) -> Path | None:
     return None
 
 
+def checkout_version(root: Path) -> str:
+    """The harness version: VERSION (legacy) or pyproject [project].version.
+
+    Upstream retired the release machinery (VERSION is gone), so the version
+    now lives in pyproject.toml; VERSION still wins when present so older
+    checkouts keep reporting the same value.
+    """
+    version_file = root / "VERSION"
+    if version_file.is_file():
+        try:
+            return version_file.read_text().strip()
+        except OSError:
+            return ""
+    pyproject = root / "pyproject.toml"
+    if not pyproject.is_file():
+        return ""
+    try:
+        import tomllib
+        data = tomllib.loads(pyproject.read_text())
+    except (OSError, ValueError):
+        return ""
+    project = data.get("project")
+    return str(project.get("version", "")).strip() if isinstance(project, dict) else ""
+
+
+def _is_harness_checkout(root: Path) -> bool:
+    return (root / "VERSION").is_file() or (root / "pyproject.toml").is_file()
+
+
 def harness_root() -> Path | None:
     """The harness checkout: this repo when cloned here, else the sibling."""
     root = repo_root()
-    if (root / "VERSION").is_file():
+    if _is_harness_checkout(root):
         return root
     ws = workspace_root()
     if ws is None:
         return None
     candidate = ws / "traust"
-    return candidate if (candidate / "VERSION").is_file() else None
+    return candidate if _is_harness_checkout(candidate) else None
 
 
 def analysis_results_root() -> Path | None:
@@ -123,10 +152,7 @@ def harness_version(*, with_rev: bool = False) -> str:
     harness = harness_root()
     if harness is None:
         return "0.0.0"
-    try:
-        version = (harness / "VERSION").read_text().strip()
-    except OSError:
-        return "0.0.0"
+    version = checkout_version(harness)
     if not _VERSION_RE.fullmatch(version):
         return "0.0.0"
     if not with_rev:
