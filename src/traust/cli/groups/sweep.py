@@ -9,11 +9,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from traust_core.v1.context import Context
-from traust_core.v1.context.tool_reports import (
-    intake_opengrep_rules,
-    opengrep_quality_report,
-    opengrep_report,
-)
+from traust_core.v1.context.tool_reports import opengrep_quality_report, opengrep_report
 from traust_core.v1.context.tools import load_rule_allowlist
 from traust_core.v1.errors import (
     DeploymentConfigMissing,
@@ -493,10 +489,12 @@ def add_intake_rules_args(ap: argparse.ArgumentParser) -> None:
         "--into", required=True, type=Path, help="new accepted-pack directory (never overwritten)"
     )
     ap.add_argument("--opengrep", default="opengrep", help="Opengrep binary")
-    ap.add_argument("--timeout", type=int, default=300, help="timeout per native quality command")
+    ap.add_argument("--timeout", type=int, default=300, help="native quality time budget seconds")
 
 
 def call_intake_rules(args: argparse.Namespace) -> int:
+    from traust_core.v1.context.tool_reports import intake_opengrep_rules
+
     def call() -> int:
         report = intake_opengrep_rules(
             load(args.config_home),

@@ -14,6 +14,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from traust_core.v1.context import tool_reports
 
 from traust.cli import toolchain
 from traust.cli.groups import adapters, sweep, util
@@ -66,8 +67,24 @@ def test_opengrep_refusals_keep_their_exit_codes(
     assert message in capsys.readouterr().err
 
 
-def test_opengrep_reports_additive_refusals_without_losing_completed_output(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+@pytest.mark.parametrize(
+    ("refused", "skipped", "errors", "outcome"),
+    [
+        ([{"source": "two"}], [], [], "degraded"),
+        ([], [{"rule_id": "other-language", "check": "language"}], [], "succeeded"),
+        ([], [], [{"type": "PartialParsing", "message": "target parse warning"}], "degraded"),
+        ([], [], [{"type": "ParseError", "message": "target parse warning"}], "degraded"),
+        ([], [], [{"type": "Timeout", "message": "target timeout warning"}], "degraded"),
+    ],
+)
+def test_opengrep_preserves_additive_receipts_and_healthy_facts(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    refused: list[dict],
+    skipped: list[dict],
+    errors: list[dict],
+    outcome: str,
 ) -> None:
     parser = argparse.ArgumentParser()
     adapters.add_opengrep_args(parser)
@@ -81,19 +98,30 @@ def test_opengrep_reports_additive_refusals_without_losing_completed_output(
     def report(_ctx, _target, _rules, **options):
         assert options["add_rules"] == ["one", "two"]
         return {
-            "facts": [{"severity_hint": "low", "rule_id": "baseline"}],
-            "errors": [],
+            "facts": [
+                {"severity_hint": "low", "rule_id": "baseline", "origin": "baseline"},
+                {"severity_hint": "low", "rule_id": "healthy-extra", "origin": "additive:one"},
+            ],
+            "errors": errors,
             "stats": {"files_scanned": 1, "skipped_rules": 0},
             "rules": [{"source": "baseline"}],
-            "outcome": "degraded",
-            "additive_rules": {"refused": [{"source": "two"}]},
+            "outcome": outcome,
+            "additive_rules": {"refused": refused, "skipped": skipped},
         }
 
     monkeypatch.setattr(adapters, "opengrep_report", report)
     out = tmp_path / "scan.json"
     assert adapters.call_opengrep(opengrep_args(tmp_path, add_rules=args.add_rules, out=out)) == 0
-    assert "WARNING: degraded" in capsys.readouterr().err
-    assert json.loads(out.read_text())["facts"][0]["rule_id"] == "baseline"
+    diagnostic = capsys.readouterr().err
+    assert ("WARNING: degraded" in diagnostic) == bool(refused)
+    written = json.loads(out.read_text())
+    assert [(fact["rule_id"], fact["origin"]) for fact in written["facts"]] == [
+        ("baseline", "baseline"),
+        ("healthy-extra", "additive:one"),
+    ]
+    assert written["additive_rules"] == {"refused": refused, "skipped": skipped}
+    assert written["errors"] == errors
+    assert written["outcome"] == outcome
 
 
 def test_intake_emits_receipts_and_fails_when_any_rule_is_refused(
@@ -115,7 +143,7 @@ def test_intake_emits_receipts_and_fails_when_any_rule_is_refused(
         assert destination == Path("accepted")
         return receipts
 
-    monkeypatch.setattr(sweep, "intake_opengrep_rules", report)
+    monkeypatch.setattr(tool_reports, "intake_opengrep_rules", report)
     assert sweep.call_intake_rules(args) == 1
     assert json.loads(capsys.readouterr().out) == receipts
 
@@ -143,9 +171,56 @@ def test_intake_success_is_reported_only_for_admitted_publication(
         "refused": [],
         "quality_checks": [],
     }
-    monkeypatch.setattr(sweep, "intake_opengrep_rules", lambda *_args, **_kwargs: receipts)
+    monkeypatch.setattr(tool_reports, "intake_opengrep_rules", lambda *_args, **_kwargs: receipts)
     assert sweep.call_intake_rules(args) == 0
     assert json.loads(capsys.readouterr().out) == receipts
+
+
+@pytest.mark.parametrize(
+    ("arguments", "exit_code"),
+    [
+        (["--help"], 0),
+        (["adapters", "opengrep", "--help"], 0),
+        (["sweep", "intake-rules", "--help"], 0),
+        (["sweep", "intake-rules", "draft", "--into", "accepted"], 1),
+    ],
+)
+def test_missing_intake_api_does_not_break_unrelated_cli_startup(
+    tmp_path: Path, arguments: list[str], exit_code: int
+) -> None:
+    repo = Path(__file__).resolve().parents[1]
+    env = {
+        **os.environ,
+        "HARNESS_ROOT": str(repo),
+        "PYTHONPATH": os.pathsep.join(
+            filter(None, (str(repo / "src"), os.environ.get("PYTHONPATH")))
+        ),
+    }
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import sys\n"
+            "from traust_core.v1.context import tool_reports\n"
+            "del tool_reports.intake_opengrep_rules\n"
+            "from traust.cli.__main__ import main\n"
+            "raise SystemExit(main(sys.argv[1:]))\n",
+            *arguments,
+        ],
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == exit_code, result.stderr
+    if exit_code:
+        assert "ImportError" in result.stderr
+        assert "intake_opengrep_rules" in result.stderr
+        assert not (tmp_path / "accepted").exists()
+    else:
+        assert "usage: traust" in result.stdout
+        assert not result.stderr
 
 
 @pytest.mark.parametrize(

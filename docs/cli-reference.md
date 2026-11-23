@@ -207,6 +207,8 @@ they do not replace mining, regression-draft authoring or scheduled rule-lane ru
   are never overwritten; refused packs create no accepted destination. JSON
   includes `admitted`, `applied`, `refused` and `quality_checks`, with `destination`
   only on success. Exit 0 means published, 1 refused, 2 typed error.
+  `--timeout` caps both each native process and the shared native-quality time
+  budget for admission; an internal call limit also bounds rule isolation.
 - `traust sweep check-rules <path>` is an optional local diagnostic using the same
   native checker; it does not publish or replace pre-write intake. Neither CI nor
   first-scan validation replaces admission. Review semantics and calibrate before
@@ -217,8 +219,12 @@ they do not replace mining, regression-draft authoring or scheduled rule-lane ru
   Set `locations.opengrep_adopter_rules` to an admitted, reviewed local directory
   for default Opengrep facts scans only, not registered artifact scanners.
   `--rules` is an exclusive replacement and cannot be combined
-  with `--add-rules`. Read `outcome` and `additive_rules.refused` in the facts report:
-  exit 0 means the report was written, not that all optional coverage was available.
+  with `--add-rules`. Read `outcome`, `errors` and `additive_rules` in the facts
+  report: language-inapplicable rules appear in `additive_rules.skipped`, not
+  `refused`, and do not alone degrade the report. Actual refusals, engine errors
+  or native skipped rules mark it degraded. Target parse/timeout warnings retain
+  healthy matches and remain visible in `errors`. Exit 0 means the report was
+  written, not that all optional coverage was available.
 - `traust sweep propose-rule --rule <rule.yaml> --example <example.py> --shape "<shape>" --checkout <dir>`
   stages a proposal only after static checks, mandatory native validation/tests,
   exact fixture matches and checkout hit limits pass. Engine-error partial scans

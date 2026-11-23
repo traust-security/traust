@@ -1,6 +1,6 @@
 ---
 name: mine-ledger
-description: Mine confirmed dispositions for rule coverage and precision, author and calibrate private candidates, and admit complete mined or adopter packs with sweep intake-rules before installation. Admission does not activate rules or prove exploitability.
+description: Mine confirmed dispositions for rule coverage and precision, author and calibrate private candidates, and admit complete mined or adopter packs with sweep intake-rules before installation. Optional additive facts scans are caller actions outside this skill. Admission does not activate rules or prove exploitability.
 metadata:
   harness.tier: "secondary"
 allowed-tools:
@@ -8,8 +8,7 @@ allowed-tools:
   - Glob
   - Grep
   - Write
-  - Bash(python3 *traust* -m traust.cli sweep:*)
-  - Bash(python3 *traust* -m traust.cli sweep rule-lane:*)
+  - Bash(python3 -m traust.cli sweep:*)
   # Confinement added 2026-07-31 (P1 gate rework — the
   # widened S1 privilege tokens made this skill's missing
   # allowlist visible; assessment root-cause 3). Never
@@ -181,11 +180,16 @@ can replace this pre-write gate.
 Semantic review and recorded-scan calibration remain required before explicit
 activation. Set `locations.opengrep_adopter_rules` to the accepted directory for
 default Opengrep facts scans only, not registered artifact scanners. Never point
-it at private drafts. A caller can also request an optional additive facts scan
-with `traust adapters opengrep <checkout> --add-rules <source>`. Each scan checks
-actual bytes again. Refused optional additions do not run; the report is degraded
+it at private drafts. Outside this skill, a caller with its own execution permission
+can request an optional additive facts scan with
+`python3 -m traust.cli adapters opengrep <checkout> --add-rules <source>`.
+This skill grants no adapter execution permission. Each scan checks actual bytes
+again. Refused optional additions do not run; the report is degraded
 and preserves baseline and supplement facts. Admission is not activation and a
 match is not a finding verdict.
+Language-inapplicable rules appear in `additive_rules.skipped`, not `refused`, and
+do not alone degrade a scan. Target parse/timeout warnings preserve healthy
+matches and remain visible in the report's `errors`.
 
 ## Class-generalization sweeps (plan §6, Phase 4)
 

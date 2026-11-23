@@ -147,8 +147,11 @@ before/after material are drafts, not an active or validated pack.
 
 Additive runtime rules are checked against the baseline and enabled supplements,
 then run separately so their failure cannot remove baseline results. The facts
-report names each match's origin and lists excluded rules and reasons; any such
-exclusion marks it degraded. An explicit `--rule-allow` still filters all output.
+report names each match's origin. Language-inapplicable rules appear in
+`additive_rules.skipped`, not `refused`, and do not alone degrade the report.
+Actual refusals, engine errors or native skipped rules mark it degraded. Target
+parse/timeout warnings preserve healthy matches and remain visible in `errors`.
+An explicit `--rule-allow` still filters all output.
 
 Configured supplements remain a separate `overrides.rule_pack_allowlist` policy.
 See [`rule-pack-allowlist.example.yaml`](../../../../config/rule-pack-allowlist.example.yaml).
