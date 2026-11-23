@@ -189,6 +189,9 @@ convert uninspectable deliverables and rerun the gate; there is no binary fallba
 
 ### Detection-quality operations
 
+**Creating or supplying rules? Start with [Custom Opengrep rules](custom-opengrep-rules.md)**
+for copy/paste rules, paired fixtures, mandatory admission and activation.
+
 Portfolio/ledger mining is retained. Adopter-authored packs are an additional rule source;
 they do not replace mining, regression-draft authoring or scheduled rule-lane runs.
 
@@ -217,7 +220,7 @@ they do not replace mining, regression-draft authoring or scheduled rule-lane ru
   preserves the default pack and enabled supplements. Sources are local rule files
   or directories with fixtures, or HTTPS Git sources pinned to a commit SHA.
   Set `locations.opengrep_adopter_rules` to an admitted, reviewed local directory
-  for default Opengrep facts scans only, not registered artifact scanners.
+  for both default Opengrep facts scans and registered Opengrep scanner/audit artifacts.
   `--rules` is an exclusive replacement and cannot be combined
   with `--add-rules`. Read `outcome`, `errors` and `additive_rules` in the facts
   report: language-inapplicable rules appear in `additive_rules.skipped`, not
@@ -225,6 +228,9 @@ they do not replace mining, regression-draft authoring or scheduled rule-lane ru
   or native skipped rules mark it degraded. Target parse/timeout warnings retain
   healthy matches and remain visible in `errors`. Exit 0 means the report was
   written, not that all optional coverage was available.
+  Registered artifact generation instead raises a typed scanner failure on refused
+  configured adopter rules or incomplete required coverage, matching enabled
+  supplements' fail-closed policy; language-inapplicable skips remain normal.
 - `traust sweep propose-rule --rule <rule.yaml> --example <example.py> --shape "<shape>" --checkout <dir>`
   stages a proposal only after static checks, mandatory native validation/tests,
   exact fixture matches and checkout hit limits pass. Engine-error partial scans

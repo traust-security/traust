@@ -1,6 +1,6 @@
 # Docs
 
-A reader's map to the 35 documents in this directory. Three audiences — **operators** setting up and running the workflow engine, **analysts** reading and acting on its output, and **contributors** changing the workflow engine — are grouped separately below. Reference material shared across all three follows.
+A reader's map to the documentation in this directory. Three audiences — **operators** setting up and running the workflow engine, **analysts** reading and acting on its output, and **contributors** changing the workflow engine — are grouped separately below. Reference material shared across all three follows.
 
 ---
 
@@ -11,6 +11,7 @@ A reader's map to the 35 documents in this directory. Three audiences — **oper
 | [getting-started.md](getting-started.md) | From zero to a first audit — install, configure, run, check output |
 | [requirements.md](requirements.md) | What you need before you start (OS, Python, agents, optional scanners) |
 | [setup.md](setup.md) | Complete setup reference: env vars, workspace layout, toolchain, sibling repos |
+| [custom-opengrep-rules.md](custom-opengrep-rules.md) | Create custom rules and fixtures, validate/test through Traust, then activate them for scanning — no CI required |
 | [standalone-usage.md](standalone-usage.md) | Using individual skills locally, outside the automated campaign workflow |
 
 ---

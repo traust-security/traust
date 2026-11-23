@@ -15,6 +15,7 @@
 # would bury triage; enabling the calibrated subset costs ~1.4 novel/repo.
 #
 # Before installation, keep candidates private and publish with:
+# Copy/paste authoring and activation guide: docs/custom-opengrep-rules.md.
 # python3 -m traust.cli sweep intake-rules <complete-rule-directory> --into <NEW_DEST>
 # Native opengrep validate and test --json --strict require positive/negative
 # assertions for every rule, exact matches and complete receipts before writes.
@@ -24,9 +25,11 @@
 # Semantic review and recorded-scan calibration remain necessary. Precision
 # accrues afterwards from scanner_correlation and is re-checked by the lane.
 #
-# This policy is for fail-closed supplements. Optional facts-scan additions use
-# locations.opengrep_adopter_rules or --add-rules (degraded on refusal); this
-# location does not extend registered artifact scanners.
+# locations.opengrep_adopter_rules adds an accepted, reviewed pack to both default
+# facts scans and registered Opengrep scanner/audit artifacts. Facts may explicitly
+# degrade on refusal; registered artifacts fail typed on refused/incomplete
+# required coverage, just like enabled supplements. Language-inapplicable skips
+# remain normal. --add-rules is an explicit additive facts-scan option.
 # source accepts a local rule directory (relative to THIS allowlist file, with
 # paired native fixtures), or HTTPS Git pinned as URL@<40-hex-commit-SHA>.
 # Git sources retain the repository's rules/ subtree convention.
