@@ -196,15 +196,18 @@ def _repo_filter_overrides(repo_path: Path) -> list[str]:
         text=True,
         timeout=10,
     )
-    drivers = sorted(
-        {
-            line.split(".")[1]
-            for line in r.stdout.splitlines()
-            if line.startswith("filter.") and line.count(".") >= 2
-        }
-    )
+    drivers: set[str] = set()
+    for line in r.stdout.splitlines():
+        if not line.startswith("filter."):
+            continue
+        # Driver names may themselves contain dots: strip only the known
+        # attribute suffix instead of splitting on the first one.
+        for attribute in ("clean", "smudge", "process"):
+            suffix = f".{attribute}"
+            if line.endswith(suffix):
+                drivers.add(line[len("filter.") : -len(suffix)])
     overrides: list[str] = []
-    for driver in drivers:
+    for driver in sorted(drivers):
         for attribute in ("clean", "smudge", "process"):
             overrides += ["-c", f"filter.{driver}.{attribute}="]
     return overrides
