@@ -801,8 +801,10 @@ normal countersign discipline governs any resulting false positive (6e).
 Input (C) has no precedents; skip this step.
 
 When fresh verification supports reduced impact, preserve the
-observation and evidence in the new triage classification/rationale:
-**downgrade-not-drop**, never a silent omission or a copied verdict.
+observation and evidence in the new triage classification/rationale —
+never a silent omission or a copied verdict. For an advisory-backed
+finding, reduced impact counts only on recorded evidence bound to the
+finding (Phase 4); verification reasoning alone never lowers it.
 Matching alone does not change severity or finding kind. Use the existing
 Phase 2 checkpoint delta
 `{precedents_matched: <N>, matched_human_tier: <N>}` and the Phase 3
@@ -943,7 +945,9 @@ verdict definitions below). Cite the rule number in your verdict.
   8. Trusted inputs used as the attack vector (env vars, CLI flags set by
      the operator), UNLESS the ENVIRONMENT above marks them untrusted.
   9. Client-side code flagged for server-side vulnerability classes.
- 10. Outdated dependency versions (managed by a separate process).
+ 10. Outdated dependency versions (managed by a separate process). Never
+     applies to an advisory-backed finding (Phase 4): a published advisory
+     matched to this repo is not a version-bump report.
  11. Weak random used for non-security purposes (jitter, shuffling,
      dev-only fallbacks).
  12. Low-impact nuisance issues (log spoofing, CSRF on logout, self-XSS,
@@ -1254,6 +1258,18 @@ vote's RATIONALE to the finding's rationale prefixed `"DISSENT (conf
 `verify_verdict: needs_manual_test` and resolve per the no-majority rules
 above. One escalation per finding — never loop.
 
+**Advisory-backed findings (see Phase 4 for the definition): votes are
+inference.** A majority or split only changes an advisory-backed finding's
+verdict, kind or severity when recorded evidence bound to it supports the
+outcome ([Severity authoring](../../../docs/report-structure.md#severity-authoring), evidence table). Without that evidence:
+- a FALSE_POSITIVE majority, or any split that includes FALSE_POSITIVE →
+  `verdict: undetermined`, `verify_verdict: needs_manual_test`, naming in
+  the rationale the fact (range, vendor statement, reachability) that an
+  artifact must record;
+- a HARDENING majority, or a TRUE_POSITIVE/HARDENING split →
+  `verdict: true_positive`, `kind: vulnerability`, at the advisory band,
+  with the HARDENING votes' reasons in the rationale.
+
 **Precedent disagreement (2g findings only):** compare the fresh conclusion
 with the precedent semantically: historical hardening and confirmed weakness
 agree; an exploitable vulnerability does not agree with either. If they
@@ -1319,20 +1335,27 @@ their working copies, and spawns verifiers only for `candidates[]` ids from
 ## Phase 4: Rank by exploitability (non-weakness true positives only)
 
 Recompute severity from preconditions and reachability rather than category
-name, and judge the scanner's claimed severity separately. Only `confirmed[]`
+name, and judge the scanner's claimed severity separately — except for an
+advisory-backed finding, whose severity is the published band (below). Only `confirmed[]`
 enters this phase; `hardening[]` never does. Verification and severity are
 independent judgments; "this is real" must not inflate into "this is critical."
 
-**Advisory-backed findings keep the published score.** A finding that cites
-a published advisory (CVE, GHSA or another OSV id) with a CVSS score keeps
-the band of the advisory's selected authority score ([Severity
+**Advisory-backed findings keep the published score.** A finding is
+advisory-backed when its claim names a published advisory id (CVE-, GHSA-
+or another OSV id) for a dependency, package or image, or for advisory-lag
+in the repo's own forked or vendored code, and carries a CVSS score or
+vector for it (the input's `cvss`, or the score quoted in the claim). One
+with an id but no score keeps its claimed severity, never a derived one.
+An advisory-backed finding keeps the band of the advisory's selected
+authority score ([Severity
 authoring](../../../docs/report-structure.md#severity-authoring)). Steps 2
 and 3 below never set its severity, up or down: precondition counts, access
 level, threat-model matches and deployment context are inference. Its
-severity changes only on recorded evidence bound to this finding, its commit
-and its dependency version: an `/impact-analysis` classification, a vendor
-not-affected statement or fixed NVR, or a live-validation result. The rank
-rationale cites that artifact. Without one, `severity` is the advisory band
+verdict or severity changes only on recorded evidence bound to this finding,
+its commit and its dependency version, and the evidence decides the outcome
+(the evidence table in Severity authoring): an `/impact-analysis`
+classification, a vendor not-affected statement or fixed NVR, or a
+live-validation result. The rank rationale cites that artifact. Without one, `severity` is the advisory band
 whatever the derivation says.
 
 ### 4a. Ranking prompt
@@ -1372,8 +1395,9 @@ window, attacker position. Then state the minimum ACCESS LEVEL required
 
 STEP 2: Derive severity from the precondition count and access level.
 If ADVISORY is not none, skip this derivation and step 3 for severity:
-SEVERITY is the advisory band unless EVIDENCE names an artifact that shows
-otherwise, and RANK_RATIONALE cites it. Preconditions still go in the
+SEVERITY is the advisory band. EVIDENCE that changes the outcome was
+already applied in Phase 3 (the evidence table); it never yields a different
+band here. RANK_RATIONALE cites the advisory and any evidence. Preconditions still go in the
 rationale; inference never changes an advisory's severity.
 
   | Preconditions | Access required          | Severity |
@@ -1405,7 +1429,9 @@ fixtures or dev-only config? Score in -5..+5:
 STEP 5: verify_verdict. Exactly one of:
   exploitable        preconditions are realistically satisfiable
   mitigated          real, but a deployed control reduces it below the
-                     derived severity (name the control)
+                     derived severity (name the control). For an
+                     advisory-backed finding this is rationale only; the
+                     severity stays the advisory band
   needs_manual_test  severity hinges on something only a runtime test can
                      settle; recommend a human build a PoC
 
@@ -1432,7 +1458,8 @@ Respond with ONLY this block:
 
 For each confirmed finding, parse the block and attach `preconditions`
 (replacing any scanner-supplied list), `access_level`, `severity`
-(recomputed), `severity_label`, `threat_match`, `severity_alignment`,
+(recomputed, or the advisory band for an advisory-backed finding),
+`severity_label`, `threat_match`, `severity_alignment`,
 `verify_verdict`, and append RANK_RATIONALE to `rationale` (separated by a
 blank line from the Phase-3 rationale). A Phase-3 `needs_manual_test`
 requirement survives ranking; no rank or kind alone resolves contested proof.
@@ -1496,7 +1523,7 @@ Order all findings by:
 1. Bucket: non-weakness `true_positive` (including omitted kind), then
    `true_positive` + `kind: weakness`, then `undetermined`, then
    `duplicate`, then `false_positive`.
-2. Within non-weakness true positives: `severity` HIGH > MEDIUM > LOW,
+2. Within non-weakness true positives: `severity` CRITICAL > HIGH > MEDIUM > LOW,
    then `confidence` descending, then `severity_alignment` descending.
 3. Within the weakness backlog: `confidence` descending (no severity).
 4. Within others: original `id`.
@@ -1874,7 +1901,8 @@ point at real call sites) and a sample of FALSE_POSITIVE rejects (the
 - **Threat-model boost is capped at one step** so a stated threat can't
   re-inflate a LOW back to HIGH and defeat the precondition rule.
 - **`severity_label` is separate from `severity`.** Sorting always uses the
-  precondition-derived HIGH/MEDIUM/LOW; the label is presentation-layer for
+  precondition-derived HIGH/MEDIUM/LOW, or the advisory band (CRITICAL
+  included) for an advisory-backed finding; the label is presentation-layer for
   whatever standard the reviewer's tooling expects.
 - **Pipeline `report.json` ingest is best-effort.** Those reports describe
   ASAN crashes with prose exploitability analysis rather than the

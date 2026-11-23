@@ -196,7 +196,7 @@ incomplete audit.
 
 ### Dependency and advisory gate (vendored bundles & NVR matches)
 
-Before filing any dependency/version-match finding at critical/high:
+Before filing any dependency/version-match finding, at any severity. The gate decides only whether to file; a filed finding takes the advisory's selected authority band ([Severity authoring](../../../docs/report-structure.md#severity-authoring)), including a bundled library's advisory-lag (RPM08):
 
 1. **Vendored-source reachability** — the affected module/symbol must
    actually be compiled into (or shipped by) a built RPM: a CVE match
@@ -291,8 +291,9 @@ Every critical/high candidate must pass all of:
    documented setuid helper carrying a guideline exception, `%caps`
    grants that are the package's documented function) are not
    vulnerabilities: a `negative_results` entry or an unscored
-   `informational` hardening note, never a lower-rated vulnerability. "Looks intentional"
-   is insufficient. The severity floor stays when the insecure mode is
+   `informational` note filed separately; the gate's action is
+   `negative_results`. Never a lower-rated vulnerability. "Looks
+   intentional" is insufficient. The severity floor stays when the insecure mode is
    ON by default in shipped config, settable by a less-privileged
    principal than those endangered, a silent fallback, or a
    cross-tenant boundary violation.
@@ -335,8 +336,9 @@ below the floor.
    built RPM: named in `%files` (or installed by `%install`), not
    upstream test/example/doc content excluded from every subpackage,
    not placeholder secrets (`REPLACE-WITH`, truncated `...` values,
-   strings matching upstream doc examples). Example hygiene →
-   `informational`; unshipped → `negative_results`. **Live functional
+   strings matching upstream doc examples). Example hygiene → an
+   unscored `informational` hygiene note, never a lower-rated finding;
+   unshipped → `negative_results`. **Live functional
    credentials keep full severity wherever they sit.**
 2. **Mechanism verification** — verify the claimed mechanism against
    the actual runtime/toolchain at the pinned version. Packaging
@@ -458,7 +460,7 @@ When the prepared source tree contains C or C++ code, assess it against the [SEI
 | **CERT C++** | `CTR` / `STR` (Containers & Strings) | Iterator invalidation after container mutation, out-of-range element access, forming pointers/references past the end, range errors on `std::string`/`std::string_view` (`CTR51-CPP`, `CTR52-CPP`, `STR53-CPP`) |
 | **CERT C++** | `ERR` / `CON` (Errors & Concurrency) | Exceptions escaping destructors or `noexcept` functions, catching by value, unjoined/un-detached `std::thread`, data races and deadlocks on shared state (`ERR50-CPP`, `ERR58-CPP`, `CON50-CPP`, `CON52-CPP`) |
 
-For each finding, record the specific CERT rule ID (e.g. `STR31-C`, `MEM51-CPP`) in the finding's `category` field alongside the mapped CWE. Use the CERT risk-assessment triple (Severity / Likelihood / Remediation Cost) to inform the finding's `severity` and CVSS score, and note in the `description` whether any downstream `.patch` already mitigates the issue.
+For each finding, record the specific CERT rule ID (e.g. `STR31-C`, `MEM51-CPP`) in the finding's `category` field alongside the mapped CWE. Use the CERT risk-assessment triple (Severity / Likelihood / Remediation Cost) to inform the CVSS vector you score; the finding's `severity` is that vector's band ([Severity authoring](../../../docs/report-structure.md#severity-authoring)), and note in the `description` whether any downstream `.patch` already mitigates the issue.
 
 ### RPM Packaging Security (Spec File & Dist-Git Artifacts)
 

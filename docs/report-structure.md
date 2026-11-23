@@ -139,20 +139,26 @@ these rules.
 A finding's `severity` is the band of a score, never a judgment. These rules
 apply to new reports; historical reports are not rewritten.
 
-- **First-party code finding:** `severity` is the FIRST band of the CVSS Base
-  vector in the finding's `cvss` (critical 9.0–10.0, high 7.0–8.9, medium
-  4.0–6.9, low 0.1–3.9). Score the vector for what the code allows. An
-  unscored posture or hygiene observation is `informational` and carries no
-  `cvss`.
+- **First-party code finding:** `severity` is the qualitative rating
+  FIRST.org's CVSS specification gives the Base score of the vector in the
+  finding's `cvss`: critical 9.0–10.0, high 7.0–8.9, medium 4.0–6.9, low
+  0.1–3.9; a 0.0 score is not a vulnerability finding. Base metrics describe
+  the vulnerability in the code. Deployment context, a control that lives
+  elsewhere, and a chain step you could not show never lower them; name those
+  in the description. An unscored posture or hygiene observation is
+  `informational` and carries no `cvss`.
 - **Advisory-backed finding** (a published CVE, GHSA or other OSV advisory
-  matched to a dependency, package or image): `severity` is the band of the
-  advisory's selected authority score, and `cvss` carries that score and
-  vector. For a Red Hat product, the selected score is Red Hat's CVSS for that
-  product when Red Hat publishes one. Otherwise the order is NIST (NVD
+  matched to a dependency, package or image, including advisory-lag in a
+  repository's own forked or vendored upstream code): `severity` is the band
+  of the advisory's selected authority score, and `cvss` carries that score
+  and vector. For a Red Hat product, the selected score is Red Hat's CVSS for
+  that product when Red Hat publishes one. Otherwise the order is NIST (NVD
   Primary), GitHub (GHSA), the CVE's CNA, ADP, Red Hat, then the scanner. A
   3.x score comes before 4.0; 4.0 is used only when no source has 3.x. Red
   Hat's severity word (Important, Moderate) is never a score. Quote every
-  authority's score you have, with its source, in the description.
+  authority's score you have, with its source, in the description. An
+  advisory that no source scores, the scanner included, files at `medium`
+  with the description saying it is unscored.
 - **The audit never changes a severity.** Reachability, deployment context,
   restricted SCCs, a compensating control elsewhere, a required prior
   compromise or plain uncertainty never lower it. A Precision Gate decides
@@ -161,12 +167,18 @@ apply to new reports; historical reports are not rewritten.
   its band, with the open question named in the description for `/triage`.
 - **Who changes it later:** only `/impact-analysis`, `/triage` and live
   validation (`/validate-findings` and its siblings), through Core's decision
-  doors, never by editing the report. Changing the severity of an
-  advisory-backed finding needs recorded evidence bound to that finding: an
-  impact-analysis classification (for example `version_not_in_range` or
-  symbol-level `not_observed`), a vendor not-affected statement or fixed NVR,
-  or a validation result. Inference and prose are not evidence. The report's
-  `severity` is never rewritten.
+  doors, never by editing the report. For an advisory-backed finding the
+  change needs recorded evidence bound to that finding, its commit and its
+  dependency version. Inference, prose, vote majorities and precondition
+  counts are not evidence. The evidence decides the outcome:
+
+  | Evidence | Outcome |
+  |---|---|
+  | `/impact-analysis` `version_not_in_range` or `not_imported`; a vendor not-affected statement; the fixed NVR or backport shipped | `false_positive`, citing the artifact |
+  | Go symbol-level (govulncheck) `not_observed` | `true_positive`, `kind: weakness`: the vulnerable code ships but is not reached; cite the artifact. Symbol-usage or manifest-level `not_observed` is not evidence |
+  | A live-validation result | the validation's verdict, at the band of the vector it records |
+
+  The report's `severity` is never rewritten.
 
 ## Remediation authoring
 

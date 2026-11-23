@@ -361,7 +361,7 @@ incomplete audit.
 ### Dependency and advisory gate (the centerpiece)
 
 Every grype/OSV match already lands in `dependency_audit` (Phase 3).
-Before **promoting** any CVE/version match to a critical/high finding:
+Before **promoting** any CVE/version match to a finding, at any severity. The gate decides only whether to promote; a promoted match takes the advisory's selected authority band ([Severity authoring](../../../docs/report-structure.md#severity-authoring)):
 
 1. **Artifact reachability (image semantics)** — the vulnerable package
    must be executed or reachable in this image's role, not merely
@@ -463,7 +463,8 @@ must pass all of:
    documented core function (a builder image shipping compilers and
    package managers; a debug image shipping shells) is not a
    vulnerability: a `negative_results` entry or an unscored
-   `informational` hardening note, never a lower-rated vulnerability — with the image-role
+   `informational` note filed separately (the gate's action is
+   `negative_results`), never a lower-rated vulnerability — with the image-role
    citation (labels, bundle metadata, docs); "looks intentional" is
    insufficient. The severity floor stays when the insecure content
    ships in a production/runtime image, is active by default, or
@@ -504,7 +505,8 @@ effect** in the image's role: documentation/example/test content baked
 into layers (`/usr/share/doc`, `/usr/share/licenses`, sample configs,
 test fixtures) and placeholder secrets (`REPLACE-WITH`, truncated `...`
 values, strings matching upstream doc examples) in env, labels, or
-layer files → `informational` hygiene; content in no execution path →
+layer files → an unscored `informational` hygiene note, never a
+lower-rated finding; content in no execution path →
 `negative_results`. **Live functional credentials keep full severity
 wherever they sit.** For `oci-config:*` locations the pre-filter
 question is "does this config key take effect at runtime"; for

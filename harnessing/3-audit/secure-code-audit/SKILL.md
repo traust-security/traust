@@ -472,9 +472,10 @@ Every critical/high candidate must pass all of:
    README/manifest/doc citation — "looks intentional" is insufficient),
    and insecure behavior behind an explicit admin-set flag that defaults
    secure and is documented, are not vulnerabilities: record a
-   `negative_results` entry with the citation, or an unscored
-   `informational` hardening note when the recommendation stands on its
-   own — never a lower-rated vulnerability. The severity floor stays when the insecure mode is ON
+   `negative_results` entry with the citation (the gate's action). When
+   the hardening recommendation stands on its own, also file it as a
+   separate, unscored `informational` note — never a lower-rated
+   vulnerability. The severity floor stays when the insecure mode is ON
    by default in shipped config, settable by a less-privileged principal
    than those endangered, a silent fallback, or a cross-tenant boundary
    violation.
@@ -499,7 +500,8 @@ Every critical/high candidate must pass all of:
    ships: not `examples/`/docs/test fixtures, not placeholder secrets
    (`REPLACE-WITH`, truncated `...` values, strings matching upstream doc
    examples), referenced by at least one build/deploy path. Example
-   hygiene → `informational`; orphaned/unbuilt → `negative_results`. Live
+   hygiene → an unscored `informational` hygiene note, never a
+   lower-rated finding; orphaned/unbuilt → `negative_results`. Live
    functional credentials keep full severity wherever they sit.
 2. **Mechanism verification** (3/69) — verify the claimed mechanism
    against the actual runtime at the pinned version (Python `zipfile`
@@ -724,7 +726,7 @@ It parses every Kubernetes YAML document (including deployments embedded in Clus
 Rules of engagement:
 
 1. **Scanner facts are the evidence base.** Every configuration-hardening finding in the classes the catalog covers must cite a scanner result's `file:line` in its `locations`. If manual reading surfaces a config issue in a covered class that the scanner missed, that is a scanner gap — still report the finding, but note the miss in `negative_results` so the catalog gets extended.
-2. **Facts are not findings.** The scanner over-reports by design: results with `test_path: true` (test/example manifests) or `patch_overlay: true` (kustomize patches, where the base may set the missing field — verify the merged output) need context before promotion, low-severity hygiene hits (e.g. `KHS-W08` missing limits, `KHS-W12` missing seccomp on OpenShift where SCCs apply defaults) may be consolidated into one finding or a `positive_observations`/`negative_results` note, and duplicates across overlays of the same workload must be collapsed. Severity is the audit's judgment, not `severity_hint`.
+2. **Facts are not findings.** The scanner over-reports by design: results with `test_path: true` (test/example manifests) or `patch_overlay: true` (kustomize patches, where the base may set the missing field — verify the merged output) need context before promotion, low-severity hygiene hits (e.g. `KHS-W08` missing limits, `KHS-W12` missing seccomp on OpenShift where SCCs apply defaults) may be consolidated into one finding or a `positive_observations`/`negative_results` note, and duplicates across overlays of the same workload must be collapsed. Severity is the band of the vector you score ([Severity authoring](../../../docs/report-structure.md#severity-authoring)), not `severity_hint`.
 3. **Account for what was not scanned.** The report's `stats.templated_skipped` and `unparseable_files` are Helm/Go-templated manifests the scanner cannot parse — review those by hand and say so in the report (`negative_results` or `metadata.scope`); never let skipped files read as "clean".
 4. **Record the run**: append `scan_k8s_hardening <harness-version>` to `metadata.tools` and set `"k8s-hardening": "ran"` in `metadata.additional.deterministic_steps` (or `"skipped: <reason>"` — e.g. no local checkout — per the convention in [`docs/report-structure.md`](../../../docs/report-structure.md); a skip means the manifest review ran on manual reading alone, so say so and proceed manually rather than stalling).
 
@@ -830,7 +832,7 @@ For every boundary in use, check each parameter. An unmet parameter on an in-use
 
 #### Step 4 — Rate by blast radius
 
-Blast radius is the number of tenants an attacker can affect by exploiting one interface bug. The highest-risk shape is the full chain: a **high-complexity** interface that is **shared**, standing on a **weak sole boundary** (`containerization` or `data_segmentation`), with an **unmet PEACH parameter** behind it — one bug there is a fleet-wide compromise, so rate findings matching that chain `high` or `critical`. A duplicated interface or a strong boundary (hardware virtualization, network/identity segmentation) caps the damage at one tenant and justifies rating one step lower. The pattern is not hypothetical: ChaosDB (Azure Cosmos DB, 2021) chained an ordinary bug in a shared, high-leverage notebook feature across an under-hardened container boundary into cross-customer credential exposure ([Wiz's case study](https://github.com/wiz-sec-public/peach-framework/blob/main/case-studies/chaosdb.md)).
+Blast radius is the number of tenants an attacker can affect by exploiting one interface bug. The highest-risk shape is the full chain: a **high-complexity** interface that is **shared**, standing on a **weak sole boundary** (`containerization` or `data_segmentation`), with an **unmet PEACH parameter** behind it — one bug there is a fleet-wide compromise. Blast radius goes into the CVSS vector, not into a separate rating: a finding matching that chain crosses tenants (Scope `S:C`, with the impact metrics the other tenants suffer); a duplicated interface or a strong boundary (hardware virtualization, network/identity segmentation) keeps the damage to one tenant (`S:U`). Severity is the band of that vector. The pattern is not hypothetical: ChaosDB (Azure Cosmos DB, 2021) chained an ordinary bug in a shared, high-leverage notebook feature across an under-hardened container boundary into cross-customer credential exposure ([Wiz's case study](https://github.com/wiz-sec-public/peach-framework/blob/main/case-studies/chaosdb.md)).
 
 #### Remediation directions
 
@@ -1017,8 +1019,11 @@ Contract — this pre-scan is deliberately NOT like the dependency ones:
    advisory-lag in the repository's own forked/vendored-upstream code is
    an explicit not-suppressible boundary of that gate (see *Precision
    Gate → Dependency and advisory gate*, boundary list) — first-party
-   shipped code, not a dependency. Do not downgrade these to
-   `dependency_audit` on manifest-only or reachability arguments.
+   shipped code, not a dependency. Do not move these to
+   `dependency_audit` on manifest-only or reachability arguments. They
+   are advisory-backed: severity is the advisory's selected authority
+   band ([Severity authoring](../../../docs/report-structure.md#severity-authoring)),
+   and `/triage` treats them the same way.
 3. **Judge every candidate — the fork may have backported the fix.**
    Before filing, check the fork's history/tree for the specific patch
    (grep the fixing commit's function or CVE id, check the changed lines
