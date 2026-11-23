@@ -79,9 +79,13 @@ def test_corpus_root_defaults_to_the_workspace_sibling(monkeypatch, tmp_path):
 
 
 def test_harness_version_reads_this_checkout_when_it_is_the_harness():
-    # Inside traust itself, repo_root carries VERSION; no sibling needed.
+    # Inside traust itself, repo_root is the harness. VERSION was retired
+    # upstream, so the version comes from pyproject.toml.
+    import tomllib
+
+    expected = tomllib.loads((REPO / "pyproject.toml").read_text())["project"]["version"]
     assert paths.harness_root() == REPO
-    assert paths.harness_version() == (REPO / "VERSION").read_text().strip()
+    assert paths.harness_version() == expected
 
 
 def test_harness_version_reads_the_sibling_checkout(monkeypatch, tmp_path):
@@ -119,3 +123,19 @@ def test_emitter_publish_root_matches_the_shared_resolution(monkeypatch, tmp_pat
     monkeypatch.setenv("HARNESS_WORKSPACE", str(ws))
     monkeypatch.delenv("AUDIT_RESULTS_ROOT", raising=False)
     assert emit.default_publish_root() == paths.analysis_results_root()
+
+
+def test_harness_version_reads_pyproject_when_version_is_retired(monkeypatch, tmp_path):
+    # Upstream retired VERSION; the number now lives in pyproject.toml.
+    bare = tmp_path / "checkout"
+    bare.mkdir()
+    monkeypatch.setattr(paths, "repo_root", lambda: bare)
+    ws = tmp_path / "ws"
+    harness = ws / "traust"
+    harness.mkdir(parents=True)
+    (harness / "pyproject.toml").write_text(
+        '[project]\nname = "traust"\nversion = "0.1.0"\n'
+    )
+    monkeypatch.setenv("HARNESS_WORKSPACE", str(ws))
+    assert paths.harness_root() == harness
+    assert paths.harness_version() == "0.1.0"
