@@ -253,16 +253,6 @@ spec:
         - $(params.build-args[*])
         # add dynamically generated array of build args
         - $(tasks.arg-generator-task.results.SCRIPT_OUTPUT_ARRAY[*])
-        # - GITLEAKS_VERSION=8.30.1
-        # - GOVULNCHECK_VERSION=1.6.0
-        # - GO_VERSION=1.24.0
-        # - GRYPE_VERSION=0.115.0
-        # - COSIGN_VERSION=3.1.1
-        # - SYFT_VERSION=1.48.0
-        # - SKOPEO_VERSION=1.23.0
-        # - PIP_AUDIT_VERSION=2.10.1
-        # - YARA_VERSION=4.5.8
-        # - OPENGREP_VERSION=1.25.0
       - name: BUILD_ARGS_FILE
         value: $(params.build-args-file)
       - name: PRIVILEGED_NESTED
@@ -285,6 +275,9 @@ spec:
         value: $(tasks.prefetch-dependencies.results.SOURCE_ARTIFACT)
       - name: CACHI2_ARTIFACT
         value: $(tasks.prefetch-dependencies.results.CACHI2_ARTIFACT)
+      - name: ADDITIONAL_BASE_IMAGES
+        value:
+        - $(tasks.arg-generator-task.results.SCRIPT_RUNNER_IMAGE_REFERENCE)
       runAfter:
       - arg-generator-task
       taskRef:
