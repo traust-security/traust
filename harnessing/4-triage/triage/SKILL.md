@@ -560,7 +560,10 @@ Inference never changes it: uncited reasoning, vote counts on their own,
 precondition counts, threat-model matches, deployment assumptions,
 precedents, another commit's export, symbol-usage or manifest-level
 classifications, `likely_affected`, `inconclusive`, KEV or EPSS, and prose
-in the finding.
+in the finding. govulncheck's `not_observed`, even at `evidence_level:
+symbol`, is not a bound row either: "no call path" is evidence, not proof
+(dynamic calls, a library's importers, other build targets, incomplete
+symbol lists). It informs the verifiers, whose cited votes decide.
 
 1. **Dedup (Phase 2):** never mark it `duplicate` of a finding that doesn't
    name the same advisory; it may absorb duplicates of its own advisory.
@@ -569,7 +572,7 @@ in the finding.
 
    | Bound impact row | Fields |
    |---|---|
-   | `classification: version_not_in_range` or `not_imported`, or `not_observed` with `evidence.evidence_level: symbol` (govulncheck), or a vendor not-affected statement / a shipped NVR at or past the fixed NVR | `verdict: false_positive`, `refute_reasons: ["bound_evidence"]`, `exclusion_rule: null`, `severity: null`; the rationale cites the row |
+   | `classification: version_not_in_range` or `not_imported`, or a vendor not-affected statement / a shipped NVR at or past the fixed NVR | `verdict: false_positive`, `refute_reasons: ["bound_evidence"]`, `exclusion_rule: null`, `severity: null`; the rationale cites the row |
 
 3. **Then the votes, counting only cited ones (Phase 3c).** The published
    score stands; triage's job is to try to disprove it. A vote counts when

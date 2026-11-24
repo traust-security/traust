@@ -199,15 +199,20 @@ apply to new reports; historical reports are not rewritten.
 
   | Evidence | Outcome |
   |---|---|
-  | `classification: version_not_in_range` or `not_imported`, or `not_observed` with `evidence_level: symbol` (govulncheck: the vulnerable symbol is unreachable); a vendor not-affected statement; a shipped NVR at or past the fixed NVR | not affected. In an audit, a `not_affected` entry; in triage, `false_positive` with `refute_reasons: ["bound_evidence"]` citing the artifact (triage's verdicts have no `not_affected` yet) |
+  | `classification: version_not_in_range` or `not_imported`; a vendor not-affected statement; a shipped NVR at or past the fixed NVR | not affected. In an audit, a `not_affected` entry; in triage, `false_positive` with `refute_reasons: ["bound_evidence"]` citing the artifact (triage's verdicts have no `not_affected` yet) |
   | Code citations showing a precondition or control that changes how the vulnerability can be exploited here | triage proposes a CVSS Environmental vector, each modified metric citing its evidence, in the rationale. The severity changes only when Core scores that vector with the CVSS calculator and admits the decision (remediation plan step 7); until then the band stands |
   | A live-validation result | the validation's verdict, at the band of the vector it records |
 
   An audit applies the first row itself, recording the match as not
   affected (see the next section); the code-citation and validation rows
-  belong to triage and live validation. Symbol-usage or manifest-level
-  `not_observed`, `likely_affected` and `inconclusive` are not evidence for
-  any of these. Nothing raises a severity above its score's band either.
+  belong to triage and live validation. `likely_affected`, `inconclusive`,
+  and `not_observed` at any evidence level are not evidence for any of these.
+  govulncheck's symbol-level `not_observed` means no call path was found to
+  the listed functions, not that the vulnerable code is absent. It misses
+  dynamic calls (reflection, `plugin`, `go:linkname`, cgo), a library's
+  importers, other GOOS/GOARCH or build tags, incomplete advisory symbol
+  lists, and a checkout that differs from what ships. It is evidence for
+  triage's cited verdict, never an elimination on its own. Nothing raises a severity above its score's band either.
   The report's `severity` is never rewritten.
 
   A finding nobody disproves keeps its published band. When triage or live
@@ -275,10 +280,9 @@ are traust-contracts' own: the `finding.dependency` block, the
    | Evidence | Outcome |
    |---|---|
    | `classification: version_not_in_range` or `not_imported` | **Not affected** |
-   | `classification: not_observed` with `evidence_level: symbol` (govulncheck: the vulnerable symbol is unreachable) | **Not affected** |
    | A vendor not-affected statement for the shipped product, or a fixed NVR at or before the shipped NVR, in the tool data (grype's Red Hat security data, a VEX document impact-analysis recorded) | **Not affected** |
    | `classification: affected` | A finding at the published score, citing the row's evidence: its govulncheck trace when present, else what the row records (feature-pattern matches, for example) |
-   | `classification: likely_affected` or `inconclusive`, or `not_observed` with `evidence_level` other than `symbol` | A finding at the published score, unverified |
+   | `classification: likely_affected`, `inconclusive`, or `not_observed` at any evidence level (govulncheck's "no call path" is evidence, not proof) | A finding at the published score, unverified, with the row's evidence attached |
    | Sources' ranges disagree for the installed version (a release-tag range against a Go-module range, for example) | A finding at the published score, unverified, citing both ranges |
    | No row (the run failed, the commit isn't the shipped source, or impact-analysis doesn't cover the ecosystem or surface) | A finding at the published score, unverified, with the gap named |
 

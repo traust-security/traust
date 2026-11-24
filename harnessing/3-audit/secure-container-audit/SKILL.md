@@ -380,8 +380,8 @@ Every grype/OSV match lands in `dependency_audit` (Phase 3) and then follows
    commit"` with a coverage gap; impact-analysis doesn't cover RPM
    packages, so base-image RPM matches rest on the tool data.
 
-A match that impact-analysis shows out of range, not imported or unreachable
-(`not_observed`, `evidence_level: symbol`), or that Red Hat states is not affected or fixed in the
+A match that impact-analysis shows out of range or not imported, or that Red
+Hat states is not affected or fixed in the
 shipped NVR, is **not affected**: an entry in the report's `not_affected`
 section with its `dependency` block and rationale. Every other match is a finding
 at the published score ([Severity authoring](../../../docs/report-structure.md#severity-authoring); Red Hat's severity word never sets it),

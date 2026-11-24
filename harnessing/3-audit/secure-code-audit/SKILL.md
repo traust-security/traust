@@ -398,12 +398,13 @@ an automatic false-positive verdict.
 The largest measured FP class (22 of 69). Every scanner-matched
 dependency/base-image CVE follows [Dependency and advisory findings: affected or not affected](../../../docs/report-structure.md#dependency-and-advisory-findings-affected-or-not-affected):
 
-- **Not affected** on impact-analysis evidence (`version_not_in_range`,
-  `not_imported`, or `not_observed` with `evidence_level: symbol`) or a vendor
+- **Not affected** on impact-analysis evidence (`version_not_in_range` or
+  `not_imported`) or a vendor
   not-affected statement or fixed NVR: no finding; an entry in the report's
   `not_affected` section with its `dependency` block and rationale, so the
   report shows it was identified and why it was eliminated.
-- **Everything else** is a finding at the published score (the advisory's
+- **Everything else**, including govulncheck's `not_observed` ("no call
+  path" is evidence, not proof), is a finding at the published score (the advisory's
   selected authority band, [Severity authoring](../../../docs/report-structure.md#severity-authoring)), unverified (no `validation_status`),
   with a `dependency` block (`classification`, `evidence_level`,
   `impact_artifact`, …) and the range, vendor and scope data attached. `/triage` and live validation try to
