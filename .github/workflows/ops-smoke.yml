@@ -29,12 +29,12 @@ jobs:
         with:
           repository: traust-security/traust-engine
           persist-credentials: false
-          ref: 0af258552e3e8f25720198781ca4c2cdb0a1c922
+          ref: 4be1c3a28f9361c030bd0df3f506cfc00eeaf357
           path: traust-engine
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: traust-security/traust-sdk
-          ref: 38e606e08d3bd67d5014520ce94b6d8ee5254cf5
+          ref: d1af83285a6ac6f1bbbcb44bd3fe350717ea6a80
           path: traust-sdk
           persist-credentials: false
       - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5

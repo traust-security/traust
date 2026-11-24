@@ -43,7 +43,7 @@ OPS_DB_PASS="${OPS_DB_PASS:-traust}"
 OPS_DB_NAME="${OPS_DB_NAME:-traust}"
 OPS_DSN="postgresql://${OPS_DB_USER}:${OPS_DB_PASS}@localhost:${OPS_PORT}/${OPS_DB_NAME}"
 OPS_EVERY="${OPS_EVERY:-1m}"            # engine --every: minutes, hours or days
-OPS_ENGINE_SRC="${OPS_ENGINE_SRC:-git+https://github.com/traust-security/traust-engine@0af258552e3e8f25720198781ca4c2cdb0a1c922}"
+OPS_ENGINE_SRC="${OPS_ENGINE_SRC:-git+https://github.com/traust-security/traust-engine@4be1c3a28f9361c030bd0df3f506cfc00eeaf357}"
 
 CONFIG_HOME="$REPO_ROOT/$OPS_DIR/config"
 RUN_DIR="$REPO_ROOT/$OPS_DIR/run"
@@ -88,11 +88,22 @@ install_engine() {
         # A working import doesn't identify a build; don't reuse a cached local wheel either.
         uv pip install --no-deps --reinstall --no-cache "$OPS_ENGINE_SRC" >/dev/null
     else
-        if uv run --no-sync python -c "import traust_engine" >/dev/null 2>&1; then
+        if uv run --no-sync python - "$OPS_ENGINE_SRC" <<'PY' >/dev/null 2>&1
+import importlib.metadata, json, re, sys
+import traust_engine  # noqa: F401
+src = sys.argv[1]
+m = re.search(r"@([0-9a-f]{40})(?:$|[#?])", src)
+if not m:
+    sys.exit(0)
+raw = importlib.metadata.distribution("traust-engine").read_text("direct_url.json") or "{}"
+commit = (json.loads(raw).get("vcs_info") or {}).get("commit_id")
+sys.exit(0 if commit == m.group(1) else 1)
+PY
+        then
             return 0
         fi
         echo "installing traust-engine from $OPS_ENGINE_SRC"
-        uv pip install --no-deps "$OPS_ENGINE_SRC" >/dev/null
+        uv pip install --no-deps --reinstall --no-cache "$OPS_ENGINE_SRC" >/dev/null
     fi
     uv run --no-sync python -c "import traust_engine"
 }
