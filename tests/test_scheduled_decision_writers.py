@@ -545,3 +545,52 @@ def test_manual_order_writer_requires_original_claim_and_leaseholder(
     else:
         assert recorded.occurred_at > reclaimed.started_at
     assert call("--lease-generation", str(original))[0] == 2  # even a byte-identical retry
+
+
+def test_scheduled_validation_logs_order_id_and_avoids_bad_request_on_stale_lease(
+    evidence,  # noqa: F811
+    tmp_path,
+    monkeypatch,
+    capsys,
+    caplog,
+):
+    from traust.cli.portfolio_observe import event_validate
+
+    core = configure(evidence["config"], tmp_path / "store", ledger=True)
+    services = core.services()
+    repo = services.portfolio.find_repository(URL)
+    machine = core.local_issuer.mint("validation-runner", machine=True)
+    worker = WorkerId(core.identity.authenticate(machine).ref)
+    approver = core.identity.authenticate(core.local_issuer.mint("operator@example.com"))
+    order = lease(core, VALIDATE, repo.id, tmp_path, approver, worker)
+    original = order.lease_generation
+    with SqlTraustUnitOfWork(core.database) as uow:
+        uow.run_orders.update(order.model_copy(update={"lease_expires_at": order.started_at}))
+        uow.commit()
+    reclaimed = services.ops.claim(worker, timedelta(minutes=5), order_id=order.id)
+    assert reclaimed is not None and reclaimed.lease_generation == original + 1
+    token = tmp_path / "validation-runner-token"
+    token.touch(mode=0o600)
+    token.write_text(machine.token.get_secret_value())
+    monkeypatch.setenv("TRAUST_RECORDER_TOKEN_FILE", str(token))
+
+    with caplog.at_level("WARNING", logger="traust.cli.portfolio_observe"):
+        rc = event_validate(
+            [
+                "--role",
+                "validation",
+                "--run-id",
+                str(order.id),
+                "--lease-generation",
+                str(original),
+                "--config-home",
+                str(evidence["config"]),
+            ]
+        )
+    assert rc == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["outcome"] == "failed"
+    assert payload["reason"] == "runner-crashed"
+    assert str(order.id) in caplog.text
+    assert "ConflictError" in caplog.text
+    assert "stale lease generation" in caplog.text

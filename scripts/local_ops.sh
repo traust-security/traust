@@ -43,7 +43,7 @@ OPS_DB_PASS="${OPS_DB_PASS:-traust}"
 OPS_DB_NAME="${OPS_DB_NAME:-traust}"
 OPS_DSN="postgresql://${OPS_DB_USER}:${OPS_DB_PASS}@localhost:${OPS_PORT}/${OPS_DB_NAME}"
 OPS_EVERY="${OPS_EVERY:-1m}"            # engine --every: minutes, hours or days
-OPS_ENGINE_SRC="${OPS_ENGINE_SRC:-git+https://github.com/traust-security/traust-engine@56a8064f38720605223679611aba1c2921fcecf9}"
+OPS_ENGINE_SRC="${OPS_ENGINE_SRC:-git+https://github.com/traust-security/traust-engine@a9a36862a7ec94fa3723bf2b3ba09799fb7c7127}"
 
 CONFIG_HOME="$REPO_ROOT/$OPS_DIR/config"
 RUN_DIR="$REPO_ROOT/$OPS_DIR/run"
@@ -838,11 +838,31 @@ smoke_crash() {
         from traust_ops.run_order where id='$order' and state='leased'"
 }
 
+run_with_timeout() {
+    local limit=$1
+    shift
+    python3 -c '
+import os, signal, subprocess, sys
+limit = float(sys.argv[1].rstrip("s"))
+proc = subprocess.Popen(sys.argv[2:], start_new_session=True)
+try:
+    sys.exit(proc.wait(timeout=limit))
+except subprocess.TimeoutExpired:
+    os.killpg(proc.pid, signal.SIGTERM)
+    try:
+        proc.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        os.killpg(proc.pid, signal.SIGKILL)
+        proc.wait()
+    sys.exit(124)
+' "$limit" "$@"
+}
+
 smoke_drain() {
     local crash_asset=$1 worker=$2 stop_after=${3:-} claim rc _
     for _ in $(seq 1 16); do
         rc=0
-        claim=$(timeout --kill-after=5s 180s bash "$SCRIPT_DIR/local_ops.sh" smoke-engine \
+        claim=$(run_with_timeout 180s bash "$SCRIPT_DIR/local_ops.sh" smoke-engine \
             claim --worker "$worker" --lease 1m) || rc=$?
         case "$rc" in
             137)
@@ -954,12 +974,12 @@ PY
         --product local-rig --label "Local rig" --repo "$good" --repo "$failed" --repo "$partial" |
         uv run --no-sync python -c 'import json,sys; r=json.load(sys.stdin); sys.exit(0 if len(r["repository_ids"])==3 and not r["skipped"] else str(r))'
     echo "smoke: first pass observes three fixture heads"
-    timeout --kill-after=5s 180s bash "$SCRIPT_DIR/local_ops.sh" smoke-engine run --once
+    run_with_timeout 180s bash "$SCRIPT_DIR/local_ops.sh" smoke-engine run --once
     # Leave the first tick's audit queued until it has a signed decision layer
     # to verify. Observation priority precedes triage, which precedes audit.
     local i
     for i in 1 2 3; do
-        timeout --kill-after=5s 180s bash "$SCRIPT_DIR/local_ops.sh" smoke-engine \
+        run_with_timeout 180s bash "$SCRIPT_DIR/local_ops.sh" smoke-engine \
             claim --worker smoke-observer --lease 1m
     done
     smoke_expect 3 "select count(*) from traust_ops.run_order where asset='repo_state' and state='succeeded'
@@ -987,7 +1007,7 @@ PY
         from traust_ops.run_order where asset='ledger_audit' and state='succeeded'"
 
     echo "smoke: second pass scans fixture manifests and audits the edited event"
-    timeout --kill-after=5s 180s bash "$SCRIPT_DIR/local_ops.sh" smoke-engine run --once
+    run_with_timeout 180s bash "$SCRIPT_DIR/local_ops.sh" smoke-engine run --once
     smoke_drain manifest_sbom smoke-manifest
     smoke_replayed manifest_sbom
     # Exact order multiset: no unexpected, stuck, refused or extra successful orders.

@@ -565,10 +565,6 @@ EXEMPTIONS: dict[tuple[str, str], str] = {
     ): "refactor queue — python -m grants pending A14 anchor pass",
     (
         "A14",
-        "harnessing/mine-ledger/SKILL.md",
-    ): "refactor queue — python -m grants pending A14 anchor pass",
-    (
-        "A14",
         "harnessing/portfolio-graph/SKILL.md",
     ): "refactor queue — python -m grants pending A14 anchor pass",
     (
