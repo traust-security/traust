@@ -14,7 +14,7 @@ from typing import Any
 import pytest
 import sqlalchemy as sa
 import yaml
-from traust_core.v1 import contracts
+from traust_core.v1 import contracts, data_migrations
 from traust_core.v1.models.values import ProductSlug
 from traust_core.v1.repositories import apply_schema, create_database_engine, on_driver_connection
 from traust_core.v1.repositories.sql import Dialect, contract_dialect
@@ -42,6 +42,7 @@ def _postgres() -> Iterator[str]:
     on_driver_connection(
         engine, lambda dbapi: contracts.run_db_upgrades(dbapi, contract_dialect(engine))
     )
+    data_migrations.run(engine, cvss=None)
     engine.dispose()
     try:
         yield url.render_as_string(hide_password=False)
