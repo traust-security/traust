@@ -4,7 +4,7 @@
 The pushed fix commit must be created by the script from a file-level
 snapshot of the worktree (never the worktree's .git) on a fresh clone at
 the recorded pre-agent base commit, under the fixed machine identity
-`sci-remediation <sci-remediation@localhost>` — never by the agent's git
+`traust-remediation <traust-remediation@localhost>` — never by the agent's git
 in the (potentially tainted, assessment 2026-07-31 C2) worktree.
 
 The full skill flow needs a live fork + GITHUB_TOKEN; what is testable
@@ -123,8 +123,8 @@ def test_commit_creates_deterministic_commit(tmp_path):
         check=True,
     ).stdout.strip()
     assert (
-        ident == "sci-remediation|sci-remediation@localhost"
-        "|sci-remediation|sci-remediation@localhost"
+        ident == "traust-remediation|traust-remediation@localhost"
+        "|traust-remediation|traust-remediation@localhost"
     )
     # the commit sits directly on the recorded pre-agent base
     parent = subprocess.run(
@@ -241,7 +241,7 @@ def test_commit_never_executes_git_in_the_worktree(tmp_path):
             text=True,
             check=True,
         ).stdout.strip()
-        == "sci-remediation"
+        == "traust-remediation"
     )
 
 
@@ -408,8 +408,8 @@ def test_push_requires_token(tmp_path):
 def test_push_fix_source_gates():
     s = PUSH_FIX.read_text()
     # fixed machine committer, distinct from any human, and unsigned
-    assert 'COMMITTER_NAME="sci-remediation"' in s
-    assert 'COMMITTER_EMAIL="sci-remediation@localhost"' in s
+    assert 'COMMITTER_NAME="traust-remediation"' in s
+    assert 'COMMITTER_EMAIL="traust-remediation@localhost"' in s
     assert "-c commit.gpgsign=false" in s
     assert "--no-verify" in s
     # the file snapshot: worktree files only, never .git
@@ -583,7 +583,7 @@ def test_an_inherited_author_or_committer_never_reaches_the_commit(tmp_path):
         check=True,
         env={**os.environ, "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_SYSTEM": "/dev/null"},
     ).stdout.strip()
-    machine = "sci-remediation <sci-remediation@localhost>"
+    machine = "traust-remediation <traust-remediation@localhost>"
     assert who == f"{machine}|{machine}"
 
 

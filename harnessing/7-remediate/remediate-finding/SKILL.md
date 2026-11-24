@@ -432,7 +432,7 @@ per assessment 2026-07-31 C2, potentially tainted by hostile target test
 code; it is never read), lays the snapshot over a **fresh clone** at the
 recorded pre-agent base commit (SHA-verified after checkout, so the clone
 is exactly the audited tree plus your snapshot), and commits under the
-fixed machine identity `sci-remediation <sci-remediation@localhost>` —
+fixed machine identity `traust-remediation <traust-remediation@localhost>` —
 no human committer, no signing, no hooks:
 
 ```bash
@@ -666,7 +666,7 @@ layout; `push_fix.sh push` removes it after the push, `push_fix.sh discard` when
   mutating git command; `push_fix.sh` commits a file-level snapshot of
   the worktree (`.git` excluded) on a fresh clone at the recorded
   pre-agent base commit, under the fixed machine identity
-  `sci-remediation <sci-remediation@localhost>` — attributable to the
+  `traust-remediation <traust-remediation@localhost>` — attributable to the
   harness, never to a person, and never signed.
 - **Embargo**: commit messages and branch names use the internal
   finding ID, never a CVE or public tracker reference.

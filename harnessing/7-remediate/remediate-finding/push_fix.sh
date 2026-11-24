@@ -29,7 +29,7 @@
 # clone is exactly the audited tree plus the snapshot.
 #
 # Committer identity — FIXED, deliberately not any person:
-#   sci-remediation <sci-remediation@localhost>
+#   traust-remediation <traust-remediation@localhost>
 # A machine identity distinct from every human committer (and from SCI's
 # `sci-worker`, a different lane) so pushed fixes are attributable to the
 # harness, never to a person. Signing is disabled for the same reason: the
@@ -79,8 +79,8 @@ set -euo pipefail
 
 # Fixed machine committer — see header. Not overridable: a configurable
 # identity could be pointed at a person's name/email.
-COMMITTER_NAME="sci-remediation"
-COMMITTER_EMAIL="sci-remediation@localhost"
+COMMITTER_NAME="traust-remediation"
+COMMITTER_EMAIL="traust-remediation@localhost"
 
 # Env-reading credential helper (the skill's Phase 6 shape): the empty
 # `-c credential.helper=` clears the list first, so this is the only
