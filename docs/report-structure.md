@@ -189,13 +189,13 @@ apply to new reports; historical reports are not rewritten.
 
   | Evidence | Outcome |
   |---|---|
-  | `/impact-analysis` `version_not_in_range` or `not_imported`; a vendor not-affected statement; the fixed NVR or backport shipped | triage: `false_positive` (the claim that this version is affected is wrong), citing the artifact |
-  | Go symbol-level (govulncheck) `not_observed` | triage: `true_positive`, `kind: weakness` (the vulnerable code ships but is not reached), citing the artifact |
+  | `classification: version_not_in_range` or `not_imported`; a vendor not-affected statement; the fixed NVR or backport shipped | triage: `false_positive` (the claim that this version is affected is wrong), citing the artifact; triage's verdicts have no `not_affected` yet |
+  | `classification: not_observed` with `evidence_level: symbol` (govulncheck) | triage: `true_positive`, `kind: weakness` (the vulnerable code ships but is not reached), citing the artifact |
   | Code citations showing a precondition or control that changes how the vulnerability can be exploited here | triage proposes a CVSS Environmental vector, each modified metric citing its evidence, in the rationale. The severity changes only when Core scores that vector with the CVSS calculator and admits the decision (remediation plan step 7); until then the band stands |
   | A live-validation result | the validation's verdict, at the band of the vector it records |
 
   An audit applies the first two rows itself, recording the match as not
-  applicable (see the next section); the code-citation and validation rows
+  affected (see the next section); the code-citation and validation rows
   belong to triage and live validation. Symbol-usage or manifest-level
   `not_observed`, `likely_affected` and `inconclusive` are not evidence for
   any of these. Nothing raises a severity above its score's band either.
@@ -206,20 +206,23 @@ apply to new reports; historical reports are not rewritten.
   finding goes to a person through Core's review queue; it is never invalid
   by default.
 
-## Dependency and advisory findings: applicable or not applicable
+## Dependency and advisory findings: affected or not affected
 
-A scanner-matched CVE is either **not applicable**, on the impact-analysis or
-vendor evidence below, and recorded as such with its rationale, or it is
-**filed as a finding** at its published score and stays until `/triage` or
-live validation disproves it (see the evidence table in
-[Severity authoring](#severity-authoring)), or a person decides.
+A scanner-matched CVE is either **not affected** (validity `not_affected`: the
+issue exists but doesn't apply to this repository, version or deployment), on
+the impact-analysis or vendor evidence below, and recorded as such with its
+rationale; or it is **filed as a finding** at its published score and stays
+until `/triage` or live validation disproves it (see the evidence table in
+[Severity authoring](#severity-authoring)), or a person decides. Names below
+are traust-contracts' own: the `finding.dependency` block, the
+`impact-classification` and `dependency-evidence-level` enums.
 
-1. **Where a match comes from.** An advisory match (package and installed
-   version against an advisory) comes from a deterministic scanner: the OSV
-   pre-scan, `sbom-grype`, govulncheck, or an image package list. Copy
-   advisory ids, affected ranges, installed versions and scores from its
-   output; never type them. A CVE you recall that no scanner matched goes
-   in `dependency_audit` as a lead naming the missing scanner evidence.
+1. **Where a match comes from.** An advisory match comes from a
+   deterministic scanner: the OSV pre-scan, `sbom-grype`, govulncheck, or an
+   image package list. Copy `advisory`, `module`, `ecosystem`,
+   `installed_version`, `vulnerable_range`, `fixed_version` and scores from
+   its output; never type them. A CVE you recall that no scanner matched
+   goes in `dependency_audit` as a lead naming the missing scanner evidence.
 2. **Reachability: impact-analysis, single-commit mode.** For every match,
    run:
 
@@ -229,33 +232,36 @@ live validation disproves it (see the evidence table in
    ```
 
    Read the export row for this repository, commit, ecosystem, module and
-   installed version. The export is a scratch intermediate; never place it
-   in the findings tree. Record `deterministic_steps["impact-analysis"]`:
-   `"ran: <n> advisories"`, or `"skipped: <reason>"` with a `coverage_gaps`
-   entry.
+   installed version: its `classification` and `evidence.evidence_level`.
+   The export is a scratch intermediate; never place it in the findings
+   tree. Record `deterministic_steps["impact-analysis"]`: `"ran: <n>
+   advisories"`, or `"skipped: <reason>"` with a `coverage_gaps` entry.
 3. **File by the evidence:**
 
    | Evidence | Outcome |
    |---|---|
-   | impact-analysis `version_not_in_range` or `not_imported` | **Not applicable** |
-   | impact-analysis `not_observed` at Go symbol level (govulncheck: the vulnerable symbol is unreachable) | **Not applicable** |
-   | A vendor not-affected statement, or the fixed NVR shipped, in the tool data (grype's Red Hat security data, a VEX document impact-analysis recorded) | **Not applicable** |
-   | `affected` | A finding at the published score, citing the govulncheck trace |
-   | `likely_affected`, `inconclusive`, `not_observed` below symbol level | A finding at the published score, unverified, citing the row |
-   | A range conflict between sources (a release-tag range against a Go-module range, for example) | A finding at the published score, unverified, citing both ranges |
+   | `classification: version_not_in_range` or `not_imported` | **Not affected** |
+   | `classification: not_observed` with `evidence_level: symbol` (govulncheck: the vulnerable symbol is unreachable) | **Not affected** |
+   | A vendor not-affected statement, or the fixed NVR shipped, in the tool data (grype's Red Hat security data, a VEX document impact-analysis recorded) | **Not affected** |
+   | `classification: affected` | A finding at the published score, citing the govulncheck trace |
+   | `classification: likely_affected` or `inconclusive`, or `not_observed` with `evidence_level` other than `symbol` | A finding at the published score, unverified |
+   | Sources' ranges disagree for the installed version (a release-tag range against a Go-module range, for example) | A finding at the published score, unverified, citing both ranges |
    | No row (the run failed, or impact-analysis doesn't cover the ecosystem or surface) | A finding at the published score, unverified, with the gap named |
 
-   A filed finding carries no validity answer (omit `validation_status`)
-   and has the range results, vendor data, tool-tagged test or dev scope and
-   the impact-analysis row attached in its `evidence` and description.
-4. **Record every not-applicable match** in `dependency_audit.entries`, one
-   entry each: `package`, `version` (installed), `status:
-   "not_applicable"`, and `notes` stating the rationale — the advisory id
-   and aliases, the evidence (classification, or the vendor statement),
-   and its reference (the impact-analysis row: repository, commit,
-   ecosystem, module and version, or the vendor document). The entry is
-   the paper trail that the CVE was identified and why it was eliminated;
-   it isn't ingested as a finding.
+   Every filed advisory finding carries no validity answer (omit
+   `validation_status`) and a `dependency` block: `advisory`, `module`,
+   `ecosystem`, `installed_version`, `vulnerable_range`, `fixed_version`,
+   the row's `classification` and `evidence_level` when there is one, and
+   `impact_artifact` pointing at the row. Test or dev scope and vendor data
+   go in its description.
+4. **Record every not-affected match** in the report's `not_affected`
+   section: one entry each, with the same `dependency` block (its
+   `classification` and `evidence_level` are the evidence), a `rationale`,
+   and `reference` for a vendor statement. It is the paper trail that the
+   CVE was identified and why it was eliminated; it isn't ingested as a
+   finding. Until the installed contracts declare `not_affected`
+   (traust-contracts#189), write each as a `dependency_audit` entry with
+   `status: "not_affected"` and the same facts in `notes`.
 
 Your own reading of the code ("unused", "dev-only", "not executed in this
 image", "client-only symbol") is never evidence of non-applicability. It

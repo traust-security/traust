@@ -395,17 +395,17 @@ an automatic false-positive verdict.
 ### Dependency and advisory gate
 
 The largest measured FP class (22 of 69). Every scanner-matched
-dependency/base-image CVE follows [Dependency and advisory findings: applicable or not applicable](../../../docs/report-structure.md#dependency-and-advisory-findings-applicable-or-not-applicable):
+dependency/base-image CVE follows [Dependency and advisory findings: affected or not affected](../../../docs/report-structure.md#dependency-and-advisory-findings-affected-or-not-affected):
 
-- **Not applicable** on impact-analysis evidence (`version_not_in_range`,
-  `not_imported`, or Go symbol-level `not_observed`) or a vendor
-  not-affected statement or fixed NVR: no finding; a `dependency_audit`
-  entry with `status: "not_applicable"` and the rationale, so the report
-  shows it was identified and why it was eliminated.
+- **Not affected** on impact-analysis evidence (`version_not_in_range`,
+  `not_imported`, or `not_observed` with `evidence_level: symbol`) or a vendor
+  not-affected statement or fixed NVR: no finding; an entry in the report's
+  `not_affected` section with its `dependency` block and rationale, so the
+  report shows it was identified and why it was eliminated.
 - **Everything else** is a finding at the published score (the advisory's
   selected authority band, [Severity authoring](../../../docs/report-structure.md#severity-authoring)), unverified (no `validation_status`),
-  with the range results, vendor data, tool-tagged scope and the
-  impact-analysis row attached. `/triage` and live validation try to
+  with a `dependency` block (`classification`, `evidence_level`,
+  `impact_artifact`, …) and the range, vendor and scope data attached. `/triage` and live validation try to
   disprove it; what they can't settle goes to a person.
 
 Your own reading of the code ("unused", "client-only", "dev-only") is never
@@ -894,7 +894,7 @@ grype db status
 Use the output as follows:
 
 - **`dependency_audit`** — one entry per grype match: `package`, `version`, `status` (`vulnerable` / `fix-available` / `wont-fix` per upstream data), and `notes` naming the CVE/GHSA ID and the fixed-in version. Matches with no fix or negligible severity may be summarized in `prose` rather than enumerated.
-- **Findings** — every grype match is either recorded not applicable or filed as a finding, unverified, by the **Precision Gate → Dependency and advisory gate** ([Dependency and advisory findings: applicable or not applicable](../../../docs/report-structure.md#dependency-and-advisory-findings-applicable-or-not-applicable)), with range, vendor and scope data and the single-commit impact-analysis row attached. A filed match takes the advisory's selected authority band ([Severity authoring](../../../docs/report-structure.md#severity-authoring)), never lower. Categorize as `supply-chain`, cite OWASP K07 for operator repos, cite the impact-analysis row in the finding's `evidence`, and omit unauthored `validation_status` — a version match is not execution evidence.
+- **Findings** — every grype match is either recorded not affected or filed as a finding, unverified, by the **Precision Gate → Dependency and advisory gate** ([Dependency and advisory findings: affected or not affected](../../../docs/report-structure.md#dependency-and-advisory-findings-affected-or-not-affected)), with range, vendor and scope data and the single-commit impact-analysis row attached. A filed match takes the advisory's selected authority band ([Severity authoring](../../../docs/report-structure.md#severity-authoring)), never lower. Categorize as `supply-chain`, cite OWASP K07 for operator repos, cite the impact-analysis row in the finding's `evidence`, and omit unauthored `validation_status` — a version match is not execution evidence.
 - **`metadata.tools`** — append `syft <version>` and `grype <version> (db <built-date>)` so the scan is reproducible against a stated DB state. The SBOM and grype JSON are intermediates; do not place them in `findings/`.
 
 #### Deterministic dependency pre-scan (OSV API)

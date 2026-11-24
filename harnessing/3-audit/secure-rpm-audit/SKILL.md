@@ -197,8 +197,8 @@ incomplete audit.
 ### Dependency and advisory gate (vendored bundles & NVR matches)
 
 Every scanner-matched dependency/version-match candidate, including a bundled
-library's advisory-lag (RPM08), is either recorded not applicable or filed,
-unverified, at the advisory's selected authority band ([Severity authoring](../../../docs/report-structure.md#severity-authoring)), following [Dependency and advisory findings: applicable or not applicable](../../../docs/report-structure.md#dependency-and-advisory-findings-applicable-or-not-applicable). Attach as evidence:
+library's advisory-lag (RPM08), is either recorded not affected or filed,
+unverified, at the advisory's selected authority band ([Severity authoring](../../../docs/report-structure.md#severity-authoring)), following [Dependency and advisory findings: affected or not affected](../../../docs/report-structure.md#dependency-and-advisory-findings-affected-or-not-affected). Attach as evidence:
 
 1. **Tool data and recorded backports:** the installed version against each
    source's range, Red Hat CSAF/VEX not-affected statements and fixed NVRs,
@@ -212,10 +212,11 @@ unverified, at the advisory's selected authority band ([Severity authoring](../.
    `deterministic_steps["impact-analysis"]: "skipped: <reason>"` with a
    coverage gap.
 
-Impact-analysis `version_not_in_range`, `not_imported` or Go symbol-level
-`not_observed`, a Red Hat not-affected statement or fixed NVR, or a
-downstream patch named for the CVE makes the match **not applicable**: a
-`dependency_audit` entry with `status: "not_applicable"` and the rationale.
+Impact-analysis `classification: version_not_in_range` or `not_imported`, or
+`not_observed` with `evidence_level: symbol`, a Red Hat not-affected statement or fixed NVR, or a
+downstream patch named for the CVE makes the match **not affected**: an
+entry in the report's `not_affected` section with its `dependency` block and
+rationale.
 Every other match is a finding, and `/triage` and live validation try to
 disprove it. A reading that
 `%build` never compiles a module, that a `%bcond` disables a feature, or that

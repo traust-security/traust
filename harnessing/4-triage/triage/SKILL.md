@@ -410,7 +410,7 @@ For input (A)/(B)/(D), each native prepared item becomes a finding: `title` =
 `finding.title`; `file` / `line` = the first location's `path` /
 `line_start`; `severity` = `occurrence.severity` (`unrated` = the scanner
 gave none); `cvss` = `occurrence.cvss_score` + `occurrence.cvss_vector` as
-supplied; `advisory` = `finding.advisory_match`; `category` = `occurrence.rule`; and **`fingerprint` +
+supplied; `dependency.advisory` = `finding.advisory_match`; `category` = `occurrence.rule`; and **`fingerprint` +
 `fingerprint_algo` copied from `finding`, unchanged, onto the triage
 finding** (6e matches verdicts to recorded findings by them). Keep the
 item's `precedents` for 2g.
@@ -440,9 +440,9 @@ canonical):
 | `category`      | `type`, `cwe`, `rule_id`, `crash_type`, `vulnerability_class` |
 | `severity`      | `severity_rating`, `level`, `priority`, `risk`           |
 | `cvss`          | `cvss_score` + `cvss_vector`, `cvss.score` + `cvss.vector` (keep as supplied; never re-score) |
-| `advisory`      | `cve`, `cve_id`, `ghsa_id`, `osv_id`, `vulnerability_id`, `advisory_id` |
-| `package`       | `package_name`, `module`, `pkg_name`, `artifact`           |
-| `installed_version` | `version`, `pkg_version`, `found_version`            |
+| `dependency.advisory` | `dependency.advisory`, `cve`, `cve_id`, `ghsa_id`, `osv_id`, `vulnerability_id`, `advisory_id` |
+| `dependency.module` | `dependency.module`, `package`, `package_name`, `pkg_name` |
+| `dependency.installed_version` | `dependency.installed_version`, `version`, `pkg_version`, `found_version` |
 | `title`         | `name`, `summary`, `message`                             |
 | `description`   | `details`, `report`, `body`, `evidence`                  |
 | `exploit_scenario` | `attack_scenario`, `poc`, `reproduction`              |
@@ -526,8 +526,8 @@ route, and old-checkpoint compatibility.
 **Definition.** A finding is advisory-backed when a structured field names a
 published advisory (CVE-, GHSA- or another OSV id) matched to a dependency,
 package or image, or to advisory-lag in the repo's own forked or vendored
-code: `finding.advisory_match` (inputs A/B/D) or the 1b `advisory` field
-(input C). An id that appears only in a title or description doesn't make a
+code: `finding.advisory_match` (inputs A/B/D) or the 1b `dependency.advisory`
+field (input C, the report's `finding.dependency` block). An id that appears only in a title or description doesn't make a
 finding advisory-backed; that finding follows the normal rules.
 
 **Score.** Start from the selected authority's score ([Severity authoring](../../../docs/report-structure.md#severity-authoring)). An audit
@@ -542,9 +542,9 @@ advisory-backed at `medium`, labelled unscored.
 verdict or kind, and propose a lower severity, only on evidence bound to
 this finding, its commit, its dependency version and its environment:
 - a **bound impact row**: the Phase 2f export row for this repository,
-  commit, package and installed version (the version comes from the 1b
-  `installed_version` field or a `pkg:` purl location; a finding without
-  both package and version binds no row);
+  commit, `dependency.module` and `dependency.installed_version` (from the
+  report's `finding.dependency` block, or a `pkg:` purl location; a finding
+  without both binds no row);
 - a vendor not-affected statement or fixed NVR recorded in that row;
 - a **code citation**: a `file:line` quoted from this checkout that the 6b2
   citation lint verifies.
@@ -562,8 +562,8 @@ in the finding.
 
    | Bound impact row | Fields |
    |---|---|
-   | `version_not_in_range` or `not_imported`, or a vendor not-affected statement / fixed NVR | `verdict: false_positive`, `refute_reasons: ["bound_evidence"]`, `exclusion_rule: null`, `severity: null`; the rationale cites the row |
-   | `not_observed` with `evidence.evidence_level: symbol` (Go, govulncheck) | `verdict: true_positive`, `kind: weakness`, `severity: null`, `exclusion_rule: "13"` |
+   | `classification: version_not_in_range` or `not_imported`, or a vendor not-affected statement / fixed NVR | `verdict: false_positive`, `refute_reasons: ["bound_evidence"]`, `exclusion_rule: null`, `severity: null`; the rationale cites the row |
+   | `classification: not_observed` with `evidence.evidence_level: symbol` (Go, govulncheck) | `verdict: true_positive`, `kind: weakness`, `severity: null`, `exclusion_rule: "13"` |
 
 3. **Then the votes, counting only cited ones (Phase 3c).** The published
    score stands; triage's job is to try to disprove it. A vote counts when
@@ -817,9 +817,10 @@ If the artifact exists:
 3. A finding **matches** when its title/description mentions the
    advisory (or a row's native `document.metadata.cve`) or its `module`,
    or shares the CVE with a govulncheck candidate from Phase 2e.
-   For an advisory-backed finding, attach only the row whose package and
-   version equal the finding's `package` and `installed_version`; with
-   either missing, attach rows as annotation only (no bound evidence).
+   For an advisory-backed finding, attach only the row whose module and
+   version equal the finding's `dependency.module` and
+   `dependency.installed_version`; with either missing, attach rows as
+   annotation only (no bound evidence).
 4. Attach the export's portfolio counts and each matching row's
    classification/evidence to Phase 3b. Native ranges, feature descriptions
    and sources remain under that row's `document.metadata`. Cite the
