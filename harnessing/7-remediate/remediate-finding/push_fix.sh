@@ -9,7 +9,7 @@
 #
 #   commit  snapshot the worktree's FILES (.git excluded) onto a
 #          fresh clone at the recorded pre-agent base commit, then commit
-#          under a fixed machine identity.
+#          under the deployment's machine identity.
 #   push    push the reviewed fix commit from that clone to the fix branch on
 #          the private fork, refusing unless the clone still holds exactly it.
 #   discard remove a clone this script created without pushing it (a Phase 5b
@@ -28,12 +28,12 @@
 # done with python3 so no image needs another tool). The base commit is re-verified by sha after checkout, so the
 # clone is exactly the audited tree plus the snapshot.
 #
-# Committer identity — FIXED, deliberately not any person:
-#   traust-remediation <traust-remediation@localhost>
-# A machine identity distinct from every human committer (and from SCI's
-# `sci-worker`, a different lane) so pushed fixes are attributable to the
-# harness, never to a person. Signing is disabled for the same reason: the
-# identity owns no key (`commit.gpgsign=false`).
+# Committer identity — a machine, never a person: `<committer> <<committer>@localhost>`,
+# where <committer> is the prepared work item's `committer` (traust.yaml
+# `remediation.committer`, core's default `traust-remediation`). Only a name ending in
+# `-remediation` is accepted and the email is derived, so pushed fixes are attributable to
+# the harness, never to a person. Signing is disabled for the same reason: the identity
+# owns no key (`commit.gpgsign=false`).
 #
 # `commit` runs before Phase 5, not at push time, because `assemble`
 # builds the report (patch diff, files changed, fork.fix_commit) from
@@ -42,7 +42,7 @@
 # Phase 6 pushes.
 #
 # Usage:
-#   push_fix.sh commit <worktree> <audited-sha> <clone-source> <message-file> [<removals-file>]
+#   push_fix.sh commit --committer <name> <worktree> <audited-sha> <clone-source> <message-file> [<removals-file>]
 #   push_fix.sh push   <fix-clone> <fork-url> <fix-branch> <fix-commit>
 #   push_fix.sh discard <fix-clone>
 #
@@ -76,17 +76,6 @@
 # `commit`; pushed/fix_commit for `push`). Logs go to stderr.
 
 set -euo pipefail
-
-# The machine committer — see header. A deployment may name its own machine identity
-# (TRAUST_REMEDIATION_COMMITTER, e.g. sci-remediation), but only a machine one: the name must
-# end in "-remediation" and the email is derived, so it can never be pointed at a person.
-COMMITTER_NAME="${TRAUST_REMEDIATION_COMMITTER:-traust-remediation}"
-case "$COMMITTER_NAME" in
-  *[!a-z0-9-]* | -* | "" ) echo "push_fix.sh: TRAUST_REMEDIATION_COMMITTER must be lowercase letters, digits and dashes" >&2; exit 2 ;;
-  *-remediation) ;;
-  *) echo "push_fix.sh: TRAUST_REMEDIATION_COMMITTER must end in -remediation (a machine identity)" >&2; exit 2 ;;
-esac
-COMMITTER_EMAIL="${COMMITTER_NAME}@localhost"
 
 # Env-reading credential helper (the skill's Phase 6 shape): the empty
 # `-c credential.helper=` clears the list first, so this is the only
@@ -240,7 +229,7 @@ remove_partial_clone() {
 }
 
 usage() {
-  echo "usage: push_fix.sh commit <worktree> <audited-sha> <clone-source> <message-file> [<removals-file>]" >&2
+  echo "usage: push_fix.sh commit --committer <name> <worktree> <audited-sha> <clone-source> <message-file> [<removals-file>]" >&2
   echo "       push_fix.sh push <fix-clone> <fork-url> <fix-branch> <fix-commit>" >&2
   echo "       push_fix.sh discard <fix-clone>" >&2
   exit 1
@@ -250,6 +239,15 @@ usage() {
 MODE="$1"; shift
 
 # ---------------------------------------------------------------- commit ----
+# The machine committer — see header: lowercase, ending in -remediation, email derived.
+committer() {
+  case "$1" in
+    *[!a-z0-9-]* | -* | "") echo "[push_fix] --committer must be lowercase letters, digits and dashes: '$1'" >&2; exit 2 ;;
+    *-remediation) COMMITTER_NAME="$1"; COMMITTER_EMAIL="$1@localhost" ;;
+    *) echo "[push_fix] --committer must end in -remediation (a machine identity): '$1'" >&2; exit 2 ;;
+  esac
+}
+
 do_commit() {
   local WORKTREE="${1:?}" SHA="${2:?}" CLONE_SRC="${3:?}" MSG="${4:?}" REMOVALS="${5:-}"
   local CLONE PDIR HEAD_REV STAGED_REMOVALS=0 SEEN_REMOVALS="" path
@@ -482,7 +480,9 @@ do_discard() {
 }
 
 case "$MODE" in
-  commit) [ "$#" -eq 4 ] || [ "$#" -eq 5 ] || usage; do_commit "$@";;
+  commit) [ "${1:-}" = --committer ] && [ "$#" -ge 2 ] || usage
+          committer "$2"; shift 2
+          [ "$#" -eq 4 ] || [ "$#" -eq 5 ] || usage; do_commit "$@";;
   push)   [ $# -eq 4 ] || usage; do_push "$@";;
   discard) [ $# -eq 1 ] || usage; do_discard "$@";;
   *)      usage;;

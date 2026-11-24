@@ -108,6 +108,7 @@ remediation prepare` with no argument prepares that item. `traust remediation pr
 |---|---|
 | `subject.repository_url` / `subject.sha` | Exact source the finding's `file:line` references resolve against |
 | `fork` / `fix_branch` | Private fork + branch name to push the fix to |
+| `committer` | The machine identity the fix commit is authored under (`traust.yaml` `remediation.committer`) |
 | `items[].decisions` | every decision on the finding — the triage `rationale` among them |
 | `items[].finding` | the finding as it stands: `cwes`, `locations`, `effective_severity` |
 | `items[].strategy` | the preferred strategy for its class (Phase 3 table) |
@@ -145,7 +146,7 @@ This:
    created on the fork at push time (`HEAD:refs/heads/<fix_branch>`).
 3. Writes the work item (`prepared.json`) next to the worktree.
 4. Moves the work item to `forked` and prints a JSON workspace
-   descriptor (`worktree`, `fix_branch`, `out`, `prepared`, …).
+   descriptor (`worktree`, `fix_branch`, `committer`, `out`, `prepared`, …).
 
 Capture the printed JSON — every subsequent phase uses `worktree` and `out`.
 
@@ -233,7 +234,7 @@ file, anything whose presence in the index is the finding — **declare
 the removal; never delete or move the file yourself** (no lane offers
 `rm`, and a worktree deletion is not the same fix). Write the path, one
 per line, to `<out>/declared-removals.txt` and pass that file to
-Phase 4d's `push_fix.sh commit` as its fifth argument: the script — the
+Phase 4d's `push_fix.sh commit` as its last argument: the script — the
 deterministic side — validates every declared path (tracked at the
 audited commit; no traversal or `.git` shapes) and stages it as
 `git rm --cached` in its own fresh clone, keeping the worktree copy.
@@ -432,11 +433,12 @@ per assessment 2026-07-31 C2, potentially tainted by hostile target test
 code; it is never read), lays the snapshot over a **fresh clone** at the
 recorded pre-agent base commit (SHA-verified after checkout, so the clone
 is exactly the audited tree plus your snapshot), and commits under the
-machine identity `traust-remediation <traust-remediation@localhost>` (a deployment may name its own with `TRAUST_REMEDIATION_COMMITTER`, a name ending in `-remediation`) —
+deployment's machine identity — the descriptor's `committer` (`traust-remediation` unless
+`traust.yaml` names another), `<committer>@localhost` —
 no human committer, no signing, no hooks:
 
 ```bash
-bash harnessing/7-remediate/remediate-finding/push_fix.sh commit \
+bash harnessing/7-remediate/remediate-finding/push_fix.sh commit --committer <committer> \
   <worktree> <audited_commit> <fork_url> <out>/commit-message.txt \
   [<out>/declared-removals.txt]   # only when Phase 3 declared untracking
 ```
@@ -665,8 +667,8 @@ layout; `push_fix.sh push` removes it after the push, `push_fix.sh discard` when
 - **Deterministic commit** (followup ask E): the agent never runs a
   mutating git command; `push_fix.sh` commits a file-level snapshot of
   the worktree (`.git` excluded) on a fresh clone at the recorded
-  pre-agent base commit, under the fixed machine identity
-  `traust-remediation <traust-remediation@localhost>` — attributable to the
+  pre-agent base commit, under the deployment's machine identity
+  (`<committer> <<committer>@localhost>`, a name ending in `-remediation`) — attributable to the
   harness, never to a person, and never signed.
 - **Embargo**: commit messages and branch names use the internal
   finding ID, never a CVE or public tracker reference.

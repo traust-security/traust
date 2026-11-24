@@ -3,8 +3,8 @@
 
 The pushed fix commit must be created by the script from a file-level
 snapshot of the worktree (never the worktree's .git) on a fresh clone at
-the recorded pre-agent base commit, under the fixed machine identity
-`traust-remediation <traust-remediation@localhost>` — never by the agent's git
+the recorded pre-agent base commit, under the deployment's machine identity
+(`--committer`, ending in `-remediation`) — never by the agent's git
 in the (potentially tainted, assessment 2026-07-31 C2) worktree.
 
 The full skill flow needs a live fork + GITHUB_TOKEN; what is testable
@@ -78,7 +78,9 @@ def _origin_with_base(tmp_path):
     return origin, sha
 
 
-def _script(*args, drop_env=(), env_extra=None):
+def _script(*args, drop_env=(), env_extra=None, committer="traust-remediation"):
+    if args[:1] == ("commit",) and committer is not None:
+        args = ("commit", "--committer", committer, *args[1:])
     env = {**os.environ, "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_SYSTEM": "/dev/null"}
     for k in drop_env:
         env.pop(k, None)
@@ -412,7 +414,7 @@ def test_a_deployment_names_its_own_machine_committer(tmp_path):
         base,
         str(origin),
         str(msg),
-        env_extra={"TRAUST_REMEDIATION_COMMITTER": "sci-remediation"},
+        committer="sci-remediation",
     )
     assert r.returncode == 0, r.stderr
     clone = Path(json.loads(r.stdout.strip().splitlines()[-1])["clone"])
@@ -440,9 +442,18 @@ def test_a_committer_that_is_not_a_machine_identity_is_refused(tmp_path, name):
         base,
         str(origin),
         str(msg),
-        env_extra={"TRAUST_REMEDIATION_COMMITTER": name},
+        committer=name,
     )
-    assert r.returncode != 0 and "TRAUST_REMEDIATION_COMMITTER" in r.stderr
+    assert r.returncode == 2 and "--committer" in r.stderr
+
+
+def test_a_commit_without_a_committer_is_refused(tmp_path):
+    origin, base = _origin_with_base(tmp_path)
+    wt = _patched_worktree(origin, base, tmp_path)
+    msg = tmp_path / "commit-message.txt"
+    msg.write_text(MSG)
+    r = _script("commit", str(wt), base, str(origin), str(msg), committer=None)
+    assert r.returncode == 1 and "--committer" in r.stderr
 
 
 # ---- source-level gates (cheap, loud on regression — the idiom of
@@ -451,10 +462,9 @@ def test_a_committer_that_is_not_a_machine_identity_is_refused(tmp_path, name):
 
 def test_push_fix_source_gates():
     s = PUSH_FIX.read_text()
-    # a machine committer, distinct from any human (a configured name must end in -remediation
-    # and the email is derived), and unsigned
-    assert 'COMMITTER_NAME="${TRAUST_REMEDIATION_COMMITTER:-traust-remediation}"' in s
-    assert 'COMMITTER_EMAIL="${COMMITTER_NAME}@localhost"' in s
+    # a machine committer, distinct from any human (the name must end in -remediation and the
+    # email is derived), and unsigned
+    assert '*-remediation) COMMITTER_NAME="$1"; COMMITTER_EMAIL="$1@localhost"' in s
     assert "-c commit.gpgsign=false" in s
     assert "--no-verify" in s
     # the file snapshot: worktree files only, never .git
@@ -478,7 +488,7 @@ def test_push_fix_source_gates():
     assert "HEAD:refs/heads" not in s
     assert "push -f " not in s
     # the identity is documented as deliberately not a person
-    assert "deliberately not any person" in s
+    assert "a machine, never a person" in s
 
 
 def test_skill_md_confines_the_agent_away_from_committing():
