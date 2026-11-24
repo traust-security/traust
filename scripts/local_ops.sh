@@ -845,6 +845,14 @@ run_with_timeout() {
 import os, signal, subprocess, sys
 limit = float(sys.argv[1].rstrip("s"))
 proc = subprocess.Popen(sys.argv[2:], start_new_session=True)
+def _terminate(signum, _frame):
+    try:
+        os.killpg(proc.pid, signum)
+    except ProcessLookupError:
+        pass
+    sys.exit(128 + signum)
+for sig in (signal.SIGINT, signal.SIGTERM):
+    signal.signal(sig, _terminate)
 try:
     sys.exit(proc.wait(timeout=limit))
 except subprocess.TimeoutExpired:
