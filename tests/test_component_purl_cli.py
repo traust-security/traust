@@ -711,39 +711,60 @@ def test_qodo_regressions_prepare_record_release_and_session_target_gate(
             assert unrelated.is_dir()
             assert sentinel.read_text(encoding="utf-8") == "precious\n"
 
-    # Real checkout -> release lifecycle removes only the real worktree.
-    capsys.readouterr()
-    assert (
-        repo.checkout(
-            [
-                "--config-home",
-                str(home),
-                str(checkout),
-                "--ref",
-                sha,
-            ]
-        )
-        == 0
-    )
-    wt_path = Path(capsys.readouterr().out.strip().splitlines()[-1])
-    assert wt_path.is_dir()
-    assert (
-        repo.release(
-            [
-                "--config-home",
-                str(home),
-                str(checkout),
-                "--ref",
-                sha,
-                "--path",
-                str(wt_path),
-            ]
-        )
-        == 0
-    )
-    assert not wt_path.exists()
-    assert sentinel.read_text(encoding="utf-8") == "precious\n"
+    # Real cross-process shared checkout -> release lifecycle across fresh subprocesses.
+    import sys
 
+    def _run_cli(*cli_args: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [sys.executable, "-m", "traust.cli", *cli_args],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+    c1 = _run_cli(
+        "repo", "checkout", "--config-home", str(home), str(checkout), "--ref", sha, "--shared"
+    )
+    assert c1.returncode == 0, c1.stderr
+    wt1 = Path(c1.stdout.strip().splitlines()[-1])
+    c2 = _run_cli(
+        "repo", "checkout", "--config-home", str(home), str(checkout), "--ref", sha, "--shared"
+    )
+    assert c2.returncode == 0, c2.stderr
+    wt2 = Path(c2.stdout.strip().splitlines()[-1])
+    assert wt1 == wt2 and wt1.is_dir()
+
+    # Release holder 1 WITHOUT --shared from a fresh process: holder 2's worktree must survive.
+    r1 = _run_cli(
+        "repo",
+        "release",
+        "--config-home",
+        str(home),
+        str(checkout),
+        "--ref",
+        sha,
+        "--path",
+        str(wt1),
+    )
+    assert r1.returncode == 0, r1.stderr
+    assert wt2.is_dir()
+
+    # Release holder 2 WITH --shared from a fresh process: worktree is now cleanly removed.
+    r2 = _run_cli(
+        "repo",
+        "release",
+        "--config-home",
+        str(home),
+        str(checkout),
+        "--ref",
+        sha,
+        "--path",
+        str(wt2),
+        "--shared",
+    )
+    assert r2.returncode == 0, r2.stderr
+    assert not wt2.exists()
+    assert sentinel.read_text(encoding="utf-8") == "precious\n"
     # 4. session._recorded requires matching target_purl + commit + repo in PURL mode.
     from types import SimpleNamespace as _NS
     from uuid import uuid4
