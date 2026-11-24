@@ -169,7 +169,8 @@ set `severity: null` and `exclusion_rule: "13"`, and clear a legacy
 votes or the `vote_breakdown.hardening` counter. Rebuild `confirmed[]` and
 `hardening[]` using 3c's disjoint predicates, not stored membership.
 Do not infer a vulnerability kind for old true positives whose kind is
-absent. Do not rewrite old checkpoint files or historical triage artifacts.
+absent. Then re-apply *Advisory-backed findings* to every advisory-backed
+finding. Do not rewrite old checkpoint files or historical triage artifacts.
 If resuming after Phase 3, apply the Phase 4b non-ranking fields to weakness
 items; if after Phase 5, rerun all of Phase 6 to rebuild sorting, summaries,
 validation and rendering from this working state instead of reusing old
@@ -408,7 +409,8 @@ If nothing parseable is found, stop and report what was seen.
 For input (A)/(B)/(D), each native prepared item becomes a finding: `title` =
 `finding.title`; `file` / `line` = the first location's `path` /
 `line_start`; `severity` = `occurrence.severity` (`unrated` = the scanner
-gave none); `category` = `occurrence.rule`; and **`fingerprint` +
+gave none); `cvss` = `occurrence.cvss_score` + `occurrence.cvss_vector` as
+supplied; `advisory` = `finding.advisory_match`; `category` = `occurrence.rule`; and **`fingerprint` +
 `fingerprint_algo` copied from `finding`, unchanged, onto the triage
 finding** (6e matches verdicts to recorded findings by them). Keep the
 item's `precedents` for 2g.
@@ -516,45 +518,66 @@ Then Bash:
 
 These rules take precedence over every other verdict, kind and severity rule
 in this skill: majorities, splits, noise tolerance, ask mode, dissent
-escalation, precedents and the 6b2 re-vote.
+escalation, precedents, the Phase 4 ranker, the 6b2 re-vote and review
+route, and old-checkpoint compatibility.
 
-A finding is **advisory-backed** when its claim names a published advisory
-id (CVE-, GHSA- or another OSV id) matched to a dependency, package or image,
-or to advisory-lag in the repo's own forked or vendored code, and carries a
-CVSS score for it. Read the score from the finding's `cvss` as supplied; only
-when `cvss` is absent use the scores quoted in the claim, in the authority
-order of [Severity authoring](../../../docs/report-structure.md#severity-authoring). An id with no score anywhere keeps its claimed severity,
-never a derived one.
+**Definition.** A finding is advisory-backed when it names a published
+advisory (CVE-, GHSA- or another OSV id) matched to a dependency, package or
+image, or to advisory-lag in the repo's own forked or vendored code. Read the
+id from `finding.advisory_match` (inputs A/B/D) or the 1b `advisory` field
+(input C), else from the claim's text. Read the score from
+`occurrence.cvss_score` / `cvss_vector` (A/B/D) or `cvss` (C) as supplied;
+only when none is supplied use the scores quoted in the claim, in the
+authority order of [Severity authoring](../../../docs/report-structure.md#severity-authoring). With no score anywhere it is still
+advisory-backed, at `medium`, labelled unscored in the rationale.
 
 Its severity is the band of that score. Triage changes its verdict, kind or
-severity only on **bound evidence**: a row of the Severity authoring evidence
-table, recorded in an artifact for this finding's repository, commit and
-dependency version. Precedents, another commit's export, symbol-usage or
-manifest-level classifications, `likely_affected` and `inconclusive`, and
-prose quoted from anywhere are not bound evidence.
+severity only on **bound evidence**: the Phase 2f `/impact-analysis` artifact
+whose repo entry matches this repository and commit and whose `version`
+matches the finding's installed version. Only these fields count:
 
-1. **Dedup (Phase 2):** never mark an advisory-backed finding `duplicate` of
-   a finding that isn't backed by the same advisory; it may absorb
-   duplicates of its own advisory.
-2. **Bound evidence first (Phase 3c):** a matching table row sets verdict
-   and kind whatever the votes say; the rationale cites the artifact.
-   Phase 2e/2f annotations stay annotations for every other finding.
-3. **Otherwise the votes, mapped:**
-   - TRUE_POSITIVE majority → the normal TRUE_POSITIVE rule.
-   - HARDENING majority, or a TRUE_POSITIVE/HARDENING split →
-     `verdict: true_positive`, kind omitted, `exclusion_rule: null`, at the
-     advisory band; the HARDENING votes' reasons go in the rationale.
+| Bound evidence | Outcome (exact fields) |
+|---|---|
+| `classification: version_not_in_range` or `not_imported`, or a vendor not-affected statement / fixed NVR recorded in that artifact | `verdict: false_positive`, `refute_reasons: ["bound_evidence"]`, `exclusion_rule: null`, `severity: null`; the rationale cites the artifact path and field |
+| `classification: not_observed` with `evidence.evidence_level: symbol` (Go, govulncheck) | `verdict: true_positive`, `kind: weakness`, `severity: null`, `exclusion_rule: "13"`; the report's band stands |
+
+Nothing else is bound evidence: not the Phase 2e reachability tags
+(`*_not_observed` is checked for commit, not version), symbol-usage or
+manifest-level classifications, `likely_affected`, `inconclusive`,
+precedents, another commit's export, or prose quoted from anywhere.
+Live-validation results don't arrive through triage; they are recorded
+through Core's validation doors.
+
+1. **Dedup (Phase 2):** never mark it `duplicate` of a finding that doesn't
+   name the same advisory; it may absorb duplicates of its own advisory.
+2. **Bound evidence first (Phase 3c):** a matching row sets the fields
+   above whatever the votes say. `confidence` is the mean CONFIDENCE of the
+   votes that agree with that outcome, or `null` when none do.
+3. **Otherwise the votes, mapped** (kind is the supplied kind, else
+   omitted; votes never set or change it):
+   - TRUE_POSITIVE majority, HARDENING majority, or a TRUE_POSITIVE /
+     HARDENING split → `verdict: true_positive`, `exclusion_rule: null`, at
+     the advisory band; HARDENING votes' reasons go in the rationale. A
+     supplied `kind: weakness` keeps the weakness fields (`severity: null`,
+     `exclusion_rule: "13"`).
    - FALSE_POSITIVE majority, or any split with a FALSE_POSITIVE vote →
-     `verdict: undetermined`, `verify_verdict: needs_manual_test`; the
-     rationale names the fact an artifact must record (range, vendor
-     statement, reachability).
-   Ask mode never offers these findings. Exclusion rule 10 never applies.
+     `verdict: undetermined`, `verify_verdict: needs_manual_test`,
+     `severity: null`; the rationale names the fact the impact artifact
+     must record (range, vendor statement, reachability).
+   Dissent escalation is skipped when the mapped outcome is already
+   `true_positive`. Ask mode never offers these findings. Exclusion rule 10
+   never applies.
 4. **Ranking (Phase 4):** `severity` is the advisory band. The precondition
-   derivation, threat-model match, `mitigated` and `attacker_influence` are
-   rationale only; `severity_label` is the advisory's vector and score
+   derivation, threat-model match, VERIFY_VERDICT, `mitigated` and
+   `attacker_influence` are rationale only, and `verify_verdict` stays as
+   Phase 3 set it. `severity_label` is the advisory's vector and score
    verbatim; `severity_alignment` is `null`.
-5. **Output:** a `null` triage severity on an undetermined advisory-backed
-   finding means the report's band stands.
+5. **6b2 and 6c:** a broken citation on an advisory-backed true positive is
+   noted in the rationale; it doesn't change `verify_verdict`. The 6c
+   vote-majority warning is expected for these findings: leave the mapped
+   outcome.
+6. **Output:** a `null` triage severity on an advisory-backed finding
+   (undetermined or weakness) means the report's band stands.
 
 ## Phase 2: Deduplicate (before verification)
 
@@ -566,7 +589,8 @@ Cluster findings where all of:
 - same `file` (after path normalization), AND
 - same `category` (case-insensitive, punctuation stripped), AND
 - `line` numbers within 10 of each other. Both-missing matches; one-side-
-  missing does NOT (a line-less record must not absorb a located one).
+  missing does NOT (a line-less record must not absorb a located one), AND
+- the same `advisory` id, when either finding names one.
 
 Within each cluster, the canonical is the record with the fewest
 `missing_fields`; ties break to lowest `id`. Every other member gets
@@ -601,7 +625,7 @@ Treat as DISTINCT:
   rather than a shared gate
 
 Below are the candidate findings (one per line: id | file:line | category |
-title). Group them. Respond with ONLY lines of the form:
+advisory | title). Group them. Respond with ONLY lines of the form:
 
   GROUP: <canonical_id> <- <dup_id>, <dup_id>, ...
 
@@ -609,7 +633,9 @@ One line per group that has duplicates. Omit singletons. Pick the most
 specific / best-described finding as canonical. No prose.
 
 CANDIDATES:
-{one line per surviving finding: "f003 | src/auth.py:112 | sql_injection | User lookup concatenates name into query"}
+{one line per surviving finding: "f003 | src/auth.py:112 | sql_injection | advisory: <id or none> | User lookup concatenates name into query"}
+
+Never group two findings that name different advisories.
 ```
 
 Parse `GROUP:` lines. For each, mark the listed dup ids with
