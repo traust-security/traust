@@ -62,6 +62,7 @@ allowed-tools:
   - Bash(python3 *-m traust.cli impact enrich:*)
   - Bash(python3 *-m traust.cli impact analyze:*)
   - Bash(python3 *-m traust.cli impact export:*)
+  - Bash(python3 *-m traust.cli impact sbom:*)
   - Bash(python3 *-m traust.cli sweep mine:*)
 ---
 

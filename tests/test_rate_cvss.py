@@ -21,6 +21,42 @@ def report(*findings):
 
 
 class TestRateCvss(unittest.TestCase):
+    def test_a_moved_band_is_recounted_in_both_summaries(self):
+        document = report(
+            {"id": "A-1", "severity": "low", "cvss": {"vector": LOW_LABELLED, "score": 3.1}}
+        )
+        document["executive_summary"] = {
+            "prose": "x",
+            "severity_counts": {
+                s: 0 for s in ("critical", "high", "medium", "low", "informational")
+            }
+            | {"low": 1},
+        }
+        document["findings_summary"] = [
+            {
+                "severity": s,
+                "count": 1 if s == "low" else 0,
+                "finding_ids": ["A-1"] if s == "low" else [],
+            }
+            for s in ("critical", "high", "medium", "low")
+        ]
+        rc, out = self._run(document)
+        self.assertEqual(rc, 0)
+        counts = out["executive_summary"]["severity_counts"]
+        self.assertEqual((counts["medium"], counts["low"]), (1, 0))
+        by = {e["severity"]: e for e in out["findings_summary"]}
+        self.assertEqual(by["medium"]["finding_ids"], ["A-1"])
+        self.assertEqual(by["low"], {"severity": "low", "count": 0, "finding_ids": []})
+
+    def test_a_missing_or_malformed_report_is_a_controlled_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            missing = Path(tmp) / "absent.json"
+            self.assertEqual(call_rate_cvss(Namespace(report=missing, vector=None, check=False)), 1)
+            bad = Path(tmp) / "bad.json"
+            bad.write_text("{not json", encoding="utf-8")
+            self.assertEqual(call_rate_cvss(Namespace(report=bad, vector=None, check=False)), 1)
+            self.assertEqual(bad.read_text(encoding="utf-8"), "{not json")
+
     def _run(self, document, check=False):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "x-security-audit.json"

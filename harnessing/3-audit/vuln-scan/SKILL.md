@@ -698,7 +698,10 @@ gate **never changes severity**: it lowers `confidence` and appends the
 gate's evidence to the finding description and `confidence_reason`.
 Severity stays what the SEVERITY scale gave it — for an advisory-backed
 finding, the selected authority score's band ([Severity
-authoring](../../../docs/report-structure.md#severity-authoring)). Only
+authoring](../../../docs/report-structure.md#severity-authoring)). The
+vuln-findings schema has no structured `cvss` or `dependency` field yet
+(remediation plan step 2), so quote the advisory id and its selected score
+in the description, where `/triage` reads them. Only
 `/impact-analysis`, `/triage` and live validation change it later, and
 for an advisory-backed finding only on recorded evidence; removal
 remains `/triage`'s job.

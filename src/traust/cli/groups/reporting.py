@@ -321,7 +321,14 @@ def call_rate_cvss(args) -> int:
     if args.report is None:
         print("rate-cvss: give a report path or --vector", file=sys.stderr)
         return 2
-    document = json.loads(args.report.read_text(encoding="utf-8"))
+    try:
+        document = json.loads(args.report.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        print(f"rate-cvss: cannot read {args.report}: {exc}", file=sys.stderr)
+        return 1
+    if not isinstance(document, dict):
+        print(f"rate-cvss: {args.report} is not a report object", file=sys.stderr)
+        return 1
     changed, failed = [], []
     for finding in document.get("findings") or []:
         cvss = finding.get("cvss") if isinstance(finding, dict) else None
@@ -346,12 +353,36 @@ def call_rate_cvss(args) -> int:
             print(f"rate-cvss: {line}")
         return 1 if (changed or failed) else 0
     if changed and not failed:
+        _recount_severities(document)
         args.report.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
     print(
         f"rate-cvss: {len(changed)} finding(s) updated, {len(failed)} error(s)"
         + (" -- nothing written" if failed else "")
     )
     return 1 if failed else 0
+
+
+_SEVERITIES = ("critical", "high", "medium", "low", "informational")
+
+
+def _recount_severities(document: dict) -> None:
+    """Rebuild the severity counts and finding-id groups from the findings' severities, so a
+    band the calculator moved still reconciles with executive_summary and findings_summary."""
+    ids: dict[str, list[str]] = {level: [] for level in _SEVERITIES}
+    for finding in document.get("findings") or []:
+        level = str(finding.get("severity", "")).lower() if isinstance(finding, dict) else ""
+        if level in ids:
+            ids[level].append(finding.get("id", ""))
+    summary = document.get("executive_summary")
+    if isinstance(summary, dict) and isinstance(summary.get("severity_counts"), dict):
+        for level in _SEVERITIES:
+            summary["severity_counts"][level] = len(ids[level])
+    entries = document.get("findings_summary")
+    if isinstance(entries, list):
+        for entry in entries:
+            level = str(entry.get("severity", "")).lower() if isinstance(entry, dict) else ""
+            if level in ids:
+                entry["count"], entry["finding_ids"] = len(ids[level]), ids[level]
 
 
 RATE_CVSS = OpSpec(

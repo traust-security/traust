@@ -145,7 +145,11 @@ apply to new reports; historical reports are not rewritten.
   finding's `cvss.score` and `severity` from its `cvss.vector` with
   traust-core's CVSS calculator (the `cvss` library, FIRST's 3.x and 4.0
   formulas), and `--check` reports any disagreement. `--vector "<vector>"`
-  scores one vector. A vector it refuses is malformed: fix the metrics.
+  scores one vector. A vector you authored that it refuses is malformed:
+  fix the metrics. An advisory's vector is copied, never fixed: when the
+  selected authority states only a CVSS v2 vector, or none the calculator
+  scores, the finding files at `medium` with no `cvss`, and the description
+  quotes the published score and says the advisory is unscored in 3.x/4.0.
 - **Every finding not backed by an advisory** (first-party code, image
   configuration, spec construct, IaC): `severity` is the calculator's band
   for the Base vector in the finding's `cvss`. A 0.0 score is not a
@@ -169,6 +173,12 @@ apply to new reports; historical reports are not rewritten.
   authority's score you have, with its source, in the description. An
   advisory that no source scores, the scanner included, files at `medium`
   with the description saying it is unscored.
+- **Stated exceptions, pending an owner decision:** the severity floors
+  (verification-disable and credential-transport findings at least `high`)
+  and RPM06's mandated severities (a digest mismatch Critical, an unlisted
+  tarball High) set severity by rule. Until the owner decides, those findings
+  keep the floor, and the description names it as the reason the label
+  differs from the calculator's band.
 - **The audit never changes a severity.** Reachability, deployment context,
   restricted SCCs, a compensating control elsewhere, a required prior
   compromise or plain uncertainty never lower it. A Precision Gate decides
@@ -189,12 +199,11 @@ apply to new reports; historical reports are not rewritten.
 
   | Evidence | Outcome |
   |---|---|
-  | `classification: version_not_in_range` or `not_imported`; a vendor not-affected statement; the fixed NVR or backport shipped | triage: `false_positive` (the claim that this version is affected is wrong), citing the artifact; triage's verdicts have no `not_affected` yet |
-  | `classification: not_observed` with `evidence_level: symbol` (govulncheck) | triage: `true_positive`, `kind: weakness` (the vulnerable code ships but is not reached), citing the artifact |
+  | `classification: version_not_in_range` or `not_imported`, or `not_observed` with `evidence_level: symbol` (govulncheck: the vulnerable symbol is unreachable); a vendor not-affected statement; a shipped NVR at or past the fixed NVR | not affected. In an audit, a `not_affected` entry; in triage, `false_positive` with `refute_reasons: ["bound_evidence"]` citing the artifact (triage's verdicts have no `not_affected` yet) |
   | Code citations showing a precondition or control that changes how the vulnerability can be exploited here | triage proposes a CVSS Environmental vector, each modified metric citing its evidence, in the rationale. The severity changes only when Core scores that vector with the CVSS calculator and admits the decision (remediation plan step 7); until then the band stands |
   | A live-validation result | the validation's verdict, at the band of the vector it records |
 
-  An audit applies the first two rows itself, recording the match as not
+  An audit applies the first row itself, recording the match as not
   affected (see the next section); the code-citation and validation rows
   belong to triage and live validation. Symbol-usage or manifest-level
   `not_observed`, `likely_affected` and `inconclusive` are not evidence for
@@ -223,37 +232,64 @@ are traust-contracts' own: the `finding.dependency` block, the
    `installed_version`, `vulnerable_range`, `fixed_version` and scores from
    its output; never type them. A CVE you recall that no scanner matched
    goes in `dependency_audit` as a lead naming the missing scanner evidence.
+   - **Correlate before filing:** matches with the same advisory (or alias),
+     ecosystem, module and installed version are one match. File one
+     finding, or one `not_affected` entry, citing every scanner's output.
+   - **An installed version is required:** a candidate whose version isn't
+     an installed version (OSV `version_basis: manifest-floor` or
+     `resolved`) isn't a match yet. Record it in `dependency_audit` with a
+     `coverage_gaps` entry naming the missing lockfile, SBOM or build. It
+     becomes a match once a deterministic source establishes the installed
+     version.
 2. **Reachability: impact-analysis, single-commit mode.** For every match,
    run:
 
    ```bash
+   python3 -m traust.cli impact sbom --repo-url <url> --sha <commit> [--branch <branch>]
    python3 -m traust.cli impact analyze <ADVISORY> --repo-url <url> --sha <commit> [--branch <branch>] --scan
    python3 -m traust.cli impact export <ADVISORY> --out <scratch-dir>/<advisory>-impact.json
    ```
 
-   Read the export row for this repository, commit, ecosystem, module and
-   installed version: its `classification` and `evidence.evidence_level`.
-   The export is a scratch intermediate; never place it in the findings
-   tree. Record `deterministic_steps["impact-analysis"]`: `"ran: <n>
-   advisories"`, or `"skipped: <reason>"` with a `coverage_gaps` entry.
+   - `impact sbom` (no file argument) records the commit's manifest SBOM
+     with its coverage, so Core holds the packages the analysis needs. Run
+     it once per audited commit.
+   - Read the export row for this repository, commit, ecosystem, module and
+     installed version: its `classification` and `evidence`.
+   - **A row counts only when its commit is the source the audited artifact
+     ships:** the audited repository's commit, or an image's `vcs-ref`. A
+     row for another commit, such as an RPM's upstream, is context only:
+     downstream patches and bundled archives change what ships, so it never
+     makes a match not affected.
+   - **`impact analyze` writes to Core:** it records an impact assessment
+     and, for an `affected` row, files Core's own dependency finding,
+     identified by repository, advisory and package. Cite that finding id in
+     the report finding's `source_findings`. Until Core's intake maps
+     `finding.dependency` (remediation plan step 6), the same advisory and
+     commit can appear under both ids.
+   - The export is a scratch intermediate; never place it in the findings
+     tree.
+   - Record `deterministic_steps["impact-analysis"]` as `"ran: <n>
+     advisories"`, or `"skipped: <reason>"` with a `coverage_gaps` entry.
 3. **File by the evidence:**
 
    | Evidence | Outcome |
    |---|---|
    | `classification: version_not_in_range` or `not_imported` | **Not affected** |
    | `classification: not_observed` with `evidence_level: symbol` (govulncheck: the vulnerable symbol is unreachable) | **Not affected** |
-   | A vendor not-affected statement, or the fixed NVR shipped, in the tool data (grype's Red Hat security data, a VEX document impact-analysis recorded) | **Not affected** |
-   | `classification: affected` | A finding at the published score, citing the govulncheck trace |
+   | A vendor not-affected statement for the shipped product, or a fixed NVR at or before the shipped NVR, in the tool data (grype's Red Hat security data, a VEX document impact-analysis recorded) | **Not affected** |
+   | `classification: affected` | A finding at the published score, citing the row's evidence: its govulncheck trace when present, else what the row records (feature-pattern matches, for example) |
    | `classification: likely_affected` or `inconclusive`, or `not_observed` with `evidence_level` other than `symbol` | A finding at the published score, unverified |
    | Sources' ranges disagree for the installed version (a release-tag range against a Go-module range, for example) | A finding at the published score, unverified, citing both ranges |
-   | No row (the run failed, or impact-analysis doesn't cover the ecosystem or surface) | A finding at the published score, unverified, with the gap named |
+   | No row (the run failed, the commit isn't the shipped source, or impact-analysis doesn't cover the ecosystem or surface) | A finding at the published score, unverified, with the gap named |
 
    Every filed advisory finding carries no validity answer (omit
-   `validation_status`) and a `dependency` block: `advisory`, `module`,
-   `ecosystem`, `installed_version`, `vulnerable_range`, `fixed_version`,
-   the row's `classification` and `evidence_level` when there is one, and
-   `impact_artifact` pointing at the row. Test or dev scope and vendor data
-   go in its description.
+   `validation_status`) and a `dependency` block. The block holds
+   `advisory`, `module`, `ecosystem`, `installed_version`,
+   `vulnerable_range` and `fixed_version`. When a row exists, it also holds
+   the row's `classification`, `evidence_level` and an `impact_artifact`
+   pointing at the row. When none exists, the description states the
+   skipped or failed reason and the coverage gap. Test or dev scope and
+   vendor data go in its description.
 4. **Record every not-affected match** in the report's `not_affected`
    section: one entry each, with the same `dependency` block (its
    `classification` and `evidence_level` are the evidence), a `rationale`,

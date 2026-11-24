@@ -200,23 +200,29 @@ Every scanner-matched dependency/version-match candidate, including a bundled
 library's advisory-lag (RPM08), is either recorded not affected or filed,
 unverified, at the advisory's selected authority band ([Severity authoring](../../../docs/report-structure.md#severity-authoring)), following [Dependency and advisory findings: affected or not affected](../../../docs/report-structure.md#dependency-and-advisory-findings-affected-or-not-affected). Attach as evidence:
 
-1. **Tool data and recorded backports:** the installed version against each
-   source's range, Red Hat CSAF/VEX not-affected statements and fixed NVRs,
-   and a downstream patch whose file name or `%changelog` entry names the
-   CVE (backports behind old `Version:` strings defeat NVR matching by
-   design).
+1. **Tool data and applied backports:** the installed version against
+   each source's range; Red Hat CSAF/VEX not-affected statements for this
+   product; fixed NVRs, compared with the NVR this commit builds; and
+   downstream patches. Backports behind old `Version:` strings defeat NVR
+   matching by design.
 2. **Single-commit impact-analysis** for a vendored bundle in an ecosystem
    it covers (Go, npm, PyPI, Maven, Cargo, RubyGems, NuGet), against the
-   upstream repository and commit the spec pins. With no pinned upstream
-   commit, or for C/C++ and distro packages, record
+   upstream repository and commit the spec pins. That row is **context
+   only**: downstream patches and bundled archives change what ships, so an
+   upstream row never makes the match not affected. With no pinned
+   upstream commit, or for C/C++ and distro packages, record
    `deterministic_steps["impact-analysis"]: "skipped: <reason>"` with a
    coverage gap.
 
-Impact-analysis `classification: version_not_in_range` or `not_imported`, or
-`not_observed` with `evidence_level: symbol`, a Red Hat not-affected statement or fixed NVR, or a
-downstream patch named for the CVE makes the match **not affected**: an
-entry in the report's `not_affected` section with its `dependency` block and
-rationale.
+The match is **not affected**, recorded as an entry in the report's
+`not_affected` section with its `dependency` block and rationale, on one of:
+- a Red Hat not-affected statement for this product;
+- a fixed NVR at or before the NVR this commit builds;
+- a downstream patch that `%prep` applies and that changes the vulnerable
+  code in the prepared tree, cited by patch and hunk.
+
+A patch file name or `%changelog` line that only names the CVE is context
+in the finding's description, never grounds for elimination.
 Every other match is a finding, and `/triage` and live validation try to
 disprove it. A reading that
 `%build` never compiles a module, that a `%bcond` disables a feature, or that

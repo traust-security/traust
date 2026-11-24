@@ -31,6 +31,11 @@ allowed-tools:
   - Bash(python3 *traust* -m traust.cli reporting record:*)
   - Bash(python3 *traust* -m traust.cli impact analyze:*)
   - Bash(python3 *traust* -m traust.cli impact export:*)
+  - Bash(python3 *traust* -m traust.cli impact sbom:*)
+  - Bash(python3 -m traust.cli impact analyze:*)
+  - Bash(python3 -m traust.cli impact export:*)
+  - Bash(python3 -m traust.cli impact sbom:*)
+  - Bash(python3 -m traust.cli reporting rate-cvss:*)
   - Bash(python3 *traust* -m traust_engine.reporting.render:*)
   # Confinement added 2026-07-31 (P1 gate rework — the
   # widened S1 privilege tokens made this skill's missing
@@ -287,7 +292,7 @@ Each candidate it shares with grype is tagged `also_in_grype: true`.
 
 - **Every match** becomes a `dependency_audit` entry: `package`, `version`, `status` (`vulnerable`/`fix-available`/`wont-fix` per upstream data), `notes` with the CVE/GHSA ID and fixed-in version. Negligible-severity or no-fix matches may be summarized in `dependency_audit.prose`.
 - **Record each match not affected or file it as a finding**, unverified, by the Precision Gate's dependency and advisory gate below, with the tool data and the single-commit impact-analysis row as evidence. Category `supply-chain`, cite K07 for operator images, carry the selected authority's CVSS vector and file at its band ([Severity authoring](../../../docs/report-structure.md#severity-authoring)), and omit unauthored `validation_status` — a version match is not execution evidence.
-- **Respect Red Hat security data**: for RPM packages grype consumes RHSA data — Red Hat's not-affected statements and fix state decide applicability, and say so in `notes`. Severity follows [Severity authoring](../../../docs/report-structure.md#severity-authoring): Red Hat's CVSS for that product when Red Hat publishes one, never Red Hat's severity word (Important, Moderate), and never a band you chose. The same holds for a language package an RPM installed: its fixes arrive in the RPM, so an upstream GHSA/CVE match against it is not evidence; check the owning RPM's RHSA state instead.
+- **Respect Red Hat security data**: for RPM packages grype consumes RHSA data — Red Hat's not-affected statements and fix state decide applicability, and say so in `notes`. Severity follows [Severity authoring](../../../docs/report-structure.md#severity-authoring): Red Hat's CVSS for that product when Red Hat publishes one, never Red Hat's severity word (Important, Moderate), and never a band you chose. A language package an RPM installed gets its fixes through the RPM, so its upstream GHSA/CVE match is judged by the owning RPM's Red Hat data, before the generic rule. A not-affected statement, or a fixed NVR at or before the shipped NVR, makes it not affected. Otherwise it is a finding at the published score, unverified, naming the owning RPM.
 - **Cite the impact-analysis row** and its classification in the finding's evidence, or in the not-applicable entry's rationale.
 - Never mark CVE matches `confirmed` from scanner output alone; the fuzzing/validation stages own that transition.
 
