@@ -43,7 +43,7 @@ OPS_DB_PASS="${OPS_DB_PASS:-traust}"
 OPS_DB_NAME="${OPS_DB_NAME:-traust}"
 OPS_DSN="postgresql://${OPS_DB_USER}:${OPS_DB_PASS}@localhost:${OPS_PORT}/${OPS_DB_NAME}"
 OPS_EVERY="${OPS_EVERY:-1m}"            # engine --every: minutes, hours or days
-OPS_ENGINE_SRC="${OPS_ENGINE_SRC:-git+https://github.com/traust-security/traust-engine@a9a36862a7ec94fa3723bf2b3ba09799fb7c7127}"
+OPS_ENGINE_SRC="${OPS_ENGINE_SRC:-git+https://github.com/traust-security/traust-engine@0af258552e3e8f25720198781ca4c2cdb0a1c922}"
 
 CONFIG_HOME="$REPO_ROOT/$OPS_DIR/config"
 RUN_DIR="$REPO_ROOT/$OPS_DIR/run"
