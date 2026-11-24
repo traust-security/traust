@@ -6,7 +6,13 @@ import logging
 from pathlib import Path
 from uuid import UUID
 
-from traust_core.v1.errors import ConfigError, NotFoundError, TraustError, ValidationError
+from traust_core.v1.errors import (
+    ConfigError,
+    ConflictError,
+    NotFoundError,
+    TraustError,
+    ValidationError,
+)
 from traust_core.v1.models.assessment import AssessmentKind
 from traust_core.v1.models.operations import AssetRequest, JobResult, OrderReason, RecordKind
 from traust_core.v1.models.vocabulary import SourceType
@@ -118,8 +124,21 @@ def event_validate(argv: list[str] | None = None) -> int:
         return answer(JobResult.failed(OrderReason.BAD_REQUEST))
     except NotFoundError:
         return answer(JobResult.refused(OrderReason.NOT_FOUND))
+    except ConflictError as error:
+        log.warning(
+            "validation order %s lease conflict: %s: %s",
+            args.run_id,
+            type(error).__name__,
+            error,
+        )
+        return answer(JobResult.failed(OrderReason.RUNNER_CRASHED))
     except (TraustError, OSError) as error:
-        log.warning("validation order refused: %s", type(error).__name__)
+        log.warning(
+            "validation order %s refused: %s: %s",
+            args.run_id,
+            type(error).__name__,
+            error,
+        )
         return answer(JobResult.failed(OrderReason.BAD_REQUEST))
     from traust.cli.session import run
 

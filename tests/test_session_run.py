@@ -890,7 +890,24 @@ def scheduled_sweep(
                 skipped=[] if state.queued else [SimpleNamespace(skip=state.skip)],
             ),
             list=lambda *_: SimpleNamespace(items=tuple(reports), next=None),
+            _verifications=lambda _: list(reports),
         ),
+    )
+    from contextlib import nullcontext
+    from types import MethodType
+
+    from traust_core.v1.services.remediation import VerificationService
+
+    services.verification._uow = nullcontext()
+    services.verification._assessment = services.assessment
+    services.verification._portfolio = services.portfolio
+    services.verification._inventory = services.portfolio.inventory
+    services.verification._findings = services.findings
+    services.verification.sweep_covered = MethodType(
+        VerificationService.sweep_covered, services.verification
+    )
+    services.verification.work_item_covered = MethodType(
+        VerificationService.work_item_covered, services.verification
     )
     leased_core.services = lambda: services
     monkeypatch.setattr(session, "resolve_model", lambda _: "fixture-model")

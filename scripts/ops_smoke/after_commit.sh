@@ -13,8 +13,13 @@ esac
 [[ "$repo" = https://github.com/example/smoke-repo ]]
 [[ "$asset" = manifest_sbom || "$asset" = smoke_triage || "$asset" = smoke_authored ]]
 [[ "$order" =~ ^[0-9a-f-]{36}$ && "$OPS_SMOKE_RUN" = "$PWD"/.local-ops-smoke.????????/run ]]
-grep -zqE '(^|/)traust-engine$' "/proc/$PPID/cmdline"
-grep -zqx claim "/proc/$PPID/cmdline"
+if [[ -r "/proc/$PPID/cmdline" ]]; then
+    grep -zqE '(^|/)traust-engine$' "/proc/$PPID/cmdline"
+    grep -zqx claim "/proc/$PPID/cmdline"
+else
+    parent_cmd=$(ps -o command= -p "$PPID" 2>/dev/null || true)
+    [[ "$parent_cmd" =~ (^|[[:space:]]|/)traust-engine([[:space:]]|$) && "$parent_cmd" =~ (^|[[:space:]])claim([[:space:]]|$) ]]
+fi
 marker="$OPS_SMOKE_RUN/$asset"
 if [[ -f "$marker.order" ]]; then
     first_worker=$(cat "$marker.worker")

@@ -46,7 +46,6 @@ from traust_core.v1.context import (
 from traust_core.v1.errors import NotFoundError, ServiceError, TraustError, ValidationError
 from traust_core.v1.models.assessment import Assessment, AssessmentKind, DiffRefused
 from traust_core.v1.models.base import Dto
-from traust_core.v1.models.common import every_item
 from traust_core.v1.models.operations import (
     JobResult,
     ModelName,
@@ -58,7 +57,7 @@ from traust_core.v1.models.operations import (
     SkillName,
     WorkerId,
 )
-from traust_core.v1.models.remediation import SweepSkip, VerificationFilter
+from traust_core.v1.models.remediation import SweepSkip
 from traust_core.v1.models.values import GitSha, HttpsRepoUrl
 from traust_core.v1.models.vocabulary import SourceType
 
@@ -609,25 +608,10 @@ def order_assessments(order_id: UUID, config_home: Path | None) -> list[Assessme
 def _work_item_covered(
     services: Services, repository_id: UUID, order_id: UUID, item_id: UUID, ids: set[str]
 ) -> set[str]:
-    prepared = services.verification.prepare(item_id)
-    item = prepared.work_item
-    if prepared.subject.repository_id != repository_id or not (item.fork and item.fix_commit):
-        raise ValidationError("verification order has no bound patched work item")
-    runs = {
-        a.id
-        for a in services.assessment.list_for_order(order_id)
-        if str(a.id) in ids and a.run_order_id == order_id and a.status == "completed"
-    }
     return {
-        str(v.verification_id)
-        for v in prepared.verifications
-        if v.verification_id in runs
-        and bool(item.finding_ids)
-        and set(item.finding_ids) <= {verdict.finding_id for verdict in v.verdicts}
-        and (
-            (ref := services.portfolio.inventory.get_ref(v.repository_ref_id)).repository_id
-            == repository_id
-            and ref.sha == item.fix_commit
+        str(vid)
+        for vid in services.verification.work_item_covered(
+            repository_id, order_id, item_id, {UUID(i) for i in ids}
         )
     }
 
@@ -635,68 +619,8 @@ def _work_item_covered(
 def _sweep_covered(
     services: Services, repository_id: UUID, order_id: UUID | None, ids: set[str]
 ) -> bool:
-    """Require verdicts for every finding selected on the current default line.
-
-    Core's sweep skips a head after any decision there; that does not prove report
-    coverage. Match the skill's ref-scoped baseline, conservatively including closed
-    and newly reported findings when the original worklist is unavailable.
-    """
-    candidates = (
-        services.assessment.list_for_order(order_id)
-        if order_id is not None
-        else services.assessment.list_for_repository(repository_id, AssessmentKind.VERIFICATION)
-    )
-    runs = [
-        a
-        for a in candidates
-        if str(a.id) in ids
-        and (order_id is None or a.run_order_id == order_id)
-        and a.status == "completed"
-    ]
-    head = services.portfolio.default_ref(repository_id)
-    if not runs or {str(a.id) for a in runs} != ids or head is None or head.id is None:
-        return False
-    expected = {
-        view.finding.id for view in services.findings.on_ref(head.id) if view.finding.id is not None
-    }
-    recorded = {a.id for a in runs}
-    covered: set[UUID] = set()
-    regressions: set[UUID] = set()
-    current_runs: set[UUID] = set()
-    for v in every_item(
-        lambda page: services.verification.list(
-            VerificationFilter(repository_id=repository_id), page
-        )
-    ):
-        if v.verification_id not in recorded:
-            continue
-        ref = services.portfolio.inventory.get_ref(v.repository_ref_id)
-        if (ref.repository_id, ref.name, ref.kind, ref.sha) == (
-            repository_id,
-            head.name,
-            head.kind,
-            head.sha,
-        ):
-            current_runs.add(v.verification_id)
-            covered.update(verdict.finding_id for verdict in v.verdicts)
-            regressions.update(v.regression_ids)
-    if regressions:
-        origins: dict[UUID, set[UUID]] = {}
-        for occurrence in services.findings.occurrences(finding_ids=regressions):
-            origins.setdefault(occurrence.finding_id, set()).add(occurrence.assessment_id)
-        # Newly discovered regressions were not targets in the original worklist. A finding
-        # reported anywhere else remains in scope, even if this order also called it a regression.
-        expected -= {
-            finding
-            for finding in regressions
-            if origins.get(finding) and origins[finding] <= current_runs
-        }
-    latest = services.portfolio.default_ref(repository_id)
-    return (
-        latest is not None
-        and (latest.id, latest.sha) == (head.id, head.sha)
-        and bool(expected)
-        and expected <= covered
+    return services.verification.sweep_covered(
+        repository_id, {UUID(i) for i in ids}, order_id=order_id
     )
 
 
