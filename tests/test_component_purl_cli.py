@@ -119,8 +119,8 @@ def test_assessments_prepare_resolves_component_purl_and_refuses_unresolved(
     )
     assert prepared["component_target"]["commit"] == sha
     assert prepared["component_target"]["module_path"] == "spring-beans"
-
-    # Unresolved target exits REFUSED (3) with structured JSON reason.
+    assert "provenance" not in prepared["component_target"]["verification"]
+    _assert_contract_valid_report_target(prepared["component_target"])
     capsys.readouterr()
     rc_bad = assessments.prepare(
         [
@@ -823,3 +823,586 @@ def test_qodo_regressions_prepare_record_release_and_session_target_gate(
     assert session._recorded(uuid4(), AssessmentKind.SECURE_CODE_CANONICAL, ns) == {
         str(wrong_whole.id)
     }
+
+
+def _make_sha256_repo(root: Path, files: dict[str, str], tag: str) -> str:
+    root.mkdir(parents=True, exist_ok=True)
+    _git(root, "init", "-q", "-b", "main", "--object-format=sha256")
+    for rel, text in files.items():
+        p = root / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(text, encoding="utf-8")
+    _git(root, "add", "-A")
+    _git(root, "commit", "-q", "-m", f"fixture {tag}")
+    sha = _git(root, "rev-parse", "HEAD")
+    _git(root, "tag", tag)
+    return sha
+
+
+def _signed_provenance(
+    private_key,
+    key_id: str,
+    statement: dict[str, object],
+) -> dict[str, object]:
+    import base64
+
+    from traust_core.v1.providers.provenance import dsse_pae
+
+    payload_type = "application/vnd.in-toto+json"
+    payload_bytes = json.dumps(statement, sort_keys=True).encode("utf-8")
+    sig = private_key.sign(dsse_pae(payload_type, payload_bytes))
+    return {
+        "payloadType": payload_type,
+        "payload": base64.b64encode(payload_bytes).decode("ascii"),
+        "signatures": [{"keyid": key_id, "sig": base64.b64encode(sig).decode("ascii")}],
+    }
+
+
+def test_provenance_json_root_module_and_sha256_cli_doors(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import ed25519
+
+    repo_url = "https://github.com/example-org/root-rebuild"
+    checkout = tmp_path / "root-rebuild"
+    sha64 = _make_sha256_repo(
+        checkout,
+        {"setup.cfg": "[metadata]\nname = root-pkg\nversion = 1.4.0\n"},
+        tag="build/1.4.0-rebuild-1",
+    )
+    assert len(sha64) == 64
+
+    priv = ed25519.Ed25519PrivateKey.generate()
+    pub_pem = (
+        priv.public_key()
+        .public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo)
+        .decode("utf-8")
+    )
+
+    trust_file = tmp_path / "provenance-trust.json"
+    trust_file.write_text(
+        json.dumps(
+            {
+                "trusted_keys": [
+                    {"key_id": "ci-signer-1", "public_key_pem": pub_pem, "issuer": "ci-builder"}
+                ],
+                "allowed_sources": ["https://slsa.dev/provenance/v1"],
+                "allowed_issuers": ["ci-builder"],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    trusted_home = tmp_path / "cfg-trusted"
+    trusted_home.mkdir()
+    (trusted_home / "traust.yaml").write_text(
+        f"process:\n  allowed_binaries:\n    - git\nlocations:\n  provenance_trust: {trust_file}\n",
+        encoding="utf-8",
+    )
+    unconfigured_home = _config_home(tmp_path / "unconfigured")
+
+    for home in (trusted_home, unconfigured_home):
+        core = load(home)
+        core.services().portfolio.register_repository(
+            HttpsRepoUrl.parse(repo_url, core.config.forge_hosts), public=True
+        )
+
+    purl = "pkg:pypi/root-pkg@1.4.0+rebuild1"
+    valid_env = _signed_provenance(
+        priv,
+        "ci-signer-1",
+        {
+            "_type": "https://in-toto.io/Statement/v1",
+            "predicateType": "https://slsa.dev/provenance/v1",
+            "subject": [{"name": purl}],
+            "predicate": {
+                "purl": purl,
+                "repository": repo_url,
+                "commit": sha64,
+                "ref": "build/1.4.0-rebuild-1",
+                "manifest_version": "1.4.0",
+            },
+        },
+    )
+    valid_prov = tmp_path / "valid-prov.json"
+    valid_prov.write_text(json.dumps(valid_env), encoding="utf-8")
+
+    tampered_env = {**valid_env, "signatures": [{"keyid": "ci-signer-1", "sig": "AAAA"}]}
+    tampered_prov = tmp_path / "tampered-prov.json"
+    tampered_prov.write_text(json.dumps(tampered_env), encoding="utf-8")
+
+    bad_json = tmp_path / "bad.json"
+    bad_json.write_text("{not-json", encoding="utf-8")
+    non_obj_json = tmp_path / "list.json"
+    non_obj_json.write_text("[1, 2]", encoding="utf-8")
+
+    # 1. assessments prepare succeeds with valid signed provenance, root ".", and 64-hex SHA.
+    out_path = tmp_path / "prepared-ext.json"
+    rc_ok = assessments.prepare(
+        [
+            "--config-home",
+            str(trusted_home),
+            "--repo-url",
+            repo_url,
+            "--kind",
+            "secure_code",
+            "--purl",
+            purl,
+            "--sha",
+            sha64,
+            "--release-ref",
+            "build/1.4.0-rebuild-1",
+            "--module-path",
+            ".",
+            "--provenance-json",
+            str(valid_prov),
+            "--checkout",
+            str(checkout),
+            "-o",
+            str(out_path),
+        ]
+    )
+    assert rc_ok == 0
+    prepared = json.loads(out_path.read_text(encoding="utf-8"))
+    target = prepared["component_target"]
+    assert target["commit"] == sha64
+    assert target["module_path"] == "."
+    assert target["verification"]["strategy"] == "external_provenance"
+    assert target["verification"]["provenance"]["source"] == "https://slsa.dev/provenance/v1"
+    assert target["verification"]["provenance"]["ref"] == "build/1.4.0-rebuild-1"
+    assert target["verification"]["provenance"]["digest"].startswith("sha256:")
+    assert target["verification"]["provenance"]["manifest_version"] == "1.4.0"
+
+    # 2. assessments prepare fails closed when no provenance verifier is configured.
+    capsys.readouterr()
+    rc_unconf = assessments.prepare(
+        [
+            "--config-home",
+            str(unconfigured_home),
+            "--repo-url",
+            repo_url,
+            "--kind",
+            "secure_code",
+            "--purl",
+            purl,
+            "--sha",
+            sha64,
+            "--provenance-json",
+            str(valid_prov),
+            "--checkout",
+            str(checkout),
+        ]
+    )
+    assert rc_unconf == assessments.REFUSED
+    assert json.loads(capsys.readouterr().out)["reason"] == "provenance_unverified"
+
+    # 3. assessments prepare fails closed on tampered signature, missing --purl, and bad JSON.
+    capsys.readouterr()
+    rc_tampered = assessments.prepare(
+        [
+            "--config-home",
+            str(trusted_home),
+            "--repo-url",
+            repo_url,
+            "--kind",
+            "secure_code",
+            "--purl",
+            purl,
+            "--sha",
+            sha64,
+            "--provenance-json",
+            str(tampered_prov),
+            "--checkout",
+            str(checkout),
+        ]
+    )
+    assert rc_tampered == assessments.REFUSED
+    assert json.loads(capsys.readouterr().out)["reason"] == "provenance_unverified"
+
+    assert (
+        assessments.prepare(
+            [
+                "--config-home",
+                str(trusted_home),
+                "--repo-url",
+                repo_url,
+                "--sha",
+                sha64,
+                "--kind",
+                "secure_code",
+                "--provenance-json",
+                str(valid_prov),
+            ]
+        )
+        != 0
+    )
+    for bad_file in (bad_json, non_obj_json):
+        assert (
+            assessments.prepare(
+                [
+                    "--config-home",
+                    str(trusted_home),
+                    "--repo-url",
+                    repo_url,
+                    "--kind",
+                    "secure_code",
+                    "--purl",
+                    purl,
+                    "--sha",
+                    sha64,
+                    "--provenance-json",
+                    str(bad_file),
+                    "--checkout",
+                    str(checkout),
+                ]
+            )
+            != 0
+        )
+
+    # 4. session.run stages full external_provenance target in --target-json and rejects failures.
+    monkeypatch.setattr(session, "resolve_model", lambda _role: "test-model")
+
+    @contextmanager
+    def fake_checkout(url, config_home, *, sha=None, shared=False):
+        yield SimpleNamespace(path=checkout)
+
+    monkeypatch.setattr(session, "checkout", fake_checkout)
+    staged_targets: list[dict[str, object]] = []
+
+    def fake_session(cmd, skill, env):
+        tokens = cmd[-1].split()
+        target_idx = tokens.index("--target-json") + 1
+        staged_targets.append(json.loads(Path(tokens[target_idx]).read_text(encoding="utf-8")))
+        return SimpleNamespace(returncode=0), ()
+
+    monkeypatch.setattr(session, "session", fake_session)
+    capsys.readouterr()
+    rc_sess_ok = session.run(
+        [
+            "--config-home",
+            str(trusted_home),
+            "--skill",
+            "secure-code-audit",
+            "--role",
+            "audit",
+            "--repo",
+            repo_url,
+            "--purl",
+            purl,
+            "--sha",
+            sha64,
+            "--module-path",
+            ".",
+            "--provenance-json",
+            str(valid_prov),
+        ]
+    )
+    assert rc_sess_ok == 0
+    assert len(staged_targets) == 1
+    assert staged_targets[0]["module_path"] == "."
+    assert staged_targets[0]["commit"] == sha64
+    assert staged_targets[0]["verification"]["strategy"] == "external_provenance"
+    assert staged_targets[0]["verification"]["provenance"]["manifest_version"] == "1.4.0"
+    assert "release_ref" not in staged_targets[0]
+    _assert_contract_valid_report_target(staged_targets[0])
+
+    # Unconfigured verifier and tampered provenance refuse before spawning agent.
+    for cfg, prov_file in ((unconfigured_home, valid_prov), (trusted_home, tampered_prov)):
+        staged_targets.clear()
+        capsys.readouterr()
+        rc_refused = session.run(
+            [
+                "--config-home",
+                str(cfg),
+                "--skill",
+                "secure-code-audit",
+                "--role",
+                "audit",
+                "--repo",
+                repo_url,
+                "--purl",
+                purl,
+                "--sha",
+                sha64,
+                "--provenance-json",
+                str(prov_file),
+            ]
+        )
+        assert rc_refused != 0
+        assert staged_targets == []
+        out_refused = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+        assert out_refused["outcome"] == "refused"
+        assert out_refused["reason"] == "unresolved-target"
+
+    # Malformed provenance JSON fails with bad-request before spawning agent.
+    staged_targets.clear()
+    capsys.readouterr()
+    rc_bad_json = session.run(
+        [
+            "--config-home",
+            str(trusted_home),
+            "--skill",
+            "secure-code-audit",
+            "--role",
+            "audit",
+            "--repo",
+            repo_url,
+            "--purl",
+            purl,
+            "--sha",
+            sha64,
+            "--provenance-json",
+            str(bad_json),
+        ]
+    )
+    assert rc_bad_json != 0
+    assert staged_targets == []
+    out_bad_json = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert out_bad_json["outcome"] == "failed"
+    assert out_bad_json["reason"] == "bad_request"
+
+    # --provenance-json without --purl fails fast with argparse exit 2.
+    with pytest.raises(SystemExit) as exc_info:
+        session.run(
+            [
+                "--config-home",
+                str(trusted_home),
+                "--skill",
+                "secure-code-audit",
+                "--role",
+                "audit",
+                "--repo",
+                repo_url,
+                "--checkout",
+                "--sha",
+                sha64,
+                "--provenance-json",
+                str(valid_prov),
+            ]
+        )
+    assert exc_info.value.code == 2
+
+    # Mismatched provenance PURL fails closed with provenance_mismatch in assessments.prepare.
+    capsys.readouterr()
+    rc_mismatch = assessments.prepare(
+        [
+            "--config-home",
+            str(trusted_home),
+            "--repo-url",
+            repo_url,
+            "--kind",
+            "secure_code",
+            "--purl",
+            "pkg:pypi/root-pkg@1.4.0+other",
+            "--sha",
+            sha64,
+            "--provenance-json",
+            str(valid_prov),
+            "--checkout",
+            str(checkout),
+        ]
+    )
+    assert rc_mismatch == assessments.REFUSED
+    assert json.loads(capsys.readouterr().out)["reason"] == "provenance_mismatch"
+
+    # 5. Emitted target JSON from BOTH assessments.prepare and session.run validates verbatim
+    #    against report.schema.json + traust-contracts Pydantic models when optional fields
+    #    (release_ref, manifest_version, verification.provenance) are absent.
+    ext_report_doc = _assert_contract_valid_report_target(target)
+    ext_report_path = tmp_path / "ext-sha256-report.json"
+    ext_report_path.write_text(json.dumps(ext_report_doc), encoding="utf-8")
+    capsys.readouterr()
+    assert (
+        assessment_record.main(
+            [
+                "--config-home",
+                str(trusted_home),
+                str(ext_report_path),
+                "--kind",
+                "secure_code",
+                "--repo-url",
+                repo_url,
+                "--sha",
+                sha64,
+                "--purl",
+                purl,
+                "--public",
+            ]
+        )
+        == 0
+    )
+    assert json.loads(capsys.readouterr().out)["target_purl"] == target["purl"]
+
+    same_ver_purl = "pkg:pypi/root-pkg@1.4.0"
+    minimal_ext_env = _signed_provenance(
+        priv,
+        "ci-signer-1",
+        {
+            "_type": "https://in-toto.io/Statement/v1",
+            "predicateType": "https://slsa.dev/provenance/v1",
+            "subject": [{"name": same_ver_purl}],
+            "predicate": {
+                "purl": same_ver_purl,
+                "repository": repo_url,
+                "commit": sha64,
+                "ref": "build/1.4.0-minimal",
+            },
+        },
+    )
+    minimal_prov = tmp_path / "minimal-prov.json"
+    minimal_prov.write_text(json.dumps(minimal_ext_env), encoding="utf-8")
+
+    minimal_out = tmp_path / "prepared-minimal-ext.json"
+    assert (
+        assessments.prepare(
+            [
+                "--config-home",
+                str(trusted_home),
+                "--repo-url",
+                repo_url,
+                "--kind",
+                "secure_code",
+                "--purl",
+                same_ver_purl,
+                "--sha",
+                sha64,
+                "--module-path",
+                ".",
+                "--provenance-json",
+                str(minimal_prov),
+                "--checkout",
+                str(checkout),
+                "-o",
+                str(minimal_out),
+            ]
+        )
+        == 0
+    )
+    minimal_prepared_target = json.loads(minimal_out.read_text(encoding="utf-8"))[
+        "component_target"
+    ]
+    assert "release_ref" not in minimal_prepared_target
+    assert "manifest_version" not in minimal_prepared_target["verification"]["provenance"]
+    _assert_contract_valid_report_target(minimal_prepared_target)
+
+    staged_targets.clear()
+    assert (
+        session.run(
+            [
+                "--config-home",
+                str(trusted_home),
+                "--skill",
+                "secure-code-audit",
+                "--role",
+                "audit",
+                "--repo",
+                repo_url,
+                "--purl",
+                same_ver_purl,
+                "--sha",
+                sha64,
+                "--module-path",
+                ".",
+                "--provenance-json",
+                str(minimal_prov),
+            ]
+        )
+        == 0
+    )
+    assert len(staged_targets) == 1
+    assert "release_ref" not in staged_targets[0]
+    assert "manifest_version" not in staged_targets[0]["verification"]["provenance"]
+    _assert_contract_valid_report_target(staged_targets[0])
+
+    # Ordinary repo-verified release staged by session.run omits verification.provenance.
+    ordinary_checkout = tmp_path / "ordinary-root"
+    ordinary_sha = _make_monorepo(
+        ordinary_checkout,
+        {"setup.cfg": "[metadata]\nname = root-pkg\nversion = 1.4.0\n"},
+        tag="v1.4.0",
+    )
+
+    @contextmanager
+    def fake_ordinary_checkout(url, config_home, *, sha=None, shared=False):
+        yield SimpleNamespace(path=ordinary_checkout)
+
+    monkeypatch.setattr(session, "checkout", fake_ordinary_checkout)
+    staged_targets.clear()
+    assert (
+        session.run(
+            [
+                "--config-home",
+                str(trusted_home),
+                "--skill",
+                "secure-code-audit",
+                "--role",
+                "audit",
+                "--repo",
+                repo_url,
+                "--purl",
+                same_ver_purl,
+                "--sha",
+                ordinary_sha,
+                "--module-path",
+                ".",
+            ]
+        )
+        == 0
+    )
+    assert len(staged_targets) == 1
+    assert staged_targets[0]["verification"]["strategy"] == "shared_release"
+    assert "provenance" not in staged_targets[0]["verification"]
+    _assert_contract_valid_report_target(staged_targets[0])
+
+
+def _assert_contract_valid_report_target(target_doc: dict[str, object]) -> dict[str, object]:
+    """Validate emitted target JSON verbatim against contracts Pydantic + report.schema.json."""
+    from traust_contracts.v1.models.report import ComponentTarget as ContractComponentTarget
+    from traust_core.v1.models.artifacts import SecurityAuditArtifact
+
+    ContractComponentTarget.model_validate(target_doc)
+    report = {
+        "title": "Component Target Contract Security Audit",
+        "metadata": {
+            "date": "2026-11-24",
+            "scope": "Contract validation of emitted component_target JSON",
+            "repository": target_doc["repository"],
+            "commit": target_doc["commit"],
+            "audit_profile": "code",
+            "target": target_doc,
+        },
+        "executive_summary": {
+            "prose": "Contract validation smoke report carrying emitted component_target verbatim.",
+            "severity_counts": {
+                "critical": 0,
+                "high": 0,
+                "medium": 0,
+                "low": 0,
+                "informational": 0,
+            },
+        },
+        "severity_criteria": [
+            {"level": "critical", "definition": "Unauthenticated remote compromise."},
+            {"level": "high", "definition": "Privilege escalation or data leak."},
+            {"level": "medium", "definition": "Scoped security weakness."},
+            {"level": "low", "definition": "Defense-in-depth hardening gap."},
+        ],
+        "findings": [],
+        "findings_summary": [
+            {"severity": "critical", "count": 0, "finding_ids": []},
+            {"severity": "high", "count": 0, "finding_ids": []},
+            {"severity": "medium", "count": 0, "finding_ids": []},
+            {"severity": "low", "count": 0, "finding_ids": []},
+        ],
+        "remediation_roadmap": [
+            {
+                "priority": "p3",
+                "addresses": ["NONE"],
+                "action": "No findings identified during contract validation smoke test.",
+                "effort": "xs",
+            }
+        ],
+    }
+    SecurityAuditArtifact.parse(json.dumps(report).encode("utf-8"))
+    return report

@@ -32,6 +32,7 @@ from collections.abc import Iterator, Mapping
 from contextlib import contextmanager, nullcontext
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 from uuid import UUID
 
 import pydantic
@@ -63,7 +64,7 @@ from traust_core.v1.models.operations import (
 )
 from traust_core.v1.models.values import GitSha, HttpsRepoUrl
 
-from traust.cli._doors import RUN_ORDER_ENV, answer, parser
+from traust.cli._doors import RUN_ORDER_ENV, answer, load_provenance_json, parser
 from traust.cli._doors import run as door
 from traust.cli.assessments import REFUSED
 from traust.context import MODEL_REGISTRY, TRAUST_CONFIG_HOME_DEFAULT, load, resolve_config_home
@@ -286,14 +287,27 @@ def run(argv: list[str] | None = None) -> int:
     ap.add_argument("--worker", help="the engine worker holding the order's lease")
     ap.add_argument("--rule", help="the router rule that routed the order")
     ap.add_argument("--purl", help="versioned component PURL target for a pinned monorepo audit")
-    ap.add_argument("--sha", help="immutable 40-char commit SHA pinning the audit target")
+    ap.add_argument("--sha", help="immutable 40- or 64-char commit SHA pinning the audit target")
     ap.add_argument("--release-ref", help="optional release tag pinning the component PURL")
-    ap.add_argument("--module-path", help="optional module path hint verified against manifests")
+    ap.add_argument(
+        "--module-path",
+        help="optional module path hint ('.' for root) verified against manifests",
+    )
+    ap.add_argument(
+        "--provenance-json",
+        type=Path,
+        metavar="PATH",
+        help=(
+            "path to an authenticated provenance JSON envelope for external_provenance verification"
+        ),
+    )
     argv = sys.argv[1:] if argv is None else argv
     split = argv.index("--") if "--" in argv else len(argv)
     args, extra = ap.parse_args(argv[:split]), argv[split + 1 :]
     if args.sha and not (args.checkout or args.purl):
         ap.error("--sha needs --checkout or --purl")
+    if not args.purl and (args.release_ref or args.module_path or args.provenance_json):
+        ap.error("--release-ref, --module-path, and --provenance-json require --purl")
     if (args.skill, args.mode) in SESSIONS:
         return artifact_run(
             args.skill,
@@ -363,6 +377,13 @@ def run(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
         return answer(JobResult.refused(OrderReason.UNRESOLVED_TARGET))
+    provenance_record: dict[str, Any] | None = None
+    if args.provenance_json is not None:
+        try:
+            provenance_record = load_provenance_json(args.provenance_json)
+        except ValidationError as e:
+            print(f"run {args.run_id}: {OrderReason.BAD_REQUEST}: {e}", file=sys.stderr)
+            return answer(JobResult.failed(OrderReason.BAD_REQUEST))
     entered = (
         (
             checkout(args.repo, args.config_home, sha=args.sha, shared=bool(args.purl))
@@ -394,6 +415,7 @@ def run(argv: list[str] | None = None) -> int:
                             commit=args.sha,
                             release_ref=args.release_ref,
                             module_path=args.module_path,
+                            provenance_record=provenance_record,
                         ),
                         workspace.path,
                     )
@@ -407,7 +429,9 @@ def run(argv: list[str] | None = None) -> int:
                 target_json_path = Path(tmp_name)
                 try:
                     with os.fdopen(fd, "w", encoding="utf-8") as handle:
-                        handle.write(resolved_target.model_dump_json(indent=2) + "\n")
+                        handle.write(
+                            resolved_target.model_dump_json(indent=2, exclude_none=True) + "\n"
+                        )
                     target_json_path.chmod(0o444)
                 except BaseException:
                     target_json_path.unlink(missing_ok=True)

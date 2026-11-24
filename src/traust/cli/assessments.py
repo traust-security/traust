@@ -34,7 +34,7 @@ from traust_core.v1.models.inventory import RepositoryFilter
 from traust_core.v1.models.values import GitSha, HttpsRepoUrl
 from traust_core.v1.models.vocabulary import RefKind, ThreatStatus
 
-from traust.cli._doors import parser, run
+from traust.cli._doors import load_provenance_json, parser, run
 from traust.context import load
 
 REFUSED = 3
@@ -53,11 +53,25 @@ def _repositories(core: Context) -> dict[UUID, str]:
 def prepare(argv: list[str] | None = None) -> int:
     ap = parser("assessments", "prepare", "Print what an assessment of one commit starts from.")
     ap.add_argument("--repo-url", required=True, help="https URL of the registered repository")
-    ap.add_argument("--sha", help="the commit to assess (required unless --purl + --release-ref)")
+    ap.add_argument(
+        "--sha",
+        help="the commit to assess (40- or 64-char hex; required unless --purl + --release-ref)",
+    )
     ap.add_argument("--kind", required=True, choices=[k.value for k in AssessmentKind])
     ap.add_argument("--purl", help="versioned component PURL to audit within the pinned repo")
     ap.add_argument("--release-ref", help="release tag pinning the component PURL")
-    ap.add_argument("--module-path", help="optional module path hint verified against manifests")
+    ap.add_argument(
+        "--module-path",
+        help="optional module path hint ('.' for root) verified against manifests",
+    )
+    ap.add_argument(
+        "--provenance-json",
+        type=Path,
+        metavar="PATH",
+        help=(
+            "path to an authenticated provenance JSON envelope for external_provenance verification"
+        ),
+    )
     ap.add_argument(
         "--checkout",
         type=Path,
@@ -79,8 +93,10 @@ def prepare(argv: list[str] | None = None) -> int:
             raise ValidationError("--since and --baseline-assessment need --diff")
         if args.purl is None and not args.sha:
             raise ValidationError("--sha is required unless --purl resolves a pinned commit")
-        if args.purl is None and (args.release_ref or args.module_path):
-            raise ValidationError("--release-ref and --module-path require --purl")
+        if args.purl is None and (args.release_ref or args.module_path or args.provenance_json):
+            raise ValidationError(
+                "--release-ref, --module-path, and --provenance-json require --purl"
+            )
         if args.purl is not None and args.diff is not None:
             raise ValidationError("--purl component audits are initial source audits, not diffs")
         if args.purl is not None and args.checkout is None:
@@ -109,6 +125,11 @@ def prepare(argv: list[str] | None = None) -> int:
         ref_kind: RefKind | None = None
         if args.purl is not None:
             assert args.checkout is not None
+            provenance_record = (
+                load_provenance_json(args.provenance_json)
+                if args.provenance_json is not None
+                else None
+            )
             try:
                 component_target = services.component_targets.resolve(
                     ComponentTargetRequest(
@@ -117,6 +138,7 @@ def prepare(argv: list[str] | None = None) -> int:
                         commit=args.sha,
                         release_ref=args.release_ref,
                         module_path=args.module_path,
+                        provenance_record=provenance_record,
                     ),
                     args.checkout,
                 )

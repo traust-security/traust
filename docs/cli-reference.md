@@ -176,6 +176,10 @@ After admission, `traust findings find <report.json> --label <report-local-id>
 `finding_id: null` means no match, not an identity/admission receipt. Do not revive
 stamping or invent a canonical-audit intake command to hide that gap.
 
+### Component PURL audits
+
+`traust assessments prepare` and `traust session run` accept component PURL targets pinned to a 40- or 64-char hex `--sha` (plus optional `--release-ref`, `--module-path` including `"."` for root-published packages, and `--provenance-json <path>` for an independently authenticated provenance envelope verified by Core's configured `ProvenanceVerifier`). `traust reporting record` accepts 40- or 64-char hex `--sha` and verifies `--purl` against `metadata.target.purl`.
+
 ### Shareable-output redaction
 
 Run `python3 -m traust.cli util redact <output-directory>` in place, then
