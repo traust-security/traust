@@ -772,16 +772,21 @@ contract as `/secure-code-audit`'s:
 "precision_gates": {
   "crit_high_evaluated": 4,
   "fired": [
+    {"candidate": "<finding id or title>",
+     "gate": "<rule name from this step>",
+     "action": "confidence_lowered"}
   ]
 }
 ```
 
 `crit_high_evaluated` counts every critical/high candidate the gates
-examined. `fired` lists each rule that changed a disposition, so in this
-skill it stays empty: nothing is dropped, rerouted or re-rated (the
-source skill's `negative_results`/`dependency_audit` actions have no
-section in this output). A gate that fired is recorded on its finding,
-in `confidence_reason`. A scan that emits crit/high findings with no
+examined; `fired` lists each gate that fired, with `action:
+"confidence_lowered"` — the only action in this skill: nothing is dropped,
+rerouted or re-rated (the source skill's `negative_results` /
+`dependency_audit` actions have no section in this output). The gate's
+evidence also goes in the finding's `confidence_reason`. `confidence_lowered`
+is this skill's own value; the vuln-findings output isn't validated against
+the audit report's gate-action vocabulary. A scan that emits crit/high findings with no
 `precision_gates` block is incomplete.
 
 **Coverage-note precision** (the source skill's `negative_results` rule,

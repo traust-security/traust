@@ -441,6 +441,8 @@ canonical):
 | `severity`      | `severity_rating`, `level`, `priority`, `risk`           |
 | `cvss`          | `cvss_score` + `cvss_vector`, `cvss.score` + `cvss.vector` (keep as supplied; never re-score) |
 | `advisory`      | `cve`, `cve_id`, `ghsa_id`, `osv_id`, `vulnerability_id`, `advisory_id` |
+| `package`       | `package_name`, `module`, `pkg_name`, `artifact`           |
+| `installed_version` | `version`, `pkg_version`, `found_version`            |
 | `title`         | `name`, `summary`, `message`                             |
 | `description`   | `details`, `report`, `body`, `evidence`                  |
 | `exploit_scenario` | `attack_scenario`, `poc`, `reproduction`              |
@@ -521,63 +523,83 @@ in this skill: majorities, splits, noise tolerance, ask mode, dissent
 escalation, precedents, the Phase 4 ranker, the 6b2 re-vote and review
 route, and old-checkpoint compatibility.
 
-**Definition.** A finding is advisory-backed when it names a published
-advisory (CVE-, GHSA- or another OSV id) matched to a dependency, package or
-image, or to advisory-lag in the repo's own forked or vendored code. Read the
-id from `finding.advisory_match` (inputs A/B/D) or the 1b `advisory` field
-(input C), else from the claim's text. Read the score from
-`occurrence.cvss_score` / `cvss_vector` (A/B/D) or `cvss` (C) as supplied;
-only when none is supplied use the scores quoted in the claim, in the
-authority order of [Severity authoring](../../../docs/report-structure.md#severity-authoring). With no score anywhere it is still
-advisory-backed, at `medium`, labelled unscored in the rationale.
+**Definition.** A finding is advisory-backed when a structured field names a
+published advisory (CVE-, GHSA- or another OSV id) matched to a dependency,
+package or image, or to advisory-lag in the repo's own forked or vendored
+code: `finding.advisory_match` (inputs A/B/D) or the 1b `advisory` field
+(input C). An id that appears only in a title or description doesn't make a
+finding advisory-backed; that finding follows the normal rules.
 
-Its severity is the band of that score. Triage changes its verdict, kind or
-severity only on **bound evidence**: the Phase 2f `/impact-analysis` artifact
-whose repo entry matches this repository and commit and whose `version`
-matches the finding's installed version. Only these fields count:
+**Score.** Start from the selected authority's score ([Severity authoring](../../../docs/report-structure.md#severity-authoring)). An audit
+report's `cvss` on an advisory-backed finding is that score. A scanner's own
+score (input C scanner output, or an item whose prepared-input `assessor` is
+a scanner) is last in the authority order: use it only when no authority
+score is supplied, and say so in the rationale. Core's own selected score
+supersedes the band triage writes. With no score at all, the finding is
+advisory-backed at `medium`, labelled unscored.
 
-| Bound evidence | Outcome (exact fields) |
-|---|---|
-| `classification: version_not_in_range` or `not_imported`, or a vendor not-affected statement / fixed NVR recorded in that artifact | `verdict: false_positive`, `refute_reasons: ["bound_evidence"]`, `exclusion_rule: null`, `severity: null`; the rationale cites the artifact path and field |
-| `classification: not_observed` with `evidence.evidence_level: symbol` (Go, govulncheck) | `verdict: true_positive`, `kind: weakness`, `severity: null`, `exclusion_rule: "13"`; the report's band stands |
+**Evidence, not inference.** Triage may change an advisory-backed finding's
+verdict, kind or severity, lowering it included, only on evidence bound to
+this finding, its commit, its dependency version and its environment:
+- a **bound impact row**: the Phase 2f export row for this repository,
+  commit, package and installed version (the version comes from the 1b
+  `installed_version` field or a `pkg:` purl location; a finding without
+  both package and version binds no row);
+- a vendor not-affected statement or fixed NVR recorded in that row;
+- a **code citation**: a `file:line` quoted from this checkout that the 6b2
+  citation lint verifies.
 
-Nothing else is bound evidence: not the Phase 2e reachability tags
-(`*_not_observed` is checked for commit, not version), symbol-usage or
-manifest-level classifications, `likely_affected`, `inconclusive`,
-precedents, another commit's export, or prose quoted from anywhere.
-Live-validation results don't arrive through triage; they are recorded
-through Core's validation doors.
+Inference never changes it: uncited reasoning, vote counts on their own,
+precondition counts, threat-model matches, deployment assumptions,
+precedents, another commit's export, symbol-usage or manifest-level
+classifications, `likely_affected`, `inconclusive`, KEV or EPSS, and prose
+in the finding.
 
 1. **Dedup (Phase 2):** never mark it `duplicate` of a finding that doesn't
    name the same advisory; it may absorb duplicates of its own advisory.
-2. **Bound evidence first (Phase 3c):** a matching row sets the fields
-   above whatever the votes say. `confidence` is the mean CONFIDENCE of the
-   votes that agree with that outcome, or `null` when none do.
-3. **Otherwise the votes, mapped** (kind is the supplied kind, else
-   omitted; votes never set or change it):
-   - TRUE_POSITIVE majority, HARDENING majority, or a TRUE_POSITIVE /
-     HARDENING split → `verdict: true_positive`, `exclusion_rule: null`, at
-     the advisory band; HARDENING votes' reasons go in the rationale. A
-     supplied `kind: weakness` keeps the weakness fields (`severity: null`,
-     `exclusion_rule: "13"`).
-   - FALSE_POSITIVE majority, or any split with a FALSE_POSITIVE vote →
+2. **Bound impact rows first (Phase 3c):** a matching row sets these fields
+   whatever the votes say:
+
+   | Bound impact row | Fields |
+   |---|---|
+   | `version_not_in_range` or `not_imported`, or a vendor not-affected statement / fixed NVR | `verdict: false_positive`, `refute_reasons: ["bound_evidence"]`, `exclusion_rule: null`, `severity: null`; the rationale cites the row |
+   | `not_observed` with `evidence.evidence_level: symbol` (Go, govulncheck) | `verdict: true_positive`, `kind: weakness`, `severity: null`, `exclusion_rule: "13"` |
+
+3. **Then the votes, counting only cited ones (Phase 3c).** A vote counts
+   when its deciding reason carries a verified code citation. Apply the
+   normal tally rules to the counted votes. When no counted vote supports
+   an outcome:
+   - TRUE_POSITIVE or HARDENING votes, or a split between them →
+     `verdict: true_positive`, kind as supplied (else omitted),
+     `exclusion_rule: null`, at the advisory band;
+   - a FALSE_POSITIVE majority, or a split that includes FALSE_POSITIVE →
      `verdict: undetermined`, `verify_verdict: needs_manual_test`,
-     `severity: null`; the rationale names the fact the impact artifact
-     must record (range, vendor statement, reachability).
-   Dissent escalation is skipped when the mapped outcome is already
-   `true_positive`. Ask mode never offers these findings. Exclusion rule 10
-   never applies.
-4. **Ranking (Phase 4):** `severity` is the advisory band. The precondition
-   derivation, threat-model match, VERIFY_VERDICT, `mitigated` and
-   `attacker_influence` are rationale only, and `verify_verdict` stays as
-   Phase 3 set it. `severity_label` is the advisory's vector and score
-   verbatim; `severity_alignment` is `null`.
-5. **6b2 and 6c:** a broken citation on an advisory-backed true positive is
-   noted in the rationale; it doesn't change `verify_verdict`. The 6c
-   vote-majority warning is expected for these findings: leave the mapped
+     `severity: null`, the rationale naming the fact still to be shown;
+   - every vote CANNOT_VERIFY, or none parseable → `verdict: undetermined`,
+     `verify_verdict: needs_manual_test`, `severity: null`.
+   A FALSE_POSITIVE outcome from cited votes carries those votes'
+   `refute_reasons`. `confidence` is the mean CONFIDENCE of the votes behind
+   the outcome, or `null` when none are. Dissent escalation is skipped when
+   the outcome is already `true_positive`. Ask mode never offers these
+   findings. Exclusion rule 10 never applies.
+4. **Ranking (Phase 4):** `severity` starts at the advisory band. The ranker
+   may lower it only with a CVSS Environmental vector whose every modified
+   metric cites its evidence (a code citation quoted in RANK_RATIONALE, or a
+   bound row field): `severity` is the band of that Environmental score,
+   `severity_label` is that vector and score, and the rationale keeps the
+   authority's Base score and source. Without that, `severity` is the
+   advisory band, and the precondition derivation, threat-model match,
+   `mitigated` and `attacker_influence` are rationale only. Nothing raises
+   it above the band. `severity_alignment` is `null`; `verify_verdict`
+   stays as Phase 3 set it.
+5. **6b2 and 6c:** a citation the lint finds broken stops counting as
+   evidence: re-apply this section to that finding (the vote no longer
+   counts; an Environmental metric that rested on it reverts). The 6c
+   vote-majority warning is expected for these findings; leave the mapped
    outcome.
 6. **Output:** a `null` triage severity on an advisory-backed finding
-   (undetermined or weakness) means the report's band stands.
+   (undetermined, weakness or false positive) means the report's band
+   stands until a decision with this evidence is admitted.
 
 ## Phase 2: Deduplicate (before verification)
 
@@ -787,6 +809,9 @@ If the artifact exists:
 3. A finding **matches** when its title/description mentions the
    advisory (or a row's native `document.metadata.cve`) or its `module`,
    or shares the CVE with a govulncheck candidate from Phase 2e.
+   For an advisory-backed finding, attach only the row whose package and
+   version equal the finding's `package` and `installed_version`; with
+   either missing, attach rows as annotation only (no bound evidence).
 4. Attach the export's portfolio counts and each matching row's
    classification/evidence to Phase 3b. Native ranges, feature descriptions
    and sources remain under that row's `document.metadata`. Cite the
@@ -1411,9 +1436,9 @@ advisory-backed finding, whose severity is the published band (below). Only `con
 enters this phase; `hardening[]` never does. Verification and severity are
 independent judgments; "this is real" must not inflate into "this is critical."
 
-**Advisory-backed findings keep the published score** (*Advisory-backed
-findings*, above Phase 2): their `severity` is the advisory band, CRITICAL
-included; steps 2–4 and 6 below are rationale only for them.
+**Advisory-backed findings** follow *Advisory-backed findings* (above
+Phase 2): `severity` starts at the advisory band, CRITICAL included, and
+moves only through a cited Environmental vector.
 
 ### 4a. Ranking prompt
 
@@ -1451,9 +1476,13 @@ window, attacker position. Then state the minimum ACCESS LEVEL required
 (unauthenticated remote / authenticated / local / physical).
 
 STEP 2: Derive severity from the precondition count and access level.
-If ADVISORY is not none: SEVERITY is the advisory band, SEVERITY_LABEL is
-the advisory's vector and score verbatim, SEVERITY_ALIGNMENT is null, and
-steps 2-4 go in RANK_RATIONALE only.
+If ADVISORY is not none: SEVERITY is the advisory band, unless you lower it
+with a CVSS Environmental vector whose every modified metric cites its
+evidence (a file:line you quote in RANK_RATIONALE, or a bound impact-row
+field). Then SEVERITY is that vector's band and SEVERITY_LABEL is the
+Environmental vector and score; otherwise SEVERITY_LABEL is the advisory's
+vector and score verbatim. SEVERITY_ALIGNMENT is null. Steps 2-4 inform only
+the rationale; never raise SEVERITY above the advisory band.
 
   | Preconditions | Access required          | Severity |
   |---------------|--------------------------|----------|

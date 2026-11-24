@@ -152,8 +152,11 @@ apply to new reports; historical reports are not rewritten.
   matched to a dependency, package or image, including advisory-lag in a
   repository's own forked or vendored upstream code): `severity` is the band
   of the advisory's selected authority score, and `cvss` carries that score
-  and vector. For a Red Hat product, the selected score is Red Hat's CVSS for
-  that product when Red Hat publishes one. Otherwise the order is NIST (NVD
+  and vector. D2: for a Red Hat product, the selected score is Red Hat's CVSS
+  for that product when Red Hat publishes one. A Red Hat product is one whose
+  Core product record declares Red Hat CSAF product identifiers; never guess
+  it from a name. Until Core keeps Red Hat's score per product, the normal
+  order applies. Otherwise the order is NIST (NVD
   Primary), GitHub (GHSA), the CVE's CNA, ADP, Red Hat, then the scanner. A
   3.x score comes before 4.0; 4.0 is used only when no source has 3.x. Red
   Hat's severity word (Important, Moderate) is never a score. Quote every
@@ -168,18 +171,77 @@ apply to new reports; historical reports are not rewritten.
   its band, with the open question named in the description for `/triage`.
 - **Who changes it later:** only `/impact-analysis`, `/triage` and live
   validation (`/validate-findings` and its siblings), through Core's decision
-  doors, never by editing the report. For an advisory-backed finding the
-  change needs recorded evidence bound to that finding, its commit and its
-  dependency version. Inference, prose, vote majorities and precondition
-  counts are not evidence. The evidence decides the outcome:
+  doors, never by editing the report, and only on evidence. For an
+  advisory-backed finding, evidence is a recorded artifact bound to the
+  finding, its commit and its dependency version, or a code citation
+  (`file:line` quoted from the checkout) that triage's citation lint
+  verifies, bound to the same finding, commit, dependency version and
+  environment. Inference is not evidence: uncited reasoning, vote counts,
+  precondition counts, threat-model matches, deployment assumptions and
+  prose. KEV and EPSS are exploitability inputs to ranking and the SLA; they
+  never change a severity. The evidence decides the outcome:
 
   | Evidence | Outcome |
   |---|---|
-  | `/impact-analysis` `version_not_in_range` or `not_imported`; a vendor not-affected statement; the fixed NVR or backport shipped | `false_positive`, citing the artifact |
-  | Go symbol-level (govulncheck) `not_observed` | `true_positive`, `kind: weakness`: the vulnerable code ships but is not reached; cite the artifact. Symbol-usage or manifest-level `not_observed` is not evidence |
+  | `/impact-analysis` `version_not_in_range` or `not_imported`; a vendor not-affected statement; the fixed NVR or backport shipped | not a vulnerability here: `false_positive` in triage, a `dependency_audit` note in an audit |
+  | Go symbol-level (govulncheck) `not_observed` | the vulnerable code ships but is not reached: a `dependency_audit` note in an audit; `true_positive`, `kind: weakness` in triage |
+  | Code citations showing a precondition or control that changes how the vulnerability can be exploited here | triage lowers the severity with a CVSS Environmental vector: each modified metric cites its evidence, `severity` is that score's band, and the authority's Base score stays in the rationale |
   | A live-validation result | the validation's verdict, at the band of the vector it records |
 
-  The report's `severity` is never rewritten.
+  Symbol-usage or manifest-level `not_observed`, `likely_affected` and
+  `inconclusive` are not evidence for any of these. Nothing raises a
+  severity above its score's band either. The report's `severity` is never
+  rewritten.
+
+## Dependency and advisory findings: tool outcomes only
+
+The model makes no reachability judgment for a dependency finding (plan D1,
+steps 3–5). Tools decide whether an advisory match is filed; the model
+cites their output.
+
+1. **A match that no tool produced is not a finding.** The matches come
+   from the deterministic pre-scans: the OSV pre-scan, `sbom-grype`,
+   govulncheck, image package lists. Copy advisory ids, affected ranges,
+   installed versions and scores from that output; never type them.
+2. **Range applicability.** A match whose installed version is outside
+   the advisory's range is a `dependency_audit` note. When the advisory's
+   sources disagree for the version scheme actually installed (a release
+   tag range against a Go-module range, for example), the match is a
+   `range_conflict`: a `dependency_audit` note, not a finding. A
+   tool-tagged test or dev scope (`dependency_scope`) is a note too.
+3. **Vendor applicability.** A not-affected statement or a fixed NVR in the
+   tool data (grype's Red Hat security data, a VEX document impact-analysis
+   recorded) makes the match a `dependency_audit` note citing it.
+4. **Reachability: impact-analysis, single-commit mode.** For every match
+   still standing, run:
+
+   ```bash
+   python3 -m traust.cli impact analyze <ADVISORY> --repo-url <url> --sha <commit> [--branch <branch>] --scan
+   python3 -m traust.cli impact export <ADVISORY> --out <scratch-dir>/<advisory>-impact.json
+   ```
+
+   Read the export row for this repository, commit, ecosystem, module and
+   installed version, and file by its classification. Severity never
+   changes; the classification decides only whether the observation is a
+   finding, and the finding or note cites the row.
+
+   | Classification | Audit outcome |
+   |---|---|
+   | `version_not_in_range`, `not_imported` | No finding: a `dependency_audit` note citing the row |
+   | `not_observed` at Go symbol level (govulncheck) | No finding: a `dependency_audit` note citing the row; `/triage` may still pick it up |
+   | `affected` | A finding at the advisory's band, citing the govulncheck trace |
+   | `likely_affected`, `inconclusive`, `not_observed` below symbol level | A finding at the advisory's band, citing the row; `/triage` owns verification |
+   | No row (the run failed, or impact-analysis doesn't cover the ecosystem or surface) | A finding at the advisory's band, citing the tool match, with the gap named |
+
+   The export is a scratch intermediate; never place it in the findings
+   tree. Record `deterministic_steps["impact-analysis"]`: `"ran: <n>
+   advisories"`, or `"skipped: <reason>"` with a `coverage_gaps` entry. Only
+   Go has a symbol-level tier; other ecosystems stop at `likely_affected`
+   and their findings go to `/triage` at the advisory's band.
+
+A reachability argument the model makes itself — "unused", "dev-only",
+"not executed in this image", "client-only symbol" — is not a reason to drop
+or re-rate a dependency finding. Name it in the description for `/triage`.
 
 ## Remediation authoring
 
@@ -230,7 +292,7 @@ apply unrelated classifier policies, or recreate retired report writers.
   every deterministic pre-scan so evidence quality is comparable across a
   batch. Keys: `k8s-hardening`, `opengrep`, `gitleaks`, `osv-scanner`,
   `sbom-grype`, `priv-profile`, `fork-advisory-lag`, `route-guards`,
-  `config-matrix`; value `"ran"` or `"skipped: <reason>"` (e.g.
+  `config-matrix`, `impact-analysis`; value `"ran"` or `"skipped: <reason>"` (e.g.
   `"skipped: opengrep not on PATH"`, `"skipped: no local checkout"`). A
   skipped step means that section of the audit ran on manual review alone —
   downstream consumers (`/mine-ledger` precision, `/verify-remediation`) must
@@ -272,7 +334,7 @@ apply unrelated classifier policies, or recreate retired report writers.
 
 - `metadata.audit_profile: "rpm"`.
 - `metadata.additional.deterministic_steps` keys: `sbom-grype`, `yara`,
-  `crypto-audit`.
+  `crypto-audit`, `impact-analysis`.
 - `metadata.repository` is the dist-git URL; record upstream `Source0`, spec
   `Version`/`Release`, and applied patches under `metadata.additional`.
 - `metadata.ref` = the dist-git stream audited (e.g. `c10s`) with
@@ -294,7 +356,7 @@ apply unrelated classifier policies, or recreate retired report writers.
 
 - `metadata.audit_profile: "container"`.
 - `metadata.additional.deterministic_steps` keys: `k8s-hardening`,
-  `priv-profile`, `yara`.
+  `priv-profile`, `yara`, `impact-analysis`.
 - `metadata.repository` is the full image reference **pinned by digest**
   (`<registry>/<namespace>/<image>@sha256:…`); the tag audited, source-repo
   labels (`vcs-url`, `vcs-ref`), and base image go under `metadata.additional`.

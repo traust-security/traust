@@ -28,6 +28,8 @@ allowed-tools:
   - Bash(python3 *traust* -m traust.cli adapters priv-profile:*)
   - Bash(python3 *traust* -m traust.cli reporting validate:*)
   - Bash(python3 *traust* -m traust.cli reporting record:*)
+  - Bash(python3 *traust* -m traust.cli impact analyze:*)
+  - Bash(python3 *traust* -m traust.cli impact export:*)
   - Bash(python3 *traust* -m traust_engine.reporting.render:*)
   # Confinement added 2026-07-31 (P1 gate rework — the
   # widened S1 privilege tokens made this skill's missing
@@ -283,9 +285,9 @@ Each candidate it shares with grype is tagged `also_in_grype: true`.
   filtered packages.
 
 - **Every match** becomes a `dependency_audit` entry: `package`, `version`, `status` (`vulnerable`/`fix-available`/`wont-fix` per upstream data), `notes` with the CVE/GHSA ID and fixed-in version. Negligible-severity or no-fix matches may be summarized in `dependency_audit.prose`.
-- **Promote to a finding** matches whose vulnerable binary/library actually ships in this image's role. Affirmative evidence that it is never executed or reached (a CVE in an unused `dnf` plugin in a distroless-adjacent image) keeps it `dependency_audit`-only; undeterminable reachability files at the advisory's band with the question named (see *No severity capping* below). **Every promotion, at any severity, must pass the Precision Gate below** — its dependency and advisory gate is this skill's measured FP path. Category `supply-chain`, cite K07 for operator images, carry the selected authority's CVSS vector and file at its band ([Severity authoring](../../../docs/report-structure.md#severity-authoring)), and omit unauthored `validation_status` — a version match is not execution evidence.
+- **Promote to a finding** by the Precision Gate's dependency and advisory gate below — tool data, then single-commit impact-analysis — at any severity; it is this skill's measured FP path. Category `supply-chain`, cite K07 for operator images, carry the selected authority's CVSS vector and file at its band ([Severity authoring](../../../docs/report-structure.md#severity-authoring)), and omit unauthored `validation_status` — a version match is not execution evidence.
 - **Respect Red Hat security data**: for RPM packages grype consumes RHSA data — Red Hat's not-affected statements and fix state decide applicability, and say so in `notes`. Severity follows [Severity authoring](../../../docs/report-structure.md#severity-authoring): Red Hat's CVSS for that product when Red Hat publishes one, never Red Hat's severity word (Important, Moderate), and never a band you chose. The same holds for a language package an RPM installed: its fixes arrive in the RPM, so an upstream GHSA/CVE match against it is not evidence; check the owning RPM's RHSA state instead.
-- **Consult portfolio impact artifacts**: when `analysis-results/impact/<cve>-impact-analysis.json` exists (from `/impact-analysis`) and covers this image's source repo, cite its classification as promotion/dismissal context — `affected` at symbol level strengthens promotion; Go symbol-level `not_observed` keeps the match in `dependency_audit` with the artifact cited; manifest-level classifications inform but never decide, drop or re-rate. Record the artifact path in the finding's evidence.
+- **Cite the impact-analysis row**: the dependency gate's single-commit run decides filing by its classification; record the row in the finding's or note's evidence.
 - Never mark CVE matches `confirmed` from scanner output alone; the fuzzing/validation stages own that transition.
 
 ## Phase 3b — Crypto Depth Delegation
@@ -361,55 +363,31 @@ incomplete audit.
 ### Dependency and advisory gate (the centerpiece)
 
 Every grype/OSV match already lands in `dependency_audit` (Phase 3).
-Before **promoting** any CVE/version match to a finding, at any severity. The gate decides only whether to promote; a promoted match takes the advisory's selected authority band ([Severity authoring](../../../docs/report-structure.md#severity-authoring)):
+Promoting any match to a finding, at any severity, follows [Dependency and advisory findings: tool outcomes only](../../../docs/report-structure.md#dependency-and-advisory-findings-tool-outcomes-only):
 
-1. **Artifact reachability (image semantics)** — the vulnerable package
-   must be executed or reachable in this image's role, not merely
-   present. Establish it where determinable:
-   - **Installed vs base-image-inherited**: attribute the matched
-     package to its layer (syft records layer digests; compare against
-     the base image's layers). A base-image-inherited package the
-     component never executes — an unused `dnf` plugin, a shell utility
-     absent from the entrypoint's process tree — is
-     `dependency_audit`-only.
-   - **Execution/exposure signals**: the entrypoint/cmd process tree,
-     whether the vulnerable library is linked by the main binary
-     (govulncheck binary mode where a Go binary is extractable from the
-     OCI copy), whether the vulnerable component is network-reachable
-     in the image's role, and whether the affected feature/subpackage
-     is even present.
-   - A version that predates the vulnerable feature (open-ended
-     `< fixed` advisory ranges over-match) or a client-only symbol in a
-     server binary stays in `dependency_audit`.
-2. **Vendor applicability (Red Hat CSAF/OVAL)** — for RPM packages
-   matched by version string, check Red Hat CSAF/OVAL for the exact
-   product stream before promoting: not-affected statements, EUS
-   backports behind old version strings (the fix present without the
-   version bump), and platform qualifiers defeat plain NVR matching.
-   Grype's RHSA-aware fix state decides applicability (Phase 3 rule);
-   its severity never sets the finding's severity. Suppress only on **affirmative** vendor evidence;
-   absence of an erratum is not safety.
-3. **SBOM-match-only lint** — a candidate whose only evidence is the
-   SBOM/version match itself (no reachability signal, no vendor
-   statement, no exposure analysis) is a `dependency_audit` entry, not
-   a finding, and never a finding at a lower severity — the image analog of
-   `/secure-code-audit`'s manifest-only lint. This is the exact
-   measured recurrence shape all 12 of this skill's leg-2 FPs took.
+1. **Tool data first.** The installed version against the advisory's
+   range, Red Hat security data (grype's RHSA fix state and not-affected
+   statements, EUS backports behind old version strings), and the image
+   SBOM (a package the SBOM shows absent from the delivered image) can each
+   make the match a `dependency_audit` note citing that data.
+2. **Reachability: single-commit impact-analysis** against the image's
+   source repository and commit (the `vcs-url` / `vcs-ref` labels), filed
+   by its classification. Without a source commit, record
+   `deterministic_steps["impact-analysis"]: "skipped: no source commit"`
+   with a coverage gap; impact-analysis doesn't cover RPM packages, so
+   base-image RPM matches have no row either. A match with no row files at
+   the advisory's band, citing the tool match, with the gap named.
 
-**No severity capping**: reachability affirmatively refuted or vendor
-not-affected → the observation stays in `dependency_audit` with the
-evidence in `notes`. A vulnerable package that ships in the image but
-whose reachability is undeterminable within budget (static binary
-without symbols, opaque entrypoint) → file at the advisory's band with
-the open question named for `/triage`. A version match alone is the
-lint above, not a finding.
+A promoted match takes the advisory's selected authority band
+([Severity authoring](../../../docs/report-structure.md#severity-authoring)); Red Hat's severity word never sets it. You make no reachability
+judgment of your own: an entrypoint process tree, "unused plugin",
+"inherited from the base image" or "client-only symbol" reading goes in the
+description for `/triage`, never into a drop or a lower band.
 
-Boundaries this gate must NOT suppress: reachable CVE-grade defects
-including algorithmic-complexity DoS; **advisory-lag in binaries built
-from the image's own forked/vendored upstream source** (that is
-first-party shipped code, not a dependency — the Phase 5 drift check is
-where it surfaces); live functional credentials (path pre-filter
-below); and the severity floors below.
+Boundaries: **advisory-lag in binaries built from the image's own
+forked/vendored upstream source** is first-party shipped code, not a
+dependency (the Phase 5 drift check is where it surfaces); live functional
+credentials (path pre-filter below); and the severity floors below.
 
 ### Shared-component precedent handoff (post-record, not an audit-time gate)
 
@@ -469,14 +447,9 @@ must pass all of:
    insufficient. The severity floor stays when the insecure content
    ships in a production/runtime image, is active by default, or
    crosses a tenant boundary.
-4. **Chain completion at critical — dependency findings only.** A
-   critical CVE promotion must show every mandatory step of its chain
-   plausible at the pinned digest: vulnerable code present, reachable,
-   and exposed. A step you cannot show is named in the description for `/triage`; it
-   never lowers severity. A step affirmatively refuted means the chain is
-   not real: record it with the evidence (`dependency_audit` for a
-   dependency finding), and file any defect that remains as its own
-   finding at its own band — never suppress a demonstrated defect. **Non-applicability**: for image-configuration
+4. **Chain completion — not for dependency findings.** Their filing is
+   the dependency gate's tool outcome; never demand or judge a chain for
+   them. **Non-applicability**: for image-configuration
    findings (`oci-config:*` pseudo-paths — root user, baked-in
    credential, exposed debug port) the config fact IS the complete
    evidence; no chain demand applies, and this rule must not be used

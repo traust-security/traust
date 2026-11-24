@@ -196,44 +196,39 @@ incomplete audit.
 
 ### Dependency and advisory gate (vendored bundles & NVR matches)
 
-Before filing any dependency/version-match finding, at any severity. The gate decides only whether to file; a filed finding takes the advisory's selected authority band ([Severity authoring](../../../docs/report-structure.md#severity-authoring)), including a bundled library's advisory-lag (RPM08):
+Every dependency/version-match candidate, at any severity, follows [Dependency and advisory findings: tool outcomes only](../../../docs/report-structure.md#dependency-and-advisory-findings-tool-outcomes-only).
+A filed finding takes the advisory's selected authority band ([Severity authoring](../../../docs/report-structure.md#severity-authoring)),
+including a bundled library's advisory-lag (RPM08):
 
-1. **Vendored-source reachability** — the affected module/symbol must
-   actually be compiled into (or shipped by) a built RPM: a CVE match
-   in a vendored lock/manifest entry (RPM08 bundles) whose code the
-   `%build` never compiles or links, a feature disabled by
-   `%bcond`/configure flags, a subpackage not built for this stream, or
-   a Go/Rust module outside the built binaries' dependency closure
-   (govulncheck symbol/binary mode where feasible) is
-   `dependency_audit`-only. Open-ended `< fixed` advisory ranges
-   over-match versions that predate the vulnerable feature. For C/C++
-   prepared source trees, python3 -m traust.cli adapters joern
-   --language c (the /impact-analysis Joern tier, v0.232.0) can
-   supply call-site facts for advisory-named functions —
-   promotion-only evidence with the standard asymmetry (a found call
-   strengthens "compiled in AND called"; an absent call proves
-   nothing — C function pointers hide edges), lines approximate,
-   caller function authoritative.
-2. **Vendor applicability / downstream backports** — native ground for
-   RPMs: **check the patch stack and `%changelog` for the CVE id before
-   filing "version X is vulnerable to CVE-Y"** — downstream backports
-   behind old `Version:` strings defeat NVR matching by design. Check
-   Red Hat CSAF/OVAL for the exact stream: not-affected statements and
-   platform qualifiers suppress. Suppress only on **affirmative**
-   evidence (an applied patch, a vendor statement); absence of an
-   erratum is not safety.
-3. **Manifest-only lint** — a finding whose only location is a lock
-   file, the `sources` manifest, or a `SourceN:`/`Provides: bundled()`
-   line is a `dependency_audit` entry, not a finding on its own, and
-   never a finding at a lower severity. (RPM06 integrity failures — digest mismatch, unlisted tarball —
-   are not version matches; their mandated severities stand.)
+1. **Tool data and recorded backports first.** The installed version
+   against the advisory's range, Red Hat CSAF/VEX not-affected statements
+   and fixed NVRs, and a downstream patch whose file name or `%changelog`
+   entry names the CVE (backports behind old `Version:` strings defeat NVR
+   matching by design) each make the match a `dependency_audit` note citing
+   that data. Absence of an erratum is not safety.
+2. **Reachability: single-commit impact-analysis.** For a vendored bundle
+   in an ecosystem impact-analysis covers (Go, npm, PyPI, Maven, Cargo,
+   RubyGems, NuGet), run it against the upstream repository and commit the
+   spec pins, and file by its classification. With no pinned upstream
+   commit, or for C/C++ and distro packages, record
+   `deterministic_steps["impact-analysis"]: "skipped: <reason>"` with a
+   coverage gap: the match files at the advisory's band, citing the tool
+   match, with the gap named.
+3. **Manifest lines are not evidence either way.** A lock file, `sources`
+   or `Provides: bundled()` line establishes the match, never its
+   reachability. (RPM06 integrity failures — digest mismatch, unlisted
+   tarball — are not version matches; their mandated severities stand.)
 
-Boundaries this gate must NOT suppress: symbol-reachable CVE-grade
-defects including algorithmic-complexity DoS; **known-CVE bundled
-libraries with no downstream patch** — once vendored, a bundled library
-is first-party shipped code and its advisory-lag keeps severity
-(RPM08); reachability-undeterminable cases (file at the advisory's band
-with the reachability question stated).
+You make no reachability judgment of your own: a reading that `%build`
+never compiles a module, that a `%bcond` disables a feature, or that a
+Joern call-site search found nothing goes in the description for `/triage`,
+never into a drop or a lower band. A found call site
+(`python3 -m traust.cli adapters joern --language c`) may be cited as
+supporting evidence.
+
+Boundary: **known-CVE bundled libraries with no downstream patch** — once
+vendored, a bundled library is first-party shipped code and its
+advisory-lag keeps its band (RPM08).
 
 ### Scoped-shipment reachability (packaging analog of scoped-baseline)
 

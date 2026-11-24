@@ -59,6 +59,8 @@ allowed-tools:
   - Bash(python *harnessing/3-audit/secure-code-audit/scripts/probe_sanitizers.py:*)
   - Bash(python3 *-m traust.cli.check_citations:*)
   - Bash(python3 *-m traust.cli impact enrich:*)
+  - Bash(python3 *-m traust.cli impact analyze:*)
+  - Bash(python3 *-m traust.cli impact export:*)
   - Bash(python3 *-m traust.cli sweep mine:*)
 ---
 
@@ -391,36 +393,19 @@ an automatic false-positive verdict.
 
 ### Dependency and advisory gate
 
-The largest measured FP class (22 of 69). Before filing any
-dependency/base-image CVE or version-match finding, at any severity. The
-gate decides only whether to file; a filed finding takes the advisory's
-selected authority band ([Severity authoring](../../../docs/report-structure.md#severity-authoring)):
+The largest measured FP class (22 of 69). Every dependency/base-image CVE or
+version-match candidate, at any severity, goes through [Dependency and advisory findings: tool outcomes only](../../../docs/report-structure.md#dependency-and-advisory-findings-tool-outcomes-only): a tool must
+have produced the match; range, vendor and test/dev-scope data from the tools
+decide whether it is a `dependency_audit` note; single-commit
+impact-analysis decides reachability. A filed finding takes the advisory's
+selected authority band ([Severity authoring](../../../docs/report-structure.md#severity-authoring)). You make no reachability judgment of your
+own for a dependency finding: an "unused", "client-only" or "dev-only"
+reading of the code goes in the description for `/triage`, never into a
+drop or a lower band.
 
-1. **Artifact reachability** — the affected symbols/subpackage/feature
-   must actually be in what this repo ships: govulncheck symbol mode for
-   Go (binary mode where a binary exists), installed-subpackage check for
-   distro packages, feature/target flags for compiled ecosystems. A match
-   in an unused transitive module, a client-only symbol in a server, or a
-   version that predates the vulnerable feature (open-ended `< fixed`
-   advisory ranges over-match) is `dependency_audit`-only.
-2. **Vendor applicability** — for distro packages matched by version
-   string, check Red Hat CSAF/OVAL for the exact stream: not-affected
-   statements, EUS backports behind old version strings, and platform
-   qualifiers (`GOOS`) defeat NVR matching. Suppress only on
-   **affirmative** vendor evidence; absence of an erratum is not safety.
-3. **Manifest-only lint** — a candidate whose only evidence is a manifest
-   or lockfile line (`go.mod`, `package-lock.json`, `requirements*.txt`,
-   `rpms.lock.yaml`, a Dockerfile `FROM`) is a `dependency_audit` entry,
-   not a finding, until evidence ties the vulnerable package to what this
-   repo ships (an import, a built binary, an impact-analysis
-   classification of `affected`, `likely_affected` or `inconclusive`).
-   It is never filed at a lower severity instead.
-
-Boundaries that must NOT be suppressed by this gate: symbol-reachable
-CVE-grade defects including algorithmic-complexity DoS; **advisory-lag in
-the repository's OWN forked/vendored-upstream code** (that is first-party
-shipped code, not a dependency); reachability-undeterminable cases (file
-at the advisory's band with the reachability question stated).
+Boundaries: **advisory-lag in the repository's OWN forked/vendored-upstream
+code** is first-party shipped code, not a dependency — see *Deterministic fork
+advisory-lag pre-scan* below, which judges the backport from the fork's own code.
 
 ### Scoped-baseline reachability
 
@@ -901,7 +886,7 @@ grype db status
 Use the output as follows:
 
 - **`dependency_audit`** — one entry per grype match: `package`, `version`, `status` (`vulnerable` / `fix-available` / `wont-fix` per upstream data), and `notes` naming the CVE/GHSA ID and the fixed-in version. Matches with no fix or negligible severity may be summarized in `prose` rather than enumerated.
-- **Findings** — promote a grype match to a finding **only** when the vulnerable code is plausibly reachable from this repository's usage (check the import/call actually exists — a match in an unused transitive module is `dependency_audit`-only), and only after the promotion passes the **Precision Gate → Dependency and advisory gate** (artifact reachability, vendor applicability, manifest-only lint). A promoted match files at the advisory's selected authority band ([Severity authoring](../../../docs/report-structure.md#severity-authoring)), never lower. Categorize as `supply-chain`, cite OWASP K07 for operator repos, and omit unauthored `validation_status` — a version match is not execution evidence. When a portfolio impact artifact covers the CVE (`analysis-results/impact/<cve>-impact-analysis.json`, from `/impact-analysis`), cite this repo's classification and evidence block: `affected` (symbol-reachable) strengthens promotion, Go symbol-level `not_observed` moves the match to `dependency_audit` with the artifact cited, and manifest-level or symbol-usage classifications are context only (never a reason to drop or re-rate) — record the artifact path in the finding's `evidence`.
+- **Findings** — a grype match becomes a finding by the **Precision Gate → Dependency and advisory gate** ([Dependency and advisory findings: tool outcomes only](../../../docs/report-structure.md#dependency-and-advisory-findings-tool-outcomes-only)): range, vendor and scope data, then single-commit impact-analysis. A filed match takes the advisory's selected authority band ([Severity authoring](../../../docs/report-structure.md#severity-authoring)), never lower. Categorize as `supply-chain`, cite OWASP K07 for operator repos, cite the impact-analysis row in the finding's `evidence`, and omit unauthored `validation_status` — a version match is not execution evidence.
 - **`metadata.tools`** — append `syft <version>` and `grype <version> (db <built-date>)` so the scan is reproducible against a stated DB state. The SBOM and grype JSON are intermediates; do not place them in `findings/`.
 
 #### Deterministic dependency pre-scan (OSV API)
@@ -920,9 +905,10 @@ python3 -m traust.cli adapters osv --repo <local-path> --out /tmp/<repo>-osv.jso
 Contract (identical in spirit to the govulncheck stage):
 
 1. Candidates are **`dependency_declared` evidence only** — no
-   reachability signal exists at this stage. A declared vulnerable
-   dependency is context to weigh (unused? dev-only? vulnerable path
-   unexercised?), never an automatic finding. For Go modules, prefer the
+   reachability signal exists at this stage. Each candidate goes through
+   the Precision Gate's dependency and advisory gate (tool outcomes, then
+   single-commit impact-analysis); it is never an automatic finding, and
+   never dropped on your own reading of the code. For Go modules, prefer the
    govulncheck stage's reachability classes where both ran. A candidate
    with `version_basis: manifest-floor` came from a declared range, not a
    locked version: the installed version may be newer.
@@ -1017,9 +1003,8 @@ Contract — this pre-scan is deliberately NOT like the dependency ones:
    affected range, fixed version).
 2. **The Precision Gate's Dependency and advisory gate does not apply**:
    advisory-lag in the repository's own forked/vendored-upstream code is
-   an explicit not-suppressible boundary of that gate (see *Precision
-   Gate → Dependency and advisory gate*, boundary list) — first-party
-   shipped code, not a dependency. Do not move these to
+   a stated boundary of that gate (see *Precision Gate → Dependency and
+   advisory gate*) — first-party shipped code, not a dependency. Do not move these to
    `dependency_audit` on manifest-only or reachability arguments. They
    are advisory-backed: severity is the advisory's selected authority
    band ([Severity authoring](../../../docs/report-structure.md#severity-authoring)),
