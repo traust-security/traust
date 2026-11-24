@@ -432,7 +432,7 @@ per assessment 2026-07-31 C2, potentially tainted by hostile target test
 code; it is never read), lays the snapshot over a **fresh clone** at the
 recorded pre-agent base commit (SHA-verified after checkout, so the clone
 is exactly the audited tree plus your snapshot), and commits under the
-fixed machine identity `traust-remediation <traust-remediation@localhost>` —
+machine identity `traust-remediation <traust-remediation@localhost>` (a deployment may name its own with `TRAUST_REMEDIATION_COMMITTER`, a name ending in `-remediation`) —
 no human committer, no signing, no hooks:
 
 ```bash

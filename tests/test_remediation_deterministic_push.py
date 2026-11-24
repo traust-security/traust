@@ -401,15 +401,60 @@ def test_push_requires_token(tmp_path):
     assert "GITHUB_TOKEN" in r.stderr
 
 
+def test_a_deployment_names_its_own_machine_committer(tmp_path):
+    origin, base = _origin_with_base(tmp_path)
+    wt = _patched_worktree(origin, base, tmp_path)
+    msg = tmp_path / "commit-message.txt"
+    msg.write_text(MSG)
+    r = _script(
+        "commit",
+        str(wt),
+        base,
+        str(origin),
+        str(msg),
+        env_extra={"TRAUST_REMEDIATION_COMMITTER": "sci-remediation"},
+    )
+    assert r.returncode == 0, r.stderr
+    clone = Path(json.loads(r.stdout.strip().splitlines()[-1])["clone"])
+    ident = subprocess.run(
+        ["git", "-C", str(clone), "log", "-1", "--format=%an|%ae|%cn|%ce"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    assert (
+        ident
+        == "sci-remediation|sci-remediation@localhost|sci-remediation|sci-remediation@localhost"
+    )
+
+
+@pytest.mark.parametrize("name", ["Shaun Smith", "shaun", "-remediation", "a.b-remediation"])
+def test_a_committer_that_is_not_a_machine_identity_is_refused(tmp_path, name):
+    origin, base = _origin_with_base(tmp_path)
+    wt = _patched_worktree(origin, base, tmp_path)
+    msg = tmp_path / "commit-message.txt"
+    msg.write_text(MSG)
+    r = _script(
+        "commit",
+        str(wt),
+        base,
+        str(origin),
+        str(msg),
+        env_extra={"TRAUST_REMEDIATION_COMMITTER": name},
+    )
+    assert r.returncode != 0 and "TRAUST_REMEDIATION_COMMITTER" in r.stderr
+
+
 # ---- source-level gates (cheap, loud on regression — the idiom of
 # test_p2_hardening.py; the networked halves cannot run here) -------------
 
 
 def test_push_fix_source_gates():
     s = PUSH_FIX.read_text()
-    # fixed machine committer, distinct from any human, and unsigned
-    assert 'COMMITTER_NAME="traust-remediation"' in s
-    assert 'COMMITTER_EMAIL="traust-remediation@localhost"' in s
+    # a machine committer, distinct from any human (a configured name must end in -remediation
+    # and the email is derived), and unsigned
+    assert 'COMMITTER_NAME="${TRAUST_REMEDIATION_COMMITTER:-traust-remediation}"' in s
+    assert 'COMMITTER_EMAIL="${COMMITTER_NAME}@localhost"' in s
     assert "-c commit.gpgsign=false" in s
     assert "--no-verify" in s
     # the file snapshot: worktree files only, never .git

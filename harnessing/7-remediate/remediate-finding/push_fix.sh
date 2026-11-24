@@ -77,10 +77,16 @@
 
 set -euo pipefail
 
-# Fixed machine committer — see header. Not overridable: a configurable
-# identity could be pointed at a person's name/email.
-COMMITTER_NAME="traust-remediation"
-COMMITTER_EMAIL="traust-remediation@localhost"
+# The machine committer — see header. A deployment may name its own machine identity
+# (TRAUST_REMEDIATION_COMMITTER, e.g. sci-remediation), but only a machine one: the name must
+# end in "-remediation" and the email is derived, so it can never be pointed at a person.
+COMMITTER_NAME="${TRAUST_REMEDIATION_COMMITTER:-traust-remediation}"
+case "$COMMITTER_NAME" in
+  *[!a-z0-9-]* | -* | "" ) echo "push_fix.sh: TRAUST_REMEDIATION_COMMITTER must be lowercase letters, digits and dashes" >&2; exit 2 ;;
+  *-remediation) ;;
+  *) echo "push_fix.sh: TRAUST_REMEDIATION_COMMITTER must end in -remediation (a machine identity)" >&2; exit 2 ;;
+esac
+COMMITTER_EMAIL="${COMMITTER_NAME}@localhost"
 
 # Env-reading credential helper (the skill's Phase 6 shape): the empty
 # `-c credential.helper=` clears the list first, so this is the only
