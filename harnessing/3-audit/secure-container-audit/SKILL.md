@@ -286,9 +286,9 @@ Each candidate it shares with grype is tagged `also_in_grype: true`.
   filtered packages.
 
 - **Every match** becomes a `dependency_audit` entry: `package`, `version`, `status` (`vulnerable`/`fix-available`/`wont-fix` per upstream data), `notes` with the CVE/GHSA ID and fixed-in version. Negligible-severity or no-fix matches may be summarized in `dependency_audit.prose`.
-- **File every match as a finding**, unverified, by the Precision Gate's dependency and advisory gate below, with the tool data and the single-commit impact-analysis row attached as evidence. Category `supply-chain`, cite K07 for operator images, carry the selected authority's CVSS vector and file at its band ([Severity authoring](../../../docs/report-structure.md#severity-authoring)), and omit unauthored `validation_status` — a version match is not execution evidence.
+- **Record each match not applicable or file it as a finding**, unverified, by the Precision Gate's dependency and advisory gate below, with the tool data and the single-commit impact-analysis row as evidence. Category `supply-chain`, cite K07 for operator images, carry the selected authority's CVSS vector and file at its band ([Severity authoring](../../../docs/report-structure.md#severity-authoring)), and omit unauthored `validation_status` — a version match is not execution evidence.
 - **Respect Red Hat security data**: for RPM packages grype consumes RHSA data — Red Hat's not-affected statements and fix state decide applicability, and say so in `notes`. Severity follows [Severity authoring](../../../docs/report-structure.md#severity-authoring): Red Hat's CVSS for that product when Red Hat publishes one, never Red Hat's severity word (Important, Moderate), and never a band you chose. The same holds for a language package an RPM installed: its fixes arrive in the RPM, so an upstream GHSA/CVE match against it is not evidence; check the owning RPM's RHSA state instead.
-- **Cite the impact-analysis row** and its classification in the finding's evidence; it is evidence for `/triage`, never an audit-time drop.
+- **Cite the impact-analysis row** and its classification in the finding's evidence, or in the not-applicable entry's rationale.
 - Never mark CVE matches `confirmed` from scanner output alone; the fuzzing/validation stages own that transition.
 
 ## Phase 3b — Crypto Depth Delegation
@@ -363,10 +363,8 @@ incomplete audit.
 
 ### Dependency and advisory gate (the centerpiece)
 
-Every grype/OSV match lands in `dependency_audit` (Phase 3) and is also filed
-as a finding, unverified, at the advisory's selected authority band
-([Severity authoring](../../../docs/report-structure.md#severity-authoring); Red Hat's severity word never sets it), following [Dependency and advisory findings: unverified until refuted](../../../docs/report-structure.md#dependency-and-advisory-findings-unverified-until-refuted). Attach as
-evidence:
+Every grype/OSV match lands in `dependency_audit` (Phase 3) and then follows
+[Dependency and advisory findings: applicable or not applicable](../../../docs/report-structure.md#dependency-and-advisory-findings-applicable-or-not-applicable):
 
 1. **Tool data:** the installed version against each source's range, Red
    Hat security data (grype's RHSA fix state and not-affected statements,
@@ -375,12 +373,17 @@ evidence:
    and commit (the `vcs-url` / `vcs-ref` labels). Without a source commit,
    record `deterministic_steps["impact-analysis"]: "skipped: no source
    commit"` with a coverage gap; impact-analysis doesn't cover RPM
-   packages, so base-image RPM matches carry the tool data alone.
+   packages, so base-image RPM matches rest on the tool data.
 
-`/triage` and live validation refute with that evidence. An entrypoint
-process tree, "unused plugin", "inherited from the base image" or
-"client-only symbol" reading goes in the description, never into a drop or a
-lower band.
+A match that impact-analysis shows out of range, not imported or unreachable
+(Go symbol level), or that Red Hat states is not affected or fixed in the
+shipped NVR, is **not applicable**: its `dependency_audit` entry gets
+`status: "not_applicable"` and the rationale. Every other match is a finding
+at the published score ([Severity authoring](../../../docs/report-structure.md#severity-authoring); Red Hat's severity word never sets it),
+unverified, with that evidence attached; `/triage` and live validation try
+to disprove it. An entrypoint process tree, "unused plugin", "inherited from
+the base image" or "client-only symbol" reading is never evidence of
+non-applicability; it goes in the description.
 
 Boundaries: **advisory-lag in binaries built from the image's own
 forked/vendored upstream source** is first-party shipped code, not a
@@ -445,8 +448,8 @@ must pass all of:
    insufficient. The severity floor stays when the insecure content
    ships in a production/runtime image, is active by default, or
    crosses a tenant boundary.
-4. **Chain completion — not for dependency findings.** They are filed
-   unverified with their evidence; never demand or judge a chain for them. **Non-applicability**: for image-configuration
+4. **Chain completion — not for dependency findings.** The dependency gate
+   decides them on tool evidence; never demand or judge a chain for them. **Non-applicability**: for image-configuration
    findings (`oci-config:*` pseudo-paths — root user, baked-in
    credential, exposed debug port) the config fact IS the complete
    evidence; no chain demand applies, and this rule must not be used
