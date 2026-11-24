@@ -41,6 +41,7 @@ allowed-tools:
   # execution (audit D3, remediation plan P1.6). Scope every script
   # individually — the A11 alignment gate blocks broad entries.
   - Bash(python3 *-m traust.cli reporting validate:*)
+  - Bash(python3 *-m traust.cli reporting rate-cvss:*)
   - Bash(python3 *-m traust.cli reporting render:*)
   - Bash(python3 *-m traust.cli adapters opengrep:*)
   - Bash(python3 *-m traust.cli adapters checkov:*)
@@ -393,15 +394,14 @@ an automatic false-positive verdict.
 
 ### Dependency and advisory gate
 
-The largest measured FP class (22 of 69). Every dependency/base-image CVE or
-version-match candidate, at any severity, goes through [Dependency and advisory findings: tool outcomes only](../../../docs/report-structure.md#dependency-and-advisory-findings-tool-outcomes-only): a tool must
-have produced the match; range, vendor and test/dev-scope data from the tools
-decide whether it is a `dependency_audit` note; single-commit
-impact-analysis decides reachability. A filed finding takes the advisory's
-selected authority band ([Severity authoring](../../../docs/report-structure.md#severity-authoring)). You make no reachability judgment of your
-own for a dependency finding: an "unused", "client-only" or "dev-only"
-reading of the code goes in the description for `/triage`, never into a
-drop or a lower band.
+The largest measured FP class (22 of 69), and the reason this gate no longer
+drops anything: every scanner-matched dependency/base-image CVE is filed, at
+the advisory's selected authority band ([Severity authoring](../../../docs/report-structure.md#severity-authoring)), unverified (no
+`validation_status`), following [Dependency and advisory findings: unverified until refuted](../../../docs/report-structure.md#dependency-and-advisory-findings-unverified-until-refuted). The range result per source, vendor
+data, tool-tagged scope and the single-commit impact-analysis row are
+attached as evidence; `/triage` and live validation refute with it. Your own
+reading of the code goes in the description, never into a drop or a lower
+band.
 
 Boundaries: **advisory-lag in the repository's OWN forked/vendored-upstream
 code** is first-party shipped code, not a dependency — see *Deterministic fork
@@ -886,7 +886,7 @@ grype db status
 Use the output as follows:
 
 - **`dependency_audit`** — one entry per grype match: `package`, `version`, `status` (`vulnerable` / `fix-available` / `wont-fix` per upstream data), and `notes` naming the CVE/GHSA ID and the fixed-in version. Matches with no fix or negligible severity may be summarized in `prose` rather than enumerated.
-- **Findings** — a grype match becomes a finding by the **Precision Gate → Dependency and advisory gate** ([Dependency and advisory findings: tool outcomes only](../../../docs/report-structure.md#dependency-and-advisory-findings-tool-outcomes-only)): range, vendor and scope data, then single-commit impact-analysis. A filed match takes the advisory's selected authority band ([Severity authoring](../../../docs/report-structure.md#severity-authoring)), never lower. Categorize as `supply-chain`, cite OWASP K07 for operator repos, cite the impact-analysis row in the finding's `evidence`, and omit unauthored `validation_status` — a version match is not execution evidence.
+- **Findings** — every grype match becomes a finding, unverified, by the **Precision Gate → Dependency and advisory gate** ([Dependency and advisory findings: unverified until refuted](../../../docs/report-structure.md#dependency-and-advisory-findings-unverified-until-refuted)), with range, vendor and scope data and the single-commit impact-analysis row attached. A filed match takes the advisory's selected authority band ([Severity authoring](../../../docs/report-structure.md#severity-authoring)), never lower. Categorize as `supply-chain`, cite OWASP K07 for operator repos, cite the impact-analysis row in the finding's `evidence`, and omit unauthored `validation_status` — a version match is not execution evidence.
 - **`metadata.tools`** — append `syft <version>` and `grype <version> (db <built-date>)` so the scan is reproducible against a stated DB state. The SBOM and grype JSON are intermediates; do not place them in `findings/`.
 
 #### Deterministic dependency pre-scan (OSV API)
@@ -906,9 +906,9 @@ Contract (identical in spirit to the govulncheck stage):
 
 1. Candidates are **`dependency_declared` evidence only** — no
    reachability signal exists at this stage. Each candidate goes through
-   the Precision Gate's dependency and advisory gate (tool outcomes, then
-   single-commit impact-analysis); it is never an automatic finding, and
-   never dropped on your own reading of the code. For Go modules, prefer the
+   the Precision Gate's dependency and advisory gate: filed unverified at
+   the advisory's band, with its evidence attached; never dropped on your
+   own reading of the code. For Go modules, prefer the
    govulncheck stage's reachability classes where both ran. A candidate
    with `version_basis: manifest-floor` came from a declared range, not a
    locked version: the installed version may be newer.
@@ -945,9 +945,8 @@ Contract (identical in spirit to the govulncheck stage):
    `dependency_scope: test` or `dev` is reachable only through test or
    dev dependencies (Maven `test` scope, npm `devDependencies`, Cargo
    `[dev-dependencies]`, Poetry dev groups): it is build- and
-   test-environment exposure, not shipped code. Record it in
-   `dependency_audit` with that scope and never rate it as a runtime
-   finding. No tag means runtime or unknown. `transitive_coverage:
+   test-environment exposure, not shipped code: file it like any match,
+   with that scope cited for `/triage`. No tag means runtime or unknown. `transitive_coverage:
    partial` means some manifests are still unresolved
    (`unresolved_manifests`, each with its `reason`: not found, no version,
    deps.dev unreachable or disabled). Record a `coverage_gaps` entry naming
@@ -1598,7 +1597,7 @@ New triage represents a verified gap as `verdict: true_positive, kind: weakness`
 Never emit historical `hardening` as a new triage verdict. This does not rewrite
 the audit report's `validation_status`; cumulative-file rebuilds are retired.
 
-**CVSS** — required on every `critical`/`high`/`medium`/`low` finding. **Omit** for `informational` findings (posture and hygiene observations are not scored — the validator errors on an informational finding carrying CVSS ≥ 7.0 and warns below that). **Severity is the band of the score** ([Severity authoring](../../../docs/report-structure.md#severity-authoring)): the Base vector's band for a code finding, the selected authority score's band for an advisory-backed finding. It never sits below that band. Deployment context (unreachable in deployment, restricted SCC, requires prior compromise) goes in the `description` for `/triage`; it does not change `severity`. Only `/impact-analysis`, `/triage` and live validation change a severity later, and for an advisory-backed finding only on recorded evidence, never inference.
+**CVSS** — required on every `critical`/`high`/`medium`/`low` finding. **Omit** for `informational` findings (posture and hygiene observations are not scored — the validator errors on an informational finding carrying CVSS ≥ 7.0 and warns below that). **Severity is the CVSS calculator's band** ([Severity authoring](../../../docs/report-structure.md#severity-authoring)): you write the vector (for an advisory-backed finding, the selected authority's vector copied from the tool output) and `python3 -m traust.cli reporting rate-cvss <report>` fills `cvss.score` and `severity` before you validate. Never type a score or a band. It never sits below that band. Deployment context (unreachable in deployment, restricted SCC, requires prior compromise) goes in the `description` for `/triage`; it does not change `severity`. Only `/impact-analysis`, `/triage` and live validation change a severity later, and for an advisory-backed finding only on recorded evidence, never inference.
 
 **Severity floor (verification-disable and credential-transport classes)** — findings in these two classes are rated `high` at minimum, regardless of exploitation-chain completeness (2026-07 error-correction measurement: these classes were systematically under-rated and under-reported; they are exempt from the Precision Gate's chain-completion demand):
 
@@ -1648,6 +1647,7 @@ the validator rejects a missing or unsupported entry.
 **Step 1 — Run the validator:**
 
 ```bash
+python3 -m traust.cli reporting rate-cvss <path-to-report.json>   # the CVSS calculator fills cvss.score and severity
 python3 -m traust.cli reporting validate <path-to-report.json>
 ```
 

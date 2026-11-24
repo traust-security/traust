@@ -539,7 +539,7 @@ supersedes the band triage writes. With no score at all, the finding is
 advisory-backed at `medium`, labelled unscored.
 
 **Evidence, not inference.** Triage may change an advisory-backed finding's
-verdict, kind or severity, lowering it included, only on evidence bound to
+verdict or kind, and propose a lower severity, only on evidence bound to
 this finding, its commit, its dependency version and its environment:
 - a **bound impact row**: the Phase 2f export row for this repository,
   commit, package and installed version (the version comes from the 1b
@@ -565,41 +565,49 @@ in the finding.
    | `version_not_in_range` or `not_imported`, or a vendor not-affected statement / fixed NVR | `verdict: false_positive`, `refute_reasons: ["bound_evidence"]`, `exclusion_rule: null`, `severity: null`; the rationale cites the row |
    | `not_observed` with `evidence.evidence_level: symbol` (Go, govulncheck) | `verdict: true_positive`, `kind: weakness`, `severity: null`, `exclusion_rule: "13"` |
 
-3. **Then the votes, counting only cited ones (Phase 3c).** A vote counts
-   when its deciding reason carries a verified code citation. Apply the
-   normal tally rules to the counted votes. When no counted vote supports
-   an outcome:
-   - TRUE_POSITIVE or HARDENING votes, or a split between them →
-     `verdict: true_positive`, kind as supplied (else omitted),
-     `exclusion_rule: null`, at the advisory band;
-   - a FALSE_POSITIVE majority, or a split that includes FALSE_POSITIVE →
-     `verdict: undetermined`, `verify_verdict: needs_manual_test`,
-     `severity: null`, the rationale naming the fact still to be shown;
-   - every vote CANNOT_VERIFY, or none parseable → `verdict: undetermined`,
-     `verify_verdict: needs_manual_test`, `severity: null`.
-   A FALSE_POSITIVE outcome from cited votes carries those votes'
-   `refute_reasons`. `confidence` is the mean CONFIDENCE of the votes behind
-   the outcome, or `null` when none are. Dissent escalation is skipped when
-   the outcome is already `true_positive`. Ask mode never offers these
+3. **Then the votes, counting only cited ones (Phase 3c).** The published
+   score stands; triage's job is to try to disprove it. A vote counts when
+   its deciding reason carries a verified code citation. Apply the normal
+   tally rules to the counted votes:
+   - a cited FALSE_POSITIVE outcome disproves the claim →
+     `verdict: false_positive` with those votes' `refute_reasons`;
+   - a cited HARDENING outcome shows the code ships but can't be exploited
+     → `verdict: true_positive`, `kind: weakness`, `severity: null`,
+     `exclusion_rule: "13"`;
+   - a cited TRUE_POSITIVE outcome confirms it → `verdict: true_positive`,
+     kind as supplied (else omitted), `exclusion_rule: null`, at the
+     advisory band.
+   Anything else — uncited votes, splits, every vote CANNOT_VERIFY, or none
+   parseable — means triage could neither disprove nor confirm it:
+   `verdict: undetermined`, `verify_verdict: needs_manual_test`,
+   `severity: null`, the rationale naming what stopped verification and the
+   fact still to be shown. **Undetermined is not invalid:** Core records no
+   decision, so the published band stands, and Core queues the finding for
+   a person to decide.
+   `confidence` is the mean CONFIDENCE of the counted votes behind the
+   outcome, or `null` when none are. Dissent escalation is skipped when the
+   outcome is already `true_positive`. Ask mode never offers these
    findings. Exclusion rule 10 never applies.
-4. **Ranking (Phase 4):** `severity` starts at the advisory band. The ranker
-   may lower it only with a CVSS Environmental vector whose every modified
-   metric cites its evidence (a code citation quoted in RANK_RATIONALE, or a
-   bound row field): `severity` is the band of that Environmental score,
-   `severity_label` is that vector and score, and the rationale keeps the
-   authority's Base score and source. Without that, `severity` is the
-   advisory band, and the precondition derivation, threat-model match,
-   `mitigated` and `attacker_influence` are rationale only. Nothing raises
-   it above the band. `severity_alignment` is `null`; `verify_verdict`
-   stays as Phase 3 set it.
+4. **Ranking (Phase 4):** `severity` is the advisory band. The ranker may
+   propose a CVSS Environmental vector whose every modified metric cites its
+   evidence (a code citation quoted in RANK_RATIONALE, or a bound row
+   field), in the rationale only. It never computes a score or band, and the
+   severity doesn't change until Core scores the vector with the CVSS
+   calculator and admits the decision (remediation plan step 7).
+   `severity_label` is the advisory's vector and score verbatim. The
+   precondition derivation, threat-model match, `mitigated` and
+   `attacker_influence` are rationale only. `severity_alignment` is `null`;
+   `verify_verdict` stays as Phase 3 set it.
 5. **6b2 and 6c:** a citation the lint finds broken stops counting as
    evidence: re-apply this section to that finding (the vote no longer
-   counts; an Environmental metric that rested on it reverts). The 6c
+   counts; a proposed Environmental metric that rested on it is dropped). The 6c
    vote-majority warning is expected for these findings; leave the mapped
    outcome.
-6. **Output:** a `null` triage severity on an advisory-backed finding
-   (undetermined, weakness or false positive) means the report's band
-   stands until a decision with this evidence is admitted.
+6. **Output:** the triage schema requires `severity: null` on any verdict
+   other than a non-weakness true positive. For an advisory-backed finding
+   that `null` never means invalid or unscored: Core keeps the published
+   band until it admits a decision backed by this evidence, and an
+   undetermined finding goes to a person.
 
 ## Phase 2: Deduplicate (before verification)
 
@@ -1437,8 +1445,8 @@ enters this phase; `hardening[]` never does. Verification and severity are
 independent judgments; "this is real" must not inflate into "this is critical."
 
 **Advisory-backed findings** follow *Advisory-backed findings* (above
-Phase 2): `severity` starts at the advisory band, CRITICAL included, and
-moves only through a cited Environmental vector.
+Phase 2): `severity` is the advisory band, CRITICAL included; a cited
+Environmental vector is only a proposal in the rationale.
 
 ### 4a. Ranking prompt
 
@@ -1476,13 +1484,11 @@ window, attacker position. Then state the minimum ACCESS LEVEL required
 (unauthenticated remote / authenticated / local / physical).
 
 STEP 2: Derive severity from the precondition count and access level.
-If ADVISORY is not none: SEVERITY is the advisory band, unless you lower it
-with a CVSS Environmental vector whose every modified metric cites its
-evidence (a file:line you quote in RANK_RATIONALE, or a bound impact-row
-field). Then SEVERITY is that vector's band and SEVERITY_LABEL is the
-Environmental vector and score; otherwise SEVERITY_LABEL is the advisory's
-vector and score verbatim. SEVERITY_ALIGNMENT is null. Steps 2-4 inform only
-the rationale; never raise SEVERITY above the advisory band.
+If ADVISORY is not none: SEVERITY is the advisory band and SEVERITY_LABEL is
+the advisory's vector and score verbatim; SEVERITY_ALIGNMENT is null. You may
+propose a CVSS Environmental vector in RANK_RATIONALE, each modified metric
+with its evidence (a file:line you quote, or a bound impact-row field); never
+a score or band for it. Steps 2-4 inform only the rationale.
 
   | Preconditions | Access required          | Severity |
   |---------------|--------------------------|----------|

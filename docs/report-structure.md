@@ -139,20 +139,26 @@ these rules.
 A finding's `severity` is the band of a score, never a judgment. These rules
 apply to new reports; historical reports are not rewritten.
 
+- **The CVSS calculator computes every score and band.** You write a
+  vector's metrics; never a score or a band. Before validating a report, run
+  `python3 -m traust.cli reporting rate-cvss <report>`: it fills each
+  finding's `cvss.score` and `severity` from its `cvss.vector` with
+  traust-core's CVSS calculator (the `cvss` library, FIRST's 3.x and 4.0
+  formulas), and `--check` reports any disagreement. `--vector "<vector>"`
+  scores one vector. A vector it refuses is malformed: fix the metrics.
 - **Every finding not backed by an advisory** (first-party code, image
-  configuration, spec construct, IaC): `severity` is the qualitative rating
-  FIRST.org's CVSS specification gives the Base score of the vector in the
-  finding's `cvss`: critical 9.0–10.0, high 7.0–8.9, medium 4.0–6.9, low
-  0.1–3.9; a 0.0 score is not a vulnerability finding. Base metrics describe
+  configuration, spec construct, IaC): `severity` is the calculator's band
+  for the Base vector in the finding's `cvss`. A 0.0 score is not a
+  vulnerability finding. Base metrics describe
   the vulnerability in the code. Deployment context, a control that lives
   elsewhere, and a chain step you could not show never lower them; name those
   in the description. An unscored posture or hygiene observation is
   `informational` and carries no `cvss`.
 - **Advisory-backed finding** (a published CVE, GHSA or other OSV advisory
   matched to a dependency, package or image, including advisory-lag in a
-  repository's own forked or vendored upstream code): `severity` is the band
-  of the advisory's selected authority score, and `cvss` carries that score
-  and vector. D2: for a Red Hat product, the selected score is Red Hat's CVSS
+  repository's own forked or vendored upstream code): `cvss.vector` is the
+  advisory's selected authority vector, copied from the tool output, and
+  `rate-cvss` computes its score and band. D2: for a Red Hat product, the selected score is Red Hat's CVSS
   for that product when Red Hat publishes one. A Red Hat product is one whose
   Core product record declares Red Hat CSAF product identifiers; never guess
   it from a name. Until Core keeps Red Hat's score per product, the normal
@@ -183,65 +189,66 @@ apply to new reports; historical reports are not rewritten.
 
   | Evidence | Outcome |
   |---|---|
-  | `/impact-analysis` `version_not_in_range` or `not_imported`; a vendor not-affected statement; the fixed NVR or backport shipped | not a vulnerability here: `false_positive` in triage, a `dependency_audit` note in an audit |
-  | Go symbol-level (govulncheck) `not_observed` | the vulnerable code ships but is not reached: a `dependency_audit` note in an audit; `true_positive`, `kind: weakness` in triage |
-  | Code citations showing a precondition or control that changes how the vulnerability can be exploited here | triage lowers the severity with a CVSS Environmental vector: each modified metric cites its evidence, `severity` is that score's band, and the authority's Base score stays in the rationale |
+  | `/impact-analysis` `version_not_in_range` or `not_imported`; a vendor not-affected statement; the fixed NVR or backport shipped | triage: `false_positive` (the claim that this version is affected is wrong), citing the artifact |
+  | Go symbol-level (govulncheck) `not_observed` | triage: `true_positive`, `kind: weakness` (the vulnerable code ships but is not reached), citing the artifact |
+  | Code citations showing a precondition or control that changes how the vulnerability can be exploited here | triage proposes a CVSS Environmental vector, each modified metric citing its evidence, in the rationale. The severity changes only when Core scores that vector with the CVSS calculator and admits the decision (remediation plan step 7); until then the band stands |
   | A live-validation result | the validation's verdict, at the band of the vector it records |
 
-  Symbol-usage or manifest-level `not_observed`, `likely_affected` and
-  `inconclusive` are not evidence for any of these. Nothing raises a
-  severity above its score's band either. The report's `severity` is never
-  rewritten.
+  An audit attaches all of this as evidence and files the finding
+  unverified; it never applies a row itself. Symbol-usage or manifest-level
+  `not_observed`, `likely_affected` and `inconclusive` are not evidence for
+  any of these. Nothing raises a severity above its score's band either.
+  The report's `severity` is never rewritten.
 
-## Dependency and advisory findings: tool outcomes only
+  A finding nobody disproves keeps its published band. When triage or live
+  validation can't disprove it (a tool limit, no coverage, a split), the
+  finding goes to a person through Core's review queue; it is never invalid
+  by default.
 
-The model makes no reachability judgment for a dependency finding (plan D1,
-steps 3–5). Tools decide whether an advisory match is filed; the model
-cites their output.
+## Dependency and advisory findings: unverified until refuted
 
-1. **A match that no tool produced is not a finding.** The matches come
-   from the deterministic pre-scans: the OSV pre-scan, `sbom-grype`,
-   govulncheck, image package lists. Copy advisory ids, affected ranges,
-   installed versions and scores from that output; never type them.
-2. **Range applicability.** A match whose installed version is outside
-   the advisory's range is a `dependency_audit` note. When the advisory's
-   sources disagree for the version scheme actually installed (a release
-   tag range against a Go-module range, for example), the match is a
-   `range_conflict`: a `dependency_audit` note, not a finding. A
-   tool-tagged test or dev scope (`dependency_scope`) is a note too.
-3. **Vendor applicability.** A not-affected statement or a fixed NVR in the
-   tool data (grype's Red Hat security data, a VEX document impact-analysis
-   recorded) makes the match a `dependency_audit` note citing it.
-4. **Reachability: impact-analysis, single-commit mode.** For every match
-   still standing, run:
+A possible CVE is never dropped in an audit. Only `/triage` and live
+validation refute one, with verifiable evidence (see the evidence table in
+[Severity authoring](#severity-authoring)).
+
+1. **Where a match comes from.** An advisory match (package and installed
+   version against an advisory) comes from a deterministic scanner: the OSV
+   pre-scan, `sbom-grype`, govulncheck, or an image package list. Copy
+   advisory ids, affected ranges, installed versions and scores from its
+   output; never type them. A CVE you recall that no scanner matched goes
+   in `dependency_audit` as a lead naming the missing scanner evidence.
+2. **Every scanner match is a finding**, at the advisory's selected
+   authority band, with no validity answer: omit `validation_status` (the
+   finding is unverified). Nothing the audit sees drops it or lowers it.
+3. **Attach the evidence for triage**, in the finding's `evidence` and
+   description:
+   - the range result for each source: in range, out of range, or a range
+     conflict between sources (a release-tag range against a Go-module
+     range, for example);
+   - vendor data: a not-affected statement or fixed NVR in grype's Red Hat
+     security data, or in a VEX document impact-analysis recorded;
+   - a tool-tagged test or dev scope (`dependency_scope`);
+   - the impact-analysis row (step 4).
+4. **Reachability: impact-analysis, single-commit mode.** For every match,
+   run:
 
    ```bash
    python3 -m traust.cli impact analyze <ADVISORY> --repo-url <url> --sha <commit> [--branch <branch>] --scan
    python3 -m traust.cli impact export <ADVISORY> --out <scratch-dir>/<advisory>-impact.json
    ```
 
-   Read the export row for this repository, commit, ecosystem, module and
-   installed version, and file by its classification. Severity never
-   changes; the classification decides only whether the observation is a
-   finding, and the finding or note cites the row.
+   Cite the export row for this repository, commit, ecosystem, module and
+   installed version, with its classification, in the finding. The
+   classification is evidence for `/triage`, never an audit-time drop. With
+   no row (the run failed, or impact-analysis doesn't cover the ecosystem
+   or surface), name the gap. The export is a scratch intermediate; never
+   place it in the findings tree. Record
+   `deterministic_steps["impact-analysis"]`: `"ran: <n> advisories"`, or
+   `"skipped: <reason>"` with a `coverage_gaps` entry.
 
-   | Classification | Audit outcome |
-   |---|---|
-   | `version_not_in_range`, `not_imported` | No finding: a `dependency_audit` note citing the row |
-   | `not_observed` at Go symbol level (govulncheck) | No finding: a `dependency_audit` note citing the row; `/triage` may still pick it up |
-   | `affected` | A finding at the advisory's band, citing the govulncheck trace |
-   | `likely_affected`, `inconclusive`, `not_observed` below symbol level | A finding at the advisory's band, citing the row; `/triage` owns verification |
-   | No row (the run failed, or impact-analysis doesn't cover the ecosystem or surface) | A finding at the advisory's band, citing the tool match, with the gap named |
-
-   The export is a scratch intermediate; never place it in the findings
-   tree. Record `deterministic_steps["impact-analysis"]`: `"ran: <n>
-   advisories"`, or `"skipped: <reason>"` with a `coverage_gaps` entry. Only
-   Go has a symbol-level tier; other ecosystems stop at `likely_affected`
-   and their findings go to `/triage` at the advisory's band.
-
-A reachability argument the model makes itself — "unused", "dev-only",
-"not executed in this image", "client-only symbol" — is not a reason to drop
-or re-rate a dependency finding. Name it in the description for `/triage`.
+Your own reading of the code ("unused", "dev-only", "not executed in this
+image", "client-only symbol") goes in the description for `/triage`. It is
+never a reason to drop or re-rate a dependency finding.
 
 ## Remediation authoring
 

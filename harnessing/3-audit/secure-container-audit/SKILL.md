@@ -27,6 +27,7 @@ allowed-tools:
   - Bash(python3 *traust* -m traust.cli adapters image-packages:*)
   - Bash(python3 *traust* -m traust.cli adapters priv-profile:*)
   - Bash(python3 *traust* -m traust.cli reporting validate:*)
+  - Bash(python3 *traust* -m traust.cli reporting rate-cvss:*)
   - Bash(python3 *traust* -m traust.cli reporting record:*)
   - Bash(python3 *traust* -m traust.cli impact analyze:*)
   - Bash(python3 *traust* -m traust.cli impact export:*)
@@ -285,9 +286,9 @@ Each candidate it shares with grype is tagged `also_in_grype: true`.
   filtered packages.
 
 - **Every match** becomes a `dependency_audit` entry: `package`, `version`, `status` (`vulnerable`/`fix-available`/`wont-fix` per upstream data), `notes` with the CVE/GHSA ID and fixed-in version. Negligible-severity or no-fix matches may be summarized in `dependency_audit.prose`.
-- **Promote to a finding** by the Precision Gate's dependency and advisory gate below — tool data, then single-commit impact-analysis — at any severity; it is this skill's measured FP path. Category `supply-chain`, cite K07 for operator images, carry the selected authority's CVSS vector and file at its band ([Severity authoring](../../../docs/report-structure.md#severity-authoring)), and omit unauthored `validation_status` — a version match is not execution evidence.
+- **File every match as a finding**, unverified, by the Precision Gate's dependency and advisory gate below, with the tool data and the single-commit impact-analysis row attached as evidence. Category `supply-chain`, cite K07 for operator images, carry the selected authority's CVSS vector and file at its band ([Severity authoring](../../../docs/report-structure.md#severity-authoring)), and omit unauthored `validation_status` — a version match is not execution evidence.
 - **Respect Red Hat security data**: for RPM packages grype consumes RHSA data — Red Hat's not-affected statements and fix state decide applicability, and say so in `notes`. Severity follows [Severity authoring](../../../docs/report-structure.md#severity-authoring): Red Hat's CVSS for that product when Red Hat publishes one, never Red Hat's severity word (Important, Moderate), and never a band you chose. The same holds for a language package an RPM installed: its fixes arrive in the RPM, so an upstream GHSA/CVE match against it is not evidence; check the owning RPM's RHSA state instead.
-- **Cite the impact-analysis row**: the dependency gate's single-commit run decides filing by its classification; record the row in the finding's or note's evidence.
+- **Cite the impact-analysis row** and its classification in the finding's evidence; it is evidence for `/triage`, never an audit-time drop.
 - Never mark CVE matches `confirmed` from scanner output alone; the fuzzing/validation stages own that transition.
 
 ## Phase 3b — Crypto Depth Delegation
@@ -362,27 +363,24 @@ incomplete audit.
 
 ### Dependency and advisory gate (the centerpiece)
 
-Every grype/OSV match already lands in `dependency_audit` (Phase 3).
-Promoting any match to a finding, at any severity, follows [Dependency and advisory findings: tool outcomes only](../../../docs/report-structure.md#dependency-and-advisory-findings-tool-outcomes-only):
+Every grype/OSV match lands in `dependency_audit` (Phase 3) and is also filed
+as a finding, unverified, at the advisory's selected authority band
+([Severity authoring](../../../docs/report-structure.md#severity-authoring); Red Hat's severity word never sets it), following [Dependency and advisory findings: unverified until refuted](../../../docs/report-structure.md#dependency-and-advisory-findings-unverified-until-refuted). Attach as
+evidence:
 
-1. **Tool data first.** The installed version against the advisory's
-   range, Red Hat security data (grype's RHSA fix state and not-affected
-   statements, EUS backports behind old version strings), and the image
-   SBOM (a package the SBOM shows absent from the delivered image) can each
-   make the match a `dependency_audit` note citing that data.
-2. **Reachability: single-commit impact-analysis** against the image's
-   source repository and commit (the `vcs-url` / `vcs-ref` labels), filed
-   by its classification. Without a source commit, record
-   `deterministic_steps["impact-analysis"]: "skipped: no source commit"`
-   with a coverage gap; impact-analysis doesn't cover RPM packages, so
-   base-image RPM matches have no row either. A match with no row files at
-   the advisory's band, citing the tool match, with the gap named.
+1. **Tool data:** the installed version against each source's range, Red
+   Hat security data (grype's RHSA fix state and not-affected statements,
+   EUS backports behind old version strings), and the image SBOM.
+2. **Single-commit impact-analysis** against the image's source repository
+   and commit (the `vcs-url` / `vcs-ref` labels). Without a source commit,
+   record `deterministic_steps["impact-analysis"]: "skipped: no source
+   commit"` with a coverage gap; impact-analysis doesn't cover RPM
+   packages, so base-image RPM matches carry the tool data alone.
 
-A promoted match takes the advisory's selected authority band
-([Severity authoring](../../../docs/report-structure.md#severity-authoring)); Red Hat's severity word never sets it. You make no reachability
-judgment of your own: an entrypoint process tree, "unused plugin",
-"inherited from the base image" or "client-only symbol" reading goes in the
-description for `/triage`, never into a drop or a lower band.
+`/triage` and live validation refute with that evidence. An entrypoint
+process tree, "unused plugin", "inherited from the base image" or
+"client-only symbol" reading goes in the description, never into a drop or a
+lower band.
 
 Boundaries: **advisory-lag in binaries built from the image's own
 forked/vendored upstream source** is first-party shipped code, not a
@@ -447,9 +445,8 @@ must pass all of:
    insufficient. The severity floor stays when the insecure content
    ships in a production/runtime image, is active by default, or
    crosses a tenant boundary.
-4. **Chain completion — not for dependency findings.** Their filing is
-   the dependency gate's tool outcome; never demand or judge a chain for
-   them. **Non-applicability**: for image-configuration
+4. **Chain completion — not for dependency findings.** They are filed
+   unverified with their evidence; never demand or judge a chain for them. **Non-applicability**: for image-configuration
    findings (`oci-config:*` pseudo-paths — root user, baked-in
    credential, exposed debug port) the config fact IS the complete
    evidence; no chain demand applies, and this rule must not be used
@@ -584,6 +581,7 @@ Key profile obligations for this skill:
 Identical gate to the other audit profiles — **a report is not complete until python3 -m traust.cli reporting validate exits with 0 errors**:
 
 ```bash
+python3 -m traust.cli reporting rate-cvss <path-to-report.json>   # the CVSS calculator fills cvss.score and severity
 python3 -m traust.cli reporting validate <path-to-report.json>
 python3 -m traust.cli reporting validate --strict <path-to-report.json>   # address warnings
 python3 -m traust.cli reporting render <path-to-report.json> -o <path-to-report.md>

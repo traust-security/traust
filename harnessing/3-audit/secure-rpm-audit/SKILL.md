@@ -196,35 +196,29 @@ incomplete audit.
 
 ### Dependency and advisory gate (vendored bundles & NVR matches)
 
-Every dependency/version-match candidate, at any severity, follows [Dependency and advisory findings: tool outcomes only](../../../docs/report-structure.md#dependency-and-advisory-findings-tool-outcomes-only).
-A filed finding takes the advisory's selected authority band ([Severity authoring](../../../docs/report-structure.md#severity-authoring)),
-including a bundled library's advisory-lag (RPM08):
+Every scanner-matched dependency/version-match candidate is filed, unverified,
+at the advisory's selected authority band ([Severity authoring](../../../docs/report-structure.md#severity-authoring)), including a bundled
+library's advisory-lag (RPM08), following [Dependency and advisory findings: unverified until refuted](../../../docs/report-structure.md#dependency-and-advisory-findings-unverified-until-refuted). Attach as evidence:
 
-1. **Tool data and recorded backports first.** The installed version
-   against the advisory's range, Red Hat CSAF/VEX not-affected statements
-   and fixed NVRs, and a downstream patch whose file name or `%changelog`
-   entry names the CVE (backports behind old `Version:` strings defeat NVR
-   matching by design) each make the match a `dependency_audit` note citing
-   that data. Absence of an erratum is not safety.
-2. **Reachability: single-commit impact-analysis.** For a vendored bundle
-   in an ecosystem impact-analysis covers (Go, npm, PyPI, Maven, Cargo,
-   RubyGems, NuGet), run it against the upstream repository and commit the
-   spec pins, and file by its classification. With no pinned upstream
+1. **Tool data and recorded backports:** the installed version against each
+   source's range, Red Hat CSAF/VEX not-affected statements and fixed NVRs,
+   and a downstream patch whose file name or `%changelog` entry names the
+   CVE (backports behind old `Version:` strings defeat NVR matching by
+   design).
+2. **Single-commit impact-analysis** for a vendored bundle in an ecosystem
+   it covers (Go, npm, PyPI, Maven, Cargo, RubyGems, NuGet), against the
+   upstream repository and commit the spec pins. With no pinned upstream
    commit, or for C/C++ and distro packages, record
    `deterministic_steps["impact-analysis"]: "skipped: <reason>"` with a
-   coverage gap: the match files at the advisory's band, citing the tool
-   match, with the gap named.
-3. **Manifest lines are not evidence either way.** A lock file, `sources`
-   or `Provides: bundled()` line establishes the match, never its
-   reachability. (RPM06 integrity failures — digest mismatch, unlisted
-   tarball — are not version matches; their mandated severities stand.)
+   coverage gap.
 
-You make no reachability judgment of your own: a reading that `%build`
-never compiles a module, that a `%bcond` disables a feature, or that a
-Joern call-site search found nothing goes in the description for `/triage`,
-never into a drop or a lower band. A found call site
-(`python3 -m traust.cli adapters joern --language c`) may be cited as
-supporting evidence.
+`/triage` and live validation refute with that evidence. A reading that
+`%build` never compiles a module, that a `%bcond` disables a feature, or that
+a Joern call-site search found nothing goes in the description, never into a
+drop or a lower band. A found call site
+(`python3 -m traust.cli adapters joern --language c`) may be cited too.
+(RPM06 integrity failures — digest mismatch, unlisted tarball — are not
+version matches; their mandated severities stand.)
 
 Boundary: **known-CVE bundled libraries with no downstream patch** — once
 vendored, a bundled library is first-party shipped code and its
@@ -686,6 +680,7 @@ After writing the JSON report, **you must validate it** before considering the r
 **Step 1 — Run the validator:**
 
 ```bash
+python3 -m traust.cli reporting rate-cvss <path-to-report.json>   # the CVSS calculator fills cvss.score and severity
 python3 -m traust.cli reporting validate <path-to-report.json>
 ```
 
