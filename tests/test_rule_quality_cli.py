@@ -203,14 +203,18 @@ def test_native_intake_publishes_multiple_sources_then_scans_the_accepted_bytes(
     (target / "app.py").write_text("acme_unsafe(value)\nacme_safe(value)\n")
     output = tmp_path / "facts.json"
     scan = run_cli(
-        env, "adapters", "opengrep", str(target), "--add-rules", str(destination),
-        "--out", str(output),
+        env,
+        "adapters",
+        "opengrep",
+        str(target),
+        "--add-rules",
+        str(destination),
+        "--out",
+        str(output),
     )
     assert scan.returncode == 0, scan.stderr
     report = json.loads(output.read_text())
-    assert {"example.first", "example.second"} <= {
-        fact["rule_id"] for fact in report["facts"]
-    }
+    assert {"example.first", "example.second"} <= {fact["rule_id"] for fact in report["facts"]}
     assert not (tmp_path / "store" / "traust.db").exists()
 
 
@@ -231,9 +235,7 @@ def test_native_intake_refuses_before_publishing(tmp_path: Path, failure: str) -
         fixture.unlink()
     _, env = environment(tmp_path)
     destination = tmp_path / "accepted"
-    result = run_cli(
-        env, "sweep", "intake-rules", str(source), "--into", str(destination)
-    )
+    result = run_cli(env, "sweep", "intake-rules", str(source), "--into", str(destination))
     assert result.returncode == 1, result.stderr
     verdict = json.loads(result.stdout)
     assert verdict["admitted"] is False
@@ -251,9 +253,7 @@ def test_native_intake_never_overwrites_an_existing_destination(tmp_path: Path) 
     destination.mkdir()
     marker = destination / "keep.txt"
     marker.write_bytes(b"installed bytes\n")
-    result = run_cli(
-        env, "sweep", "intake-rules", str(source), "--into", str(destination)
-    )
+    result = run_cli(env, "sweep", "intake-rules", str(source), "--into", str(destination))
     assert result.returncode in (1, 2), result.stdout
     assert list(destination.iterdir()) == [marker]
     assert marker.read_bytes() == b"installed bytes\n"
