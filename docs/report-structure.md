@@ -139,7 +139,8 @@ these rules.
 A finding's `severity` is the band of a score, never a judgment. These rules
 apply to new reports; historical reports are not rewritten.
 
-- **First-party code finding:** `severity` is the qualitative rating
+- **Every finding not backed by an advisory** (first-party code, image
+  configuration, spec construct, IaC): `severity` is the qualitative rating
   FIRST.org's CVSS specification gives the Base score of the vector in the
   finding's `cvss`: critical 9.0–10.0, high 7.0–8.9, medium 4.0–6.9, low
   0.1–3.9; a 0.0 score is not a vulnerability finding. Base metrics describe

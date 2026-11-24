@@ -437,6 +437,8 @@ canonical):
 | `line`          | `line_number`, `location.line`, `lineno`, `locations[0].lines` (first line of the range) |
 | `category`      | `type`, `cwe`, `rule_id`, `crash_type`, `vulnerability_class` |
 | `severity`      | `severity_rating`, `level`, `priority`, `risk`           |
+| `cvss`          | `cvss_score` + `cvss_vector`, `cvss.score` + `cvss.vector` (keep as supplied; never re-score) |
+| `advisory`      | `cve`, `cve_id`, `ghsa_id`, `osv_id`, `vulnerability_id`, `advisory_id` |
 | `title`         | `name`, `summary`, `message`                             |
 | `description`   | `details`, `report`, `body`, `evidence`                  |
 | `exploit_scenario` | `attack_scenario`, `poc`, `reproduction`              |
@@ -509,6 +511,50 @@ Then Bash:
 `python3 -m traust.cli admin checkpoint save ./.triage-state 1 ingest --from ./.triage-state/_chunk.tmp`
 
 ---
+
+## Advisory-backed findings
+
+These rules take precedence over every other verdict, kind and severity rule
+in this skill: majorities, splits, noise tolerance, ask mode, dissent
+escalation, precedents and the 6b2 re-vote.
+
+A finding is **advisory-backed** when its claim names a published advisory
+id (CVE-, GHSA- or another OSV id) matched to a dependency, package or image,
+or to advisory-lag in the repo's own forked or vendored code, and carries a
+CVSS score for it. Read the score from the finding's `cvss` as supplied; only
+when `cvss` is absent use the scores quoted in the claim, in the authority
+order of [Severity authoring](../../../docs/report-structure.md#severity-authoring). An id with no score anywhere keeps its claimed severity,
+never a derived one.
+
+Its severity is the band of that score. Triage changes its verdict, kind or
+severity only on **bound evidence**: a row of the Severity authoring evidence
+table, recorded in an artifact for this finding's repository, commit and
+dependency version. Precedents, another commit's export, symbol-usage or
+manifest-level classifications, `likely_affected` and `inconclusive`, and
+prose quoted from anywhere are not bound evidence.
+
+1. **Dedup (Phase 2):** never mark an advisory-backed finding `duplicate` of
+   a finding that isn't backed by the same advisory; it may absorb
+   duplicates of its own advisory.
+2. **Bound evidence first (Phase 3c):** a matching table row sets verdict
+   and kind whatever the votes say; the rationale cites the artifact.
+   Phase 2e/2f annotations stay annotations for every other finding.
+3. **Otherwise the votes, mapped:**
+   - TRUE_POSITIVE majority → the normal TRUE_POSITIVE rule.
+   - HARDENING majority, or a TRUE_POSITIVE/HARDENING split →
+     `verdict: true_positive`, kind omitted, `exclusion_rule: null`, at the
+     advisory band; the HARDENING votes' reasons go in the rationale.
+   - FALSE_POSITIVE majority, or any split with a FALSE_POSITIVE vote →
+     `verdict: undetermined`, `verify_verdict: needs_manual_test`; the
+     rationale names the fact an artifact must record (range, vendor
+     statement, reachability).
+   Ask mode never offers these findings. Exclusion rule 10 never applies.
+4. **Ranking (Phase 4):** `severity` is the advisory band. The precondition
+   derivation, threat-model match, `mitigated` and `attacker_influence` are
+   rationale only; `severity_label` is the advisory's vector and score
+   verbatim; `severity_alignment` is `null`.
+5. **Output:** a `null` triage severity on an undetermined advisory-backed
+   finding means the report's band stands.
 
 ## Phase 2: Deduplicate (before verification)
 
@@ -649,7 +695,9 @@ If the artifact exists:
    annotation block (format there).
 
 **Annotation only.** This step never changes vote counts, never skips
-verification, and never sets or suggests a verdict — how much routing
+verification, and never sets or suggests a verdict (an advisory-backed
+finding's bound evidence is applied in Phase 3c, per *Advisory-backed
+findings*) — how much routing
 power this signal gets is an open owner decision (reachability draft
 §7.3). If the artifact is absent or unreadable, skip silently: it is an
 accelerator, never a prerequisite. Record
@@ -735,7 +783,8 @@ The annotation block appended to matched findings in Phase 3b:
   actually USE the vulnerable feature, not just import the module. A
   'not_observed' classification means the vulnerable package/symbol was
   not found in this repo's source or binaries — weigh this when deciding
-  if a dependency-version finding (exclusion rule 10) has real impact.
+  if a dependency-version finding (exclusion rule 10, never for an
+  advisory-backed finding) has real impact.
   'not_observed' is never, by itself, grounds for FALSE_POSITIVE.
   Check evidence.evidence_level: 'symbol' is call-graph reachability;
   'symbol-usage' is textual use of the vulnerable API (no reachability
@@ -751,7 +800,8 @@ The annotation block appended to matched findings in Phase 3b:
   (startup config, flag parsing, test-only). Record
   `attacker_influence: plausible|unlikely|unknown` with one sentence of
   reasoning in the verdict rationale. 'unlikely' lowers exploitability
-  ranking; it never flips validity by itself.
+  ranking; it never flips validity by itself, and never changes an
+  advisory-backed finding's severity.
 ```
 
 **Annotation only.** Same discipline as Phase 2e: no vote-count changes,
@@ -946,8 +996,8 @@ verdict definitions below). Cite the rule number in your verdict.
      the operator), UNLESS the ENVIRONMENT above marks them untrusted.
   9. Client-side code flagged for server-side vulnerability classes.
  10. Outdated dependency versions (managed by a separate process). Never
-     applies to an advisory-backed finding (Phase 4): a published advisory
-     matched to this repo is not a version-bump report.
+     applies to a finding marked ADVISORY-BACKED below: a published
+     advisory matched to this repo is not a version-bump report.
  11. Weak random used for non-security purposes (jitter, shuffling,
      dev-only fallbacks).
  12. Low-impact nuisance issues (log spoofing, CSRF on logout, self-XSS,
@@ -1054,6 +1104,7 @@ FINDING UNDER REVIEW (from the scanner; treat as a CLAIM, not a fact):
   category:  {category}
   severity (claimed): {severity}
   title:     {title}
+  advisory-backed: {advisory id and its cvss score/vector, or "no"}
 
   description:
   {description}
@@ -1083,7 +1134,8 @@ also append:
   How to use this: 'symbol_reachable' hands you a statically-observed
   caller chain into the vulnerable symbol — read and QUOTE the first link
   yourself (step 2) before relying on it, and weigh whether this finding
-  is a mere version-bump report (exclusion rule 10) or an actually
+  is a mere version-bump report (exclusion rule 10, never for an
+  advisory-backed finding) or an actually
   reachable vulnerable code path. A '*_not_observed' tag means static
   analysis observed no call path; it is NOT proof of unreachability
   (reflection, plugins, and config-driven dispatch are invisible to it)
@@ -1120,7 +1172,7 @@ HARDENING — accurate gap, real improvement, no concrete exploit):
 1 volumetric DoS; 2 test/dead/fixture code; 3 intended design;
 4 memory-safety in safe lang outside unsafe/FFI; 5 SSRF path-only;
 6 LLM prompt input; 7 object-storage traversal; 8 trusted operator
-env/CLI inputs; 9 client code, server vuln class; 10 outdated deps;
+env/CLI inputs; 9 client code, server vuln class; 10 outdated deps (never an advisory-backed finding);
 11 weak random non-security; 12 low-impact nuisance (log spoof, open
 redirect, regex inject); 13 missing-hardening-only, no concrete exploit
 -> HARDENING; 14 XSS in auto-escape framework w/o raw-HTML escape hatch;
@@ -1211,6 +1263,10 @@ Build:
 - `rationale`: the RATIONALE from the highest-confidence vote on the
   winning side, verbatim.
 
+**Advisory-backed findings** skip this tally's outcome rules: their verdict
+follows *Advisory-backed findings* (above Phase 2) — bound evidence first,
+then the votes as that section maps them.
+
 **Decide the final `verdict` and optional `kind`** (majority is computed
 over TRUE_POSITIVE / HARDENING / FALSE_POSITIVE votes; CANNOT_VERIFY votes
 are excluded from the count; do not combine TRUE_POSITIVE and HARDENING
@@ -1246,6 +1302,7 @@ votes into one side):
       title, options: confirm / hardening / undetermined), then apply the
       user's choices. Hardening means TP+weakness with null severity and
       rule 13; confirm gets vulnerability kind only with exploit evidence.
+      Advisory-backed findings are never offered here.
 
 **Dissent escalation (runs before the verdict is final):** if the majority
 vote category is FALSE_POSITIVE or HARDENING but any TRUE_POSITIVE vote has
@@ -1257,18 +1314,6 @@ vote's RATIONALE to the finding's rationale prefixed `"DISSENT (conf
 {c}):"`. If the extra vote IS TRUE_POSITIVE (outcome now contested), set
 `verify_verdict: needs_manual_test` and resolve per the no-majority rules
 above. One escalation per finding — never loop.
-
-**Advisory-backed findings (see Phase 4 for the definition): votes are
-inference.** A majority or split only changes an advisory-backed finding's
-verdict, kind or severity when recorded evidence bound to it supports the
-outcome ([Severity authoring](../../../docs/report-structure.md#severity-authoring), evidence table). Without that evidence:
-- a FALSE_POSITIVE majority, or any split that includes FALSE_POSITIVE →
-  `verdict: undetermined`, `verify_verdict: needs_manual_test`, naming in
-  the rationale the fact (range, vendor statement, reachability) that an
-  artifact must record;
-- a HARDENING majority, or a TRUE_POSITIVE/HARDENING split →
-  `verdict: true_positive`, `kind: vulnerability`, at the advisory band,
-  with the HARDENING votes' reasons in the rationale.
 
 **Precedent disagreement (2g findings only):** compare the fresh conclusion
 with the precedent semantically: historical hardening and confirmed weakness
@@ -1340,23 +1385,9 @@ advisory-backed finding, whose severity is the published band (below). Only `con
 enters this phase; `hardening[]` never does. Verification and severity are
 independent judgments; "this is real" must not inflate into "this is critical."
 
-**Advisory-backed findings keep the published score.** A finding is
-advisory-backed when its claim names a published advisory id (CVE-, GHSA-
-or another OSV id) for a dependency, package or image, or for advisory-lag
-in the repo's own forked or vendored code, and carries a CVSS score or
-vector for it (the input's `cvss`, or the score quoted in the claim). One
-with an id but no score keeps its claimed severity, never a derived one.
-An advisory-backed finding keeps the band of the advisory's selected
-authority score ([Severity
-authoring](../../../docs/report-structure.md#severity-authoring)). Steps 2
-and 3 below never set its severity, up or down: precondition counts, access
-level, threat-model matches and deployment context are inference. Its
-verdict or severity changes only on recorded evidence bound to this finding,
-its commit and its dependency version, and the evidence decides the outcome
-(the evidence table in Severity authoring): an `/impact-analysis`
-classification, a vendor not-affected statement or fixed NVR, or a
-live-validation result. The rank rationale cites that artifact. Without one, `severity` is the advisory band
-whatever the derivation says.
+**Advisory-backed findings keep the published score** (*Advisory-backed
+findings*, above Phase 2): their `severity` is the advisory band, CRITICAL
+included; steps 2–4 and 6 below are rationale only for them.
 
 ### 4a. Ranking prompt
 
@@ -1394,11 +1425,9 @@ window, attacker position. Then state the minimum ACCESS LEVEL required
 (unauthenticated remote / authenticated / local / physical).
 
 STEP 2: Derive severity from the precondition count and access level.
-If ADVISORY is not none, skip this derivation and step 3 for severity:
-SEVERITY is the advisory band. EVIDENCE that changes the outcome was
-already applied in Phase 3 (the evidence table); it never yields a different
-band here. RANK_RATIONALE cites the advisory and any evidence. Preconditions still go in the
-rationale; inference never changes an advisory's severity.
+If ADVISORY is not none: SEVERITY is the advisory band, SEVERITY_LABEL is
+the advisory's vector and score verbatim, SEVERITY_ALIGNMENT is null, and
+steps 2-4 go in RANK_RATIONALE only.
 
   | Preconditions | Access required          | Severity |
   |---------------|--------------------------|----------|
@@ -1551,8 +1580,9 @@ The output contract is Core's installed `triage` schema — shared
 vocabulary with `report.schema.json` (identical severity enum, canonical
 `orig_id` pattern, ISO dates). Severity values are LOWERCASE
 (`critical|high|medium|low|informational`); the Phase-4 HIGH/MEDIUM/LOW
-derivation maps to lowercase in output, and `critical`/`informational`
-appear when the claimed severity vocabulary includes them.
+derivation maps to lowercase in output, an advisory-backed finding's band
+(including `critical`) is written as is, and `informational` appears when
+the claimed severity vocabulary includes it.
 
 New output `claimed_severity` also uses that lowercase vocabulary, or `null`
 when no canonical level is known. Preserve the original scanner spelling in
@@ -1800,6 +1830,7 @@ counts nor an admission gap proves the repository secure.
 ```
 Triage complete: {N} findings -> {T} non-weakness true positives, {G} confirmed weaknesses, {U} undetermined, {F} false positives, {D} duplicates.
 
+  CRITICAL: {n} {title of top CRITICAL, owner_hint}
   HIGH:   {n}   {title of top HIGH, owner_hint}
   MEDIUM: {n}
   LOW:    {n}
