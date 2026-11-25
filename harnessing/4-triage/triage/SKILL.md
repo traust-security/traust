@@ -415,7 +415,8 @@ package, never a source file; when every location is one, leave `file`
 unset: the finding is **package-only**); `severity` = `occurrence.severity` (`unrated` = the scanner
 gave none); `cvss` = `occurrence.cvss_score` + `occurrence.cvss_vector` as
 supplied; `dependency.advisory` = `occurrence.rule` when it is an advisory
-id (`finding.advisory_id` marks the finding advisory-backed);
+id (`finding.advisory_id` marks the finding advisory-backed, and binds its
+impact rows by record id in 2f even when the rule isn't an advisory id);
 `dependency.module` / `dependency.installed_version` = the module and version
 of a location whose `path` is a package URL, parsed as a purl
 (`pkg:<type>/<namespace>/<name>@<version>?<qualifiers>#<subpath>`: drop the
@@ -893,7 +894,10 @@ If the artifact exists:
    For an advisory-backed finding, attach a row as bound evidence only when
    its `repository_url`, SHA, advisory, module and version, and its
    ecosystem when the finding has one, are all established and equal the
-   finding's. When the analyzed SHA is unknown or
+   finding's. The advisory is established by `finding.advisory_id` equal to
+   the row's `advisory_id` (the same Core record), or by
+   `dependency.advisory` naming the export's advisory; the first holds even
+   when `occurrence.rule` isn't an advisory id. When the analyzed SHA is unknown or
    any field is missing, the row is an annotation only.
 4. Attach the export's portfolio counts and each matching row's
    classification/evidence to Phase 3b. Native ranges, feature descriptions
@@ -1633,9 +1637,13 @@ Respond with ONLY this block:
 
 ### 4b. Merge
 
-For each confirmed finding, parse the block. Drop any METRIC_CHANGES line
-whose citation doesn't quote this checkout. Then set the vector by these
-rules; the ranker's CVSS_VECTOR is never scored as returned:
+For each confirmed finding, parse the block. A METRIC_CHANGES line that
+changes a claimed vector must quote a file:line in this checkout; drop it
+when it doesn't. A basis line for an authored vector (`none -> <value>`)
+may rest on the traced flow instead, and is kept. If it does quote a
+file:line, that quote must be in this checkout; if it isn't, the line is
+dropped. Then set the vector by these rules; the ranker's CVSS_VECTOR is
+never scored as returned:
 - **Advisory-backed:** `severity` is the advisory band, and
   `severity_label` is the selected authority's vector and published score
   verbatim, never recalculated. A cited Environmental proposal stays in the
@@ -1879,9 +1887,11 @@ concludes:
 If the check errors, say so in the terminal summary and continue: the lint
 is an accelerator, never a prerequisite. A metric change, though, is never
 left unverified. When the lint can't run, revert every 4b change to a
-claimed vector, re-score as 4b does, and say so in each rationale. An
-authored vector for a finding with no claim keeps its basis lines but
-marks the ones resting on a file:line unsettled.
+claimed vector, re-score as 4b does, and say so in each rationale. In an
+authored vector for a finding with no claim, a metric whose basis rests on
+a file:line the lint couldn't check takes the reasonable worst case and is
+marked unsettled. A basis resting on the traced flow stays. Re-score as 4b
+does.
 
 ### 6c. Validate <repo>-triage.json
 
