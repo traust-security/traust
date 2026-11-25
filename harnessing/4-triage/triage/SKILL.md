@@ -1891,7 +1891,10 @@ claimed vector, re-score as 4b does, and say so in each rationale. In an
 authored vector for a finding with no claim, a metric whose basis rests on
 a file:line the lint couldn't check takes the reasonable worst case and is
 marked unsettled. A basis resting on the traced flow stays. Re-score as 4b
-does.
+does. Then, as the re-vote path does: update `severity` and
+`severity_label`, re-sort, rebuild the disjoint lists and summary, and
+rewrite `<repo>-triage.json` before 6c, so 6c validates, 6d renders and 6e
+records the reverted values, never the ones written in 6b.
 
 ### 6c. Validate <repo>-triage.json
 
