@@ -1735,7 +1735,8 @@ Order all findings by:
    `true_positive` + `kind: weakness`, then `undetermined`, then
    `duplicate`, then `false_positive`.
 2. Within non-weakness true positives: `severity` CRITICAL > HIGH > MEDIUM > LOW,
-   then `confidence` descending, then `severity_alignment` descending.
+   then `confidence` descending, then `severity_alignment` descending (a
+   `null` alignment, cleared by a 6b2 revert, sorts as 0), then `id`.
 3. Within the weakness backlog: `confidence` descending (no severity).
 4. Within others: original `id`.
 
@@ -1879,7 +1880,8 @@ concludes:
   counts. Revert the metric to the claimed vector's value, or, with no
   claimed vector, to the reasonable worst case marked unsettled. Re-score
   as 4b does (only a vector matching `^CVSS:(3\.0|3\.1|4\.0)(/[A-Z]{1,3}:[A-Za-z]{1,5})+$`), update `severity` and
-  `severity_label`, rebuild the summary, and run the check once more. For an
+  `severity_label`, set `severity_alignment` to `null` (it judged the
+  superseded vector), rebuild the summary, and run the check once more. For an
   advisory-backed finding, drop the Environmental proposal that rested on
   the citation from the rationale; its published label and band are never
   re-scored.
@@ -1892,7 +1894,8 @@ authored vector for a finding with no claim, a metric whose basis rests on
 a file:line the lint couldn't check takes the reasonable worst case and is
 marked unsettled. A basis resting on the traced flow stays. Re-score as 4b
 does. Then, as the re-vote path does: update `severity` and
-`severity_label`, re-sort, rebuild the disjoint lists and summary, and
+`severity_label`, set `severity_alignment` to `null` (it judged the
+superseded vector), re-sort, rebuild the disjoint lists and summary, and
 rewrite `<repo>-triage.json` before 6c, so 6c validates, 6d renders and 6e
 records the reverted values, never the ones written in 6b.
 
