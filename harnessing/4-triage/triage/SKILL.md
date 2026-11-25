@@ -408,7 +408,9 @@ If nothing parseable is found, stop and report what was seen.
 
 For input (A)/(B)/(D), each native prepared item becomes a finding: `title` =
 `finding.title`; `file` / `line` = the first location's `path` /
-`line_start`; `severity` = `occurrence.severity` (`unrated` = the scanner
+`line_start` whose `path` is not a package URL (a `pkg:` location is the
+package, never a source file; when every location is one, leave `file`
+unset: the finding is **package-only**); `severity` = `occurrence.severity` (`unrated` = the scanner
 gave none); `cvss` = `occurrence.cvss_score` + `occurrence.cvss_vector` as
 supplied; `dependency.advisory` = `occurrence.rule` when it is an advisory
 id (`finding.advisory_id` marks the finding advisory-backed);
@@ -494,7 +496,11 @@ Attach to every finding:
 - `source`: relative path of the file it came from, plus source format.
 - `missing_fields`: list of canonical fields that were absent. If `file` is
   missing or does not resolve under `--repo`, the finding is
-  **unlocatable**: it skips dedup and verification and is emitted directly
+  **unlocatable** — except a package-only advisory-backed finding, which
+  has no source file to locate: it skips the location check and code
+  verification and goes straight to its bound impact row (2f). With a bound
+  row, that row decides it; without one it is `undetermined` for a person,
+  never `unlocatable` and never a confident verdict. Unlocatable: it skips dedup and verification and is emitted directly
   with `verdict: undetermined`, `verify_verdict: needs_manual_test`,
   `confidence: 0`, `refute_reasons: ["unlocatable"]`, `rationale: "cited
   material not found under --repo; nothing was verified either way; human
@@ -505,8 +511,9 @@ Attach to every finding:
 
 ### 1c. Locate the target codebase
 
-Resolve `--repo` (default cwd). For the first 5 findings with a `file`,
-check the path resolves under the repo. Try, in order: (a) `repo/file`
+Resolve `--repo` (default cwd). For the first 5 findings with a `file`
+(package-only findings have none and are not counted), check the path
+resolves under the repo. Try, in order: (a) `repo/file`
 as-given; (b) `file` as an absolute or cwd-relative path; (c) `repo/file`
 with common prefixes stripped from `file` (`src/`, `app/`, `./`, or the
 repo's own basename, e.g. `harness/grade.py` with `--repo harness`).
