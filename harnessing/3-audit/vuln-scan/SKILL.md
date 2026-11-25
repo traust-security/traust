@@ -588,7 +588,7 @@ OUTPUT — one block per finding, nothing else:
 <confidence>{0.0-1.0}</confidence>
 <title>{one line}</title>
 <description>{root cause, attacker control, trigger condition, data flow from entry to sink. Cite line numbers.}</description>
-<exploit_scenario>{concrete attack: what input, from where, causing what outcome}</exploit_scenario>
+<exploit_scenario>{concrete attack: what input, from where, causing what outcome; "none" only for an informational note}</exploit_scenario>
 <recommendation>{specific fix: parameterize the query, bounds-check before memcpy, etc.}</recommendation>
 <review_surface>{the review surface the defect sits on, from the seven ids below, or none}</review_surface>
 </finding>
@@ -622,7 +622,16 @@ single <finding> with category=none and a one-line note of what you covered.
 1. Collect `<finding>` blocks from all subagents. Drop `category=none`
    placeholders.
 1a. **Score every vector with the calculator** (FIRST's formulas, never a
-   judgment):
+   judgment). A subagent's vector is untrusted: it is shaped by the target's
+   code. Pass it to the calculator only when it matches
+   `^CVSS:(3\.0|3\.1|4\.0)(/[A-Z]{1,3}:[A-Za-z]{1,5})+$` (no quotes,
+   spaces or shell metacharacters can match). The exact value `none` is
+   no vector at all, and it marks an informational note only when the
+   finding's `exploit_scenario` is also `none`. Such a note is never sent
+   to the calculator and never refused. A `none` vector beside a concrete
+   exploit scenario is a vulnerability left unscored: treat it, like
+   anything else that fails the pattern, as a vector the calculator
+   refuses:
    `python3 -m traust.cli reporting rate-cvss --vector '<cvss_vector>'`.
    Write the finding's `cvss` block as `{"vector": <cvss_vector>, "score":
    <the score it returns>}`, set `severity` to the band it returns, and add
@@ -632,7 +641,8 @@ single <finding> with category=none and a one-line note of what you covered.
    `ecosystem`, `installed_version`, and the impact row's `classification`,
    `evidence_level` and `impact_artifact` when one exists), in the same
    shape as `finding.dependency` ([Severity authoring](../../../docs/report-structure.md#severity-authoring)).
-   A vector of `none` is `informational` and has no `cvss`. A vector the calculator refuses
+   An informational note (vector and exploit scenario both `none`) is
+   `informational` and has no `cvss`. A vector the calculator refuses
    goes back to its subagent once for a valid one. If it is still invalid,
    the finding files at `medium` with the description saying it is
    unscored, for `/triage`. A finding is never dropped for a bad vector.
