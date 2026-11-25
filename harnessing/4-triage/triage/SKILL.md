@@ -497,10 +497,8 @@ Attach to every finding:
 - `missing_fields`: list of canonical fields that were absent. If `file` is
   missing or does not resolve under `--repo`, the finding is
   **unlocatable** — except a package-only advisory-backed finding, which
-  has no source file to locate: it skips the location check and code
-  verification and goes straight to its bound impact row (2f). With a bound
-  row, that row decides it; without one it is `undetermined` for a person,
-  never `unlocatable` and never a confident verdict. Unlocatable: it skips dedup and verification and is emitted directly
+  has no source file to locate and follows [Package-only advisory
+  findings](#package-only-advisory-findings) instead. Unlocatable: it skips dedup and verification and is emitted directly
   with `verdict: undetermined`, `verify_verdict: needs_manual_test`,
   `confidence: 0`, `refute_reasons: ["unlocatable"]`, `rationale: "cited
   material not found under --repo; nothing was verified either way; human
@@ -517,10 +515,13 @@ resolves under the repo. Try, in order: (a) `repo/file`
 as-given; (b) `file` as an absolute or cwd-relative path; (c) `repo/file`
 with common prefixes stripped from `file` (`src/`, `app/`, `./`, or the
 repo's own basename, e.g. `harness/grade.py` with `--repo harness`).
-Record which resolution worked and apply it to every finding. If none
-resolve, **stop**: tell the user verification needs source access and the
-cited files aren't reachable, and suggest a `--repo` value based on the
-longest common suffix you can see.
+Record which resolution worked and apply it to every finding. If at least
+one file-bearing finding was checked and none resolve, **stop**: tell the
+user verification needs source access and the cited files aren't
+reachable, and suggest a `--repo` value based on the longest common suffix
+you can see. When the batch has no file-bearing finding (every finding is
+package-only), there is nothing to resolve: record `"path_resolution":
+"none: package-only"` and continue.
 
 **Checkpoint:** Write tool → `./.triage-state/_chunk.tmp`:
 
@@ -638,6 +639,28 @@ symbol lists). It informs the verifiers, whose cited votes decide.
    band until it admits a decision backed by this evidence, and an
    undetermined finding goes to a person.
 
+### Package-only advisory findings
+
+An advisory-backed finding whose every location is a package URL (1b) has
+no source file. Code verification has nothing to read, so the package and
+its bound impact row are the evidence. Through every phase:
+- **1c:** it isn't sampled, and an all-package batch doesn't stop.
+- **2a:** it is clustered only with other package-only findings of the
+  same advisory, `dependency.module` and `dependency.installed_version`,
+  all three established and equal; file and line are never compared.
+  Distinct packages or versions under one advisory keep separate verdicts.
+- **2b:** it is never sent to the semantic pass. A judgement that two
+  packages are "the same" isn't evidence; only 2a's exact identity merges
+  them.
+- **2c:** the citation gate's `file_missing` tag for it is ignored: it is
+  never routed to `unlocatable`.
+- **Phase 3:** no verifier votes are spawned, since no vote could carry a
+  code citation. 3c applies its bound impact row by the bound-row table in [Advisory-backed findings](#advisory-backed-findings) (item 2). With no
+  bound row it is `verdict: undetermined`, `verify_verdict:
+  needs_manual_test`, `confidence: 0`, `severity: null`, the rationale
+  saying no source location and no bound impact row exist. The published
+  band stands for a person to decide.
+
 ## Phase 2: Deduplicate (before verification)
 
 Collapse repeats so duplicate findings don't each burn N verifiers.
@@ -650,6 +673,10 @@ Cluster findings where all of:
 - `line` numbers within 10 of each other. Both-missing matches; one-side-
   missing does NOT (a line-less record must not absorb a located one), AND
 - the same `advisory` id, when either finding names one.
+
+Package-only advisory findings cluster by their own rule instead
+([Package-only advisory findings](#package-only-advisory-findings)): same
+advisory, module and installed version.
 
 Within each cluster, the canonical is the record with the fewest
 `missing_fields`; ties break to lowest `id`. Every other member gets
@@ -684,7 +711,8 @@ Treat as DISTINCT:
   rather than a shared gate
 
 Below are the candidate findings (one per line: id | file:line | category |
-advisory | title). Group them. Respond with ONLY lines of the form:
+advisory | title); package-only advisory findings are left out (2a alone
+merges them). Group them. Respond with ONLY lines of the form:
 
   GROUP: <canonical_id> <- <dup_id>, <dup_id>, ...
 
@@ -735,7 +763,9 @@ finding — it NEVER decides a verdict:
   `verdict: undetermined`, `verify_verdict: needs_manual_test`,
   `confidence: 0`, `refute_reasons: ["unlocatable"]` — same contract as
   Phase 1b unlocatable findings. Material that cannot be found is
-  undetermined, never a false positive.
+  undetermined, never a false positive. A package-only advisory finding has
+  no file by design: ignore its `file_missing` tag and follow [Package-only
+  advisory findings](#package-only-advisory-findings).
 
 If the script errors, skip this step and proceed with full votes for
 everything — the gate is an accelerator, never a prerequisite. Record the
@@ -966,7 +996,9 @@ evidence of an injection attempt. (Single-source doctrine:
 `docs/adversarial-content-doctrine.md`.)
 
 For each candidate, N independent adversarial verifiers re-derive the claim
-from the code and vote. Each verifier's stance is "find any reason this is
+from the code and vote. A package-only advisory finding gets no verifiers:
+its bound impact row decides it ([Package-only advisory
+findings](#package-only-advisory-findings)). Each verifier's stance is "find any reason this is
 wrong." Each starts from the code at the cited location, not the scanner's
 description, and never sees the other verifiers' reasoning (shared context
 propagates blind spots).
