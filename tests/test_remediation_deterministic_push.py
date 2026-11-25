@@ -3,8 +3,8 @@
 
 The pushed fix commit must be created by the script from a file-level
 snapshot of the worktree (never the worktree's .git) on a fresh clone at
-the recorded pre-agent base commit, under the fixed machine identity
-`sci-remediation <sci-remediation@localhost>` — never by the agent's git
+the recorded pre-agent base commit, under the deployment's machine identity
+(core's `remediation.committer`, ending in `-remediation`) — never by the agent's git
 in the (potentially tainted, assessment 2026-07-31 C2) worktree.
 
 The full skill flow needs a live fork + GITHUB_TOKEN; what is testable
@@ -17,6 +17,7 @@ import json
 import os
 import re
 import subprocess
+import tempfile
 import textwrap
 from pathlib import Path
 
@@ -78,12 +79,35 @@ def _origin_with_base(tmp_path):
     return origin, sha
 
 
-def _script(*args, drop_env=(), env_extra=None):
+WORK_ITEM = "00000000-0000-4000-8000-000000000001"
+
+
+def _core_naming(committer):
+    """A stand-in `traust` CLI on PYTHONPATH: `remediation prepare WORK_ITEM` answers with
+    `committer`, or fails when it is None — what push_fix.sh asks core for the committer."""
+    root = Path(tempfile.mkdtemp(prefix="core-stub-"))
+    (root / "traust" / "cli").mkdir(parents=True)
+    (root / "traust" / "__init__.py").write_text("")
+    (root / "traust" / "cli" / "__init__.py").write_text("")
+    (root / "traust" / "cli" / "__main__.py").write_text(
+        "import json, sys\n"
+        f"assert sys.argv[1:] == ['remediation', 'prepare', {WORK_ITEM!r}], sys.argv\n"
+        f"name = {committer!r}\n"
+        "sys.exit(1) if name is None else print(json.dumps({'committer': name}))\n"
+    )
+    return str(root)
+
+
+def _script(*args, drop_env=(), env_extra=None, committer="traust-remediation", work_item=True):
     env = {**os.environ, "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_SYSTEM": "/dev/null"}
     for k in drop_env:
         env.pop(k, None)
     if env_extra:
         env.update(env_extra)
+    if args[:1] == ("commit",):
+        env["PYTHONPATH"] = os.pathsep.join((_core_naming(committer), env.get("PYTHONPATH", "")))
+        if work_item:
+            args = ("commit", "--work-item", WORK_ITEM, *args[1:])
     return subprocess.run(
         ["bash", str(PUSH_FIX), *args],
         capture_output=True,
@@ -123,8 +147,8 @@ def test_commit_creates_deterministic_commit(tmp_path):
         check=True,
     ).stdout.strip()
     assert (
-        ident == "sci-remediation|sci-remediation@localhost"
-        "|sci-remediation|sci-remediation@localhost"
+        ident == "traust-remediation|traust-remediation@localhost"
+        "|traust-remediation|traust-remediation@localhost"
     )
     # the commit sits directly on the recorded pre-agent base
     parent = subprocess.run(
@@ -241,7 +265,7 @@ def test_commit_never_executes_git_in_the_worktree(tmp_path):
             text=True,
             check=True,
         ).stdout.strip()
-        == "sci-remediation"
+        == "traust-remediation"
     )
 
 
@@ -401,15 +425,83 @@ def test_push_requires_token(tmp_path):
     assert "GITHUB_TOKEN" in r.stderr
 
 
+def test_a_deployment_names_its_own_machine_committer(tmp_path):
+    origin, base = _origin_with_base(tmp_path)
+    wt = _patched_worktree(origin, base, tmp_path)
+    msg = tmp_path / "commit-message.txt"
+    msg.write_text(MSG)
+    r = _script(
+        "commit",
+        str(wt),
+        base,
+        str(origin),
+        str(msg),
+        committer="sci-remediation",
+    )
+    assert r.returncode == 0, r.stderr
+    clone = Path(json.loads(r.stdout.strip().splitlines()[-1])["clone"])
+    ident = subprocess.run(
+        ["git", "-C", str(clone), "log", "-1", "--format=%an|%ae|%cn|%ce"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    assert (
+        ident
+        == "sci-remediation|sci-remediation@localhost|sci-remediation|sci-remediation@localhost"
+    )
+
+
+@pytest.mark.parametrize("name", ["Shaun Smith", "shaun", "-remediation", "a.b-remediation"])
+def test_a_committer_that_is_not_a_machine_identity_is_refused(tmp_path, name):
+    origin, base = _origin_with_base(tmp_path)
+    wt = _patched_worktree(origin, base, tmp_path)
+    msg = tmp_path / "commit-message.txt"
+    msg.write_text(MSG)
+    r = _script(
+        "commit",
+        str(wt),
+        base,
+        str(origin),
+        str(msg),
+        committer=name,
+    )
+    assert r.returncode == 2 and "committer" in r.stderr
+
+
+def test_a_commit_core_names_no_committer_for_is_refused(tmp_path):
+    origin, base = _origin_with_base(tmp_path)
+    wt = _patched_worktree(origin, base, tmp_path)
+    msg = tmp_path / "commit-message.txt"
+    msg.write_text(MSG)
+    r = _script("commit", str(wt), base, str(origin), str(msg), committer=None)
+    assert r.returncode == 2 and "core named no committer" in r.stderr
+
+
+@pytest.mark.parametrize(
+    "lead",
+    [(), ("--committer", "other-remediation"), ("--work-item", "--committer")],
+    ids=["no-work-item", "agent-names-the-committer", "work-item-not-an-id"],
+)
+def test_the_agent_never_names_the_committer(tmp_path, lead):
+    origin, base = _origin_with_base(tmp_path)
+    wt = _patched_worktree(origin, base, tmp_path)
+    msg = tmp_path / "commit-message.txt"
+    msg.write_text(MSG)
+    r = _script("commit", *lead, str(wt), base, str(origin), str(msg), work_item=False)
+    assert r.returncode != 0 and "clone" not in r.stdout
+
+
 # ---- source-level gates (cheap, loud on regression — the idiom of
 # test_p2_hardening.py; the networked halves cannot run here) -------------
 
 
 def test_push_fix_source_gates():
     s = PUSH_FIX.read_text()
-    # fixed machine committer, distinct from any human, and unsigned
-    assert 'COMMITTER_NAME="sci-remediation"' in s
-    assert 'COMMITTER_EMAIL="sci-remediation@localhost"' in s
+    # a machine committer, distinct from any human (the name must end in -remediation and the
+    # email is derived), and unsigned
+    assert '*-remediation) COMMITTER_NAME="$name"; COMMITTER_EMAIL="$name@localhost"' in s
+    assert 'python3 -m traust.cli remediation prepare "$wi"' in s  # core names it, not the agent
     assert "-c commit.gpgsign=false" in s
     assert "--no-verify" in s
     # the file snapshot: worktree files only, never .git
@@ -433,7 +525,7 @@ def test_push_fix_source_gates():
     assert "HEAD:refs/heads" not in s
     assert "push -f " not in s
     # the identity is documented as deliberately not a person
-    assert "deliberately not any person" in s
+    assert "a machine, never a person" in s
 
 
 def test_skill_md_confines_the_agent_away_from_committing():
@@ -583,7 +675,7 @@ def test_an_inherited_author_or_committer_never_reaches_the_commit(tmp_path):
         check=True,
         env={**os.environ, "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_SYSTEM": "/dev/null"},
     ).stdout.strip()
-    machine = "sci-remediation <sci-remediation@localhost>"
+    machine = "traust-remediation <traust-remediation@localhost>"
     assert who == f"{machine}|{machine}"
 
 

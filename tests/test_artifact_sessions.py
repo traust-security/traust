@@ -121,7 +121,7 @@ def estate(home: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Estat
     queued = services.ops.submit(
         OrderRequest(asset="below_range_review", priority=1, repository_id=repo.id), principal
     )
-    services.ops.admit(queued.id)  # the engine's admission tick queues the planned order
+    services.ops.admit(queued.id)
     claimed = services.ops.claim(WORKER, timedelta(minutes=5))
     assert claimed.id == queued.id
     return Estate(core, home, claimed.id, repo.id, ref.id, scan.assessment_id)
