@@ -583,8 +583,8 @@ OUTPUT — one block per finding, nothing else:
 <line>{line_number}</line>
 <category>{heap-buffer-overflow | use-after-free | integer-overflow | sql-injection | command-injection | path-traversal | deserialization | xss | auth-bypass | hardcoded-secret | ...}</category>
 <cwe>{primary CWE for the category, e.g. CWE-122; omit only if genuinely none fits}</cwe>
-<cvss_vector>{a full CVSS:3.1/... vector, each metric chosen by FIRST's definitions; for an advisory-backed finding, the selected authority's vector verbatim; "none" only for an informational note}</cvss_vector>
-<cvss_basis>{one line per Base metric: "AV:N — <file:line or config evidence>"; mark a metric the code can't settle "unsettled" and take the reasonable worst case FIRST's guidance describes}</cvss_basis>
+<cvss_vector>{for an advisory-backed finding, the selected authority's vector verbatim, in whatever version it publishes (CVSS 3.0, 3.1 or 4.0); otherwise a full CVSS:3.1/... vector, each metric chosen by FIRST's definitions; "none" only for an informational note}</cvss_vector>
+<cvss_basis>{one line per Base metric of the vector's version: "AV:N — <file:line or config evidence>"; mark a metric the code can't settle "unsettled" and take the reasonable worst case FIRST's guidance describes; for an advisory vector, the authority and where you read it}</cvss_basis>
 <confidence>{0.0-1.0}</confidence>
 <title>{one line}</title>
 <description>{root cause, attacker control, trigger condition, data flow from entry to sink. Cite line numbers.}</description>
@@ -599,9 +599,12 @@ anything else is a finding or nothing:
 
 <surface id="{credential-acceptance | ownership-resolution | security-flags | outbound-fetch | stored-content-integrity | scope-enforcement | llm-integration}">{what you examined: files, call sites or the exact search pattern, and the result}</surface>
 
-CVSS — FIRST's logic, never a judgment of "how bad". Choose each Base
-metric (AV, AC, PR, UI, S, C, I, A) by its definition in FIRST's CVSS v3.1
-specification, from the code you traced. Give every metric a basis line
+CVSS — FIRST's logic, never a judgment of "how bad". For an
+advisory-backed finding, copy the selected authority's vector verbatim in
+the version it publishes; the calculator scores 3.0, 3.1 and 4.0. Never
+translate it to another version. For any other finding, choose each Base
+metric of CVSS v3.1 (AV, AC, PR, UI, S, C, I, A) by its definition in
+FIRST's v3.1 specification, from the code you traced. Give every metric a basis line
 citing the evidence. Never choose a metric to reach a band, and never write
 a score or a severity word: the orchestrator scores your vector with the
 CVSS calculator. Deployment context, a control elsewhere, or a chain step
