@@ -160,11 +160,8 @@ assets:
     runner: {labels: [llm]}
 
   # The scan family's judgment stage: /triage over one repository's recorded
-  # audit findings (true_positive/false_positive verdicts), the stage SCI's
-  # recording lane also serves (its deployed security-pack copy runs the
-  # worker entrypoint instead of this CLI session; the lane's name and
-  # intent stay coherent across the two packs). The model role is the
-  # registry's triage-verifier, a validity-writing judging role. The
+  # audit findings (true_positive/false_positive verdicts). The model role is
+  # the registry's triage-verifier, a validity-writing judging role. The
   # trigger follows the scan: deps gates the triage on a materialized
   # full_audit for the very repository (a lanes-triggered dependency's
   # freshness window is unbounded, so "the scan completed" — ever — is
@@ -174,7 +171,7 @@ assets:
   # the triage's verdicts are what remediation schedules against. The 7d
   # freshness backstop is the legacy weekly session's own cadence
   # ("triage new findings").
-  sci_triage:  # skill session: /triage over the repository's recorded audit findings
+  traust_triage:  # skill session: /triage over the repository's recorded audit findings
     model: {role: triage-verifier}
     run: [python3, -m, traust.cli, session, run, --skill, triage, --role, "{role}", --repo, "{repo_url}", --run-id, "{run_id}"]
     partitions: dynamic:repo
@@ -326,16 +323,16 @@ assets:
     # models (findings-rollup, coverage, remediation-index, findings-trend) folded once and
     # stored as one GLOBAL build, the artifact GET /v1/insights/{name} serves between builds
     # instead of folding per request (the 72-134s cold path the audit measured). One build
-    # serves every scope: SCI's per-request authorization filters what it serves; no
+    # serves every scope: per-request authorization filters what it serves; no
     # permission data rides the artifact. The census can be one cadence stale — a person's
     # judgement postdating the build is never served stale, and a build older than the route's
     # serving bound folds on demand until this asset runs again.
     run: [python3, -m, traust.cli, dashboard, refresh, --run-id, "{run_id}", --census]
     trigger: {every: 10m}
     # Priority 15, not the portfolio lanes' 60 (the concurrent-user lane's p0
-    # starvation fix; the SCI component's copy carries the same change). Claims
+    # starvation fix). Claims
     # drain the lowest number first, and the observation flood sets the floor: a
-    # 24h repo_state sweep over a 3,700-repository estate queues ~3,000 orders at
+    # 24h repo_state sweep over a large estate queues a flood of orders at
     # p20-30, so a p60 order waits ~14 hours behind them — every dashboard viewer
     # folded the census on demand meanwhile, which is the cold path this asset
     # exists to remove. A 10-minute asset whose serving bound is 20m/1h cannot

@@ -14,7 +14,7 @@ from typing import Any
 import pytest
 import sqlalchemy as sa
 import yaml
-from traust_core.v1 import contracts
+from traust_core.v1 import contracts, data_migrations
 from traust_core.v1.models.values import ProductSlug
 from traust_core.v1.repositories import apply_schema, create_database_engine, on_driver_connection
 from traust_core.v1.repositories.sql import Dialect, contract_dialect
@@ -38,10 +38,11 @@ def _postgres() -> Iterator[str]:
     url = sa.make_url(PG_URL).set(database=name)
     engine = create_database_engine(url)
     apply_schema(engine, contracts.database_ddl(Dialect.of(engine)))
-    # stamped as core's channel expects of a deployment's database (as traust-core's tests do)
+    # what a deployment applies, as traust-core's tests do: DDL, its upgrades, then data
     on_driver_connection(
         engine, lambda dbapi: contracts.run_db_upgrades(dbapi, contract_dialect(engine))
     )
+    data_migrations.run(engine, cvss=None)
     engine.dispose()
     try:
         yield url.render_as_string(hide_password=False)
