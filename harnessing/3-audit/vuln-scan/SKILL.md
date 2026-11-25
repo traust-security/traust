@@ -50,6 +50,8 @@ allowed-tools:
   # execution. Scope every script individually — the A11 alignment gate
   # (python3 -m traust.cli check skill-alignment) blocks broad entries.
   - Bash(python3 *-m traust.cli reporting validate:*)
+  # the CVSS calculator: scores a FIRST vector (`--vector`), never authors one
+  - Bash(python3 *-m traust.cli reporting rate-cvss:*)
   - Bash(python3 *-m traust.cli adapters checkov:*)
   - Bash(python3 *-m traust.cli adapters opengrep:*)
   - Bash(python3 *-m traust.cli adapters llm-app:*)
@@ -581,7 +583,8 @@ OUTPUT — one block per finding, nothing else:
 <line>{line_number}</line>
 <category>{heap-buffer-overflow | use-after-free | integer-overflow | sql-injection | command-injection | path-traversal | deserialization | xss | auth-bypass | hardcoded-secret | ...}</category>
 <cwe>{primary CWE for the category, e.g. CWE-122; omit only if genuinely none fits}</cwe>
-<severity>{critical | high | medium | low | informational}</severity>
+<cvss_vector>{a full CVSS:3.1/... vector, each metric chosen by FIRST's definitions; for an advisory-backed finding, the selected authority's vector verbatim; "none" only for an informational note}</cvss_vector>
+<cvss_basis>{one line per Base metric: "AV:N — <file:line or config evidence>"; mark a metric the code can't settle "unsettled" and take the reasonable worst case FIRST's guidance describes}</cvss_basis>
 <confidence>{0.0-1.0}</confidence>
 <title>{one line}</title>
 <description>{root cause, attacker control, trigger condition, data flow from entry to sink. Cite line numbers.}</description>
@@ -596,20 +599,16 @@ anything else is a finding or nothing:
 
 <surface id="{credential-acceptance | ownership-resolution | security-flags | outbound-fetch | stored-content-integrity | scope-enforcement | llm-integration}">{what you examined: files, call sites or the exact search pattern, and the result}</surface>
 
-SEVERITY — use the harness's shared five-level scale (same enum as
-secure-code-audit and triage):
-  critical      = exploitable by an unauthenticated or low-privilege
-                  attacker with severe impact: RCE, cluster/host
-                  compromise, secrets disclosure, cross-tenant access
-  high          = directly exploitable with significant impact, or
-                  critical impact gated by one realistic precondition
-                  (authenticated user, non-default-but-common config)
-  medium        = exploitable only under specific conditions, or
-                  significant impact requiring privileged position
-  low           = defense-in-depth gap or limited-impact issue with a
-                  concrete but weak attack story
-  informational = no direct security impact; worth recording (e.g.
-                  dangerous pattern currently unreachable)
+CVSS — FIRST's logic, never a judgment of "how bad". Choose each Base
+metric (AV, AC, PR, UI, S, C, I, A) by its definition in FIRST's CVSS v3.1
+specification, from the code you traced. Give every metric a basis line
+citing the evidence. Never choose a metric to reach a band, and never write
+a score or a severity word: the orchestrator scores your vector with the
+CVSS calculator. Deployment context, a control elsewhere, or a chain step
+you couldn't show never lowers a metric; name it in the description. When
+the code can't settle a metric, take the reasonable worst case and mark it
+unsettled. A pattern with no direct security impact is an informational
+note: cvss_vector "none". ([Severity authoring](../../../docs/report-structure.md#severity-authoring))
 
 If you find nothing reportable in your area after a thorough read, emit a
 single <finding> with category=none and a one-line note of what you covered.
@@ -619,6 +618,17 @@ single <finding> with category=none and a one-line note of what you covered.
 
 1. Collect `<finding>` blocks from all subagents. Drop `category=none`
    placeholders.
+1a. **Score every vector with the calculator** (FIRST's formulas, never a
+   judgment):
+   `python3 -m traust.cli reporting rate-cvss --vector '<cvss_vector>'`.
+   Set `severity` to the band it returns, and add to the description a
+   `CVSS: <vector> (<score>)` line followed by the `CVSS basis` lines.
+   The vuln-findings schema gains a structured `cvss` field when traust
+   pins traust-contracts `847e012`; until then the description carries it.
+   A vector of `none` is `informational`. A vector the calculator refuses
+   goes back to its subagent once for a valid one. If it is still invalid,
+   the finding files at `medium` with the description saying it is
+   unscored, for `/triage`. A finding is never dropped for a bad vector.
 2. **Baseline dedupe** (when a baseline audit was found) — a candidate that
    matches a baseline finding (same file and same weakness class, at or
    near the same lines) is **known, not new**: remove it from the findings
@@ -696,12 +706,12 @@ overlaps** — nothing below duplicates or weakens it. Consistent with
 this skill's contract ("this skill never drops a finding"), a fired
 gate **never changes severity**: it lowers `confidence` and appends the
 gate's evidence to the finding description and `confidence_reason`.
-Severity stays what the SEVERITY scale gave it — for an advisory-backed
-finding, the selected authority score's band ([Severity
-authoring](../../../docs/report-structure.md#severity-authoring)). The
-vuln-findings schema has no structured `cvss` or `dependency` field yet
-(remediation plan step 2), so quote the advisory id and its selected score
-in the description, where `/triage` reads them. Only
+Severity stays the calculator's band for the finding's vector (Step 3,
+1a); for an advisory-backed finding, the selected authority's vector and
+band ([Severity authoring](../../../docs/report-structure.md#severity-authoring)). Until traust pins the contracts that give
+vuln-findings structured `cvss` and `dependency` fields, quote the advisory
+id, its selected vector and score in the description, where `/triage` reads
+them. Only
 `/impact-analysis`, `/triage`, live validation and fuzzing change it later, and
 for an advisory-backed finding only on recorded evidence; removal
 remains `/triage`'s job.
@@ -743,10 +753,9 @@ Apply to every candidate still rated critical or high after Step 3:
    disablable by silent fallback) and **credential-transport**
    (credentials, tokens, or session material on plaintext channels, in
    URLs, logs, or redirect targets) are filed whatever their chain
-   completeness, with no severity floor. Their severity comes from the
-   SEVERITY scale until vuln-findings carries `cvss` (remediation plan,
-   D13); then, as for every finding, it is the calculator's band for a
-   vector chosen by FIRST's definitions ([Severity
+   completeness, with no severity floor: as for every finding, severity is
+   the calculator's band for a vector chosen by FIRST's definitions
+   ([Severity
    authoring](../../../docs/report-structure.md#severity-authoring)).
    They are suppressed only on affirmative gate evidence, documented in
    the finding.
