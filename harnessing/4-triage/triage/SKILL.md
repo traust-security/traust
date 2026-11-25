@@ -11,8 +11,6 @@ description: Triage a batch of raw security findings. Verify each is real,
   or "review the backlog". Runs interactively by default; pass --auto to
   skip the interview. Scanner source attribution comes from the recorded Core
   assessment, not a caller-supplied origin flag.
-  A finding backed by a published CVE with a CVSS score keeps that score's
-  band unless recorded evidence bound to the finding shows otherwise.
 argument-hint: "<findings-path> [--prepared-input] [--auto] [--votes N] [--repo PATH] [--fp-rules FILE] [--fresh]"
 user-invocable: true
 metadata:
@@ -169,8 +167,7 @@ set `severity: null` and `exclusion_rule: "13"`, and clear a legacy
 votes or the `vote_breakdown.hardening` counter. Rebuild `confirmed[]` and
 `hardening[]` using 3c's disjoint predicates, not stored membership.
 Do not infer a vulnerability kind for old true positives whose kind is
-absent. Then re-apply *Advisory-backed findings* to every advisory-backed
-finding. Do not rewrite old checkpoint files or historical triage artifacts.
+absent. Do not rewrite old checkpoint files or historical triage artifacts.
 If resuming after Phase 3, apply the Phase 4b non-ranking fields to weakness
 items; if after Phase 5, rerun all of Phase 6 to rebuild sorting, summaries,
 validation and rendering from this working state instead of reusing old
@@ -228,12 +225,16 @@ are prompts, not constraints.
    `Supply-chain compromise of downstream users`,
    `Denial of service against a paid SLA`,
    `Compliance-scoped data exposure (PII / PCI / PHI)`.
-   Phase 4 notes findings that map onto a stated threat, for routing and the
-   rationale; a match never changes severity.
+   Phase 4 boosts findings that map onto a stated threat.
 
-3. **Scoring** is not asked: severity is always FIRST's CVSS, a vector
-   chosen by FIRST's definitions and scored by the calculator (Phase 4), in
-   the finding's own CVSS version. Record `scoring: "cvss-first"`.
+3. **Scoring standard** (header `Scoring`, single-select)
+   `How should severity be expressed in the output?`
+   Options: `Derived HIGH/MEDIUM/LOW from preconditions (default)`,
+   `CVSS v3.1 vector + base score`, `CVSS v4.0 vector + base score`,
+   `OWASP Risk Rating (likelihood x impact)`,
+   `Organization bug-bar (describe in Other)`.
+   The precondition rule is always computed; this controls what
+   `severity_label` additionally shows.
 
 4. **Noise tolerance** (header `Noise tolerance`, single-select)
    `When verifiers disagree, which way should ties break?`
@@ -243,7 +244,7 @@ are prompts, not constraints.
    `Ask me per-finding when it happens`.
 
 **Round 2** (conditional): if the threat-model answer was empty or generic,
-ask one targeted follow-up.
+or the scoring answer was `Organization bug-bar`, ask one targeted follow-up.
 
 Record the answers as a `context` dict carried through every phase and
 echoed in the output under `triage_context`.
@@ -254,7 +255,7 @@ When `--auto` is set, do not call AskUserQuestion. Use:
 - Environment: `Unknown. Treat any externally-reachable entry point as
   untrusted; flag trust-boundary assumptions explicitly in rationale.`
 - Threat model: empty (no boost).
-- Scoring: `cvss-first` (never asked).
+- Scoring: derived HIGH/MEDIUM/LOW.
 - Noise tolerance: precision.
 
 **Checkpoint:** Write tool → `./.triage-state/_chunk.tmp`:
@@ -404,21 +405,8 @@ If nothing parseable is found, stop and report what was seen.
 
 For input (A)/(B)/(D), each native prepared item becomes a finding: `title` =
 `finding.title`; `file` / `line` = the first location's `path` /
-`line_start` whose `path` is not a package URL (a `pkg:` location is the
-package, never a source file; when every location is one, leave `file`
-unset: the finding is **package-only**); `severity` = `occurrence.severity` (`unrated` = the scanner
-gave none); `cvss` = `occurrence.cvss_score` + `occurrence.cvss_vector` as
-supplied; `dependency.advisory` = `occurrence.rule` when it is an advisory
-id (`finding.advisory_id` marks the finding advisory-backed);
-`dependency.module` / `dependency.installed_version` = the module and version
-of a location whose `path` is a package URL, parsed as a purl
-(`pkg:<type>/<namespace>/<name>@<version>`, percent-decoded) and never read
-from the title or description. The module is the namespace and name joined
-by `/` (a Go module path: `pkg:golang/google.golang.org/grpc@v1.64.1` is
-`google.golang.org/grpc`; an npm scope: `@scope/name`), or the name alone
-when there is no namespace; when no location
-is a purl, leave both unset (a prepared item carries no dependency block, so
-its impact rows stay annotations, 2f); `category` = `occurrence.rule`; and **`fingerprint` +
+`line_start`; `severity` = `occurrence.severity` (`unrated` = the scanner
+gave none); `category` = `occurrence.rule`; and **`fingerprint` +
 `fingerprint_algo` copied from `finding`, unchanged, onto the triage
 finding** (6e matches verdicts to recorded findings by them). Keep the
 item's `precedents` for 2g.
@@ -447,10 +435,6 @@ canonical):
 | `line`          | `line_number`, `location.line`, `lineno`, `locations[0].lines` (first line of the range) |
 | `category`      | `type`, `cwe`, `rule_id`, `crash_type`, `vulnerability_class` |
 | `severity`      | `severity_rating`, `level`, `priority`, `risk`           |
-| `cvss`          | `cvss_score` + `cvss_vector`, `cvss.score` + `cvss.vector` (keep as supplied; never re-score) |
-| `dependency.advisory` | `dependency.advisory`, `cve`, `cve_id`, `ghsa_id`, `osv_id`, `vulnerability_id`, `advisory_id` |
-| `dependency.module` | `dependency.module`, `package`, `package_name`, `pkg_name` |
-| `dependency.installed_version` | `dependency.installed_version`, `version`, `pkg_version`, `found_version` |
 | `title`         | `name`, `summary`, `message`                             |
 | `description`   | `details`, `report`, `body`, `evidence`                  |
 | `exploit_scenario` | `attack_scenario`, `poc`, `reproduction`              |
@@ -492,9 +476,7 @@ Attach to every finding:
 - `source`: relative path of the file it came from, plus source format.
 - `missing_fields`: list of canonical fields that were absent. If `file` is
   missing or does not resolve under `--repo`, the finding is
-  **unlocatable** — except a package-only advisory-backed finding, which
-  has no source file to locate and follows [Package-only advisory
-  findings](#package-only-advisory-findings) instead. Unlocatable: it skips dedup and verification and is emitted directly
+  **unlocatable**: it skips dedup and verification and is emitted directly
   with `verdict: undetermined`, `verify_verdict: needs_manual_test`,
   `confidence: 0`, `refute_reasons: ["unlocatable"]`, `rationale: "cited
   material not found under --repo; nothing was verified either way; human
@@ -505,19 +487,15 @@ Attach to every finding:
 
 ### 1c. Locate the target codebase
 
-Resolve `--repo` (default cwd). For the first 5 findings with a `file`
-(package-only findings have none and are not counted), check the path
-resolves under the repo. Try, in order: (a) `repo/file`
+Resolve `--repo` (default cwd). For the first 5 findings with a `file`,
+check the path resolves under the repo. Try, in order: (a) `repo/file`
 as-given; (b) `file` as an absolute or cwd-relative path; (c) `repo/file`
 with common prefixes stripped from `file` (`src/`, `app/`, `./`, or the
 repo's own basename, e.g. `harness/grade.py` with `--repo harness`).
-Record which resolution worked and apply it to every finding. If at least
-one file-bearing finding was checked and none resolve, **stop**: tell the
-user verification needs source access and the cited files aren't
-reachable, and suggest a `--repo` value based on the longest common suffix
-you can see. When the batch has no file-bearing finding (every finding is
-package-only), there is nothing to resolve: record `"path_resolution":
-"none: package-only"` and continue.
+Record which resolution worked and apply it to every finding. If none
+resolve, **stop**: tell the user verification needs source access and the
+cited files aren't reachable, and suggest a `--repo` value based on the
+longest common suffix you can see.
 
 **Checkpoint:** Write tool → `./.triage-state/_chunk.tmp`:
 
@@ -530,133 +508,6 @@ Then Bash:
 
 ---
 
-## Advisory-backed findings
-
-These rules take precedence over every other verdict, kind and severity rule
-in this skill: majorities, splits, noise tolerance, ask mode, dissent
-escalation, precedents, the Phase 4 ranker, the 6b2 re-vote and review
-route, and old-checkpoint compatibility.
-
-**Definition.** A finding is advisory-backed when a structured field names a
-published advisory (CVE-, GHSA- or another OSV id) matched to a dependency,
-package or image, or to advisory-lag in the repo's own forked or vendored
-code: the prepared item's `finding.advisory_id` (Core's advisory link;
-`finding.advisory_match` is only how sure that link is, `confirmed` or
-`probable`) for inputs A/B/D, or the 1b `dependency.advisory` field for
-input C (the report's `finding.dependency` block). The advisory's id string
-comes from `occurrence.rule` when that is an advisory id, else from the
-claim's structured fields. An advisory-backed finding with no id string
-binds no impact row. An id that appears only in a title or description doesn't make a
-finding advisory-backed; that finding follows the normal rules.
-
-**Score.** Start from the selected authority's score ([Severity authoring](../../../docs/report-structure.md#severity-authoring)). An audit
-report's `cvss` on an advisory-backed finding is that score. A scanner's own
-score (input C scanner output, or an item whose prepared-input `assessor` is
-a scanner) is last in the authority order: use it only when no authority
-score is supplied, and say so in the rationale. Core's own selected score
-supersedes the band triage writes. With no score at all, the finding is
-advisory-backed at `medium`, labelled unscored.
-
-**Evidence, not inference.** Triage may change an advisory-backed finding's
-verdict or kind, and propose a lower severity, only on evidence bound to
-this finding, its commit, its dependency version and its environment:
-- a **bound impact row**: the Phase 2f export row for this repository,
-  commit, advisory, `dependency.module` and `dependency.installed_version`
-  (from the report's `finding.dependency` block, or a `pkg:` purl location).
-  All five must be established and equal; when any comparison can't be
-  made, the row is an annotation only;
-- a vendor not-affected statement or fixed NVR recorded in that row;
-- a **code citation**: a `file:line` quoted from this checkout that the 6b2
-  citation lint verifies.
-
-Inference never changes it: uncited reasoning, vote counts on their own,
-precondition counts, threat-model matches, deployment assumptions,
-precedents, another commit's export, symbol-usage or manifest-level
-classifications, `likely_affected`, `inconclusive`, KEV or EPSS, and prose
-in the finding. govulncheck's `not_observed`, even at `evidence_level:
-symbol`, is not a bound row either: "no call path" is evidence, not proof
-(dynamic calls, a library's importers, other build targets, incomplete
-symbol lists). It informs the verifiers, whose cited votes decide.
-
-1. **Dedup (Phase 2):** never mark it `duplicate` of a finding that doesn't
-   name the same advisory; it may absorb duplicates of its own advisory.
-2. **Bound impact rows first (Phase 3c):** a matching row sets these fields
-   whatever the votes say:
-
-   | Bound impact row | Fields |
-   |---|---|
-   | `classification: version_not_in_range` or `not_imported`, or a vendor not-affected statement / a shipped NVR at or past the fixed NVR | `verdict: false_positive`, `refute_reasons: ["bound_evidence"]`, `exclusion_rule: null`, `severity: null`; the rationale cites the row |
-
-3. **Then the votes, counting only cited ones (Phase 3c).** The published
-   score stands; triage's job is to try to disprove it. A vote counts when
-   its deciding reason carries a verified code citation. Apply the normal
-   tally rules to the counted votes:
-   - a cited FALSE_POSITIVE outcome disproves the claim →
-     `verdict: false_positive` with those votes' `refute_reasons`;
-   - a cited HARDENING outcome shows the code ships but can't be exploited
-     → `verdict: true_positive`, `kind: weakness`, `severity: null`,
-     `exclusion_rule: "13"`;
-   - a cited TRUE_POSITIVE outcome confirms it → `verdict: true_positive`,
-     kind as supplied (else omitted), `exclusion_rule: null`, at the
-     advisory band.
-   Anything else — uncited votes, splits, every vote CANNOT_VERIFY, or none
-   parseable — means triage could neither disprove nor confirm it:
-   `verdict: undetermined`, `verify_verdict: needs_manual_test`,
-   `severity: null`, the rationale naming what stopped verification and the
-   fact still to be shown. **Undetermined is not invalid:** Core records no
-   decision, so the published band stands, and Core queues the finding for
-   a person to decide.
-   `confidence` is the mean CONFIDENCE of the counted votes behind the
-   outcome, or `null` when none are. Dissent escalation is skipped when the
-   outcome is already `true_positive`. Ask mode never offers these
-   findings. Exclusion rule 10 never applies.
-4. **Ranking (Phase 4):** `severity` is the advisory band. The ranker may
-   propose a CVSS Environmental vector whose every modified metric cites its
-   evidence (a code citation quoted in RANK_RATIONALE, or a bound row
-   field), in the rationale only. It never computes a score or band, and the
-   severity doesn't change until Core scores the vector with the CVSS
-   calculator and admits the decision (remediation plan step 7).
-   `severity_label` is the advisory's vector and score verbatim. The
-   precondition derivation, threat-model match, `mitigated` and
-   `attacker_influence` are rationale only. `severity_alignment` is `null`;
-   `verify_verdict` stays as Phase 3 set it.
-5. **6b2 and 6c:** if the 6b2 citation lint can't run or errors, no
-   advisory-backed vote counts as cited: re-apply this section, so those
-   findings become `undetermined` with `needs_manual_test` (the published
-   band stands) and the artifact and summary are rebuilt before 6c. A
-   citation the lint finds broken stops counting as
-   evidence: re-apply this section to that finding (the vote no longer
-   counts; a proposed Environmental metric that rested on it is dropped). The 6c
-   vote-majority warning is expected for these findings; leave the mapped
-   outcome.
-6. **Output:** the triage schema requires `severity: null` on any verdict
-   other than a non-weakness true positive. For an advisory-backed finding
-   that `null` never means invalid or unscored: Core keeps the published
-   band until it admits a decision backed by this evidence, and an
-   undetermined finding goes to a person.
-
-### Package-only advisory findings
-
-An advisory-backed finding whose every location is a package URL (1b) has
-no source file. Code verification has nothing to read, so the package and
-its bound impact row are the evidence. Through every phase:
-- **1c:** it isn't sampled, and an all-package batch doesn't stop.
-- **2a:** it is clustered only with other package-only findings of the
-  same advisory, `dependency.module` and `dependency.installed_version`,
-  all three established and equal; file and line are never compared.
-  Distinct packages or versions under one advisory keep separate verdicts.
-- **2b:** it is never sent to the semantic pass. A judgement that two
-  packages are "the same" isn't evidence; only 2a's exact identity merges
-  them.
-- **2c:** the citation gate's `file_missing` tag for it is ignored: it is
-  never routed to `unlocatable`.
-- **Phase 3:** no verifier votes are spawned, since no vote could carry a
-  code citation. 3c applies its bound impact row by the bound-row table in [Advisory-backed findings](#advisory-backed-findings) (item 2). With no
-  bound row it is `verdict: undetermined`, `verify_verdict:
-  needs_manual_test`, `confidence: 0`, `severity: null`, the rationale
-  saying no source location and no bound impact row exist. The published
-  band stands for a person to decide.
-
 ## Phase 2: Deduplicate (before verification)
 
 Collapse repeats so duplicate findings don't each burn N verifiers.
@@ -667,12 +518,7 @@ Cluster findings where all of:
 - same `file` (after path normalization), AND
 - same `category` (case-insensitive, punctuation stripped), AND
 - `line` numbers within 10 of each other. Both-missing matches; one-side-
-  missing does NOT (a line-less record must not absorb a located one), AND
-- the same `advisory` id, when either finding names one.
-
-Package-only advisory findings cluster by their own rule instead
-([Package-only advisory findings](#package-only-advisory-findings)): same
-advisory, module and installed version.
+  missing does NOT (a line-less record must not absorb a located one).
 
 Within each cluster, the canonical is the record with the fewest
 `missing_fields`; ties break to lowest `id`. Every other member gets
@@ -707,8 +553,7 @@ Treat as DISTINCT:
   rather than a shared gate
 
 Below are the candidate findings (one per line: id | file:line | category |
-advisory | title); package-only advisory findings are left out (2a alone
-merges them). Group them. Respond with ONLY lines of the form:
+title). Group them. Respond with ONLY lines of the form:
 
   GROUP: <canonical_id> <- <dup_id>, <dup_id>, ...
 
@@ -716,9 +561,7 @@ One line per group that has duplicates. Omit singletons. Pick the most
 specific / best-described finding as canonical. No prose.
 
 CANDIDATES:
-{one line per surviving finding: "f003 | src/auth.py:112 | sql_injection | advisory: <id or none> | User lookup concatenates name into query"}
-
-Never group two findings that name different advisories.
+{one line per surviving finding: "f003 | src/auth.py:112 | sql_injection | User lookup concatenates name into query"}
 ```
 
 Parse `GROUP:` lines. For each, mark the listed dup ids with
@@ -759,9 +602,7 @@ finding — it NEVER decides a verdict:
   `verdict: undetermined`, `verify_verdict: needs_manual_test`,
   `confidence: 0`, `refute_reasons: ["unlocatable"]` — same contract as
   Phase 1b unlocatable findings. Material that cannot be found is
-  undetermined, never a false positive. A package-only advisory finding has
-  no file by design: ignore its `file_missing` tag and follow [Package-only
-  advisory findings](#package-only-advisory-findings).
+  undetermined, never a false positive.
 
 If the script errors, skip this step and proceed with full votes for
 everything — the gate is an accelerator, never a prerequisite. Record the
@@ -806,9 +647,7 @@ If the artifact exists:
    annotation block (format there).
 
 **Annotation only.** This step never changes vote counts, never skips
-verification, and never sets or suggests a verdict (an advisory-backed
-finding's bound evidence is applied in Phase 3c, per *Advisory-backed
-findings*) — how much routing
+verification, and never sets or suggests a verdict — how much routing
 power this signal gets is an open owner decision (reachability draft
 §7.3). If the artifact is absent or unreadable, skip silently: it is an
 accelerator, never a prerequisite. Record
@@ -872,10 +711,6 @@ If the artifact exists:
 3. A finding **matches** when its title/description mentions the
    advisory (or a row's native `document.metadata.cve`) or its `module`,
    or shares the CVE with a govulncheck candidate from Phase 2e.
-   For an advisory-backed finding, attach a row as bound evidence only when
-   its `repository_url`, SHA, advisory, module and version are all
-   established and equal the finding's. When the analyzed SHA is unknown or
-   any field is missing, the row is an annotation only.
 4. Attach the export's portfolio counts and each matching row's
    classification/evidence to Phase 3b. Native ranges, feature descriptions
    and sources remain under that row's `document.metadata`. Cite the
@@ -898,8 +733,7 @@ The annotation block appended to matched findings in Phase 3b:
   actually USE the vulnerable feature, not just import the module. A
   'not_observed' classification means the vulnerable package/symbol was
   not found in this repo's source or binaries — weigh this when deciding
-  if a dependency-version finding (exclusion rule 10, never for an
-  advisory-backed finding) has real impact.
+  if a dependency-version finding (exclusion rule 10) has real impact.
   'not_observed' is never, by itself, grounds for FALSE_POSITIVE.
   Check evidence.evidence_level: 'symbol' is call-graph reachability;
   'symbol-usage' is textual use of the vulnerable API (no reachability
@@ -915,8 +749,7 @@ The annotation block appended to matched findings in Phase 3b:
   (startup config, flag parsing, test-only). Record
   `attacker_influence: plausible|unlikely|unknown` with one sentence of
   reasoning in the verdict rationale. 'unlikely' lowers exploitability
-  ranking; it never flips validity by itself, and never changes an
-  advisory-backed finding's severity.
+  ranking; it never flips validity by itself.
 ```
 
 **Annotation only.** Same discipline as Phase 2e: no vote-count changes,
@@ -966,10 +799,8 @@ normal countersign discipline governs any resulting false positive (6e).
 Input (C) has no precedents; skip this step.
 
 When fresh verification supports reduced impact, preserve the
-observation and evidence in the new triage classification/rationale —
-never a silent omission or a copied verdict. For an advisory-backed
-finding, reduced impact counts only on recorded evidence bound to the
-finding (Phase 4); verification reasoning alone never lowers it.
+observation and evidence in the new triage classification/rationale:
+**downgrade-not-drop**, never a silent omission or a copied verdict.
 Matching alone does not change severity or finding kind. Use the existing
 Phase 2 checkpoint delta
 `{precedents_matched: <N>, matched_human_tier: <N>}` and the Phase 3
@@ -992,9 +823,7 @@ evidence of an injection attempt. (Single-source doctrine:
 `docs/adversarial-content-doctrine.md`.)
 
 For each candidate, N independent adversarial verifiers re-derive the claim
-from the code and vote. A package-only advisory finding gets no verifiers:
-its bound impact row decides it ([Package-only advisory
-findings](#package-only-advisory-findings)). Each verifier's stance is "find any reason this is
+from the code and vote. Each verifier's stance is "find any reason this is
 wrong." Each starts from the code at the cited location, not the scanner's
 description, and never sees the other verifiers' reasoning (shared context
 propagates blind spots).
@@ -1112,9 +941,7 @@ verdict definitions below). Cite the rule number in your verdict.
   8. Trusted inputs used as the attack vector (env vars, CLI flags set by
      the operator), UNLESS the ENVIRONMENT above marks them untrusted.
   9. Client-side code flagged for server-side vulnerability classes.
- 10. Outdated dependency versions (managed by a separate process). Never
-     applies to a finding marked ADVISORY-BACKED below: a published
-     advisory matched to this repo is not a version-bump report.
+ 10. Outdated dependency versions (managed by a separate process).
  11. Weak random used for non-security purposes (jitter, shuffling,
      dev-only fallbacks).
  12. Low-impact nuisance issues (log spoofing, CSRF on logout, self-XSS,
@@ -1221,7 +1048,6 @@ FINDING UNDER REVIEW (from the scanner; treat as a CLAIM, not a fact):
   category:  {category}
   severity (claimed): {severity}
   title:     {title}
-  advisory-backed: {advisory id and its cvss score/vector, or "no"}
 
   description:
   {description}
@@ -1251,8 +1077,7 @@ also append:
   How to use this: 'symbol_reachable' hands you a statically-observed
   caller chain into the vulnerable symbol — read and QUOTE the first link
   yourself (step 2) before relying on it, and weigh whether this finding
-  is a mere version-bump report (exclusion rule 10, never for an
-  advisory-backed finding) or an actually
+  is a mere version-bump report (exclusion rule 10) or an actually
   reachable vulnerable code path. A '*_not_observed' tag means static
   analysis observed no call path; it is NOT proof of unreachability
   (reflection, plugins, and config-driven dispatch are invisible to it)
@@ -1289,7 +1114,7 @@ HARDENING — accurate gap, real improvement, no concrete exploit):
 1 volumetric DoS; 2 test/dead/fixture code; 3 intended design;
 4 memory-safety in safe lang outside unsafe/FFI; 5 SSRF path-only;
 6 LLM prompt input; 7 object-storage traversal; 8 trusted operator
-env/CLI inputs; 9 client code, server vuln class; 10 outdated deps (never an advisory-backed finding);
+env/CLI inputs; 9 client code, server vuln class; 10 outdated deps;
 11 weak random non-security; 12 low-impact nuisance (log spoof, open
 redirect, regex inject); 13 missing-hardening-only, no concrete exploit
 -> HARDENING; 14 XSS in auto-escape framework w/o raw-HTML escape hatch;
@@ -1380,10 +1205,6 @@ Build:
 - `rationale`: the RATIONALE from the highest-confidence vote on the
   winning side, verbatim.
 
-**Advisory-backed findings** skip this tally's outcome rules: their verdict
-follows *Advisory-backed findings* (above Phase 2) — bound evidence first,
-then the votes as that section maps them.
-
 **Decide the final `verdict` and optional `kind`** (majority is computed
 over TRUE_POSITIVE / HARDENING / FALSE_POSITIVE votes; CANNOT_VERIFY votes
 are excluded from the count; do not combine TRUE_POSITIVE and HARDENING
@@ -1419,7 +1240,6 @@ votes into one side):
       title, options: confirm / hardening / undetermined), then apply the
       user's choices. Hardening means TP+weakness with null severity and
       rule 13; confirm gets vulnerability kind only with exploit evidence.
-      Advisory-backed findings are never offered here.
 
 **Dissent escalation (runs before the verdict is final):** if the majority
 vote category is FALSE_POSITIVE or HARDENING but any TRUE_POSITIVE vote has
@@ -1496,19 +1316,10 @@ their working copies, and spawns verifiers only for `candidates[]` ids from
 
 ## Phase 4: Rank by exploitability (non-weakness true positives only)
 
-Severity is FIRST's CVSS, at all times: a vector whose metrics follow
-FIRST's definitions, scored by the calculator, never a judgment
-([Severity authoring](../../../docs/report-structure.md#severity-authoring)).
-Ranking checks the vector's metrics against the code and may challenge
-them, up or down, but only with cited evidence. The scanner's claimed
-severity is judged separately. An advisory-backed finding keeps its
-published band (below). Only `confirmed[]`
+Recompute severity from preconditions and reachability rather than category
+name, and judge the scanner's claimed severity separately. Only `confirmed[]`
 enters this phase; `hardening[]` never does. Verification and severity are
 independent judgments; "this is real" must not inflate into "this is critical."
-
-**Advisory-backed findings** follow *Advisory-backed findings* (above
-Phase 2): `severity` is the advisory band, CRITICAL included; a cited
-Environmental vector is only a proposal in the rationale.
 
 ### 4a. Ranking prompt
 
@@ -1533,10 +1344,6 @@ FINDING:
   file:      {file}:{line}
   category:  {category}
   claimed severity: {severity}
-  claimed vector:   {cvss.vector and the report's CVSS basis per metric; or none}
-  advisory:  {advisory id, selected authority, score and band; or none}
-  evidence:  {impact-analysis, vendor or validation artifacts bound to this
-              finding; or none}
   reachability evidence: {first_links from Phase 3}
   verifier rationale: {rationale from Phase 3}
 
@@ -1546,33 +1353,29 @@ Be concrete: required auth state, configuration, prior request, race
 window, attacker position. Then state the minimum ACCESS LEVEL required
 (unauthenticated remote / authenticated / local / physical).
 
-STEP 2: The CVSS vector, by FIRST's definitions. Never write a score or a
-band; the orchestrator scores your vector with the CVSS calculator.
-If ADVISORY is not none: CVSS_VECTOR is the advisory's vector verbatim and
-SEVERITY_ALIGNMENT is null. You may propose a CVSS Environmental vector in
-RANK_RATIONALE, each modified metric with its evidence (a file:line you
-quote, or a bound impact-row field). Steps 2-4 inform only the rationale.
-Otherwise, check each Base metric of the claimed vector (AV, AC, PR, UI, S,
-C, I, A for 3.1) against FIRST's definition and the code. The preconditions
-and access level from STEP 1 are evidence for AV, AC, PR and UI, never a
-count that sets a band. Keep a metric unless you can quote a file:line that
-shows another value under FIRST's definition. A change may raise or lower
-the metric; list each one in METRIC_CHANGES as `<metric>: <from> -> <to>:
-<file:line> <quoted evidence>`. A metric the claim marks `unsettled` is the
-first to test. When the claim has no vector, choose every metric by FIRST's
-definitions with a cited basis. Where the code can't settle a metric, take
-the reasonable worst case FIRST's guidance describes, and say so.
+STEP 2: Derive severity from the precondition count and access level:
+
+  | Preconditions | Access required          | Severity |
+  |---------------|--------------------------|----------|
+  | 0             | Unauthenticated remote   | HIGH     |
+  | 1-2           | Authenticated            | MEDIUM   |
+  | 3+            | Local-only / no demo path| LOW      |
+
+  Evaluate each column independently and take the LOWER result. Example:
+  0 preconditions but authenticated-only is MEDIUM, not HIGH; 1
+  precondition but local-only is LOW. Cross-check: if your preconditions
+  list has 3+ items, HIGH is almost certainly wrong.
 
 STEP 3: Threat-model match. If the THREAT MODEL is non-empty and this
-finding maps onto one of its entries, note which one. A match is context
-for routing and the rationale; it never changes a metric or the severity.
-If the threat model is empty, skip this step.
+finding maps onto one of its entries, note which one. A match may raise
+severity by ONE step (LOW to MEDIUM or MEDIUM to HIGH), never two. If the
+threat model is empty, skip this step.
 
-STEP 4: Judge the scanner's claimed severity against the vector you stand
-behind: would the CLAIMED severity contribute to alert fatigue, or does it
-understate the impact? Is the code in test fixtures or dev-only config
-(name it in RANK_RATIONALE)? This score is a calibration signal only; it
-never changes a metric or the severity. Score in -5..+5:
+STEP 4: Judge the scanner's claimed severity. From the perspective of an
+engineer who has reviewed two hundred scanner findings this week and is
+allergic to inflation: would the CLAIMED severity contribute to alert
+fatigue? Is it comparable to a real CVE at that level? Is the code in test
+fixtures or dev-only config? Score in -5..+5:
   +3..+5  claimed severity is justified or understated
    0..+2  roughly right
   -1..-3  inflated by one level
@@ -1580,16 +1383,15 @@ never changes a metric or the severity. Score in -5..+5:
 
 STEP 5: verify_verdict. Exactly one of:
   exploitable        preconditions are realistically satisfiable
-  mitigated          real, and a deployed control reduces exploitability
-                     (name the control and quote it). It changes a metric
-                     only through STEP 2's cited METRIC_CHANGES (for an
-                     advisory-backed finding, an Environmental proposal);
-                     otherwise it is rationale only
+  mitigated          real, but a deployed control reduces it below the
+                     derived severity (name the control)
   needs_manual_test  severity hinges on something only a runtime test can
                      settle; recommend a human build a PoC
 
-STEP 6: Nothing to compute: the orchestrator sets `severity` and
-`severity_label` from your CVSS_VECTOR with the calculator.
+STEP 6: If SCORING STANDARD is a CVSS or OWASP variant, emit a
+`severity_label` in that format (vector string + base score for CVSS;
+likelihood x impact for OWASP). Otherwise set it equal to the derived
+HIGH/MEDIUM/LOW.
 
 ────────────────────────────────────────────────────────────────────────
 Respond with ONLY this block:
@@ -1597,9 +1399,8 @@ Respond with ONLY this block:
   PRECONDITIONS:
   - <one per line>
   ACCESS_LEVEL: <unauthenticated_remote|authenticated|local|physical>
-  CVSS_VECTOR: <the full vector you stand behind, by FIRST's definitions>
-  METRIC_CHANGES:
-  - <metric>: <from> -> <to>: <file:line> <quoted evidence>   (or: none)
+  SEVERITY: <HIGH|MEDIUM|LOW>
+  SEVERITY_LABEL: <per scoring standard>
   THREAT_MATCH: <matched threat-model entry, or none>
   SEVERITY_ALIGNMENT: <-5..+5>
   VERIFY_VERDICT: <exploitable|mitigated|needs_manual_test>
@@ -1608,21 +1409,11 @@ Respond with ONLY this block:
 
 ### 4b. Merge
 
-For each confirmed finding, parse the block. Drop any METRIC_CHANGES line
-whose citation doesn't quote this checkout (the 6b2 lint re-checks it, and
-a broken citation reverts that metric). Score the resulting CVSS_VECTOR
-with the calculator:
-`python3 -m traust.cli reporting rate-cvss --vector '<CVSS_VECTOR>'`. Set
-`severity` to its band (the advisory band for an advisory-backed finding)
-and `severity_label` to the vector and its score. A vector the calculator
-can't score keeps the claimed vector, and the rationale says so. Attach
-`preconditions` (replacing any scanner-supplied list), `access_level`,
-`threat_match`, `severity_alignment`,
-`verify_verdict`, and append RANK_RATIONALE and the kept METRIC_CHANGES to
-`rationale` (separated by a blank line from the Phase-3 rationale). A
-changed metric is triage's challenge to the vector: Core scores it with
-the calculator and admits it only on that cited evidence (remediation plan
-step 7). A Phase-3 `needs_manual_test`
+For each confirmed finding, parse the block and attach `preconditions`
+(replacing any scanner-supplied list), `access_level`, `severity`
+(recomputed), `severity_label`, `threat_match`, `severity_alignment`,
+`verify_verdict`, and append RANK_RATIONALE to `rationale` (separated by a
+blank line from the Phase-3 rationale). A Phase-3 `needs_manual_test`
 requirement survives ranking; no rank or kind alone resolves contested proof.
 
 For findings that did NOT reach Phase 4 (TP+weakness, `false_positive`,
@@ -1684,7 +1475,7 @@ Order all findings by:
 1. Bucket: non-weakness `true_positive` (including omitted kind), then
    `true_positive` + `kind: weakness`, then `undetermined`, then
    `duplicate`, then `false_positive`.
-2. Within non-weakness true positives: `severity` CRITICAL > HIGH > MEDIUM > LOW,
+2. Within non-weakness true positives: `severity` HIGH > MEDIUM > LOW,
    then `confidence` descending, then `severity_alignment` descending.
 3. Within the weakness backlog: `confidence` descending (no severity).
 4. Within others: original `id`.
@@ -1712,9 +1503,8 @@ The output contract is Core's installed `triage` schema — shared
 vocabulary with `report.schema.json` (identical severity enum, canonical
 `orig_id` pattern, ISO dates). Severity values are LOWERCASE
 (`critical|high|medium|low|informational`); the Phase-4 HIGH/MEDIUM/LOW
-derivation maps to lowercase in output, an advisory-backed finding's band
-(including `critical`) is written as is, and `informational` appears when
-the claimed severity vocabulary includes it.
+derivation maps to lowercase in output, and `critical`/`informational`
+appear when the claimed severity vocabulary includes them.
 
 New output `claimed_severity` also uses that lowercase vocabulary, or `null`
 when no canonical level is known. Preserve the original scanner spelling in
@@ -1746,7 +1536,7 @@ into confirmation or a false positive. Retain every existing summary key.
     "mode": "interactive|auto",
     "environment": "...",
     "threat_model": ["..."],
-    "scoring": "cvss-first",
+    "scoring": "...",
     "noise_tolerance": "...",
     "votes_per_finding": 3,
     "repo": "...",
@@ -1962,7 +1752,6 @@ counts nor an admission gap proves the repository secure.
 ```
 Triage complete: {N} findings -> {T} non-weakness true positives, {G} confirmed weaknesses, {U} undetermined, {F} false positives, {D} duplicates.
 
-  CRITICAL: {n} {title of top CRITICAL, owner_hint}
   HIGH:   {n}   {title of top HIGH, owner_hint}
   MEDIUM: {n}
   LOW:    {n}
@@ -2061,12 +1850,11 @@ point at real call sites) and a sample of FALSE_POSITIVE rejects (the
 - **`undetermined` is a verdict, not a drop.** Unlocatable material and
   all-CANNOT_VERIFY tallies mean zero evidence was examined; a false
   positive claim requires positive evidence of wrongness.
-- **FIRST's CVSS decides severity, at all times.** A threat-model match,
-  a precondition count or an alignment score never sets or moves a band;
-  only a vector's metrics do, each chosen by FIRST's definitions and each
-  change cited. `severity` is the calculator's band for that vector (the
-  advisory band for an advisory-backed finding), and `severity_label` is
-  the vector and its score.
+- **Threat-model boost is capped at one step** so a stated threat can't
+  re-inflate a LOW back to HIGH and defeat the precondition rule.
+- **`severity_label` is separate from `severity`.** Sorting always uses the
+  precondition-derived HIGH/MEDIUM/LOW; the label is presentation-layer for
+  whatever standard the reviewer's tooling expects.
 - **Pipeline `report.json` ingest is best-effort.** Those reports describe
   ASAN crashes with prose exploitability analysis rather than the
   file/line/category shape static verifiers expect. Expect more
