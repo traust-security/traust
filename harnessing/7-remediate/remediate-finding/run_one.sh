@@ -69,7 +69,6 @@ UPSTREAM="$(field subject.repository_url)"
 FORK_URL="https://$(field fork.url.host)/$(field fork.url.path)"
 SHA="$(field subject.sha)"
 FIX_BRANCH="$(field fix_branch)"
-COMMITTER="$(field committer)"
 REPO="${UPSTREAM%/}"; REPO="${REPO##*/}"; REPO="${REPO%.git}"
 # repository-derived names become path components under rm -rf / mkdir —
 # no separators, no dot-runs (audit F6, plan P0.2)
@@ -84,7 +83,7 @@ exec > >(tee -a "$LOG") 2>&1
 
 echo "================================================================"
 echo "[run_one] $(date -Is) work_item=$WI upstream=$UPSTREAM sha=$SHA"
-echo "[run_one] fork=$FORK_URL fix_branch=$FIX_BRANCH committer=$COMMITTER out=$OUT"
+echo "[run_one] fork=$FORK_URL fix_branch=$FIX_BRANCH out=$OUT"
 
 traust remediation progress "$WI" forked >/dev/null
 
@@ -105,7 +104,7 @@ WORK="$(traust repo checkout "$UPSTREAM" --ref "$SHA" --writable)"
 # --- 3. the work item (findings, decisions, strategy) next to the worktree --
 echo "$PREP" > "$OUT/prepared.json"
 
-printf '{"work_item_id":"%s","worktree":"%s","fix_branch":"%s","committer":"%s","fork_url":"%s","upstream_url":"%s","audited_commit":"%s","out":"%s","prepared":"%s"}\n' \
-  "$WI" "$WORK" "$FIX_BRANCH" "$COMMITTER" "$FORK_URL" "$UPSTREAM" "$SHA" "$OUT" "$OUT/prepared.json"
+printf '{"work_item_id":"%s","worktree":"%s","fix_branch":"%s","fork_url":"%s","upstream_url":"%s","audited_commit":"%s","out":"%s","prepared":"%s"}\n' \
+  "$WI" "$WORK" "$FIX_BRANCH" "$FORK_URL" "$UPSTREAM" "$SHA" "$OUT" "$OUT/prepared.json"
 
 echo "[run_one] worktree ready — hand off to remediate-finding skill (Phase 2+)" >&2
