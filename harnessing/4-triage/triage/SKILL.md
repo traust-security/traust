@@ -416,8 +416,11 @@ of a location whose `path` is a package URL, parsed as a purl
 from the title or description. The module is the namespace and name joined
 by `/` (a Go module path: `pkg:golang/google.golang.org/grpc@v1.64.1` is
 `google.golang.org/grpc`; an npm scope: `@scope/name`), or the name alone
-when there is no namespace; when no location
-is a purl, leave both unset (a prepared item carries no dependency block, so
+when there is no namespace. `dependency.ecosystem` = the purl type in
+Core's ecosystem names: `golang` → `go`, `gem` → `ruby`, and `npm`,
+`pypi`, `maven`, `cargo`, `nuget`, `docker`, `rpm`, `deb`, `apk` as
+written. A type outside that list leaves the ecosystem unset. When no
+location is a purl, leave all three unset (a prepared item carries no dependency block, so
 its impact rows stay annotations, 2f); `category` = `occurrence.rule`; and **`fingerprint` +
 `fingerprint_algo` copied from `finding`, unchanged, onto the triage
 finding** (6e matches verdicts to recorded findings by them). Keep the
@@ -642,8 +645,9 @@ no source file. Code verification has nothing to read, so the package and
 its bound impact row are the evidence. Through every phase:
 - **1c:** it isn't sampled, and an all-package batch doesn't stop.
 - **2a:** it is clustered only with other package-only findings of the
-  same advisory, `dependency.module` and `dependency.installed_version`,
-  all three established and equal; file and line are never compared.
+  same advisory, `dependency.ecosystem`, `dependency.module` and
+  `dependency.installed_version`, all four established and equal; file and
+  line are never compared.
   Distinct packages or versions under one advisory keep separate verdicts.
 - **2b:** it is never sent to the semantic pass. A judgement that two
   packages are "the same" isn't evidence; only 2a's exact identity merges
@@ -651,7 +655,9 @@ its bound impact row are the evidence. Through every phase:
 - **2c:** the citation gate's `file_missing` tag for it is ignored: it is
   never routed to `unlocatable`.
 - **Phase 3:** no verifier votes are spawned, since no vote could carry a
-  code citation. 3c applies its bound impact row by the bound-row table in [Advisory-backed findings](#advisory-backed-findings) (item 2). With no
+  code citation. Its outcome is checkpointed like a tallied candidate (a
+  `checkpoint shard` write, so its id is in `shards_done`), so a sharded
+  run resumes and consolidates. 3c applies its bound impact row by the bound-row table in [Advisory-backed findings](#advisory-backed-findings) (item 2). With no
   bound row it is `verdict: undetermined`, `verify_verdict:
   needs_manual_test`, `confidence: 0`, `severity: null`, the rationale
   saying no source location and no bound impact row exist. The published
@@ -672,7 +678,7 @@ Cluster findings where all of:
 
 Package-only advisory findings cluster by their own rule instead
 ([Package-only advisory findings](#package-only-advisory-findings)): same
-advisory, module and installed version.
+advisory, ecosystem, module and installed version.
 
 Within each cluster, the canonical is the record with the fewest
 `missing_fields`; ties break to lowest `id`. Every other member gets
@@ -869,12 +875,16 @@ If the artifact exists:
 2. Select `.repos` rows for the repository's `repository_url` and analyzed
    SHA when known; preserve distinct ecosystem/module/version rows rather
    than overwriting one repository entry with another.
-3. A finding **matches** when its title/description mentions the
-   advisory (or a row's native `document.metadata.cve`) or its `module`,
-   or shares the CVE with a govulncheck candidate from Phase 2e.
+3. A finding **matches** when its structured `dependency.advisory` (or
+   `finding.advisory_id`'s identifier) and `dependency.module` from 1b
+   equal a row's, or, failing those, when its title/description mentions
+   the advisory (or a row's native `document.metadata.cve`) or its
+   `module`, or it shares the CVE with a govulncheck candidate from
+   Phase 2e. A package-only finding matches only on the structured fields.
    For an advisory-backed finding, attach a row as bound evidence only when
-   its `repository_url`, SHA, advisory, module and version are all
-   established and equal the finding's. When the analyzed SHA is unknown or
+   its `repository_url`, SHA, advisory, module and version, and its
+   ecosystem when the finding has one, are all established and equal the
+   finding's. When the analyzed SHA is unknown or
    any field is missing, the row is an annotation only.
 4. Attach the export's portfolio counts and each matching row's
    classification/evidence to Phase 3b. Native ranges, feature descriptions
@@ -1609,13 +1619,25 @@ Respond with ONLY this block:
 ### 4b. Merge
 
 For each confirmed finding, parse the block. Drop any METRIC_CHANGES line
-whose citation doesn't quote this checkout (the 6b2 lint re-checks it, and
-a broken citation reverts that metric). Score the resulting CVSS_VECTOR
-with the calculator:
-`python3 -m traust.cli reporting rate-cvss --vector '<CVSS_VECTOR>'`. Set
-`severity` to its band (the advisory band for an advisory-backed finding)
-and `severity_label` to the vector and its score. A vector the calculator
-can't score keeps the claimed vector, and the rationale says so. Attach
+whose citation doesn't quote this checkout. Then set the vector by these
+rules; the ranker's CVSS_VECTOR is never scored as returned:
+- **Advisory-backed:** `severity` is the advisory band, and
+  `severity_label` is the selected authority's vector and published score
+  verbatim, never recalculated. A cited Environmental proposal stays in the
+  rationale.
+- **With a claimed vector:** start from the claimed vector and apply only
+  the kept METRIC_CHANGES. Any other difference in CVSS_VECTOR is
+  discarded, and the rationale names it as uncited.
+- **No claimed vector:** each Base metric needs its own METRIC_CHANGES line
+  (`<metric>: none -> <value>: <citation>`). A metric without a kept line
+  takes the reasonable worst case FIRST's guidance describes and is marked
+  unsettled.
+
+Score the vector built this way with the calculator:
+`python3 -m traust.cli reporting rate-cvss --vector '<vector>'`. Set
+`severity` to its band and `severity_label` to the vector and its score. A
+vector the calculator can't score keeps the claimed vector, and the
+rationale says so. Attach
 `preconditions` (replacing any scanner-supplied list), `access_level`,
 `threat_match`, `severity_alignment`,
 `verify_verdict`, and append RANK_RATIONALE and the kept METRIC_CHANGES to
@@ -1825,6 +1847,12 @@ concludes:
   set `verify_verdict: needs_manual_test`, and note the broken citation in
   the rationale — preserve its current action/backlog/undetermined bucket;
   a human re-checks the evidence, with no confirmation solely from kind.
+- **A broken citation behind a metric change (4b):** that change no longer
+  counts. Revert the metric to the claimed vector's value, or, with no
+  claimed vector, to the reasonable worst case marked unsettled. Re-score
+  with `python3 -m traust.cli reporting rate-cvss --vector '<vector>'`,
+  update `severity` and `severity_label`, rebuild the summary, and run the
+  check once more.
 
 If the check errors, say so in the terminal summary and continue: the lint
 is an accelerator, never a prerequisite.
