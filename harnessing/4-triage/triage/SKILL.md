@@ -46,6 +46,8 @@ allowed-tools:
   - Bash(python3 *traust* -m traust.cli triage record:*)
   - Bash(python3 *traust* -m traust.cli triage render:*)
   - Bash(python3 *traust* -m traust.cli impact export:*)
+  # the CVSS calculator door; only a vector matching the safe pattern (4b) is passed
+  - Bash(python3 *traust* -m traust.cli reporting rate-cvss:*)
 ---
 
 # triage
@@ -167,7 +169,11 @@ loaded phase or shard, interpret a legacy final `verdict: hardening` as
 set `severity: null` and `exclusion_rule: "13"`, and clear a legacy
 `verify_verdict: hardening` to `null`. Never translate verifier `HARDENING`
 votes or the `vote_breakdown.hardening` counter. Rebuild `confirmed[]` and
-`hardening[]` using 3c's disjoint predicates, not stored membership.
+`hardening[]` using 3c's disjoint predicates, not stored membership. A
+checkpoint whose `context.scoring` isn't `cvss-first` predates calculator
+scoring: set `scoring: "cvss-first"`. If its `phase_done` is 4 or later,
+re-run Phase 4 for every confirmed finding that isn't advisory-backed, so
+no precondition-derived band survives a resume.
 Do not infer a vulnerability kind for old true positives whose kind is
 absent. Then re-apply *Advisory-backed findings* to every advisory-backed
 finding. Do not rewrite old checkpoint files or historical triage artifacts.
@@ -412,7 +418,8 @@ supplied; `dependency.advisory` = `occurrence.rule` when it is an advisory
 id (`finding.advisory_id` marks the finding advisory-backed);
 `dependency.module` / `dependency.installed_version` = the module and version
 of a location whose `path` is a package URL, parsed as a purl
-(`pkg:<type>/<namespace>/<name>@<version>`, percent-decoded) and never read
+(`pkg:<type>/<namespace>/<name>@<version>?<qualifiers>#<subpath>`: drop the
+`?qualifiers` and `#subpath` first, then percent-decode) and never read
 from the title or description. The module is the namespace and name joined
 by `/` (a Go module path: `pkg:golang/google.golang.org/grpc@v1.64.1` is
 `google.golang.org/grpc`; an npm scope: `@scope/name`), or the name alone
@@ -659,8 +666,9 @@ its bound impact row are the evidence. Through every phase:
   `checkpoint shard` write, so its id is in `shards_done`), so a sharded
   run resumes and consolidates. 3c applies its bound impact row by the bound-row table in [Advisory-backed findings](#advisory-backed-findings) (item 2). With no
   bound row it is `verdict: undetermined`, `verify_verdict:
-  needs_manual_test`, `confidence: 0`, `severity: null`, the rationale
-  saying no source location and no bound impact row exist. The published
+  needs_manual_test`, `confidence: null` (no counted votes, as in
+  Advisory-backed findings), `severity: null`, the rationale saying no
+  source location and no bound impact row exist. The published
   band stands for a person to decide.
 
 ## Phase 2: Deduplicate (before verification)
@@ -875,9 +883,10 @@ If the artifact exists:
 2. Select `.repos` rows for the repository's `repository_url` and analyzed
    SHA when known; preserve distinct ecosystem/module/version rows rather
    than overwriting one repository entry with another.
-3. A finding **matches** when its structured `dependency.advisory` (or
-   `finding.advisory_id`'s identifier) and `dependency.module` from 1b
-   equal a row's, or, failing those, when its title/description mentions
+3. A finding **matches** when its `finding.advisory_id` equals the row's
+   (or the export's) `advisory_id` (the same Core advisory record), or its
+   structured `dependency.advisory` names the export's advisory, and its
+   `dependency.module` from 1b equals the row's or, failing those, when its title/description mentions
    the advisory (or a row's native `document.metadata.cve`) or its
    `module`, or it shares the CVE with a govulncheck candidate from
    Phase 2e. A package-only finding matches only on the structured fields.
@@ -1569,9 +1578,15 @@ count that sets a band. Keep a metric unless you can quote a file:line that
 shows another value under FIRST's definition. A change may raise or lower
 the metric; list each one in METRIC_CHANGES as `<metric>: <from> -> <to>:
 <file:line> <quoted evidence>`. A metric the claim marks `unsettled` is the
-first to test. When the claim has no vector, choose every metric by FIRST's
-definitions with a cited basis. Where the code can't settle a metric, take
-the reasonable worst case FIRST's guidance describes, and say so.
+first to test. When the claim has no vector, author one as an audit does:
+choose every Base metric by FIRST's definitions from the evidence you
+traced (the verifier's first_links, the code at the cited location, the
+data flow you followed), each with a basis line in METRIC_CHANGES
+(`<metric>: none -> <value>: <basis>`). A basis may be the traced flow
+rather than one file:line; only a change to an existing vector needs a
+quoted file:line. Take the reasonable worst case FIRST's guidance describes
+only for a metric your evidence can't settle, mark it unsettled, and name
+it in RANK_RATIONALE.
 
 STEP 3: Threat-model match. If the THREAT MODEL is non-empty and this
 finding maps onto one of its entries, note which one. A match is context
@@ -1628,16 +1643,21 @@ rules; the ranker's CVSS_VECTOR is never scored as returned:
 - **With a claimed vector:** start from the claimed vector and apply only
   the kept METRIC_CHANGES. Any other difference in CVSS_VECTOR is
   discarded, and the rationale names it as uncited.
-- **No claimed vector:** each Base metric needs its own METRIC_CHANGES line
-  (`<metric>: none -> <value>: <citation>`). A metric without a kept line
-  takes the reasonable worst case FIRST's guidance describes and is marked
-  unsettled.
+- **No claimed vector:** the ranker's authored vector, built from its
+  METRIC_CHANGES basis lines (STEP 2). A metric with no basis line is the
+  reasonable worst case, marked unsettled.
 
-Score the vector built this way with the calculator:
+For a finding that isn't advisory-backed, score the vector built this way.
+The vector comes from scanner and model output, so it is untrusted: pass it
+to the calculator only when it matches `^CVSS:(3\.0|3\.1|4\.0)(/[A-Z]{1,3}:[A-Za-z]{1,5})+$` (no quotes, spaces or shell
+metacharacters can match). Otherwise it is unscorable:
 `python3 -m traust.cli reporting rate-cvss --vector '<vector>'`. Set
-`severity` to its band and `severity_label` to the vector and its score. A
-vector the calculator can't score keeps the claimed vector, and the
-rationale says so. Attach
+`severity` to its band and `severity_label` to the vector and its score. If
+the built vector is unscorable and the claimed vector matches and scores,
+use the claimed vector's band and say so. If nothing scores, `severity` is
+`medium` and `severity_label` is `unscored`, the rationale naming why, for
+a person. That is the same rule the audits use for an unscored advisory.
+An advisory-backed finding is never re-scored here. Attach
 `preconditions` (replacing any scanner-supplied list), `access_level`,
 `threat_match`, `severity_alignment`,
 `verify_verdict`, and append RANK_RATIONALE and the kept METRIC_CHANGES to
@@ -1733,10 +1753,10 @@ supplied `subject.repository_url`, not the scratch checkout directory name.
 The output contract is Core's installed `triage` schema — shared
 vocabulary with `report.schema.json` (identical severity enum, canonical
 `orig_id` pattern, ISO dates). Severity values are LOWERCASE
-(`critical|high|medium|low|informational`); the Phase-4 HIGH/MEDIUM/LOW
-derivation maps to lowercase in output, an advisory-backed finding's band
-(including `critical`) is written as is, and `informational` appears when
-the claimed severity vocabulary includes it.
+(`critical|high|medium|low|informational`). A severity is the calculator's
+band for the finding's vector (Phase 4b), `critical` included, or an
+advisory-backed finding's published band, written as is. `informational`
+appears when the claimed severity vocabulary includes it.
 
 New output `claimed_severity` also uses that lowercase vocabulary, or `null`
 when no canonical level is known. Preserve the original scanner spelling in
@@ -1850,12 +1870,18 @@ concludes:
 - **A broken citation behind a metric change (4b):** that change no longer
   counts. Revert the metric to the claimed vector's value, or, with no
   claimed vector, to the reasonable worst case marked unsettled. Re-score
-  with `python3 -m traust.cli reporting rate-cvss --vector '<vector>'`,
-  update `severity` and `severity_label`, rebuild the summary, and run the
-  check once more.
+  as 4b does (only a vector matching `^CVSS:(3\.0|3\.1|4\.0)(/[A-Z]{1,3}:[A-Za-z]{1,5})+$`), update `severity` and
+  `severity_label`, rebuild the summary, and run the check once more. For an
+  advisory-backed finding, drop the Environmental proposal that rested on
+  the citation from the rationale; its published label and band are never
+  re-scored.
 
 If the check errors, say so in the terminal summary and continue: the lint
-is an accelerator, never a prerequisite.
+is an accelerator, never a prerequisite. A metric change, though, is never
+left unverified. When the lint can't run, revert every 4b change to a
+claimed vector, re-score as 4b does, and say so in each rationale. An
+authored vector for a finding with no claim keeps its basis lines but
+marks the ones resting on a file:line unsettled.
 
 ### 6c. Validate <repo>-triage.json
 
