@@ -412,9 +412,13 @@ For input (A)/(B)/(D), each native prepared item becomes a finding: `title` =
 gave none); `cvss` = `occurrence.cvss_score` + `occurrence.cvss_vector` as
 supplied; `dependency.advisory` = `occurrence.rule` when it is an advisory
 id (`finding.advisory_id` marks the finding advisory-backed);
-`dependency.module` / `dependency.installed_version` = the name and version
-of a location whose `path` is a package URL (`pkg:<type>/<name>@<version>`),
-parsed as a purl, never read from the title or description; when no location
+`dependency.module` / `dependency.installed_version` = the module and version
+of a location whose `path` is a package URL, parsed as a purl
+(`pkg:<type>/<namespace>/<name>@<version>`, percent-decoded) and never read
+from the title or description. The module is the namespace and name joined
+by `/` (a Go module path: `pkg:golang/google.golang.org/grpc@v1.64.1` is
+`google.golang.org/grpc`; an npm scope: `@scope/name`), or the name alone
+when there is no namespace; when no location
 is a purl, leave both unset (a prepared item carries no dependency block, so
 its impact rows stay annotations, 2f); `category` = `occurrence.rule`; and **`fingerprint` +
 `fingerprint_algo` copied from `finding`, unchanged, onto the triage

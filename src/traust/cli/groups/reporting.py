@@ -329,8 +329,12 @@ def call_rate_cvss(args) -> int:
     if not isinstance(document, dict):
         print(f"rate-cvss: {args.report} is not a report object", file=sys.stderr)
         return 1
+    if not isinstance(document.get("findings"), list):
+        # a report without a findings array can't be checked; never report it as passing
+        print(f"rate-cvss: {args.report} has no findings array", file=sys.stderr)
+        return 1
     changed, failed = [], []
-    for finding in document.get("findings") or []:
+    for finding in document["findings"]:
         cvss = finding.get("cvss") if isinstance(finding, dict) else None
         vector = cvss.get("vector") if isinstance(cvss, dict) else None
         if not vector:

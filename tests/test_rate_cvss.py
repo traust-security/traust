@@ -57,6 +57,14 @@ class TestRateCvss(unittest.TestCase):
             self.assertEqual(call_rate_cvss(Namespace(report=bad, vector=None, check=False)), 1)
             self.assertEqual(bad.read_text(encoding="utf-8"), "{not json")
 
+    def test_a_report_without_a_findings_array_is_refused_in_both_modes(self):
+        for document in ({}, {"findings": {"id": "A-1"}}, {"findings": None}):
+            for check in (False, True):
+                with self.subTest(document=document, check=check):
+                    rc, out = self._run(document, check=check)
+                    self.assertEqual(rc, 1)
+                    self.assertEqual(out, document)
+
     def _run(self, document, check=False):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "x-security-audit.json"

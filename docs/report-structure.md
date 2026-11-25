@@ -271,10 +271,13 @@ are traust-contracts' own: the `finding.dependency` block, the
      makes a match not affected.
    - **`impact analyze` writes to Core:** it records an impact assessment
      and, for an `affected` row, files Core's own dependency finding,
-     identified by repository, advisory and package. Cite that finding id in
-     the report finding's `source_findings`. Until Core's intake maps
-     `finding.dependency` (remediation plan step 6), the same advisory and
-     commit can appear under both ids.
+     identified by repository, advisory and package. The report finding is
+     that same finding: Core identifies a report finding whose `dependency`
+     names a stored advisory by the same key (traust-core#547), so the two
+     filings are two occurrences of one finding, rated from the occurrence
+     that carries CVSS. Cite the finding id in `source_findings`. Until a
+     Core with #547 is pinned, the same advisory and commit can appear under
+     both ids.
    - The export is a scratch intermediate; never place it in the findings
      tree.
    - Record `deterministic_steps["impact-analysis"]` as `"ran"`, or
