@@ -313,11 +313,10 @@ are traust-contracts' own: the `finding.dependency` block, the
      doesn't eliminate on its own (`affected`, `likely_affected`,
      `inconclusive` or `not_observed`) stays out of the block's
      `classification`; name it in the `rationale` as context. The contract
-     refuses a vendor entry that carries one of those classifications. It is the paper trail that the
-   CVE was identified and why it was eliminated; it isn't ingested as a
-   finding. Until the installed contracts declare `not_affected`
-   (traust-contracts#189), write each as a `dependency_audit` entry with
-   `status: "not_affected"` and the same facts in `notes`.
+     refuses a vendor entry that carries one of those classifications.
+
+   The section is the paper trail that the CVE was identified and why it
+   was eliminated. Core renders it and doesn't ingest it as a finding.
 
 Your own reading of the code ("unused", "dev-only", "not executed in this
 image", "client-only symbol") is never evidence of non-applicability. It
