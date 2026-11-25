@@ -59,8 +59,13 @@ nothing in the impact pipeline invokes it, for the reason in the note above.
 - **Manifest evidence ceilings at `likely_affected`** — "a pin is never
   reachability." Textual symbol usage and package-level calls reach
   `symbol-usage`, same ceiling.
-- **Only Go may demote on a negative** (govulncheck's `not_observed` classes
-  are sound). The Joern tier never demotes anything — `no_call_sites_found`
+- **Only Go classifies a negative**: govulncheck's `not_observed` sets the
+  impact classification. It is evidence, not proof. "No call path" misses
+  dynamic calls (reflection, `plugin`, `go:linkname`, cgo), a library's
+  importers, other GOOS/GOARCH or build tags, and incomplete advisory symbol
+  lists. So it never eliminates an advisory on its own; see
+  [Severity authoring](report-structure.md#severity-authoring). The Joern
+  tier never demotes anything — `no_call_sites_found`
   is recorded honestly and the classification stays where the cheaper tiers
   put it.
 
@@ -68,9 +73,12 @@ nothing in the impact pipeline invokes it, for the reason in the note above.
 
 - **`/impact-analysis`** — classification per the ladder above; CVE
   blast-radius sweeps.
-- **`/secure-code-audit` Precision Gate** — a critical/high Go dependency-CVE
-  finding may not be filed without govulncheck symbol-mode evidence;
-  manifest-only matches downgrade to `dependency_audit`.
+- **`/secure-code-audit`, `/secure-container-audit`, `/secure-rpm-audit`
+  dependency gate**: single-commit impact-analysis per scanner match, filed
+  by its classification. `version_not_in_range` and `not_imported` make the
+  match not affected; everything else, `not_observed` included, is a finding
+  at the published score
+  ([Dependency and advisory findings](report-structure.md#dependency-and-advisory-findings-affected-or-not-affected)).
 - **`/triage`** — two paths: a SHA-matched `<repo>-govulncheck.json` beside
   the baseline feeds matched findings a `DEPENDENCY-REACHABILITY` block as
   **annotation-only** verifier context (no vote-count changes); and

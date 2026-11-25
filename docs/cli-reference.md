@@ -43,7 +43,7 @@ python3 -m traust.cli check skill-alignment      # equivalent
 | `registry` | Model/product registry and the recorded product map | `models`, `product-map`, `products` |
 | `remediation` | The remediation loop's doors on traust-core (remediate-finding, patch, property-test, fleet-fix, verify-remediation) | `assemble`, `candidates`, `fleet-approve`, `fleet-claim`, `fleet-record`, `fleet-submit`, `fleet-targets`, `fork`, `mutation-evidence`, `next`, `open`, `prepare`, `progress`, `property-evidence`, `record`, `verifications`, `verify-differential`, `verify-prepare`, `verify-record`, `verify-sweep`, `work-items` |
 | `repo` | A commit's files through core's checkout service (the mirror cache): prints the workspace path, for skills and hand runs | `checkout` |
-| `reporting` | Report validation, rendering & recording | `lint`, `rate-threats`, `record`, `render`, `sarif`, `validate` |
+| `reporting` | Report validation, rendering & recording | `lint`, `rate-cvss`, `rate-threats`, `record`, `render`, `sarif`, `validate` |
 | `session` | Headless skill sessions and artifact-only task preparation/recording | `prepare`, `record`, `run` |
 | `tools` | One door over traust-core's tool registry: each registered tool's readiness, version and database; one tool over a checkout, SBOM, image or symbols, its typed result as JSON | `list`, `run` |
 | `triage` | The triage skill's doors on traust-core | `check`, `intake`, `prepare`, `record`, `render` |

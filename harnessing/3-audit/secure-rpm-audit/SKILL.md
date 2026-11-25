@@ -1,6 +1,6 @@
 ---
 name: secure-rpm-audit
-description: Use when the user asks to perform a security audit, security review, or vulnerability assessment of an RPM packaging repository (CentOS Stream / Fedora / RHEL dist-git) — a repo containing a .spec file, downstream patches, and a sources lookaside manifest — using OWASP ASVS, the SEI CERT C/C++ Coding Standards, Fedora Packaging Guidelines, SLSA, and OpenSSF Scorecard. Omits unauthored validity answers; authors canonical remediation sizes or explicit unknowns, independent blocking, and explicit roadmap priorities through Core's report record door.
+description: Use when the user asks to perform a security audit, security review, or vulnerability assessment of an RPM packaging repository (CentOS Stream / Fedora / RHEL dist-git) — a repo containing a .spec file, downstream patches, and a sources lookaside manifest — using OWASP ASVS, the SEI CERT C/C++ Coding Standards, Fedora Packaging Guidelines, SLSA, and OpenSSF Scorecard. Omits unauthored validity answers; authors canonical remediation sizes or explicit unknowns, independent blocking, and explicit roadmap priorities through Core's report record door. Severity is the band of the finding's score (its CVSS vector, or a published advisory's selected authority score); no gate re-rates it.
 metadata:
   harness.tier: "primary"
 ---
@@ -112,7 +112,7 @@ The dist-git repository contains packaging metadata only. To audit the code that
 
    If the lookaside fetch fails, fall back to the literal URL given in the corresponding `SourceN:` line of the spec.
 
-4. **Verify integrity.** Compute the SHA512 of every fetched artifact and compare it against the `sources` manifest. Any mismatch is a **Critical** finding (`RPM06`, CWE-494). Any `SourceN` tarball that is **not listed** in `sources` at all is a **High** finding.
+4. **Verify integrity.** Compute the SHA512 of every fetched artifact and compare it against the `sources` manifest. Any mismatch is a finding (`RPM06`, CWE-494), and so is any `SourceN` tarball **not listed** in `sources` at all. Both are always filed; severity is the calculator's band for a vector chosen by FIRST's definitions, with a CVSS basis per metric ([Severity authoring](../../../docs/report-structure.md#severity-authoring)).
 
 5. **Build the prepared tree.** Extract the primary tarball (`Source0`) into a working directory and apply every `PatchN` in numeric order using the strip level indicated by `%prep`. If secondary sources (`Source1..N`) are vendored dependency bundles (e.g. `vendor-*.tar.gz`, `Cargo-*.lock`, `node_modules-*.tar.gz`), extract them alongside `Source0` so dependency scanners can reach them.
 
@@ -163,12 +163,15 @@ prepared source tree. Measured basis: the leg-2 FP-persistence analysis
 traced 1 of 38 recurring adjudicated FPs to this skill, and the
 sibling-skill portage gap was the dominant recurrence path overall
 (19/38). Apply these gates to **every candidate finding before filing
-it**. The posture is **downgrade-not-drop**: a fired gate moves the
-observation to `dependency_audit`, `negative_results`, or a lower
-severity with the gate's evidence stated — it never silently
+it**. The posture is **file-or-drop, never re-rate**: a gate decides whether a
+candidate is filed, never its severity. A gate that fires on affirmative
+evidence moves the observation to `dependency_audit` or
+`negative_results` with that evidence stated — it never silently
 disappears. When a gate's precondition cannot be established within
-budget, file at reduced severity with the uncertainty named rather than
-suppressing.
+budget, file the finding at its severity with the open question named for
+`/triage`. Severity is always the band of the finding's score
+([Severity authoring](../../../docs/report-structure.md#severity-authoring)); only `/impact-analysis`, `/triage`, live validation and fuzzing change it
+later, and for an advisory-backed finding only on recorded evidence.
 
 **Gate-application record (mandatory).** Every report records
 `metadata.additional.precision_gates` — the same contract as
@@ -180,7 +183,7 @@ suppressing.
   "fired": [
     {"candidate": "<short title or finding id>",
      "gate": "<gate name from this section>",
-     "action": "downgraded|negative_results|dependency_audit"}
+     "action": "negative_results|dependency_audit"}
   ]
 }
 ```
@@ -193,44 +196,45 @@ incomplete audit.
 
 ### Dependency and advisory gate (vendored bundles & NVR matches)
 
-Before filing any dependency/version-match finding at critical/high:
+Every scanner-matched dependency/version-match candidate, including a bundled
+library's advisory-lag (RPM08), is either recorded not affected or filed,
+unverified, at the advisory's selected authority band ([Severity authoring](../../../docs/report-structure.md#severity-authoring)), following [Dependency and advisory findings: affected or not affected](../../../docs/report-structure.md#dependency-and-advisory-findings-affected-or-not-affected). Attach as evidence:
 
-1. **Vendored-source reachability** — the affected module/symbol must
-   actually be compiled into (or shipped by) a built RPM: a CVE match
-   in a vendored lock/manifest entry (RPM08 bundles) whose code the
-   `%build` never compiles or links, a feature disabled by
-   `%bcond`/configure flags, a subpackage not built for this stream, or
-   a Go/Rust module outside the built binaries' dependency closure
-   (govulncheck symbol/binary mode where feasible) is
-   `dependency_audit`-only. Open-ended `< fixed` advisory ranges
-   over-match versions that predate the vulnerable feature. For C/C++
-   prepared source trees, python3 -m traust.cli adapters joern
-   --language c (the /impact-analysis Joern tier, v0.232.0) can
-   supply call-site facts for advisory-named functions —
-   promotion-only evidence with the standard asymmetry (a found call
-   strengthens "compiled in AND called"; an absent call proves
-   nothing — C function pointers hide edges), lines approximate,
-   caller function authoritative.
-2. **Vendor applicability / downstream backports** — native ground for
-   RPMs: **check the patch stack and `%changelog` for the CVE id before
-   filing "version X is vulnerable to CVE-Y"** — downstream backports
-   behind old `Version:` strings defeat NVR matching by design. Check
-   Red Hat CSAF/OVAL for the exact stream: not-affected statements and
-   platform qualifiers suppress. Suppress only on **affirmative**
-   evidence (an applied patch, a vendor statement); absence of an
-   erratum is not safety.
-3. **Manifest-only lint** — a finding whose only location is a lock
-   file, the `sources` manifest, or a `SourceN:`/`Provides: bundled()`
-   line is a `dependency_audit` entry, never a crit/high finding on its
-   own. (RPM06 integrity failures — digest mismatch, unlisted tarball —
-   are not version matches; their mandated severities stand.)
+1. **Tool data and applied backports:** the installed version against
+   each source's range; Red Hat CSAF/VEX not-affected statements for this
+   product; fixed NVRs, compared with the NVR this commit builds; and
+   downstream patches. Backports behind old `Version:` strings defeat NVR
+   matching by design.
+2. **Single-commit impact-analysis** for a vendored bundle in an ecosystem
+   it covers (Go, npm, PyPI, Maven, Cargo, RubyGems, NuGet), against the
+   upstream repository and commit the spec pins. That row is **context
+   only**: downstream patches and bundled archives change what ships, so an
+   upstream row never makes the match not affected. With no pinned
+   upstream commit, or for C/C++ and distro packages, record
+   `deterministic_steps["impact-analysis"]: "skipped: <reason>"` with a
+   coverage gap.
 
-Boundaries this gate must NOT suppress: symbol-reachable CVE-grade
-defects including algorithmic-complexity DoS; **known-CVE bundled
-libraries with no downstream patch** — once vendored, a bundled library
-is first-party shipped code and its advisory-lag keeps severity
-(RPM08); reachability-undeterminable cases (file medium with the
-reachability question stated).
+The match is **not affected**, recorded as an entry in the report's
+`not_affected` section with its `dependency` block and rationale, on one of:
+- a Red Hat not-affected statement for this product;
+- a fixed NVR at or before the NVR this commit builds;
+- a downstream patch that `%prep` applies and that changes the vulnerable
+  code in the prepared tree, cited by patch and hunk.
+
+A patch file name or `%changelog` line that only names the CVE is context
+in the finding's description, never grounds for elimination.
+Every other match is a finding, and `/triage` and live validation try to
+disprove it. A reading that
+`%build` never compiles a module, that a `%bcond` disables a feature, or that
+a Joern call-site search found nothing goes in the description, never into a
+drop or a lower band. A found call site
+(`python3 -m traust.cli adapters joern --language c`) may be cited too.
+(RPM06 integrity failures — digest mismatch, unlisted tarball — are not
+version matches; they are always filed, scored on their own vector.)
+
+Boundary: **known-CVE bundled libraries with no downstream patch** — once
+vendored, a bundled library is first-party shipped code and its
+advisory-lag keeps its band (RPM08).
 
 ### Scoped-shipment reachability (packaging analog of scoped-baseline)
 
@@ -239,9 +243,10 @@ closure; the packaging analog is the **built-RPM closure**. A defect in
 upstream source that provably never reaches any built subpackage — the
 file is deleted or excluded in `%prep`/`%install`, appears in no
 `%files` list, is compiled only for an arch/OS this stream does not
-build, or is removed by a downstream patch — files as an **upstream
-note at informational** with the exclusion cited (spec line, patch
-hunk), never deleted: it stays valid for the upstream cut. Guardrail:
+build, or is removed by a downstream patch — is a `negative_results`
+entry with the exclusion cited (spec line, patch hunk), naming the
+defect and that it stands for the upstream cut: never deleted, and
+never filed at a lower severity. Guardrail:
 "probably not shipped" is not evidence — this gate needs the
 affirmative spec/patch citation; when the closure cannot be established
 within budget, keep the finding at severity with the question named.
@@ -252,8 +257,8 @@ A file that ships can still have a non-production execution context:
 upstream CI/test/example content packaged only into `-tests`/`-doc`
 subpackages, dev-mode-gated paths, or dead code with zero production
 callers (verify with a caller search, not by naming convention). Any of
-these → downgrade to `informational` with the gating condition or
-caller-search result cited. Boundaries that keep full severity, as in
+these → a `negative_results` entry citing the gating condition or
+caller-search result, never a lower-rated finding. Boundaries that keep full severity, as in
 the source skill: a dev toggle enable-able in production by a
 less-privileged principal, a silent/undocumented fallback into the dev
 path, and "dev" artifacts that in fact ship in the main package.
@@ -271,7 +276,7 @@ Every critical/high candidate must pass all of:
    unit sandboxing shipped in this repo before claiming a control
    absent. A control located = `negative_results` entry citing it; a
    control living outside this package (kernel, crypto-policies, SELinux
-   policy) = downgrade to medium (deployment-contingent) and note the
+   policy) = file at its severity (deployment-contingent) and note the
    ownership routing (see the crypto-analysis section's
    `resolved_owner`). A control OFF in shipped default config does
    **not** defuse the finding.
@@ -280,44 +285,49 @@ Every critical/high candidate must pass all of:
    controls (a world-writable path consumed by `%post`, an unvalidated
    symlink target), not merely "the scriptlet runs commands as root".
    Env vars and CLI flags are operator-controlled. Uncertain
-   equivalence → medium, not suppression.
+   equivalence → file at its severity with the question named, not
+   suppression.
 3. **By-design / opt-in check** — packaging constructs sanctioned by
    the Fedora Packaging Guidelines with an in-repo citation (a
    documented setuid helper carrying a guideline exception, `%caps`
-   grants that are the package's documented function) are hardening
-   notes (`informational`), not vulnerabilities — "looks intentional"
-   is insufficient. The severity floor stays when the insecure mode is
-   ON by default in shipped config, settable by a less-privileged
+   grants that are the package's documented function) are not
+   vulnerabilities: a `negative_results` entry or an unscored
+   `informational` note filed separately; the gate's action is
+   `negative_results`. Never a lower-rated vulnerability. "Looks
+   intentional" is insufficient. It is filed as a vulnerability, scored on its
+   vector, when the insecure mode is ON by default in shipped config, settable by a less-privileged
    principal than those endangered, a silent fallback, or a
    cross-tenant boundary violation.
 4. **Chain completion at critical** — a critical must show every
    mandatory step of its chain succeeding at the pinned dist-git ref:
    for prepared-source findings, a traced untrusted flow to the sink in
    code that ships; for RPM09 build-time findings, the network/privilege
-   actually exercised in the build path. A broken step downgrades to
-   medium — never suppresses a demonstrated defect.
+   actually exercised in the build path. A step you cannot show is
+   named in the description for `/triage`; it never lowers severity. A
+   step affirmatively refuted means the chain is not real: record it in
+   `negative_results` with the evidence, and file any defect that
+   remains as its own finding at its own band — never suppress a
+   demonstrated defect.
    **Non-applicability**: for packaging-configuration findings whose
    evidence is the spec construct itself (RPM02 modes/capabilities,
    RPM03 hardening overrides, RPM04 unit hardening, RPM06 integrity)
    the construct IS the complete evidence — no chain demand applies,
-   and this rule must not be used to downgrade them.
+   and this rule must not be used to drop them.
 5. **No investigation leads as findings** — "should be
    checked/reviewed" rationales and hypothetical-caller misuse are
    audit leads. A finding requires a traced untrusted flow to the sink
    in the prepared tree, or the concrete spec/patch construct.
-   High-value sink with plausible-but-untraced input → medium,
-   omit `validation_status`, with the untraced hop named.
+   High-value sink with plausible-but-untraced input → file at its
+   vector's band, omit `validation_status`, with the untraced hop named.
 
-**Severity floors (identical to `/secure-code-audit`'s)** —
+**Verification-disable and credential-transport (as in `/secure-code-audit`)** —
 **verification-disable** (a downstream patch removing certificate,
 signature, or bounds verification (RPM07); `%_disable_source_fetch 0`
 or unverified build-time downloads (RPM06/RPM09); TLS verification
 disabled in shipped code or config) and **credential-transport**
 (credentials, tokens, or session material on plaintext channels, in
-URLs, or in logs) are rated `high` at minimum regardless of chain
-completeness. The floor lifts only on a gate suppression with
-affirmative evidence — document the gate evidence, never quietly rate
-below the floor.
+URLs, or in logs) are filed whatever their chain completeness, with no severity floor: severity is the calculator's band for a vector chosen by FIRST's definitions, with a CVSS basis per metric ([Severity authoring](../../../docs/report-structure.md#severity-authoring)). They are suppressed only on a gate
+decision with affirmative evidence; document the gate evidence.
 
 ### Shipped-artifact and mechanism checks
 
@@ -325,8 +335,9 @@ below the floor.
    built RPM: named in `%files` (or installed by `%install`), not
    upstream test/example/doc content excluded from every subpackage,
    not placeholder secrets (`REPLACE-WITH`, truncated `...` values,
-   strings matching upstream doc examples). Example hygiene →
-   `informational`; unshipped → `negative_results`. **Live functional
+   strings matching upstream doc examples). Example hygiene → an
+   unscored `informational` hygiene note, never a lower-rated finding;
+   unshipped → `negative_results`. **Live functional
    credentials keep full severity wherever they sit.**
 2. **Mechanism verification** — verify the claimed mechanism against
    the actual runtime/toolchain at the pinned version. Packaging
@@ -360,7 +371,7 @@ Do not require a pre-filing match, downgrade on an
 unavailable match, or add an `"fp-precedent"` entry to
 `precision_gates.fired`. Human-countersigned matches reduce triage votes,
 never skip verification; machine matches are context only with full votes.
-Any supported downgrade-not-drop decision belongs in the new triage
+Any supported severity or disposition change belongs in the new triage
 determination after independent verification, not in a retroactive edit
 to this audit's findings, `dependency_audit` or gate metadata. A match
 never supplies an automatic false-positive verdict.
@@ -448,7 +459,7 @@ When the prepared source tree contains C or C++ code, assess it against the [SEI
 | **CERT C++** | `CTR` / `STR` (Containers & Strings) | Iterator invalidation after container mutation, out-of-range element access, forming pointers/references past the end, range errors on `std::string`/`std::string_view` (`CTR51-CPP`, `CTR52-CPP`, `STR53-CPP`) |
 | **CERT C++** | `ERR` / `CON` (Errors & Concurrency) | Exceptions escaping destructors or `noexcept` functions, catching by value, unjoined/un-detached `std::thread`, data races and deadlocks on shared state (`ERR50-CPP`, `ERR58-CPP`, `CON50-CPP`, `CON52-CPP`) |
 
-For each finding, record the specific CERT rule ID (e.g. `STR31-C`, `MEM51-CPP`) in the finding's `category` field alongside the mapped CWE. Use the CERT risk-assessment triple (Severity / Likelihood / Remediation Cost) to inform the finding's `severity` and CVSS score, and note in the `description` whether any downstream `.patch` already mitigates the issue.
+For each finding, record the specific CERT rule ID (e.g. `STR31-C`, `MEM51-CPP`) in the finding's `category` field alongside the mapped CWE. The CERT risk-assessment triple (Severity / Likelihood / Remediation Cost) may be quoted in the `description` as context, but it never sets a metric: choose each CVSS metric by FIRST's definitions with a basis per metric, and the finding's `severity` is the calculator's band for that vector ([Severity authoring](../../../docs/report-structure.md#severity-authoring)), and note in the `description` whether any downstream `.patch` already mitigates the issue.
 
 ### RPM Packaging Security (Spec File & Dist-Git Artifacts)
 
@@ -679,6 +690,7 @@ After writing the JSON report, **you must validate it** before considering the r
 **Step 1 — Run the validator:**
 
 ```bash
+python3 -m traust.cli reporting rate-cvss <path-to-report.json>   # the CVSS calculator fills cvss.score and severity
 python3 -m traust.cli reporting validate <path-to-report.json>
 ```
 

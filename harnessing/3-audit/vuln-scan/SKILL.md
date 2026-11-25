@@ -16,6 +16,7 @@ description: >-
   building, running, or network. Use when asked to "scan for vulns",
   "review this code for security issues", "find bugs in <dir>", "re-sweep
   an audited repo", or as the step between /threat-model and /triage.
+  Gates lower confidence, never severity.
 argument-hint: "<target-dir> [--diff [--since <commit>] [--baseline-assessment <id>]] [--focus <area>] [--single] [--extra <file>] [--no-score]"
 user-invocable: true
 metadata:
@@ -49,6 +50,8 @@ allowed-tools:
   # execution. Scope every script individually — the A11 alignment gate
   # (python3 -m traust.cli check skill-alignment) blocks broad entries.
   - Bash(python3 *-m traust.cli reporting validate:*)
+  # the CVSS calculator: scores a FIRST vector (`--vector`), never authors one
+  - Bash(python3 *-m traust.cli reporting rate-cvss:*)
   - Bash(python3 *-m traust.cli adapters checkov:*)
   - Bash(python3 *-m traust.cli adapters opengrep:*)
   - Bash(python3 *-m traust.cli adapters llm-app:*)
@@ -580,7 +583,8 @@ OUTPUT — one block per finding, nothing else:
 <line>{line_number}</line>
 <category>{heap-buffer-overflow | use-after-free | integer-overflow | sql-injection | command-injection | path-traversal | deserialization | xss | auth-bypass | hardcoded-secret | ...}</category>
 <cwe>{primary CWE for the category, e.g. CWE-122; omit only if genuinely none fits}</cwe>
-<severity>{critical | high | medium | low | informational}</severity>
+<cvss_vector>{for an advisory-backed finding, the selected authority's vector verbatim, in whatever version it publishes (CVSS 3.0, 3.1 or 4.0); otherwise a full CVSS:3.1/... vector, each metric chosen by FIRST's definitions; "none" only for an informational note}</cvss_vector>
+<cvss_basis>{one line per Base metric of the vector's version: "AV:N — <file:line or config evidence>"; mark a metric the code can't settle "unsettled" and take the reasonable worst case FIRST's guidance describes; for an advisory vector, the authority and where you read it}</cvss_basis>
 <confidence>{0.0-1.0}</confidence>
 <title>{one line}</title>
 <description>{root cause, attacker control, trigger condition, data flow from entry to sink. Cite line numbers.}</description>
@@ -595,20 +599,19 @@ anything else is a finding or nothing:
 
 <surface id="{credential-acceptance | ownership-resolution | security-flags | outbound-fetch | stored-content-integrity | scope-enforcement | llm-integration}">{what you examined: files, call sites or the exact search pattern, and the result}</surface>
 
-SEVERITY — use the harness's shared five-level scale (same enum as
-secure-code-audit and triage):
-  critical      = exploitable by an unauthenticated or low-privilege
-                  attacker with severe impact: RCE, cluster/host
-                  compromise, secrets disclosure, cross-tenant access
-  high          = directly exploitable with significant impact, or
-                  critical impact gated by one realistic precondition
-                  (authenticated user, non-default-but-common config)
-  medium        = exploitable only under specific conditions, or
-                  significant impact requiring privileged position
-  low           = defense-in-depth gap or limited-impact issue with a
-                  concrete but weak attack story
-  informational = no direct security impact; worth recording (e.g.
-                  dangerous pattern currently unreachable)
+CVSS — FIRST's logic, never a judgment of "how bad". For an
+advisory-backed finding, copy the selected authority's vector verbatim in
+the version it publishes; the calculator scores 3.0, 3.1 and 4.0. Never
+translate it to another version. For any other finding, choose each Base
+metric of CVSS v3.1 (AV, AC, PR, UI, S, C, I, A) by its definition in
+FIRST's v3.1 specification, from the code you traced. Give every metric a basis line
+citing the evidence. Never choose a metric to reach a band, and never write
+a score or a severity word: the orchestrator scores your vector with the
+CVSS calculator. Deployment context, a control elsewhere, or a chain step
+you couldn't show never lowers a metric; name it in the description. When
+the code can't settle a metric, take the reasonable worst case and mark it
+unsettled. A pattern with no direct security impact is an informational
+note: cvss_vector "none". ([Severity authoring](../../../docs/report-structure.md#severity-authoring))
 
 If you find nothing reportable in your area after a thorough read, emit a
 single <finding> with category=none and a one-line note of what you covered.
@@ -618,6 +621,21 @@ single <finding> with category=none and a one-line note of what you covered.
 
 1. Collect `<finding>` blocks from all subagents. Drop `category=none`
    placeholders.
+1a. **Score every vector with the calculator** (FIRST's formulas, never a
+   judgment):
+   `python3 -m traust.cli reporting rate-cvss --vector '<cvss_vector>'`.
+   Write the finding's `cvss` block as `{"vector": <cvss_vector>, "score":
+   <the score it returns>}`, set `severity` to the band it returns, and add
+   the `CVSS basis` lines to the description. The basis has no structured
+   field yet (remediation plan step 2). An advisory-backed finding also
+   carries the report's `dependency` block (`advisory`, `module`,
+   `ecosystem`, `installed_version`, and the impact row's `classification`,
+   `evidence_level` and `impact_artifact` when one exists), in the same
+   shape as `finding.dependency` ([Severity authoring](../../../docs/report-structure.md#severity-authoring)).
+   A vector of `none` is `informational` and has no `cvss`. A vector the calculator refuses
+   goes back to its subagent once for a valid one. If it is still invalid,
+   the finding files at `medium` with the description saying it is
+   unscored, for `/triage`. A finding is never dropped for a bad vector.
 2. **Baseline dedupe** (when a baseline audit was found) — a candidate that
    matches a baseline finding (same file and same weakness class, at or
    near the same lines) is **known, not new**: remove it from the findings
@@ -693,9 +711,16 @@ DO-NOT-REPORT list is the measured FP-prevention record (zero
 triage-refuted FPs historically) and **stays authoritative where it
 overlaps** — nothing below duplicates or weakens it. Consistent with
 this skill's contract ("this skill never drops a finding"), a fired
-gate **downgrades severity** (and lowers confidence) with the gate's
-evidence appended to the finding description — downgrade-not-drop,
-exactly the source skill's posture; removal remains `/triage`'s job.
+gate **never changes severity**: it lowers `confidence` and appends the
+gate's evidence to the finding description and `confidence_reason`.
+Severity stays the calculator's band for the finding's vector (Step 3,
+1a); for an advisory-backed finding, the selected authority's vector and
+band ([Severity authoring](../../../docs/report-structure.md#severity-authoring)). The finding's
+structured `cvss` and `dependency` blocks carry the vector, score and
+advisory, where `/triage` and Core read them. Only
+`/impact-analysis`, `/triage`, live validation and fuzzing change it later, and
+for an advisory-backed finding only on recorded evidence; removal
+remains `/triage`'s job.
 
 Apply to every candidate still rated critical or high after Step 3:
 
@@ -704,36 +729,42 @@ Apply to every candidate still rated critical or high after Step 3:
    under RPC stubs, ingress validators, sibling middleware/plugins,
    response/event filters, and shipped deployment manifests in this
    repo. Grep the enforcement primitive by name before claiming
-   absence. A control located in-repo → downgrade with the citation; a
-   control that exists only cross-repo → medium
-   (deployment-contingent). A control that is OFF in shipped default
+   absence. A control located in-repo → lower confidence with the
+   citation; a control that exists only cross-repo → lower confidence,
+   naming the control (deployment-contingent). A control that is OFF in shipped default
    config does **not** defuse the finding.
 2. **Privilege-delta test** — state what the attacker's prerequisite
    position already grants and verify the finding adds capability.
    Confused deputies gated as strongly as the deputized action,
    admin-only config sinks, and repo-write→code-exec preconditions fail
    this test. Audit-evasion, persistence, and cross-tenant movement are
-   real deltas. Uncertain equivalence → medium, not suppression.
+   real deltas. Uncertain equivalence → lower confidence with the
+   question named, never severity.
 3. **By-design / opt-in check** — privilege that is the component's
    documented core function (with an in-repo README/manifest/doc
    citation — "looks intentional" is insufficient), and insecure
    behavior behind an explicit admin-set flag that defaults secure and
-   is documented, downgrade to `informational` hardening notes. The
-   severity floor stays when the insecure mode is ON by default in
+   is documented, lower confidence and name it a by-design candidate
+   for `/triage`. It stays
+   a full-confidence candidate when the insecure mode is ON by default in
    shipped config, settable by a less-privileged principal than those
    endangered, a silent fallback, or a cross-tenant boundary violation.
 4. **Chain completion at critical** — a critical must show every
    mandatory step of its chain succeeding at the scanned ref. A broken
-   step downgrades to medium — never below what the surviving evidence
-   supports, and never suppresses a demonstrated defect. **Severity
-   floors (identical to `/secure-code-audit`'s)**:
+   step lowers confidence, naming the step — never severity, and never
+   suppresses a demonstrated defect. **Verification-disable
+   and credential-transport (as in `/secure-code-audit`)**:
    **verification-disable** (TLS/certificate verification disabled or
    skippable, signature/checksum verification bypassed, authentication
    disablable by silent fallback) and **credential-transport**
    (credentials, tokens, or session material on plaintext channels, in
-   URLs, logs, or redirect targets) stay `high` at minimum regardless
-   of chain completeness — the floor lifts only on affirmative gate
-   evidence, documented in the finding.
+   URLs, logs, or redirect targets) are filed whatever their chain
+   completeness, with no severity floor: as for every finding, severity is
+   the calculator's band for a vector chosen by FIRST's definitions
+   ([Severity
+   authoring](../../../docs/report-structure.md#severity-authoring)).
+   They are suppressed only on affirmative gate evidence, documented in
+   the finding.
 
 **Shared-component precedent handoff (post-record, not a scan-time gate).**
 For candidates in vendored/shared code (`vendor/`, `third_party/`,
@@ -752,7 +783,7 @@ Do not rewrite the scan artifact or invent another intake command.
 verification routing and subsequent adjudication. Human-countersigned
 matches reduce votes but never skip verification; machine matches are
 context only with full votes. A match never supplies an automatic
-false-positive verdict. Any supported downgrade-not-drop decision is
+false-positive verdict. Any supported severity or disposition change is
 recorded in the new triage determination after independent verification,
 not by retroactively changing this scan's findings or gate metadata.
 Do not add an `"fp-precedent"` entry to `precision_gates.fired`.
@@ -766,17 +797,19 @@ contract as `/secure-code-audit`'s:
   "fired": [
     {"candidate": "<finding id or title>",
      "gate": "<rule name from this step>",
-     "action": "downgraded"}
+     "action": "confidence_lowered"}
   ]
 }
 ```
 
-`crit_high_evaluated` counts every critical/high candidate (kept or
-downgraded); `fired` lists each rule that changed a disposition (an
-empty list is a legitimate value). In this skill's shape the only
-`action` is `"downgraded"` — nothing is dropped or rerouted (the
-source skill's `negative_results`/`dependency_audit` actions have no
-section in this output). A scan that emits crit/high findings with no
+`crit_high_evaluated` counts every critical/high candidate the gates
+examined; `fired` lists each gate that fired, with `action:
+"confidence_lowered"` — the only action in this skill: nothing is dropped,
+rerouted or re-rated (the source skill's `negative_results` /
+`dependency_audit` actions have no section in this output). The gate's
+evidence also goes in the finding's `confidence_reason`. `confidence_lowered`
+is this skill's own value; the vuln-findings output isn't validated against
+the audit report's gate-action vocabulary. A scan that emits crit/high findings with no
 `precision_gates` block is incomplete.
 
 **Coverage-note precision** (the source skill's `negative_results` rule,
@@ -826,6 +859,7 @@ convention as `<repo>-security-audit.{json,md}` and
       "category": "heap-buffer-overflow",
       "cwe": "CWE-122",
       "severity": "high",
+      "cvss": {"vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:L/A:H", "score": 8.6},
       "confidence": 0.9,
       "title": "...",
       "description": "...",
