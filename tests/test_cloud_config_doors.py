@@ -374,6 +374,7 @@ def test_record_binds_the_audit_to_its_leased_order(home: Path, tmp_path: Path) 
     order = services.ops.submit(
         OrderRequest(asset="cloud_config_audit", priority=1, repository_id=repo.id), operator
     )
+    services.ops.admit(order.id)  # the engine's admission tick queues the planned order
     services.ops.claim(WorkerId("machine:runner"), timedelta(minutes=5), order_id=order.id)
     report = str(a_report(tmp_path))
 
