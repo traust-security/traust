@@ -621,11 +621,15 @@ single <finding> with category=none and a one-line note of what you covered.
 1a. **Score every vector with the calculator** (FIRST's formulas, never a
    judgment):
    `python3 -m traust.cli reporting rate-cvss --vector '<cvss_vector>'`.
-   Set `severity` to the band it returns, and add to the description a
-   `CVSS: <vector> (<score>)` line followed by the `CVSS basis` lines.
-   The vuln-findings schema gains a structured `cvss` field when traust
-   pins traust-contracts `847e012`; until then the description carries it.
-   A vector of `none` is `informational`. A vector the calculator refuses
+   Write the finding's `cvss` block as `{"vector": <cvss_vector>, "score":
+   <the score it returns>}`, set `severity` to the band it returns, and add
+   the `CVSS basis` lines to the description. The basis has no structured
+   field yet (remediation plan step 2). An advisory-backed finding also
+   carries the report's `dependency` block (`advisory`, `module`,
+   `ecosystem`, `installed_version`, and the impact row's `classification`,
+   `evidence_level` and `impact_artifact` when one exists), in the same
+   shape as `finding.dependency` ([Severity authoring](../../../docs/report-structure.md#severity-authoring)).
+   A vector of `none` is `informational` and has no `cvss`. A vector the calculator refuses
    goes back to its subagent once for a valid one. If it is still invalid,
    the finding files at `medium` with the description saying it is
    unscored, for `/triage`. A finding is never dropped for a bad vector.
@@ -708,10 +712,9 @@ gate **never changes severity**: it lowers `confidence` and appends the
 gate's evidence to the finding description and `confidence_reason`.
 Severity stays the calculator's band for the finding's vector (Step 3,
 1a); for an advisory-backed finding, the selected authority's vector and
-band ([Severity authoring](../../../docs/report-structure.md#severity-authoring)). Until traust pins the contracts that give
-vuln-findings structured `cvss` and `dependency` fields, quote the advisory
-id, its selected vector and score in the description, where `/triage` reads
-them. Only
+band ([Severity authoring](../../../docs/report-structure.md#severity-authoring)). The finding's
+structured `cvss` and `dependency` blocks carry the vector, score and
+advisory, where `/triage` and Core read them. Only
 `/impact-analysis`, `/triage`, live validation and fuzzing change it later, and
 for an advisory-backed finding only on recorded evidence; removal
 remains `/triage`'s job.
@@ -853,6 +856,7 @@ convention as `<repo>-security-audit.{json,md}` and
       "category": "heap-buffer-overflow",
       "cwe": "CWE-122",
       "severity": "high",
+      "cvss": {"vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:L/A:H", "score": 8.6},
       "confidence": 0.9,
       "title": "...",
       "description": "...",
