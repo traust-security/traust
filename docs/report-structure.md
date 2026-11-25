@@ -173,20 +173,32 @@ apply to new reports; historical reports are not rewritten.
   authority's score you have, with its source, in the description. An
   advisory that no source scores, the scanner included, files at `medium`
   with the description saying it is unscored.
-- **Stated exceptions, pending an owner decision:** the severity floors
-  (verification-disable and credential-transport findings at least `high`)
-  and RPM06's mandated severities (a digest mismatch Critical, an unlisted
-  tarball High) set severity by rule. Until the owner decides, those findings
-  keep the floor, and the description names it as the reason the label
-  differs from the calculator's band.
+- **FIRST's logic, at all times.** Choose every Base metric by FIRST's
+  definitions in the CVSS v3.1 (or 4.0) specification, from the evidence
+  for this finding. Record a **CVSS basis** in the description: one line
+  per Base metric giving its value and the evidence it rests on (`file:line`,
+  a config key, the shipped artifact). Never choose a metric to reach a
+  band; `rate-cvss` computes the score and band. When the evidence can't
+  settle a metric, take the reasonable worst case FIRST's guidance
+  describes and mark that line `unsettled`; a metric is never lowered for
+  lack of proof. For an advisory-backed finding, the basis is the selected
+  authority's vector, cited.
+- **No floors, no fixed severities.** No class of finding has a minimum
+  or a mandated severity; the calculator's band prevails. Filing doesn't
+  depend on the band. Verification-disable and credential-transport
+  findings, and RPM06 integrity failures, are always filed and are exempt
+  from the chain-completion demand. A novel vulnerability is filed and
+  scored on its own evidence; nothing waits for a CVE, a published score
+  or a complete exploit chain.
 - **The audit never changes a severity.** Reachability, deployment context,
   restricted SCCs, a compensating control elsewhere, a required prior
   compromise or plain uncertainty never lower it. A Precision Gate decides
   only whether a candidate is filed: with affirmative evidence it moves to
   `dependency_audit` or `negative_results`; otherwise the finding is filed at
   its band, with the open question named in the description for `/triage`.
-- **Who changes it later:** only `/impact-analysis`, `/triage` and live
-  validation (`/validate-findings` and its siblings), through Core's decision
+- **Who changes it later:** only `/impact-analysis`, `/triage`, live
+  validation (`/validate-findings` and its siblings) and fuzzing
+  (`/create-fuzzing`), through Core's decision
   doors, never by editing the report, and only on evidence. For an
   advisory-backed finding, evidence is a recorded artifact bound to the
   finding, its commit and its dependency version, or a code citation
@@ -202,10 +214,11 @@ apply to new reports; historical reports are not rewritten.
   | `classification: version_not_in_range` or `not_imported`; a vendor not-affected statement; a shipped NVR at or past the fixed NVR | not affected. In an audit, a `not_affected` entry; in triage, `false_positive` with `refute_reasons: ["bound_evidence"]` citing the artifact (triage's verdicts have no `not_affected` yet) |
   | Code citations showing a precondition or control that changes how the vulnerability can be exploited here | triage proposes a CVSS Environmental vector, each modified metric citing its evidence, in the rationale. The severity changes only when Core scores that vector with the CVSS calculator and admits the decision (remediation plan step 7); until then the band stands |
   | A live-validation result | the validation's verdict, at the band of the vector it records |
+  | A challenge to the vector: changed metrics, up or down, each citing its evidence (a `file:line` citation the lint verifies, a validation result, a fuzzing crash with its reproducer) | for a finding not backed by an advisory, a corrected Base vector; for an advisory-backed finding, an Environmental vector, since the published Base vector stands. Core scores the proposed vector with the calculator and admits it only on that evidence (remediation plan step 7). A metric marked `unsettled` is the first one to test |
 
   An audit applies the first row itself, recording the match as not
   affected (see the next section); the code-citation and validation rows
-  belong to triage and live validation. `likely_affected`, `inconclusive`,
+  belong to triage, live validation and fuzzing. `likely_affected`, `inconclusive`,
   and `not_observed` at any evidence level are not evidence for any of these.
   govulncheck's symbol-level `not_observed` means no call path was found to
   the listed functions, not that the vulnerable code is absent. It misses

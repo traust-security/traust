@@ -228,16 +228,12 @@ are prompts, not constraints.
    `Supply-chain compromise of downstream users`,
    `Denial of service against a paid SLA`,
    `Compliance-scoped data exposure (PII / PCI / PHI)`.
-   Phase 4 boosts findings that map onto a stated threat.
+   Phase 4 notes findings that map onto a stated threat, for routing and the
+   rationale; a match never changes severity.
 
-3. **Scoring standard** (header `Scoring`, single-select)
-   `How should severity be expressed in the output?`
-   Options: `Derived HIGH/MEDIUM/LOW from preconditions (default)`,
-   `CVSS v3.1 vector + base score`, `CVSS v4.0 vector + base score`,
-   `OWASP Risk Rating (likelihood x impact)`,
-   `Organization bug-bar (describe in Other)`.
-   The precondition rule is always computed; this controls what
-   `severity_label` additionally shows.
+3. **Scoring** is not asked: severity is always FIRST's CVSS, a vector
+   chosen by FIRST's definitions and scored by the calculator (Phase 4), in
+   the finding's own CVSS version. Record `scoring: "cvss-first"`.
 
 4. **Noise tolerance** (header `Noise tolerance`, single-select)
    `When verifiers disagree, which way should ties break?`
@@ -247,7 +243,7 @@ are prompts, not constraints.
    `Ask me per-finding when it happens`.
 
 **Round 2** (conditional): if the threat-model answer was empty or generic,
-or the scoring answer was `Organization bug-bar`, ask one targeted follow-up.
+ask one targeted follow-up.
 
 Record the answers as a `context` dict carried through every phase and
 echoed in the output under `triage_context`.
@@ -258,7 +254,7 @@ When `--auto` is set, do not call AskUserQuestion. Use:
 - Environment: `Unknown. Treat any externally-reachable entry point as
   untrusted; flag trust-boundary assumptions explicitly in rationale.`
 - Threat model: empty (no boost).
-- Scoring: derived HIGH/MEDIUM/LOW.
+- Scoring: `cvss-first` (never asked).
 - Noise tolerance: precision.
 
 **Checkpoint:** Write tool → `./.triage-state/_chunk.tmp`:
@@ -1500,9 +1496,13 @@ their working copies, and spawns verifiers only for `candidates[]` ids from
 
 ## Phase 4: Rank by exploitability (non-weakness true positives only)
 
-Recompute severity from preconditions and reachability rather than category
-name, and judge the scanner's claimed severity separately — except for an
-advisory-backed finding, whose severity is the published band (below). Only `confirmed[]`
+Severity is FIRST's CVSS, at all times: a vector whose metrics follow
+FIRST's definitions, scored by the calculator, never a judgment
+([Severity authoring](../../../docs/report-structure.md#severity-authoring)).
+Ranking checks the vector's metrics against the code and may challenge
+them, up or down, but only with cited evidence. The scanner's claimed
+severity is judged separately. An advisory-backed finding keeps its
+published band (below). Only `confirmed[]`
 enters this phase; `hardening[]` never does. Verification and severity are
 independent judgments; "this is real" must not inflate into "this is critical."
 
@@ -1533,6 +1533,7 @@ FINDING:
   file:      {file}:{line}
   category:  {category}
   claimed severity: {severity}
+  claimed vector:   {cvss.vector and the report's CVSS basis per metric; or none}
   advisory:  {advisory id, selected authority, score and band; or none}
   evidence:  {impact-analysis, vendor or validation artifacts bound to this
               finding; or none}
@@ -1545,34 +1546,33 @@ Be concrete: required auth state, configuration, prior request, race
 window, attacker position. Then state the minimum ACCESS LEVEL required
 (unauthenticated remote / authenticated / local / physical).
 
-STEP 2: Derive severity from the precondition count and access level.
-If ADVISORY is not none: SEVERITY is the advisory band and SEVERITY_LABEL is
-the advisory's vector and score verbatim; SEVERITY_ALIGNMENT is null. You may
-propose a CVSS Environmental vector in RANK_RATIONALE, each modified metric
-with its evidence (a file:line you quote, or a bound impact-row field); never
-a score or band for it. Steps 2-4 inform only the rationale.
-
-  | Preconditions | Access required          | Severity |
-  |---------------|--------------------------|----------|
-  | 0             | Unauthenticated remote   | HIGH     |
-  | 1-2           | Authenticated            | MEDIUM   |
-  | 3+            | Local-only / no demo path| LOW      |
-
-  Evaluate each column independently and take the LOWER result. Example:
-  0 preconditions but authenticated-only is MEDIUM, not HIGH; 1
-  precondition but local-only is LOW. Cross-check: if your preconditions
-  list has 3+ items, HIGH is almost certainly wrong.
+STEP 2: The CVSS vector, by FIRST's definitions. Never write a score or a
+band; the orchestrator scores your vector with the CVSS calculator.
+If ADVISORY is not none: CVSS_VECTOR is the advisory's vector verbatim and
+SEVERITY_ALIGNMENT is null. You may propose a CVSS Environmental vector in
+RANK_RATIONALE, each modified metric with its evidence (a file:line you
+quote, or a bound impact-row field). Steps 2-4 inform only the rationale.
+Otherwise, check each Base metric of the claimed vector (AV, AC, PR, UI, S,
+C, I, A for 3.1) against FIRST's definition and the code. The preconditions
+and access level from STEP 1 are evidence for AV, AC, PR and UI, never a
+count that sets a band. Keep a metric unless you can quote a file:line that
+shows another value under FIRST's definition. A change may raise or lower
+the metric; list each one in METRIC_CHANGES as `<metric>: <from> -> <to>:
+<file:line> <quoted evidence>`. A metric the claim marks `unsettled` is the
+first to test. When the claim has no vector, choose every metric by FIRST's
+definitions with a cited basis. Where the code can't settle a metric, take
+the reasonable worst case FIRST's guidance describes, and say so.
 
 STEP 3: Threat-model match. If the THREAT MODEL is non-empty and this
-finding maps onto one of its entries, note which one. A match may raise
-severity by ONE step (LOW to MEDIUM or MEDIUM to HIGH), never two. If the
-threat model is empty, skip this step.
+finding maps onto one of its entries, note which one. A match is context
+for routing and the rationale; it never changes a metric or the severity.
+If the threat model is empty, skip this step.
 
-STEP 4: Judge the scanner's claimed severity. From the perspective of an
-engineer who has reviewed two hundred scanner findings this week and is
-allergic to inflation: would the CLAIMED severity contribute to alert
-fatigue? Is it comparable to a real CVE at that level? Is the code in test
-fixtures or dev-only config? Score in -5..+5:
+STEP 4: Judge the scanner's claimed severity against the vector you stand
+behind: would the CLAIMED severity contribute to alert fatigue, or does it
+understate the impact? Is the code in test fixtures or dev-only config
+(name it in RANK_RATIONALE)? This score is a calibration signal only; it
+never changes a metric or the severity. Score in -5..+5:
   +3..+5  claimed severity is justified or understated
    0..+2  roughly right
   -1..-3  inflated by one level
@@ -1580,17 +1580,16 @@ fixtures or dev-only config? Score in -5..+5:
 
 STEP 5: verify_verdict. Exactly one of:
   exploitable        preconditions are realistically satisfiable
-  mitigated          real, but a deployed control reduces it below the
-                     derived severity (name the control). For an
-                     advisory-backed finding this is rationale only; the
-                     severity stays the advisory band
+  mitigated          real, and a deployed control reduces exploitability
+                     (name the control and quote it). It changes a metric
+                     only through STEP 2's cited METRIC_CHANGES (for an
+                     advisory-backed finding, an Environmental proposal);
+                     otherwise it is rationale only
   needs_manual_test  severity hinges on something only a runtime test can
                      settle; recommend a human build a PoC
 
-STEP 6: If SCORING STANDARD is a CVSS or OWASP variant, emit a
-`severity_label` in that format (vector string + base score for CVSS;
-likelihood x impact for OWASP). Otherwise set it equal to the derived
-HIGH/MEDIUM/LOW.
+STEP 6: Nothing to compute: the orchestrator sets `severity` and
+`severity_label` from your CVSS_VECTOR with the calculator.
 
 ────────────────────────────────────────────────────────────────────────
 Respond with ONLY this block:
@@ -1598,8 +1597,9 @@ Respond with ONLY this block:
   PRECONDITIONS:
   - <one per line>
   ACCESS_LEVEL: <unauthenticated_remote|authenticated|local|physical>
-  SEVERITY: <CRITICAL|HIGH|MEDIUM|LOW>  (CRITICAL only as an advisory band)
-  SEVERITY_LABEL: <per scoring standard>
+  CVSS_VECTOR: <the full vector you stand behind, by FIRST's definitions>
+  METRIC_CHANGES:
+  - <metric>: <from> -> <to>: <file:line> <quoted evidence>   (or: none)
   THREAT_MATCH: <matched threat-model entry, or none>
   SEVERITY_ALIGNMENT: <-5..+5>
   VERIFY_VERDICT: <exploitable|mitigated|needs_manual_test>
@@ -1608,12 +1608,21 @@ Respond with ONLY this block:
 
 ### 4b. Merge
 
-For each confirmed finding, parse the block and attach `preconditions`
-(replacing any scanner-supplied list), `access_level`, `severity`
-(recomputed, or the advisory band for an advisory-backed finding),
-`severity_label`, `threat_match`, `severity_alignment`,
-`verify_verdict`, and append RANK_RATIONALE to `rationale` (separated by a
-blank line from the Phase-3 rationale). A Phase-3 `needs_manual_test`
+For each confirmed finding, parse the block. Drop any METRIC_CHANGES line
+whose citation doesn't quote this checkout (the 6b2 lint re-checks it, and
+a broken citation reverts that metric). Score the resulting CVSS_VECTOR
+with the calculator:
+`python3 -m traust.cli reporting rate-cvss --vector '<CVSS_VECTOR>'`. Set
+`severity` to its band (the advisory band for an advisory-backed finding)
+and `severity_label` to the vector and its score. A vector the calculator
+can't score keeps the claimed vector, and the rationale says so. Attach
+`preconditions` (replacing any scanner-supplied list), `access_level`,
+`threat_match`, `severity_alignment`,
+`verify_verdict`, and append RANK_RATIONALE and the kept METRIC_CHANGES to
+`rationale` (separated by a blank line from the Phase-3 rationale). A
+changed metric is triage's challenge to the vector: Core scores it with
+the calculator and admits it only on that cited evidence (remediation plan
+step 7). A Phase-3 `needs_manual_test`
 requirement survives ranking; no rank or kind alone resolves contested proof.
 
 For findings that did NOT reach Phase 4 (TP+weakness, `false_positive`,
@@ -1737,7 +1746,7 @@ into confirmation or a false positive. Retain every existing summary key.
     "mode": "interactive|auto",
     "environment": "...",
     "threat_model": ["..."],
-    "scoring": "...",
+    "scoring": "cvss-first",
     "noise_tolerance": "...",
     "votes_per_finding": 3,
     "repo": "...",
@@ -2052,12 +2061,12 @@ point at real call sites) and a sample of FALSE_POSITIVE rejects (the
 - **`undetermined` is a verdict, not a drop.** Unlocatable material and
   all-CANNOT_VERIFY tallies mean zero evidence was examined; a false
   positive claim requires positive evidence of wrongness.
-- **Threat-model boost is capped at one step** so a stated threat can't
-  re-inflate a LOW back to HIGH and defeat the precondition rule.
-- **`severity_label` is separate from `severity`.** Sorting always uses the
-  precondition-derived HIGH/MEDIUM/LOW, or the advisory band (CRITICAL
-  included) for an advisory-backed finding; the label is presentation-layer for
-  whatever standard the reviewer's tooling expects.
+- **FIRST's CVSS decides severity, at all times.** A threat-model match,
+  a precondition count or an alignment score never sets or moves a band;
+  only a vector's metrics do, each chosen by FIRST's definitions and each
+  change cited. `severity` is the calculator's band for that vector (the
+  advisory band for an advisory-backed finding), and `severity_label` is
+  the vector and its score.
 - **Pipeline `report.json` ingest is best-effort.** Those reports describe
   ASAN crashes with prose exploitability analysis rather than the
   file/line/category shape static verifiers expect. Expect more

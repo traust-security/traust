@@ -339,7 +339,7 @@ evidence, the observation moves to `dependency_audit` or
 disappears. When a gate's precondition cannot be established within
 budget, file the finding at its severity with the open question named for
 `/triage`. Severity is always the band of the finding's score
-([Severity authoring](../../../docs/report-structure.md#severity-authoring)); only `/impact-analysis`, `/triage` and live validation change it
+([Severity authoring](../../../docs/report-structure.md#severity-authoring)); only `/impact-analysis`, `/triage`, live validation and fuzzing change it
 later, and for an advisory-backed finding only on recorded evidence.
 
 **Gate-application record (mandatory).** The leg-2 measurement showed the
@@ -470,10 +470,10 @@ Every critical/high candidate must pass all of:
    `negative_results` entry with the citation (the gate's action). When
    the hardening recommendation stands on its own, also file it as a
    separate, unscored `informational` note — never a lower-rated
-   vulnerability. The severity floor stays when the insecure mode is ON
-   by default in shipped config, settable by a less-privileged principal
-   than those endangered, a silent fallback, or a cross-tenant boundary
-   violation.
+   vulnerability. It is filed as a vulnerability, scored on its vector,
+   when the insecure mode is ON by default in shipped config, settable by
+   a less-privileged principal than those endangered, a silent fallback,
+   or a cross-tenant boundary violation.
 4. **Chain completion at critical** (2/69) — a critical must show every
    mandatory step of its chain succeeding at the pinned ref. A step you
    cannot show is named in the description for `/triage`; it never
@@ -482,7 +482,8 @@ Every critical/high candidate must pass all of:
    defect that remains as its own finding, scored on its own vector —
    never suppress a demonstrated defect.
    Verification-disable and credential-transport classes are exempt from
-   full-PoC demands (severity floor).
+   full-PoC demands: they are filed and scored on their vector without a
+   demonstrated chain.
 5. **No investigation leads as findings** (4/69) — "should be
    checked/reviewed" rationales and hypothetical-caller misuse are audit
    leads. A finding requires a traced untrusted flow to the sink in THIS
@@ -1080,9 +1081,9 @@ Judging protocol — bounded, and every verdict is judged, never bulk-set:
    triple), benign (record why in one clause — dev-overlay-only,
    overridden by every shipped overlay, gated upstream), or
    out-of-context (needs the deployment repo — record as a
-   `negative_results` scope note). The shipped severity floors
-   (verification-disable, credential-transport) apply to candidates
-   from this pre-scan exactly as to hand-found findings.
+   `negative_results` scope note). The verification-disable and
+   credential-transport filing rules apply to candidates from this
+   pre-scan exactly as to hand-found findings.
 2. **Coverage gaps are reportable state, not silence**: every
    `coverage_gaps` entry (render-gated charts, TOML/INI files, CRD
    operator config, triple-cap truncation) must surface in
@@ -1608,14 +1609,14 @@ New triage represents a verified gap as `verdict: true_positive, kind: weakness`
 Never emit historical `hardening` as a new triage verdict. This does not rewrite
 the audit report's `validation_status`; cumulative-file rebuilds are retired.
 
-**CVSS** — required on every `critical`/`high`/`medium`/`low` finding. **Omit** for `informational` findings (posture and hygiene observations are not scored — the validator errors on an informational finding carrying CVSS ≥ 7.0 and warns below that). **Severity is the CVSS calculator's band** ([Severity authoring](../../../docs/report-structure.md#severity-authoring)): you write the vector (for an advisory-backed finding, the selected authority's vector copied from the tool output) and `python3 -m traust.cli reporting rate-cvss <report>` fills `cvss.score` and `severity` before you validate. Never type a score or a band. It never sits below that band. Deployment context (unreachable in deployment, restricted SCC, requires prior compromise) goes in the `description` for `/triage`; it does not change `severity`. Only `/impact-analysis`, `/triage` and live validation change a severity later, and for an advisory-backed finding only on recorded evidence, never inference.
+**CVSS** — required on every `critical`/`high`/`medium`/`low` finding. **Omit** for `informational` findings (posture and hygiene observations are not scored — the validator errors on an informational finding carrying CVSS ≥ 7.0 and warns below that). **Severity is the CVSS calculator's band** ([Severity authoring](../../../docs/report-structure.md#severity-authoring)): you choose every Base metric by FIRST's CVSS v3.1/4.0 definitions and record a CVSS basis in the `description` (one line per metric: its value and the `file:line` or config evidence; `unsettled` takes the reasonable worst case FIRST's guidance describes). For an advisory-backed finding, the vector is the selected authority's, copied from the tool output. Then `python3 -m traust.cli reporting rate-cvss <report>` fills `cvss.score` and `severity` before you validate. Never type a score or a band. It never sits below that band. Deployment context (unreachable in deployment, restricted SCC, requires prior compromise) goes in the `description` for `/triage`; it does not change `severity`. Only `/impact-analysis`, `/triage`, live validation and fuzzing change a severity later, and for an advisory-backed finding only on recorded evidence, never inference.
 
-**Severity floor (verification-disable and credential-transport classes)** — findings in these two classes are rated `high` at minimum, regardless of exploitation-chain completeness (2026-07 error-correction measurement: these classes were systematically under-rated and under-reported; they are exempt from the Precision Gate's chain-completion demand):
+**Verification-disable and credential-transport classes** are always filed, exempt from the Precision Gate's chain-completion demand. A 2026-07 error-correction measurement found them under-reported, and under-rated while severity was model-authored. There is no severity floor: severity is the calculator's band for a vector chosen by FIRST's definitions, with a CVSS basis per metric. Score what the exposed or unverified material grants an attacker, by FIRST's impact definitions.
 
 - **verification-disable**: TLS/certificate verification disabled or skippable (`InsecureSkipVerify` on a client path, `verify=False`, custom `TrustManager` accepting all), signature/checksum verification bypassed or absent on fetched artifacts, authentication disablable by silent fallback.
 - **credential-transport**: credentials, tokens, or session material sent over plaintext channels, embedded in URLs, written to logs, or exposed via redirect targets.
 
-The floor lifts only on a Precision Gate suppression with affirmative evidence (e.g. the flag is inert on this path — server-side `InsecureSkipVerify`; the "credential" is a placeholder per the path pre-filter) — document the gate evidence, never quietly rate below the floor.
+Such a finding is suppressed only on a Precision Gate decision with affirmative evidence (e.g. the flag is inert on this path — server-side `InsecureSkipVerify`; the "credential" is a placeholder per the path pre-filter). Document the gate evidence; never drop one quietly.
 
 **`attack_pattern`** — required on every `critical` and `high` finding: a concrete, step-by-step attack scenario naming the attacker's starting position and end state.
 

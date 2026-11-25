@@ -112,7 +112,7 @@ The dist-git repository contains packaging metadata only. To audit the code that
 
    If the lookaside fetch fails, fall back to the literal URL given in the corresponding `SourceN:` line of the spec.
 
-4. **Verify integrity.** Compute the SHA512 of every fetched artifact and compare it against the `sources` manifest. Any mismatch is a **Critical** finding (`RPM06`, CWE-494). Any `SourceN` tarball that is **not listed** in `sources` at all is a **High** finding.
+4. **Verify integrity.** Compute the SHA512 of every fetched artifact and compare it against the `sources` manifest. Any mismatch is a finding (`RPM06`, CWE-494), and so is any `SourceN` tarball **not listed** in `sources` at all. Both are always filed; severity is the calculator's band for a vector chosen by FIRST's definitions, with a CVSS basis per metric ([Severity authoring](../../../docs/report-structure.md#severity-authoring)).
 
 5. **Build the prepared tree.** Extract the primary tarball (`Source0`) into a working directory and apply every `PatchN` in numeric order using the strip level indicated by `%prep`. If secondary sources (`Source1..N`) are vendored dependency bundles (e.g. `vendor-*.tar.gz`, `Cargo-*.lock`, `node_modules-*.tar.gz`), extract them alongside `Source0` so dependency scanners can reach them.
 
@@ -170,7 +170,7 @@ evidence moves the observation to `dependency_audit` or
 disappears. When a gate's precondition cannot be established within
 budget, file the finding at its severity with the open question named for
 `/triage`. Severity is always the band of the finding's score
-([Severity authoring](../../../docs/report-structure.md#severity-authoring)); only `/impact-analysis`, `/triage` and live validation change it
+([Severity authoring](../../../docs/report-structure.md#severity-authoring)); only `/impact-analysis`, `/triage`, live validation and fuzzing change it
 later, and for an advisory-backed finding only on recorded evidence.
 
 **Gate-application record (mandatory).** Every report records
@@ -230,7 +230,7 @@ a Joern call-site search found nothing goes in the description, never into a
 drop or a lower band. A found call site
 (`python3 -m traust.cli adapters joern --language c`) may be cited too.
 (RPM06 integrity failures — digest mismatch, unlisted tarball — are not
-version matches; their mandated severities stand.)
+version matches; they are always filed, scored on their own vector.)
 
 Boundary: **known-CVE bundled libraries with no downstream patch** — once
 vendored, a bundled library is first-party shipped code and its
@@ -294,8 +294,8 @@ Every critical/high candidate must pass all of:
    vulnerabilities: a `negative_results` entry or an unscored
    `informational` note filed separately; the gate's action is
    `negative_results`. Never a lower-rated vulnerability. "Looks
-   intentional" is insufficient. The severity floor stays when the insecure mode is
-   ON by default in shipped config, settable by a less-privileged
+   intentional" is insufficient. It is filed as a vulnerability, scored on its
+   vector, when the insecure mode is ON by default in shipped config, settable by a less-privileged
    principal than those endangered, a silent fallback, or a
    cross-tenant boundary violation.
 4. **Chain completion at critical** — a critical must show every
@@ -320,16 +320,14 @@ Every critical/high candidate must pass all of:
    High-value sink with plausible-but-untraced input → file at its
    vector's band, omit `validation_status`, with the untraced hop named.
 
-**Severity floors (identical to `/secure-code-audit`'s)** —
+**Verification-disable and credential-transport (as in `/secure-code-audit`)** —
 **verification-disable** (a downstream patch removing certificate,
 signature, or bounds verification (RPM07); `%_disable_source_fetch 0`
 or unverified build-time downloads (RPM06/RPM09); TLS verification
 disabled in shipped code or config) and **credential-transport**
 (credentials, tokens, or session material on plaintext channels, in
-URLs, or in logs) are rated `high` at minimum regardless of chain
-completeness. The floor lifts only on a gate suppression with
-affirmative evidence — document the gate evidence, never quietly rate
-below the floor.
+URLs, or in logs) are filed whatever their chain completeness, with no severity floor: severity is the calculator's band for a vector chosen by FIRST's definitions, with a CVSS basis per metric ([Severity authoring](../../../docs/report-structure.md#severity-authoring)). They are suppressed only on a gate
+decision with affirmative evidence; document the gate evidence.
 
 ### Shipped-artifact and mechanism checks
 
@@ -461,7 +459,7 @@ When the prepared source tree contains C or C++ code, assess it against the [SEI
 | **CERT C++** | `CTR` / `STR` (Containers & Strings) | Iterator invalidation after container mutation, out-of-range element access, forming pointers/references past the end, range errors on `std::string`/`std::string_view` (`CTR51-CPP`, `CTR52-CPP`, `STR53-CPP`) |
 | **CERT C++** | `ERR` / `CON` (Errors & Concurrency) | Exceptions escaping destructors or `noexcept` functions, catching by value, unjoined/un-detached `std::thread`, data races and deadlocks on shared state (`ERR50-CPP`, `ERR58-CPP`, `CON50-CPP`, `CON52-CPP`) |
 
-For each finding, record the specific CERT rule ID (e.g. `STR31-C`, `MEM51-CPP`) in the finding's `category` field alongside the mapped CWE. Use the CERT risk-assessment triple (Severity / Likelihood / Remediation Cost) to inform the CVSS vector you score; the finding's `severity` is that vector's band ([Severity authoring](../../../docs/report-structure.md#severity-authoring)), and note in the `description` whether any downstream `.patch` already mitigates the issue.
+For each finding, record the specific CERT rule ID (e.g. `STR31-C`, `MEM51-CPP`) in the finding's `category` field alongside the mapped CWE. The CERT risk-assessment triple (Severity / Likelihood / Remediation Cost) may be quoted in the `description` as context, but it never sets a metric: choose each CVSS metric by FIRST's definitions with a basis per metric, and the finding's `severity` is the calculator's band for that vector ([Severity authoring](../../../docs/report-structure.md#severity-authoring)), and note in the `description` whether any downstream `.patch` already mitigates the issue.
 
 ### RPM Packaging Security (Spec File & Dist-Git Artifacts)
 

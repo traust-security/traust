@@ -702,7 +702,7 @@ authoring](../../../docs/report-structure.md#severity-authoring)). The
 vuln-findings schema has no structured `cvss` or `dependency` field yet
 (remediation plan step 2), so quote the advisory id and its selected score
 in the description, where `/triage` reads them. Only
-`/impact-analysis`, `/triage` and live validation change it later, and
+`/impact-analysis`, `/triage`, live validation and fuzzing change it later, and
 for an advisory-backed finding only on recorded evidence; removal
 remains `/triage`'s job.
 
@@ -729,22 +729,27 @@ Apply to every candidate still rated critical or high after Step 3:
    citation — "looks intentional" is insufficient), and insecure
    behavior behind an explicit admin-set flag that defaults secure and
    is documented, lower confidence and name it a by-design candidate
-   for `/triage`. The
-   severity floor stays when the insecure mode is ON by default in
+   for `/triage`. It stays
+   a full-confidence candidate when the insecure mode is ON by default in
    shipped config, settable by a less-privileged principal than those
    endangered, a silent fallback, or a cross-tenant boundary violation.
 4. **Chain completion at critical** — a critical must show every
    mandatory step of its chain succeeding at the scanned ref. A broken
    step lowers confidence, naming the step — never severity, and never
-   suppresses a demonstrated defect. **Severity
-   floors (identical to `/secure-code-audit`'s)**:
+   suppresses a demonstrated defect. **Verification-disable
+   and credential-transport (as in `/secure-code-audit`)**:
    **verification-disable** (TLS/certificate verification disabled or
    skippable, signature/checksum verification bypassed, authentication
    disablable by silent fallback) and **credential-transport**
    (credentials, tokens, or session material on plaintext channels, in
-   URLs, logs, or redirect targets) stay `high` at minimum regardless
-   of chain completeness — the floor lifts only on affirmative gate
-   evidence, documented in the finding.
+   URLs, logs, or redirect targets) are filed whatever their chain
+   completeness, with no severity floor. Their severity comes from the
+   SEVERITY scale until vuln-findings carries `cvss` (remediation plan,
+   D13); then, as for every finding, it is the calculator's band for a
+   vector chosen by FIRST's definitions ([Severity
+   authoring](../../../docs/report-structure.md#severity-authoring)).
+   They are suppressed only on affirmative gate evidence, documented in
+   the finding.
 
 **Shared-component precedent handoff (post-record, not a scan-time gate).**
 For candidates in vendored/shared code (`vendor/`, `third_party/`,

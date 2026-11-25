@@ -342,7 +342,7 @@ evidence moves the observation to `dependency_audit` or
 disappears. When a gate's precondition cannot be established within
 budget, file the finding at its severity with the open question named for
 `/triage`. Severity is always the band of the finding's score
-([Severity authoring](../../../docs/report-structure.md#severity-authoring)); only `/impact-analysis`, `/triage` and live validation change it
+([Severity authoring](../../../docs/report-structure.md#severity-authoring)); only `/impact-analysis`, `/triage`, live validation and fuzzing change it
 later, and for an advisory-backed finding only on recorded evidence.
 
 **Gate-application record (mandatory).** Every report records
@@ -393,7 +393,8 @@ non-applicability; it goes in the description.
 Boundaries: **advisory-lag in binaries built from the image's own
 forked/vendored upstream source** is first-party shipped code, not a
 dependency (the Phase 5 drift check is where it surfaces); live functional
-credentials (path pre-filter below); and the severity floors below.
+credentials (path pre-filter below); and the verification-disable and
+credential-transport classes below.
 
 ### Shared-component precedent handoff (post-record, not an audit-time gate)
 
@@ -450,9 +451,9 @@ must pass all of:
    `informational` note filed separately (the gate's action is
    `negative_results`), never a lower-rated vulnerability — with the image-role
    citation (labels, bundle metadata, docs); "looks intentional" is
-   insufficient. The severity floor stays when the insecure content
-   ships in a production/runtime image, is active by default, or
-   crosses a tenant boundary.
+   insufficient. It is filed as a vulnerability, scored on
+   its vector, when the insecure content ships in a production/runtime
+   image, is active by default, or crosses a tenant boundary.
 4. **Chain completion — not for dependency findings.** The dependency gate
    decides them on tool evidence; never demand or judge a chain for them. **Non-applicability**: for image-configuration
    findings (`oci-config:*` pseudo-paths — root user, baked-in
@@ -466,15 +467,14 @@ must pass all of:
    unestablished exposure → file at its band, omit
    `validation_status`, with the unestablished step named.
 
-**Severity floors (identical to `/secure-code-audit`'s)** —
+**Verification-disable and credential-transport (as in `/secure-code-audit`)** —
 **verification-disable** (TLS/signature verification disabled in
 shipped config or baked-in env; unsigned images required by pinned
 deploy config) and **credential-transport** (live credentials in
 `config.Env`, labels, or layer files; tokens in plaintext URLs) are
-rated `high` at minimum regardless of chain completeness. The floor
-lifts only on a gate suppression with affirmative evidence (e.g. the
-credential is a placeholder per the path pre-filter) — document the
-gate evidence, never quietly rate below the floor.
+filed whatever their chain completeness, with no severity floor: severity is the calculator's band for a vector chosen by FIRST's definitions, with a CVSS basis per metric ([Severity authoring](../../../docs/report-structure.md#severity-authoring)). They are suppressed only on a gate decision with
+affirmative evidence (e.g. the credential is a placeholder per the path
+pre-filter); document the gate evidence.
 
 ### Path pre-filter (image pseudo-paths)
 
