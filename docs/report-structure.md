@@ -257,7 +257,11 @@ are traust-contracts' own: the `finding.dependency` block, the
 
    - `impact sbom` (no file argument) records the commit's manifest SBOM
      with its coverage, so Core holds the packages the analysis needs. Run
-     it once per audited commit.
+     it once per audited commit. If the commit already holds an SBOM given
+     as a document, the command keeps that one and its coverage stays
+     unknown: a package absent from it is `inconclusive`, never
+     `not_imported`. File such a match at the published score and name the
+     coverage gap; never claim manifest coverage the commit doesn't have.
    - Read the export row for this repository, commit, ecosystem, module and
      installed version: its `classification` and `evidence`.
    - **A row counts only when its commit is the source the audited artifact
@@ -273,8 +277,10 @@ are traust-contracts' own: the `finding.dependency` block, the
      commit can appear under both ids.
    - The export is a scratch intermediate; never place it in the findings
      tree.
-   - Record `deterministic_steps["impact-analysis"]` as `"ran: <n>
-     advisories"`, or `"skipped: <reason>"` with a `coverage_gaps` entry.
+   - Record `deterministic_steps["impact-analysis"]` as `"ran"`, or
+     `"skipped: <reason>"` with a `coverage_gaps` entry. The advisories it
+     covered are the report's `dependency` blocks and `not_affected`
+     entries.
 3. **File by the evidence:**
 
    | Evidence | Outcome |
@@ -295,9 +301,16 @@ are traust-contracts' own: the `finding.dependency` block, the
    skipped or failed reason and the coverage gap. Test or dev scope and
    vendor data go in its description.
 4. **Record every not-affected match** in the report's `not_affected`
-   section: one entry each, with the same `dependency` block (its
-   `classification` and `evidence_level` are the evidence), a `rationale`,
-   and `reference` for a vendor statement. It is the paper trail that the
+   section: one entry each, with the same `dependency` block, a
+   `rationale`, and `reference` for a vendor statement.
+   - Eliminated by impact-analysis: the block's `classification`
+     (`version_not_in_range` or `not_imported`), `evidence_level` and
+     `impact_artifact` are the evidence.
+   - Eliminated by a vendor statement: `reference` cites it. A row that
+     doesn't eliminate on its own (`affected`, `likely_affected`,
+     `inconclusive` or `not_observed`) stays out of the block's
+     `classification`; name it in the `rationale` as context. The contract
+     refuses a vendor entry that carries one of those classifications. It is the paper trail that the
    CVE was identified and why it was eliminated; it isn't ingested as a
    finding. Until the installed contracts declare `not_affected`
    (traust-contracts#189), write each as a `dependency_audit` entry with

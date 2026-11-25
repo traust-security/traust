@@ -411,7 +411,12 @@ For input (A)/(B)/(D), each native prepared item becomes a finding: `title` =
 `line_start`; `severity` = `occurrence.severity` (`unrated` = the scanner
 gave none); `cvss` = `occurrence.cvss_score` + `occurrence.cvss_vector` as
 supplied; `dependency.advisory` = `occurrence.rule` when it is an advisory
-id (`finding.advisory_id` marks the finding advisory-backed); `category` = `occurrence.rule`; and **`fingerprint` +
+id (`finding.advisory_id` marks the finding advisory-backed);
+`dependency.module` / `dependency.installed_version` = the name and version
+of a location whose `path` is a package URL (`pkg:<type>/<name>@<version>`),
+parsed as a purl, never read from the title or description; when no location
+is a purl, leave both unset (a prepared item carries no dependency block, so
+its impact rows stay annotations, 2f); `category` = `occurrence.rule`; and **`fingerprint` +
 `fingerprint_algo` copied from `finding`, unchanged, onto the triage
 finding** (6e matches verdicts to recorded findings by them). Keep the
 item's `precedents` for 2g.

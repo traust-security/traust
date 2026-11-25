@@ -166,3 +166,28 @@ def test_export_without_a_live_provider_uses_kept_identity_and_preserves_stdout(
     assert run(impact.export, home, "CVE-2099-9999", "--out", str(target))[0] == 2
     assert not target.exists()
     assert load(home).services().exposure.export_impacts(LODASH.identifier).analyses == 3
+
+
+@pytest.mark.parametrize(
+    ("classification", "kept"),
+    [
+        ("not_observed", True),
+        ("inconclusive", True),
+        ("version_not_in_range", False),
+        ("not_imported", False),
+    ],
+)
+def test_the_filter_keeps_every_classification_that_stays_filed(
+    home: Path, tmp_path: Path, classification: str, kept: bool
+) -> None:
+    """A not_observed or inconclusive row is a filed finding (D7, D8a), so its repository is
+    verified; only an out-of-range version or an unimported package leaves it out."""
+    record_fleet(home, tmp_path)
+    rc, text = run(impact.export, home, LODASH.identifier)
+    assert rc == 0
+    exported = json.loads(text)
+    [only] = [row for row in exported["repos"] if row["repository_url"] == SAFE]
+    exported["repos"] = [{**only, "classification": classification}]
+    target = tmp_path / "only.json"
+    target.write_text(json.dumps(exported))
+    assert repositories(sweep(home, "--impact-filter", str(target))) == ({SAFE} if kept else set())

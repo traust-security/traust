@@ -1270,13 +1270,16 @@ When `--impact-filter <path>` is passed, give it directly to the Step 1
 `traust impact export <advisory-id> --out <path>`; do not pass a single
 native commit artifact or the counts-only `analyze` response.
 
-The adapter reads the exported `.repos` classifications and keeps only
-`affected`/`likely_affected` repository URLs, once each. Distinct modules,
+The adapter reads the exported `.repos` classifications and keeps the
+repository URL of every row that stays a filed finding (`affected`,
+`likely_affected`, `not_observed`, `inconclusive`), once each. Only
+`version_not_in_range` and `not_imported` eliminate a match, so only they
+leave a repository out ([report structure](../../../docs/report-structure.md)). Distinct modules,
 versions and commits retain their evidence in the export; any qualifying
 row includes its repository. This filter intersects any explicit
 `--repo-url`/`--product` scope. An empty intersection is an empty worklist,
-never an instruction to fall back to every repository. Other
-classifications remain in the export for review, not verification scope.
+never an instruction to fall back to every repository. The
+eliminated rows remain in the export for review, not verification scope.
 
 ### Step 2 — Confirm scope before spending tokens
 
