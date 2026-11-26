@@ -594,14 +594,19 @@ PY
     # so its claim loop is also the skill lanes' executor — the deployed claim
     # workers have no harness and leave llm-labeled assets to the runner pools.
     # claim_label_args probes the installed engine for the label opt-in.
+    # bash 3.2 (macOS /bin/bash) has no mapfile, and expands an empty array as unbound
+    # under set -u: read line by line, expand with ${labels[@]+...}.
     local -a labels=()
-    mapfile -t labels < <(claim_label_args)
+    local label
+    while IFS= read -r label; do
+        labels+=("$label")
+    done < <(claim_label_args)
     if [[ "${1:-}" == --once ]]; then
-        engine claim --worker "$worker" "${labels[@]}"
+        engine claim --worker "$worker" ${labels[@]+"${labels[@]}"}
         return
     fi
     while true; do
-        engine claim --worker "$worker" "${labels[@]}" || true
+        engine claim --worker "$worker" ${labels[@]+"${labels[@]}"} || true
         sleep 5
     done
 }

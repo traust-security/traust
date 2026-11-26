@@ -14,7 +14,7 @@ from uuid import UUID
 import pytest
 import yaml
 from traust_core.v1.context import observation
-from traust_core.v1.errors import NotFoundError
+from traust_core.v1.errors import ConflictError, ForbiddenError, NotFoundError, ValidationError
 from traust_core.v1.models.artifacts import AdapterResultArtifact
 from traust_core.v1.models.assessment import Assessment, AssessmentKind
 from traust_core.v1.models.inventory import RepositoryRef
@@ -241,6 +241,26 @@ def test_every_status_is_succeeded_or_a_named_gap(status: ComparisonStatus) -> N
     )
     answered = status in ("ok", "no-pinned-sha", "never-audited")
     assert result == (JobResult.succeeded() if answered else JobResult.partly({status: 1}))
+
+
+@pytest.mark.parametrize(
+    ("error", "want"),
+    [
+        (ConflictError("stale lease generation"), JobResult.failed(OrderReason.RUNNER_CRASHED)),
+        (ForbiddenError("not the order's worker"), JobResult.failed(OrderReason.BAD_REQUEST)),
+        (ValidationError("bad partition"), JobResult.failed(OrderReason.BAD_REQUEST)),
+    ],
+    ids=["lost lease", "forbidden", "invalid"],
+)
+def test_a_lost_lease_is_a_runner_crash_not_a_bad_request(
+    error: Exception, want: JobResult
+) -> None:
+    result = RepoStateMaterializer(Services(Portfolio(error))).materialize(  # type: ignore[arg-type]
+        AssetRequest(asset="repo_state", run_id=str(ORDER), partition=REPO),
+        worker=WORKER,
+        lease_generation=8,
+    )
+    assert result == want
 
 
 def test_a_repository_core_doesnt_know_is_refused_with_its_reason() -> None:

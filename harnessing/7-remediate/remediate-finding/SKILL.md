@@ -153,10 +153,18 @@ Capture the printed JSON — every subsequent phase uses `worktree` and `out`.
 If the run refuses at the checkout — the forge no longer serves
 `subject.sha` (rebased away, history rewritten) — the work item stays
 `forked` with no worktree, by design (the old silent fallback branched
-from the default head and patched the wrong tree). Do not hand-patch it:
-re-observe the repository (`traust portfolio observe --repo <url>`) so
-its next routed audit re-cuts the finding at a commit the forge serves,
-and prepare that new work item.
+from the default head and patched the wrong tree). Do not hand-patch it.
+The repository needs a fresh observation so its next routed audit re-cuts
+the finding at a commit the forge serves; then prepare that new work item.
+
+- **Standalone run** (no `$TRAUST_RUN_ID`): re-observe it yourself with
+  `traust portfolio observe --repo <url>`.
+- **Scheduled session** (`$TRAUST_RUN_ID` set): do not run `portfolio
+  observe` from the session. The remediation order's claim authorizes this
+  order's own records, not a repository observation, so the door refuses an
+  observation bound to it. End the run with the checkout refusal; the
+  pack's `repo_state` lane re-observes the repository on its own claim
+  (daily), or an operator runs the standalone command.
 
 ---
 

@@ -10,7 +10,7 @@ from typing import Any
 from uuid import UUID
 
 import pytest
-from traust_core.v1.errors import ConfigError, ServiceError, ValidationError
+from traust_core.v1.errors import ConfigError, ConflictError, ServiceError, ValidationError
 from traust_core.v1.models.assessment import Assessment, AssessmentKind
 from traust_core.v1.models.inventory import RepositoryRef
 from traust_core.v1.models.operations import AssetRequest, JobResult, OrderReason, WorkerId
@@ -91,8 +91,17 @@ def materialize(services: Services, partition: str = REPO) -> JobResult:
             ValidationError("unsafe archive member '/etc/x'"),
             JobResult.failed(OrderReason.BAD_REQUEST),
         ),
+        (ConflictError("stale lease generation"), JobResult.failed(OrderReason.RUNNER_CRASHED)),
     ],
-    ids=["recorded", "gone", "no access", "over cap", "not configured", "unsafe archive"],
+    ids=[
+        "recorded",
+        "gone",
+        "no access",
+        "over cap",
+        "not configured",
+        "unsafe archive",
+        "lost lease",
+    ],
 )
 def test_the_materializer_answers_each_door_outcome(
     outcome: Exception | None, want: JobResult

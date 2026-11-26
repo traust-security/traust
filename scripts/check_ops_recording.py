@@ -2,6 +2,7 @@
 
 import os
 import re
+import shutil
 import subprocess
 import sys
 import xml.etree.ElementTree as ET
@@ -53,20 +54,47 @@ def output(command: list[str], cwd: Path, env: dict[str, str]) -> str:
     return result.stdout
 
 
+def require_smoke_container(ops_dir: str, port: str) -> None:
+    """The proofs write to the database, so it must be the one cmd_smoke just created: its
+    container is named after the smoke's random directory, must exist and run, and must be
+    what publishes Postgres on 127.0.0.1:<port>. An operator database on that port, reached by
+    a direct invocation with the same variables, has no such container and is refused."""
+    container = f"traust-{ops_dir.removeprefix('.')}"
+    if os.environ.get("OPS_CONTAINER") != container:
+        raise ValueError(f"recording proof requires the smoke's own container ({container})")
+    runtime = shutil.which("podman") or shutil.which("docker")
+    if runtime is None:
+        raise ValueError("recording proof needs podman or docker to confirm the smoke container")
+    state = subprocess.run(
+        [runtime, "inspect", "--format", "{{.State.Running}}", container],
+        capture_output=True,
+        text=True,
+    )
+    if state.returncode or state.stdout.strip() != "true":
+        raise ValueError(f"recording proof: smoke container {container} is not running")
+    published = subprocess.run(
+        [runtime, "port", container, "5432/tcp"], capture_output=True, text=True
+    )
+    if published.returncode or f"127.0.0.1:{port}" not in published.stdout.split():
+        raise ValueError(f"recording proof: {container} does not publish 127.0.0.1:{port}")
+
+
 def main() -> None:
     # cmd_smoke supplies the loopback URL of its just-created container. Never
     # default to ~/.traust, or let a standalone invocation use an operator DB.
     db = os.environ.get("TRAUST_TEST_DATABASE_URL", "")
     parsed = urlsplit(db)
+    ops_dir, port = os.environ.get("OPS_DIR", ""), os.environ.get("OPS_PORT", "")
     if not (
         os.environ.get("OPS_ACCEPTANCE") == "1"
-        and re.fullmatch(r"\.local-ops-smoke\.[A-Za-z0-9]{8}", os.environ.get("OPS_DIR", ""))
+        and re.fullmatch(r"\.local-ops-smoke\.[A-Za-z0-9]{8}", ops_dir)
         and parsed.scheme == "postgresql+psycopg"
         and parsed.hostname == "127.0.0.1"
-        and str(parsed.port) == os.environ.get("OPS_PORT")
+        and str(parsed.port) == port
         and not (parsed.query or parsed.fragment)
     ):
         raise ValueError("recording proof requires the disposable acceptance Postgres")
+    require_smoke_container(ops_dir, port)
     cli = Path.cwd()
     core_ref, contracts_ref = locked_pair(committed(cli, checkout_head(cli, "CLI"), "uv.lock"))
     sdk_ref = sdk_revision(Path(os.environ["OPS_SDK_CHECKOUT"]))

@@ -1020,6 +1020,34 @@ def test_new_sweep_does_not_accept_another_orders_partial_verification(
         assert (rc, result["reason"]) == (1, "session-output-invalid")
 
 
+@pytest.mark.parametrize(
+    ("skip", "proven"),
+    [("nothing_open", True), ("head_unchanged", True), ("unobserved", True), (None, False)],
+)
+def test_an_unqueued_sweep_without_this_orders_evidence_needs_a_reason(
+    processes: Processes, scheduled_sweep: SimpleNamespace, skip: str | None, proven: bool
+) -> None:
+    """No verification by this order and no ALREADY_VERIFIED: Core's own skip reason must say
+    there is nothing to verify, or the order fails rather than passing without evidence."""
+    sweep = scheduled_sweep
+    sweep.state.queued = False
+    sweep.state.skip = skip
+    rc, result = run(
+        "--skill",
+        "verify-remediation",
+        "--role",
+        "verification-verdict",
+        "--repo",
+        REPO,
+        *CLAIM,
+    )
+    assert not processes.agent_calls()
+    if proven:
+        assert (rc, result["outcome"], result["written"]) == (0, "succeeded", [])
+    else:
+        assert (rc, result["outcome"], result["reason"]) == (1, "failed", "session-output-invalid")
+
+
 def test_sweep_coverage_does_not_count_another_line_or_order(
     processes: Processes, scheduled_sweep: SimpleNamespace
 ) -> None:

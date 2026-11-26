@@ -398,3 +398,46 @@ def test_recording_proof_rejects_skip_no_match_and_wrong_backend(tmp_path: Path)
         xml.write_text(f"<testsuite>{invalid}</testsuite>")
         with pytest.raises(ValueError, match="non-skipped pytest pass"):
             require_pytest_pass(xml, case)
+
+
+def _runtime(tmp_path: Path, running: str, published: str) -> Path:
+    """A stand-in podman answering `inspect` and `port` for the smoke container."""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir(exist_ok=True)
+    fake = bin_dir / "podman"
+    fake.write_text(
+        f'#!/bin/sh\ncase "$1" in inspect) echo {running} ;; port) echo {published} ;; esac\n'
+    )
+    fake.chmod(0o755)
+    return bin_dir
+
+
+@pytest.mark.parametrize(
+    ("container", "running", "published", "refused"),
+    [
+        ("traust-local-ops-smoke.Ab12Cd34", "true", "127.0.0.1:55999", None),
+        ("traust-ops-local", "true", "127.0.0.1:55999", "smoke's own container"),
+        ("traust-local-ops-smoke.Ab12Cd34", "false", "127.0.0.1:55999", "not running"),
+        ("traust-local-ops-smoke.Ab12Cd34", "true", "127.0.0.1:5432", "does not publish"),
+    ],
+    ids=["the smoke's container", "another container", "stopped", "another port"],
+)
+def test_recording_proof_writes_only_to_the_smokes_own_container(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    container: str,
+    running: str,
+    published: str,
+    refused: str | None,
+) -> None:
+    """A direct invocation against an existing local database on the same port has no
+    container named after the smoke's directory publishing it: refused before any write."""
+    from scripts.check_ops_recording import require_smoke_container
+
+    monkeypatch.setenv("PATH", str(_runtime(tmp_path, running, published)))
+    monkeypatch.setenv("OPS_CONTAINER", container)
+    if refused is None:
+        require_smoke_container(".local-ops-smoke.Ab12Cd34", "55999")
+    else:
+        with pytest.raises(ValueError, match=refused):
+            require_smoke_container(".local-ops-smoke.Ab12Cd34", "55999")

@@ -86,12 +86,21 @@ class RepoStateMaterializer:
         except NotFoundError as e:
             log.warning("run %s: %s: %s", request.run_id, OrderReason.NOT_FOUND, e)
             return JobResult.refused(OrderReason.NOT_FOUND)
-        except (ConflictError, ForbiddenError, ValidationError) as e:
+        except ConflictError as e:
+            return _lease_conflict(request, e)
+        except (ForbiddenError, ValidationError) as e:
             log.warning("run %s: %s: %s", request.run_id, OrderReason.BAD_REQUEST, e)
             return JobResult.failed(OrderReason.BAD_REQUEST)
         if facts.status in ANSWERED:
             return JobResult.succeeded()
         return JobResult.partly({facts.status.value: 1})
+
+
+def _lease_conflict(request: AssetRequest, error: ConflictError) -> JobResult:
+    """Core refused the write because this claim is no longer the order's (a stale or
+    reassigned lease generation): a lost lease, as event_validate reports it, not bad input."""
+    log.warning("run %s: lease conflict: %s: %s", request.run_id, OrderReason.RUNNER_CRASHED, error)
+    return JobResult.failed(OrderReason.RUNNER_CRASHED)
 
 
 class ManifestSbomMaterializer:
@@ -135,7 +144,9 @@ class ManifestSbomMaterializer:
                 worker=worker,
                 lease_generation=lease_generation,
             )
-        except (ConfigError, ConflictError, ForbiddenError, ValidationError) as e:
+        except ConflictError as e:
+            return _lease_conflict(request, e)
+        except (ConfigError, ForbiddenError, ValidationError) as e:
             log.warning("run %s: %s: %s", request.run_id, OrderReason.BAD_REQUEST, e)
             return JobResult.failed(OrderReason.BAD_REQUEST)
         except ServiceError as e:

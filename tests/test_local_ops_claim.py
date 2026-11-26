@@ -184,3 +184,28 @@ session.checkout = checkout
     for secret in (token_file.read_text(), (run / "review-salt").read_text()):
         for command in (setup, approved, audit, claimed, last):
             assert secret not in command.stdout + command.stderr
+
+
+@pytest.mark.parametrize("labels", [False, True], ids=["engine without --label", "with --label"])
+def test_claim_once_runs_under_the_stock_macos_bash(tmp_path: Path, labels: bool) -> None:
+    """`claim --once` reaches the engine under /bin/bash (3.2 on macOS: no mapfile, and an
+    empty array is unbound under set -u), whether or not the engine offers --label."""
+    rig = LocalOpsRig(tmp_path)
+    calls = tmp_path / "engine-calls"
+    rig._executable(
+        "traust-engine",
+        f"#!{sys.executable}\n"
+        "import sys\n"
+        "if sys.argv[1:3] == ['claim', '--help']:\n"
+        f"    print({'--label LABEL' if labels else 'usage: claim'!r})\n"
+        "    raise SystemExit(0)\n"
+        f"with open({str(calls)!r}, 'a') as out:\n"
+        "    out.write(' '.join(sys.argv[1:]) + '\\n')\n",
+    )
+    setup = rig.run("up")
+    assert setup.returncode == 0, setup.stderr
+    done = rig.run("claim", "--once")
+    assert done.returncode == 0, done.stderr
+    (claim,) = [c for c in calls.read_text().splitlines() if c.startswith("claim ")]
+    assert claim.startswith("claim --worker machine:local-ops-recorder")
+    assert ("--label llm" in claim) == labels

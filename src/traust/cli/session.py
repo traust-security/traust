@@ -400,9 +400,15 @@ def run(argv: list[str] | None = None) -> int:
                     full_sweep_repo = order.repository_id
                     mode = ["full-sweep", "--repo-url"]
                 else:
-                    ids = before
-                    evidence_order = order_id
-                    if not ids and any(e.skip == SweepSkip.ALREADY_VERIFIED for e in sweep.skipped):
+                    # Not queued: success needs proof. This order's own verification must cover
+                    # the sweep; else an existing verification of the head must
+                    # (ALREADY_VERIFIED); else Core's sweep must say there is nothing to verify
+                    # yet (NOTHING_OPEN, HEAD_UNCHANGED, or UNOBSERVED: no head to verify, so no
+                    # session). A sweep that names no reason proves nothing.
+                    skips = {e.skip for e in sweep.skipped if e.skip is not None}
+                    if before:
+                        evidence_order, ids = order_id, before
+                    elif SweepSkip.ALREADY_VERIFIED in skips:
                         evidence_order = None
                         ids = {
                             str(a.id)
@@ -411,9 +417,23 @@ def run(argv: list[str] | None = None) -> int:
                             )
                             if a.id is not None and a.status == "completed"
                         }
-                    if (before or evidence_order is None) and not _sweep_covered(
-                        services, order.repository_id, evidence_order, ids
-                    ):
+                    elif skips & {
+                        SweepSkip.NOTHING_OPEN,
+                        SweepSkip.HEAD_UNCHANGED,
+                        SweepSkip.UNOBSERVED,
+                    }:
+                        reasons = ", ".join(sorted(str(s) for s in skips))
+                        print(f"run {args.run_id}: nothing to verify ({reasons})", file=sys.stderr)
+                        return answer(JobResult.succeeded(written=()))
+                    else:
+                        reasons = ", ".join(sorted(str(s) for s in skips)) or "none given"
+                        print(
+                            f"run {args.run_id}: verification sweep not queued and nothing proves "
+                            f"coverage (skip: {reasons})",
+                            file=sys.stderr,
+                        )
+                        return answer(JobResult.failed(OrderReason.SESSION_OUTPUT_INVALID))
+                    if not _sweep_covered(services, order.repository_id, evidence_order, ids):
                         print(
                             f"run {args.run_id}: verification sweep coverage is not proven",
                             file=sys.stderr,
