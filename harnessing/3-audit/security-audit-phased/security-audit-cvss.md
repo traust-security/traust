@@ -73,25 +73,16 @@ After assessing all eight metrics:
 
 1. Construct the CVSS v3.1 vector string: `CVSS:3.1/AV:X/AC:X/PR:X/UI:X/S:X/C:X/I:X/A:X`
 
-2. Compute the base score using the following formulas and weights:
+2. Score it with the CVSS calculator — never by hand or from formulas:
 
-**Metric numeric weights:**
-- AV: N=0.85, A=0.62, L=0.55, P=0.20
-- AC: L=0.77, H=0.44
-- PR: N=0.85, L=0.62 (Scope Unchanged) / 0.68 (Scope Changed), H=0.27 (Scope Unchanged) / 0.50 (Scope Changed)
-- UI: N=0.85, R=0.62
-- C/I/A: N=0.00, L=0.22, H=0.56
+   ```bash
+   python3 -m traust.cli reporting rate-cvss --vector "CVSS:3.1/AV:X/AC:X/PR:X/UI:X/S:X/C:X/I:X/A:X"
+   ```
 
-**Formula:**
-- ISS = 1 − [(1 − C_weight) × (1 − I_weight) × (1 − A_weight)]
-- If Scope Unchanged: Impact = 3.4 × ISS
-- If Scope Changed: Impact = 7.52 × [ISS − 0.029] − 3.25 × [ISS − 0.02]^15
-- Exploitability = 8.22 × AV × AC × PR × UI
-- If Impact ≤ 0: Base Score = 0
-- If Scope Unchanged: Base Score = min(Impact + Exploitability, 10), rounded up to 1 decimal
-- If Scope Changed: Base Score = min(1.08 × [Impact + Exploitability], 10), rounded up to 1 decimal
-
-Verify your implementation: CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H → 9.8
+   It prints `{"vector", "score", "severity"}` from traust-core's CVSS
+   calculator (the `cvss` library, FIRST's formulas). Copy `score` into the
+   finding exactly; a vector it refuses is malformed — fix the metrics, never
+   the number.
 
 ### Red Hat Severity Rubric and Label Assignment
 

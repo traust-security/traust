@@ -43,7 +43,7 @@ OPS_DB_PASS="${OPS_DB_PASS:-traust}"
 OPS_DB_NAME="${OPS_DB_NAME:-traust}"
 OPS_DSN="postgresql://${OPS_DB_USER}:${OPS_DB_PASS}@localhost:${OPS_PORT}/${OPS_DB_NAME}"
 OPS_EVERY="${OPS_EVERY:-1m}"            # engine --every: minutes, hours or days
-OPS_ENGINE_SRC="${OPS_ENGINE_SRC:-git+https://github.com/traust-security/traust-engine@4be1c3a28f9361c030bd0df3f506cfc00eeaf357}"
+OPS_ENGINE_SRC="${OPS_ENGINE_SRC:-git+https://github.com/traust-security/traust-engine@e521cabde1814161c5d28f12cc3ddfaa05ce5bce}"
 
 CONFIG_HOME="$REPO_ROOT/$OPS_DIR/config"
 RUN_DIR="$REPO_ROOT/$OPS_DIR/run"
@@ -154,7 +154,7 @@ source_env() {
     # A rig-generated key has an empty passphrase. Without an explicit value
     # cosign may prompt on the tick/claim host. Leave operator-owned keys alone.
     local dev_key="$RUN_DIR/ledger/dev-key.key"
-    if [[ ! -v COSIGN_PASSWORD && -f "$dev_key" && -f "$CONFIG_HOME/traust.yaml" ]] &&
+    if [[ -z "${COSIGN_PASSWORD+set}" && -f "$dev_key" && -f "$CONFIG_HOME/traust.yaml" ]] &&
         uv run --no-sync python - "$CONFIG_HOME/traust.yaml" "$dev_key" <<'PY'
 import sys
 from pathlib import Path

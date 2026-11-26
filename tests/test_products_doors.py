@@ -38,7 +38,7 @@ def _postgres() -> Iterator[str]:
     url = sa.make_url(PG_URL).set(database=name)
     engine = create_database_engine(url)
     apply_schema(engine, contracts.database_ddl(Dialect.of(engine)))
-    # stamped as core's channel expects of a deployment's database (as traust-core's tests do)
+    # what a deployment applies, as traust-core's tests do: DDL, its upgrades, then data
     on_driver_connection(
         engine, lambda dbapi: contracts.run_db_upgrades(dbapi, contract_dialect(engine))
     )

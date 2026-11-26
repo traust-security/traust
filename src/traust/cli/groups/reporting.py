@@ -275,6 +275,127 @@ RATE_THREATS = OpSpec(
 )
 
 
+def add_rate_cvss_args(ap) -> None:
+    ap.add_argument(
+        "report",
+        nargs="?",
+        type=Path,
+        help="Path to a report whose findings carry cvss.vector (*-security-audit.json, "
+        "*-container-audit.json)",
+    )
+    ap.add_argument(
+        "--vector",
+        help="Score one CVSS 3.x or 4.0 vector and print its score and band; reads no report",
+    )
+    ap.add_argument(
+        "--check",
+        action="store_true",
+        help="Report scores and severities that disagree with their vectors; write nothing",
+    )
+
+
+def _cvss_of(vector: str) -> tuple[float, str] | None:
+    """The calculator's score and band for one vector: traust-core's cvss library wrapper."""
+    from traust_core.v1.models.cvss import cvss_computed_score, severity_of
+
+    score, band = cvss_computed_score(vector), severity_of(vector)
+    if score is None or band is None:
+        return None
+    return float(score), band.value
+
+
+def call_rate_cvss(args) -> int:
+    """Fill each finding's cvss.score and severity from its cvss.vector.
+
+    The author writes the vector's metrics; the score and the band are the
+    calculator's (traust-core's cvss library wrapper), never the author's.
+    Findings without a cvss.vector are left alone.
+    """
+    if args.vector:
+        rated = _cvss_of(args.vector)
+        if rated is None:
+            print(f"rate-cvss: not a scorable CVSS 3.x/4.0 vector: {args.vector}", file=sys.stderr)
+            return 1
+        print(json.dumps({"vector": args.vector, "score": rated[0], "severity": rated[1]}))
+        return 0
+    if args.report is None:
+        print("rate-cvss: give a report path or --vector", file=sys.stderr)
+        return 2
+    try:
+        document = json.loads(args.report.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        print(f"rate-cvss: cannot read {args.report}: {exc}", file=sys.stderr)
+        return 1
+    if not isinstance(document, dict):
+        print(f"rate-cvss: {args.report} is not a report object", file=sys.stderr)
+        return 1
+    if not isinstance(document.get("findings"), list):
+        # a report without a findings array can't be checked; never report it as passing
+        print(f"rate-cvss: {args.report} has no findings array", file=sys.stderr)
+        return 1
+    changed, failed = [], []
+    for finding in document["findings"]:
+        cvss = finding.get("cvss") if isinstance(finding, dict) else None
+        vector = cvss.get("vector") if isinstance(cvss, dict) else None
+        if not vector:
+            continue
+        fid = finding.get("id", "?")
+        rated = _cvss_of(vector)
+        if rated is None:
+            failed.append(f"{fid}: not a scorable CVSS 3.x/4.0 vector: {vector}")
+            continue
+        score, band = rated
+        if cvss.get("score") != score or finding.get("severity") != band:
+            changed.append(
+                f"{fid}: {cvss.get('score')}/{finding.get('severity')} -> {score}/{band}"
+            )
+            cvss["score"], finding["severity"] = score, band
+    for line in failed:
+        print(f"rate-cvss: {line}", file=sys.stderr)
+    if args.check:
+        for line in changed:
+            print(f"rate-cvss: {line}")
+        return 1 if (changed or failed) else 0
+    if changed and not failed:
+        _recount_severities(document)
+        args.report.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
+    print(
+        f"rate-cvss: {len(changed)} finding(s) updated, {len(failed)} error(s)"
+        + (" -- nothing written" if failed else "")
+    )
+    return 1 if failed else 0
+
+
+_SEVERITIES = ("critical", "high", "medium", "low", "informational")
+
+
+def _recount_severities(document: dict) -> None:
+    """Rebuild the severity counts and finding-id groups from the findings' severities, so a
+    band the calculator moved still reconciles with executive_summary and findings_summary."""
+    ids: dict[str, list[str]] = {level: [] for level in _SEVERITIES}
+    for finding in document.get("findings") or []:
+        level = str(finding.get("severity", "")).lower() if isinstance(finding, dict) else ""
+        if level in ids:
+            ids[level].append(finding.get("id", ""))
+    summary = document.get("executive_summary")
+    if isinstance(summary, dict) and isinstance(summary.get("severity_counts"), dict):
+        for level in _SEVERITIES:
+            summary["severity_counts"][level] = len(ids[level])
+    entries = document.get("findings_summary")
+    if isinstance(entries, list):
+        for entry in entries:
+            level = str(entry.get("severity", "")).lower() if isinstance(entry, dict) else ""
+            if level in ids:
+                entry["count"], entry["finding_ids"] = len(ids[level]), ids[level]
+
+
+RATE_CVSS = OpSpec(
+    add_args=add_rate_cvss_args,
+    call=call_rate_cvss,
+    help="Fill findings' CVSS scores and severities from their vectors with the CVSS calculator",
+)
+
+
 def add_sarif_args(ap) -> None:
     ap.add_argument(
         "reports",

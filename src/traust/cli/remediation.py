@@ -84,6 +84,12 @@ from traust.cli.findings import _repository
 from traust.cli.impact import harness_version
 from traust.context import load, load_caller, load_recorder
 
+# Impact classifications that eliminate an advisory match; every other one stays a filed
+# finding (affected, likely_affected, not_observed, inconclusive) and needs verification.
+ELIMINATING_CLASSIFICATIONS = frozenset(
+    {ImpactClassification.VERSION_NOT_IN_RANGE, ImpactClassification.NOT_IMPORTED}
+)
+
 
 def _parser(op: str, about: str) -> argparse.ArgumentParser:
     return parser("remediation", op, about)
@@ -620,11 +626,12 @@ def verify_sweep(argv: list[str] | None = None) -> int:
             }
         if args.impact_filter is not None:
             impact = ImpactExport.model_validate_json(args.impact_filter.read_bytes())
+            # every classification that leaves the advisory filed: only an out-of-range
+            # version or an unimported package eliminates it (docs/report-structure.md)
             wanted = {
                 row.repository_url
                 for row in impact.repos
-                if row.classification
-                in (ImpactClassification.AFFECTED, ImpactClassification.LIKELY_AFFECTED)
+                if row.classification not in ELIMINATING_CLASSIFICATIONS
             }
             repos = {id_: repo for id_, repo in repos.items() if repo.url in wanted}
         sweep = services.verification.sweep(list(repos), args.include_branches)

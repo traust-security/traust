@@ -196,7 +196,7 @@ Assess a repository's post-quantum TLS readiness. Use when asked whether a repo 
 
 ## secure-code-audit
 
-Use when the user asks to perform a security audit, security review, vulnerability assessment, or code analysis of a GitHub repository, operator, or batch of repositories using OWASP ASVS, OWASP Kubernetes Top 10, CIS Kubernetes Benchmark, DISA STIG, SLSA, OpenSSF Scorecard, SEI CERT coding standards (Java, C/C++), or PEACH tenant-isolation frameworks. Authors canonical remediation sizes or explicit unknowns, independently evidenced blocking, and explicit roadmap priorities for Core-recorded reports. Keeps authored finding kind separate from validity and execution proof.
+Use when the user asks to perform a security audit, security review, vulnerability assessment, or code analysis of a GitHub repository, operator, or batch of repositories using OWASP ASVS, OWASP Kubernetes Top 10, CIS Kubernetes Benchmark, DISA STIG, SLSA, OpenSSF Scorecard, SEI CERT coding standards (Java, C/C++), or PEACH tenant-isolation frameworks. Authors canonical remediation sizes or explicit unknowns, independently evidenced blocking, and explicit roadmap priorities for Core-recorded reports. Keeps authored finding kind separate from validity and execution proof. Severity is the band of the finding's score (its CVSS vector, or a published advisory's selected authority score); no gate re-rates it.
 
 - **Stage:** ③ Audit
 - **Tier:** `primary`
@@ -206,7 +206,7 @@ Use when the user asks to perform a security audit, security review, vulnerabili
 
 ## secure-container-audit
 
-Use when the user asks to perform a security audit, vulnerability scan, SBOM analysis, or supply-chain assessment of a container image (registry reference, payload image, or batch of images) using skopeo, syft, and grype — covering image configuration, known CVEs in shipped packages, signature/provenance posture, and drift between the image contents and its source repository. Omits unauthored validity answers; authors canonical remediation sizes or explicit unknowns, independent blocking, and explicit roadmap priorities through Core's report record door.
+Use when the user asks to perform a security audit, vulnerability scan, SBOM analysis, or supply-chain assessment of a container image (registry reference, payload image, or batch of images) using skopeo, syft, and grype — covering image configuration, known CVEs in shipped packages, signature/provenance posture, and drift between the image contents and its source repository. Omits unauthored validity answers; authors canonical remediation sizes or explicit unknowns, independent blocking, and explicit roadmap priorities through Core's report record door. Severity is the band of the finding's score (its CVSS vector, or a published advisory's selected authority score); no gate re-rates it.
 
 - **Stage:** ③ Audit
 - **Tier:** `primary`
@@ -215,7 +215,7 @@ Use when the user asks to perform a security audit, vulnerability scan, SBOM ana
 
 ## secure-rpm-audit
 
-Use when the user asks to perform a security audit, security review, or vulnerability assessment of an RPM packaging repository (CentOS Stream / Fedora / RHEL dist-git) — a repo containing a .spec file, downstream patches, and a sources lookaside manifest — using OWASP ASVS, the SEI CERT C/C++ Coding Standards, Fedora Packaging Guidelines, SLSA, and OpenSSF Scorecard. Omits unauthored validity answers; authors canonical remediation sizes or explicit unknowns, independent blocking, and explicit roadmap priorities through Core's report record door.
+Use when the user asks to perform a security audit, security review, or vulnerability assessment of an RPM packaging repository (CentOS Stream / Fedora / RHEL dist-git) — a repo containing a .spec file, downstream patches, and a sources lookaside manifest — using OWASP ASVS, the SEI CERT C/C++ Coding Standards, Fedora Packaging Guidelines, SLSA, and OpenSSF Scorecard. Omits unauthored validity answers; authors canonical remediation sizes or explicit unknowns, independent blocking, and explicit roadmap priorities through Core's report record door. Severity is the band of the finding's score (its CVSS vector, or a published advisory's selected authority score); no gate re-rates it.
 
 - **Stage:** ③ Audit
 - **Tier:** `primary`
@@ -234,7 +234,7 @@ Use when a reviewer wants to steer a security code audit between phases — Phas
 
 ## vuln-scan
 
-Static source-code vulnerability scan. Reads a target directory (and its threat model recorded in traust-core, if present), spawns parallel review subagents per focus area, and writes <repo>-vuln-findings.{json,md} with campaign finding IDs ({REPO_SLUG}-{SHORTSHA}-{NNN}) and the shared severity enum, for /triage to consume. When traust-core holds a baseline for the repository, the scan supplements it: known admitted findings are deduped against the baseline. Successful canonical recording stores the scan assessment/artifact and atomically admits its findings under the returned assessment ID. No validity answer is authored; triage adjudicates downstream — /secure-code-audit remains the preferred baseline and /verify-remediation the way to update it after fixes. Read-only — no building, running, or network. Use when asked to "scan for vulns", "review this code for security issues", "find bugs in <dir>", "re-sweep an audited repo", or as the step between /threat-model and /triage.
+Static source-code vulnerability scan. Reads a target directory (and its threat model recorded in traust-core, if present), spawns parallel review subagents per focus area, and writes <repo>-vuln-findings.{json,md} with campaign finding IDs ({REPO_SLUG}-{SHORTSHA}-{NNN}) and the shared severity enum, for /triage to consume. When traust-core holds a baseline for the repository, the scan supplements it: known admitted findings are deduped against the baseline. Successful canonical recording stores the scan assessment/artifact and atomically admits its findings under the returned assessment ID. No validity answer is authored; triage adjudicates downstream — /secure-code-audit remains the preferred baseline and /verify-remediation the way to update it after fixes. Read-only — no building, running, or network. Use when asked to "scan for vulns", "review this code for security issues", "find bugs in <dir>", "re-sweep an audited repo", or as the step between /threat-model and /triage. Gates lower confidence, never severity.
 
 - **Stage:** ③ Audit
 - **Tier:** `primary`
@@ -254,7 +254,7 @@ Use when the user wants to record human feedback against audit findings, review 
 
 ## triage
 
-Triage a batch of raw security findings. Verify each is real, keep finding kind separate from verdict, collapse duplicates, re-rank vulnerabilities by derived exploitability, and tag with an owner. Gates the final new report with the shared canonical-write contract. Keep the hardening finding category distinct from CWE software-weakness taxonomy. Takes scanner output or a read-only Core-prepared input and writes <repo>-triage.json + <repo>-triage.md sorted by what actually needs engineering attention. Use when asked to "triage findings", "validate scanner output", "prioritize vulns", or "review the backlog". Runs interactively by default; pass --auto to skip the interview. Scanner source attribution comes from the recorded Core assessment, not a caller-supplied origin flag. Scheduled triage verifies against a checkout at the source assessment's exact commit.
+Triage a batch of raw security findings. Verify each is real, keep finding kind separate from verdict, collapse duplicates, re-rank vulnerabilities by derived exploitability, and tag with an owner. Gates the final new report with the shared canonical-write contract. Keep the hardening finding category distinct from CWE software-weakness taxonomy. Takes scanner output or a read-only Core-prepared input and writes <repo>-triage.json + <repo>-triage.md sorted by what actually needs engineering attention. Use when asked to "triage findings", "validate scanner output", "prioritize vulns", or "review the backlog". Runs interactively by default; pass --auto to skip the interview. Scanner source attribution comes from the recorded Core assessment, not a caller-supplied origin flag. Scheduled triage verifies against a checkout at the source assessment's exact commit. A finding backed by a published CVE with a CVSS score keeps that score's band unless recorded evidence bound to the finding shows otherwise.
 
 - **Stage:** ④ Triage
 - **Tier:** `primary`

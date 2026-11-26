@@ -65,7 +65,7 @@ def _postgres() -> Iterator[str]:
     url = sa.make_url(PG_URL).set(database=name)
     engine = create_database_engine(url)
     apply_schema(engine, contracts.database_ddl(Dialect.of(engine)))
-    # stamped as core's channel expects of a deployment's database (as traust-core's tests do)
+    # what a deployment applies, as traust-core's tests do: DDL, its upgrades, then data
     on_driver_connection(
         engine, lambda dbapi: contracts.run_db_upgrades(dbapi, contract_dialect(engine))
     )
@@ -382,6 +382,7 @@ def test_record_binds_the_audit_to_its_leased_order(
     )
     runner = Principal(identity="runner", kind=ActorKind.MACHINE, display="runner")
     monkeypatch.setattr(cloud_config, "load_recorder", lambda core: runner)
+    services.ops.admit(order.id)
     claim = services.ops.claim(WorkerId(runner.ref), timedelta(minutes=5), order_id=order.id)
     assert claim is not None
     report = str(a_report(tmp_path))

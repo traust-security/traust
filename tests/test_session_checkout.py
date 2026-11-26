@@ -107,6 +107,7 @@ def test_scheduled_triage_receives_the_assessed_tree_not_the_newer_head(
             verified_by=IdentitySource.OIDC,
         ),
     )
+    services.ops.admit(submitted.id)  # submit plans; the engine's admission queues it
     order = services.ops.claim(WorkerId(caller.ref), timedelta(minutes=5), order_id=submitted.id)
     assert order is not None
     source = uuid4()
