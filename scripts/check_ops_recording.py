@@ -62,9 +62,10 @@ def require_smoke_container(ops_dir: str, port: str) -> None:
     container = f"traust-{ops_dir.removeprefix('.')}"
     if os.environ.get("OPS_CONTAINER") != container:
         raise ValueError(f"recording proof requires the smoke's own container ({container})")
-    runtime = shutil.which("podman") or shutil.which("docker")
+    # cmd_smoke's own container runtime ($CT), so the check asks the runtime that created it.
+    runtime = shutil.which(os.environ.get("OPS_CT", ""))
     if runtime is None:
-        raise ValueError("recording proof needs podman or docker to confirm the smoke container")
+        raise ValueError("recording proof needs cmd_smoke's container runtime (OPS_CT)")
     state = subprocess.run(
         [runtime, "inspect", "--format", "{{.State.Running}}", container],
         capture_output=True,

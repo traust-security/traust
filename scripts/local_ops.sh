@@ -955,7 +955,8 @@ cmd_smoke() {
     OPS_VOLUME="$OPS_CONTAINER-data"
     CONFIG_HOME="$REPO_ROOT/$OPS_DIR/config"
     RUN_DIR="$REPO_ROOT/$OPS_DIR/run"
-    export OPS_DIR OPS_CONTAINER OPS_VOLUME OPS_ENGINE_SRC OPS_PORT
+    OPS_CT="$CT"  # the recording proof confirms this smoke's container through it
+    export OPS_DIR OPS_CONTAINER OPS_VOLUME OPS_ENGINE_SRC OPS_PORT OPS_CT
     trap 'smoke_teardown; rm -rf -- "$OPS_DIR"' EXIT
     export OPS_SIGNED_SMOKE=1 COSIGN_PASSWORD=""
     cmd_up >/dev/null

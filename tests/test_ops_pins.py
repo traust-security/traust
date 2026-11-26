@@ -435,6 +435,7 @@ def test_recording_proof_writes_only_to_the_smokes_own_container(
     from scripts.check_ops_recording import require_smoke_container
 
     monkeypatch.setenv("PATH", str(_runtime(tmp_path, running, published)))
+    monkeypatch.setenv("OPS_CT", "podman")
     monkeypatch.setenv("OPS_CONTAINER", container)
     if refused is None:
         require_smoke_container(".local-ops-smoke.Ab12Cd34", "55999")
