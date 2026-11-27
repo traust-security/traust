@@ -8,6 +8,10 @@ metadata:
 
 # Fuzz Harnesses
 
+For a scheduled run, take `--lease-generation N` from the session invocation
+(before interpreting positional inputs). Keep the inherited `TRAUST_RUN_ID` and pass
+that exact N to record; never look it up again. Omit the flag in standalone runs.
+
 > **Paths.** `analysis-results/…` and `progress-tracker/…` in this skill are the
 > default workspace layout. They resolve through `locations:` in `traust.yaml` in
 > `$TRAUST_CONFIG_HOME` (`docs/setup.md`, Storage locations); substitute your
@@ -200,7 +204,7 @@ For each crasher:
    commit:
 
    ```bash
-   traust reporting record <fuzz-report.json> --kind fuzz \
+   traust reporting record [--lease-generation N] <fuzz-report.json> --kind fuzz \
        --repo-url <repository-URL> --sha <target commit>
    ```
 

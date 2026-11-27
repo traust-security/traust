@@ -134,6 +134,207 @@ judgment; subsequent judgments use Core's existing decision doors.
 Triage artifact verdicts are a separate contract and are unchanged by
 these rules.
 
+## Severity authoring
+
+A finding's `severity` is the band of a score, never a judgment. These rules
+apply to new reports; historical reports are not rewritten.
+
+- **The CVSS calculator computes every score and band.** You write a
+  vector's metrics; never a score or a band. Before validating a report, run
+  `python3 -m traust.cli reporting rate-cvss <report>`: it fills each
+  finding's `cvss.score` and `severity` from its `cvss.vector` with
+  traust-core's CVSS calculator (the `cvss` library, FIRST's 3.x and 4.0
+  formulas), and `--check` reports any disagreement. `--vector "<vector>"`
+  scores one vector. A vector you authored that it refuses is malformed:
+  fix the metrics. An advisory's vector is copied, never fixed: when the
+  selected authority states only a CVSS v2 vector, or none the calculator
+  scores, the finding files at `medium` with no `cvss`, and the description
+  quotes the published score and says the advisory is unscored in 3.x/4.0.
+- **Every finding not backed by an advisory** (first-party code, image
+  configuration, spec construct, IaC): `severity` is the calculator's band
+  for the Base vector in the finding's `cvss`. A 0.0 score is not a
+  vulnerability finding. Base metrics describe
+  the vulnerability in the code. Deployment context, a control that lives
+  elsewhere, and a chain step you could not show never lower them; name those
+  in the description. An unscored posture or hygiene observation is
+  `informational` and carries no `cvss`.
+- **Advisory-backed finding** (a published CVE, GHSA or other OSV advisory
+  matched to a dependency, package or image, including advisory-lag in a
+  repository's own forked or vendored upstream code): `cvss.vector` is the
+  advisory's selected authority vector, copied from the tool output, and
+  `rate-cvss` computes its score and band. D2: for a Red Hat product, the selected score is Red Hat's CVSS
+  for that product when Red Hat publishes one. A Red Hat product is one whose
+  Core product record declares Red Hat CSAF product identifiers; never guess
+  it from a name. Until Core keeps Red Hat's score per product, the normal
+  order applies. Otherwise the order is NIST (NVD
+  Primary), GitHub (GHSA), the CVE's CNA, ADP, Red Hat, then the scanner. A
+  3.x score comes before 4.0; 4.0 is used only when no source has 3.x. Red
+  Hat's severity word (Important, Moderate) is never a score. Quote every
+  authority's score you have, with its source, in the description. An
+  advisory that no source scores, the scanner included, files at `medium`
+  with the description saying it is unscored.
+- **FIRST's logic, at all times.** Choose every Base metric by FIRST's
+  definitions in the CVSS v3.1 (or 4.0) specification, from the evidence
+  for this finding. Record a **CVSS basis** in the description: one line
+  per Base metric giving its value and the evidence it rests on (`file:line`,
+  a config key, the shipped artifact). Never choose a metric to reach a
+  band; `rate-cvss` computes the score and band. When the evidence can't
+  settle a metric, take the reasonable worst case FIRST's guidance
+  describes and mark that line `unsettled`; a metric is never lowered for
+  lack of proof. For an advisory-backed finding, the basis is the selected
+  authority's vector, cited.
+- **No floors, no fixed severities.** No class of finding has a minimum
+  or a mandated severity; the calculator's band prevails. Filing doesn't
+  depend on the band. Verification-disable and credential-transport
+  findings, and RPM06 integrity failures, are always filed and are exempt
+  from the chain-completion demand. A novel vulnerability is filed and
+  scored on its own evidence; nothing waits for a CVE, a published score
+  or a complete exploit chain.
+- **The audit never changes a severity.** Reachability, deployment context,
+  restricted SCCs, a compensating control elsewhere, a required prior
+  compromise or plain uncertainty never lower it. A Precision Gate decides
+  only whether a candidate is filed: with affirmative evidence it moves to
+  `dependency_audit` or `negative_results`; otherwise the finding is filed at
+  its band, with the open question named in the description for `/triage`.
+- **Who changes it later:** only `/impact-analysis`, `/triage`, live
+  validation (`/validate-findings` and its siblings) and fuzzing
+  (`/create-fuzzing`), through Core's decision
+  doors, never by editing the report, and only on evidence. For an
+  advisory-backed finding, evidence is a recorded artifact bound to the
+  finding, its commit and its dependency version, or a code citation
+  (`file:line` quoted from the checkout) that triage's citation lint
+  verifies, bound to the same finding, commit, dependency version and
+  environment. Inference is not evidence: uncited reasoning, vote counts,
+  precondition counts, threat-model matches, deployment assumptions and
+  prose. KEV and EPSS are exploitability inputs to ranking and the SLA; they
+  never change a severity. The evidence decides the outcome:
+
+  | Evidence | Outcome |
+  |---|---|
+  | `classification: version_not_in_range` or `not_imported`; a vendor not-affected statement; a shipped NVR at or past the fixed NVR | not affected. In an audit, a `not_affected` entry; in triage, `false_positive` with `refute_reasons: ["bound_evidence"]` citing the artifact (triage's verdicts have no `not_affected` yet) |
+  | Code citations showing a precondition or control that changes how the vulnerability can be exploited here | triage proposes a CVSS Environmental vector, each modified metric citing its evidence, in the rationale. The severity changes only when Core scores that vector with the CVSS calculator and admits the decision (remediation plan step 7); until then the band stands |
+  | A live-validation result | the validation's verdict, at the band of the vector it records |
+  | A challenge to the vector: changed metrics, up or down, each citing its evidence (a `file:line` citation the lint verifies, a validation result, a fuzzing crash with its reproducer) | for a finding not backed by an advisory, a corrected Base vector; for an advisory-backed finding, an Environmental vector, since the published Base vector stands. Core scores the proposed vector with the calculator and admits it only on that evidence (remediation plan step 7). A metric marked `unsettled` is the first one to test |
+
+  An audit applies the first row itself, recording the match as not
+  affected (see the next section); the code-citation and validation rows
+  belong to triage, live validation and fuzzing. `likely_affected`, `inconclusive`,
+  and `not_observed` at any evidence level are not evidence for any of these.
+  govulncheck's symbol-level `not_observed` means no call path was found to
+  the listed functions, not that the vulnerable code is absent. It misses
+  dynamic calls (reflection, `plugin`, `go:linkname`, cgo), a library's
+  importers, other GOOS/GOARCH or build tags, incomplete advisory symbol
+  lists, and a checkout that differs from what ships. It is evidence for
+  triage's cited verdict, never an elimination on its own. Nothing raises a severity above its score's band either.
+  The report's `severity` is never rewritten.
+
+  A finding nobody disproves keeps its published band. When triage or live
+  validation can't disprove it (a tool limit, no coverage, a split), the
+  finding goes to a person through Core's review queue; it is never invalid
+  by default.
+
+## Dependency and advisory findings: affected or not affected
+
+A scanner-matched CVE is either **not affected** (validity `not_affected`: the
+issue exists but doesn't apply to this repository, version or deployment), on
+the impact-analysis or vendor evidence below, and recorded as such with its
+rationale; or it is **filed as a finding** at its published score and stays
+until `/triage` or live validation disproves it (see the evidence table in
+[Severity authoring](#severity-authoring)), or a person decides. Names below
+are traust-contracts' own: the `finding.dependency` block, the
+`impact-classification` and `dependency-evidence-level` enums.
+
+1. **Where a match comes from.** An advisory match comes from a
+   deterministic scanner: the OSV pre-scan, `sbom-grype`, govulncheck, or an
+   image package list. Copy `advisory`, `module`, `ecosystem`,
+   `installed_version`, `vulnerable_range`, `fixed_version` and scores from
+   its output; never type them. A CVE you recall that no scanner matched
+   goes in `dependency_audit` as a lead naming the missing scanner evidence.
+   - **Correlate before filing:** matches with the same advisory (or alias),
+     ecosystem, module and installed version are one match. File one
+     finding, or one `not_affected` entry, citing every scanner's output.
+   - **An installed version is required:** a candidate whose version isn't
+     an installed version (OSV `version_basis: manifest-floor` or
+     `resolved`) isn't a match yet. Record it in `dependency_audit` with a
+     `coverage_gaps` entry naming the missing lockfile, SBOM or build. It
+     becomes a match once a deterministic source establishes the installed
+     version.
+2. **Reachability: impact-analysis, single-commit mode.** For every match,
+   run:
+
+   ```bash
+   python3 -m traust.cli impact sbom --repo-url <url> --sha <commit> [--branch <branch>]
+   python3 -m traust.cli impact analyze <ADVISORY> --repo-url <url> --sha <commit> [--branch <branch>] --scan
+   python3 -m traust.cli impact export <ADVISORY> --out <scratch-dir>/<advisory>-impact.json
+   ```
+
+   - `impact sbom` (no file argument) records the commit's manifest SBOM
+     with its coverage, so Core holds the packages the analysis needs. Run
+     it once per audited commit. If the commit already holds an SBOM given
+     as a document, the command keeps that one and its coverage stays
+     unknown: a package absent from it is `inconclusive`, never
+     `not_imported`. File such a match at the published score and name the
+     coverage gap; never claim manifest coverage the commit doesn't have.
+   - Read the export row for this repository, commit, ecosystem, module and
+     installed version: its `classification` and `evidence`.
+   - **A row counts only when its commit is the source the audited artifact
+     ships:** the audited repository's commit, or an image's `vcs-ref`. A
+     row for another commit, such as an RPM's upstream, is context only:
+     downstream patches and bundled archives change what ships, so it never
+     makes a match not affected.
+   - **`impact analyze` writes to Core:** it records an impact assessment
+     and, for an `affected` row, files Core's own dependency finding,
+     identified by repository, advisory and package. The report finding is
+     that same finding: Core identifies a report finding whose `dependency`
+     names a stored advisory by the same key (traust-core#547), so the two
+     filings are two occurrences of one finding, rated from the occurrence
+     that carries CVSS. Cite the finding id in `source_findings`. Until a
+     Core with #547 is pinned, the same advisory and commit can appear under
+     both ids.
+   - The export is a scratch intermediate; never place it in the findings
+     tree.
+   - Record `deterministic_steps["impact-analysis"]` as `"ran"`, or
+     `"skipped: <reason>"` with a `coverage_gaps` entry. The advisories it
+     covered are the report's `dependency` blocks and `not_affected`
+     entries.
+3. **File by the evidence:**
+
+   | Evidence | Outcome |
+   |---|---|
+   | `classification: version_not_in_range` or `not_imported` | **Not affected** |
+   | A vendor not-affected statement for the shipped product, or a fixed NVR at or before the shipped NVR, in the tool data (grype's Red Hat security data, a VEX document impact-analysis recorded) | **Not affected** |
+   | `classification: affected` | A finding at the published score, citing the row's evidence: its govulncheck trace when present, else what the row records (feature-pattern matches, for example) |
+   | `classification: likely_affected`, `inconclusive`, or `not_observed` at any evidence level (govulncheck's "no call path" is evidence, not proof) | A finding at the published score, unverified, with the row's evidence attached |
+   | Sources' ranges disagree for the installed version (a release-tag range against a Go-module range, for example) | A finding at the published score, unverified, citing both ranges |
+   | No row (the run failed, the commit isn't the shipped source, or impact-analysis doesn't cover the ecosystem or surface) | A finding at the published score, unverified, with the gap named |
+
+   Every filed advisory finding carries no validity answer (omit
+   `validation_status`) and a `dependency` block. The block holds
+   `advisory`, `module`, `ecosystem`, `installed_version`,
+   `vulnerable_range` and `fixed_version`. When a row exists, it also holds
+   the row's `classification`, `evidence_level` and an `impact_artifact`
+   pointing at the row. When none exists, the description states the
+   skipped or failed reason and the coverage gap. Test or dev scope and
+   vendor data go in its description.
+4. **Record every not-affected match** in the report's `not_affected`
+   section: one entry each, with the same `dependency` block, a
+   `rationale`, and `reference` for a vendor statement.
+   - Eliminated by impact-analysis: the block's `classification`
+     (`version_not_in_range` or `not_imported`), `evidence_level` and
+     `impact_artifact` are the evidence.
+   - Eliminated by a vendor statement: `reference` cites it. A row that
+     doesn't eliminate on its own (`affected`, `likely_affected`,
+     `inconclusive` or `not_observed`) stays out of the block's
+     `classification`; name it in the `rationale` as context. The contract
+     refuses a vendor entry that carries one of those classifications.
+
+   The section is the paper trail that the CVE was identified and why it
+   was eliminated. Core renders it and doesn't ingest it as a finding.
+
+Your own reading of the code ("unused", "dev-only", "not executed in this
+image", "client-only symbol") is never evidence of non-applicability. It
+goes in the finding's description for `/triage`.
+
 ## Remediation authoring
 
 These rules apply to newly authored findings and roadmap items across all
@@ -183,7 +384,7 @@ apply unrelated classifier policies, or recreate retired report writers.
   every deterministic pre-scan so evidence quality is comparable across a
   batch. Keys: `k8s-hardening`, `opengrep`, `gitleaks`, `osv-scanner`,
   `sbom-grype`, `priv-profile`, `fork-advisory-lag`, `route-guards`,
-  `config-matrix`; value `"ran"` or `"skipped: <reason>"` (e.g.
+  `config-matrix`, `impact-analysis`; value `"ran"` or `"skipped: <reason>"` (e.g.
   `"skipped: opengrep not on PATH"`, `"skipped: no local checkout"`). A
   skipped step means that section of the audit ran on manual review alone —
   downstream consumers (`/mine-ledger` precision, `/verify-remediation`) must
@@ -193,7 +394,10 @@ apply unrelated classifier policies, or recreate retired report writers.
   all four scanning skills: `crit_high_evaluated` counts every critical/high
   candidate (filed or gated) and `fired[]` lists each gate that changed a
   candidate's disposition
-  (`{candidate, gate, action: downgraded|negative_results|dependency_audit}`).
+  (`{candidate, gate, action}`). New reports use `negative_results` or
+  `dependency_audit`: a gate never changes severity
+  ([Severity authoring](#severity-authoring)); `downgraded` stays readable in
+  historical reports.
   An empty `fired` list is legitimate; a report that files crit/high findings
   with **no** block is an incomplete run — the same contract as
   `deterministic_steps`. `/vuln-scan` stamps it on its supplement scans.
@@ -222,7 +426,7 @@ apply unrelated classifier policies, or recreate retired report writers.
 
 - `metadata.audit_profile: "rpm"`.
 - `metadata.additional.deterministic_steps` keys: `sbom-grype`, `yara`,
-  `crypto-audit`.
+  `crypto-audit`, `impact-analysis`.
 - `metadata.repository` is the dist-git URL; record upstream `Source0`, spec
   `Version`/`Release`, and applied patches under `metadata.additional`.
 - `metadata.ref` = the dist-git stream audited (e.g. `c10s`) with
@@ -244,7 +448,7 @@ apply unrelated classifier policies, or recreate retired report writers.
 
 - `metadata.audit_profile: "container"`.
 - `metadata.additional.deterministic_steps` keys: `k8s-hardening`,
-  `priv-profile`, `yara`.
+  `priv-profile`, `yara`, `impact-analysis`.
 - `metadata.repository` is the full image reference **pinned by digest**
   (`<registry>/<namespace>/<image>@sha256:…`); the tag audited, source-repo
   labels (`vcs-url`, `vcs-ref`), and base image go under `metadata.additional`.

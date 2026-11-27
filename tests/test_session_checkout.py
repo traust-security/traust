@@ -5,14 +5,20 @@ https URL resolves to it through git's insteadOf in an isolated HOME, which core
 
 from __future__ import annotations
 
+import shlex
 import subprocess
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
+from uuid import uuid4
 
 import pytest
 from traust_core.v1.errors import NotFoundError, ServiceError, ValidationError
 from traust_core.v1.models.assessment import Assessment, AssessmentKind
+from traust_core.v1.models.identity import IdentitySource, Principal
 from traust_core.v1.models.inventory import RepositoryRef
-from traust_core.v1.models.values import HttpsRepoUrl
+from traust_core.v1.models.operations import OrderRequest, WorkerId
+from traust_core.v1.models.values import GitSha, HttpsRepoUrl
+from traust_core.v1.models.vocabulary import ActorKind
 from traust_core.v1.providers.checkout import GitCheckout
 from traust_core.v1.providers.process import ProcessRunner
 from traust_core.v1.repositories.contract import SqlTraustUnitOfWork
@@ -76,6 +82,78 @@ def test_the_workspace_is_the_orders_commit_with_history_released_afterwards(
         assert [r.path for r in git.numstat(workspace.path, forge.anchor)] == ["changed.py"]
         assert not workspace.path.is_relative_to(HARNESS_ROOT)
     assert not workspace.path.exists()  # released when the session ends
+
+
+def test_scheduled_triage_receives_the_assessed_tree_not_the_newer_head(
+    forge: Forge, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _observed_head(forge, forge.head)
+    moved = forge.move()
+    core = load(forge.config)
+    services = core.services()
+    repo = services.portfolio.find_repository(HttpsRepoUrl.parse(REPO, core.config.forge_hosts))
+    caller = Principal(
+        identity="checkout-test",
+        kind=ActorKind.MACHINE,
+        display="Test",
+        verified_by=IdentitySource.OIDC,
+    )
+    submitted = services.ops.submit(
+        OrderRequest(asset="checkout_fixture", priority=1, repository_id=repo.id),
+        Principal(
+            identity="checkout-operator",
+            kind=ActorKind.HUMAN,
+            display="Operator",
+            verified_by=IdentitySource.OIDC,
+        ),
+    )
+    services.ops.admit(submitted.id)  # submit plans; the engine's admission queues it
+    order = services.ops.claim(WorkerId(caller.ref), timedelta(minutes=5), order_id=submitted.id)
+    assert order is not None
+    source = uuid4()
+    monkeypatch.setattr(session, "load_recorder", lambda _: caller)
+    monkeypatch.setattr(session, "resolve_model", lambda _: "fixture-model")
+    monkeypatch.setattr(session, "order_assessments", lambda *_: [])
+    monkeypatch.setattr(
+        session,
+        "_triage_source",
+        lambda *_: (source, GitSha.parse(forge.anchor), ()),
+    )
+    seen = []
+
+    def agent(command, skill, env):
+        words = shlex.split(command[-1])
+        assert words[:3] == ["/triage", str(source), "--repo"]
+        assert words[-2:] == ["--lease-generation", str(order.lease_generation)]
+        assert env["TRAUST_RUN_ID"] == str(order.id)
+        target = Path(words[3])
+        assert not target.is_relative_to(HARNESS_ROOT)
+        assert (target / "audited.py").read_text() == "x = 1\n"
+        assert not (target / "changed.py").exists()
+        assert _git("-C", str(target), "rev-parse", "HEAD") == forge.anchor != moved
+        seen.append(target)
+        return subprocess.CompletedProcess(command, 0), ()
+
+    monkeypatch.setattr(session, "session", agent)
+    rc = session.run(
+        [
+            "--config-home",
+            str(forge.config),
+            "--skill",
+            "triage",
+            "--role",
+            "triage-verifier",
+            "--repo",
+            REPO,
+            "--run-id",
+            str(order.id),
+            "--lease-generation",
+            str(order.lease_generation),
+        ]
+    )
+    # Reading the source is not itself proof of a recording.
+    assert rc == 1 and '"reason":"session-output-invalid"' in capsys.readouterr().out
+    assert len(seen) == 1 and not seen[0].exists()
 
 
 def test_a_failed_release_is_reported_alongside_not_instead_of_the_session(

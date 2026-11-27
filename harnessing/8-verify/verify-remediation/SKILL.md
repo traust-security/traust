@@ -43,6 +43,11 @@ allowed-tools:
 
 # Verify Remediation
 
+For a scheduled run, take `--lease-generation N` from the session invocation
+(before interpreting positional inputs). Keep the inherited `TRAUST_RUN_ID` and pass
+that exact N to `verify-prepare` and `verify-record`, including when given an explicit
+report path. Omit the flag in standalone runs. Native-input mode still does not record.
+
 > **Paths.** `analysis-results/…` and `progress-tracker/…` in this skill are the
 > default workspace layout. They resolve through `locations:` in `traust.yaml` in
 > `$TRAUST_CONFIG_HOME` (`docs/setup.md`, Storage locations); substitute your
@@ -160,7 +165,7 @@ and identity/admission gates to the original emitted bytes through the SDK.
 The remaining input forms below apply only when `--native-input` is absent.
 
 1. **The original audit report** — one of:
-   - A work item id: `traust remediation verify-prepare <work-item>` prints
+   - A work item id: `traust remediation verify-prepare [--lease-generation N] <work-item>` prints
      its findings, every decision on them and earlier verifications
    - Path to a `*-security-audit.json` file (preferred)
    - Path to a `*-security-audit.md` file (parsed for finding data)
@@ -1141,7 +1146,7 @@ It does not advance a work item's forward-only status or manufacture execution
 evidence. Native-input runs still leave recording to their trusted caller.
 
 ```bash
-python3 -m traust.cli remediation verify-record \
+python3 -m traust.cli remediation verify-record [--lease-generation N] \
   <path-to>/<repo-name>-remediation-verification.json
 ```
 
@@ -1270,13 +1275,16 @@ When `--impact-filter <path>` is passed, give it directly to the Step 1
 `traust impact export <advisory-id> --out <path>`; do not pass a single
 native commit artifact or the counts-only `analyze` response.
 
-The adapter reads the exported `.repos` classifications and keeps only
-`affected`/`likely_affected` repository URLs, once each. Distinct modules,
+The adapter reads the exported `.repos` classifications and keeps the
+repository URL of every row that stays a filed finding (`affected`,
+`likely_affected`, `not_observed`, `inconclusive`), once each. Only
+`version_not_in_range` and `not_imported` eliminate a match, so only they
+leave a repository out ([report structure](../../../docs/report-structure.md)). Distinct modules,
 versions and commits retain their evidence in the export; any qualifying
 row includes its repository. This filter intersects any explicit
 `--repo-url`/`--product` scope. An empty intersection is an empty worklist,
-never an instruction to fall back to every repository. Other
-classifications remain in the export for review, not verification scope.
+never an instruction to fall back to every repository. The
+eliminated rows remain in the export for review, not verification scope.
 
 ### Step 2 — Confirm scope before spending tokens
 
@@ -1308,7 +1316,7 @@ For each worklist entry, in order:
    Write the verification report beside the audit report in the
    findings tree.
 2. Emit resolution events into the ledger:
-   `traust remediation verify-record <report>` (Phase 7b).
+   `traust remediation verify-record [--lease-generation N] <report>` (Phase 7b).
    Verification reports are class-1 evidence, the only sanctioned path
    to `resolution: resolved`. Phase 7a2 regression routing happens in the
    same call, once.

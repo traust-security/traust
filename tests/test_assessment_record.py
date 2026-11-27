@@ -62,12 +62,17 @@ def doors(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
     stub = SimpleNamespace(
         record=Door(recorded),
         register_repository=Door(SimpleNamespace(id=uuid.uuid4())),
+        find_repository=Door(SimpleNamespace(id=uuid.uuid4())),
+        bound=Door(contextlib.nullcontext()),
         register_ref=Door(SimpleNamespace(id=REF)),
     )
     services = SimpleNamespace(
+        ops=SimpleNamespace(bound=stub.bound),
         assessment=SimpleNamespace(record=stub.record),
         portfolio=SimpleNamespace(
-            register_repository=stub.register_repository, register_ref=stub.register_ref
+            find_repository=stub.find_repository,
+            register_repository=stub.register_repository,
+            register_ref=stub.register_ref,
         ),
     )
     monkeypatch.setattr(Context, "services", lambda self: services)
@@ -465,12 +470,22 @@ def test_record_on_core_refuses_a_crasher_of_an_unlisted_harness(core_home, tmp_
 
 def test_record_binds_the_assessment_to_its_order(doors, home, tmp_path, monkeypatch):
     path = document(tmp_path, security_audit())
+    runner = SimpleNamespace(ref="machine:runner")
+    monkeypatch.setattr(assessment_record, "load_recorder", lambda core: runner)
     order = uuid.uuid4()
     argv = (str(path), "--kind", "secure_code", "--repo-url", URL, "--sha", SHA)
-    assert run(home, *argv, "--run-id", str(order))[0] == 0
+    assert run(home, *argv, "--run-id", str(order), "--lease-generation", "8")[0] == 0
     monkeypatch.setenv("TRAUST_RUN_ID", str(order))
-    assert run(home, *argv)[0] == 0
+    assert run(home, *argv)[0] == 2
+    assert run(home, *argv, "--run-id", str(uuid.uuid4()), "--lease-generation", "8")[0] == 2
+    assert run(home, *argv, "--lease-generation", "8")[0] == 0
+    assert not doors.register_repository.calls
+    assert doors.bound.calls == [(order, doors.find_repository.result.id)] * 2
+    assert doors.bound.keywords == [{"worker": runner.ref, "lease_generation": 8}] * 2
     monkeypatch.delenv("TRAUST_RUN_ID")
+    assert run(home, *argv, "--lease-generation", "8")[0] == 2
     assert run(home, *argv)[0] == 0
     assert [k["run_order_id"] for k in doors.record.keywords] == [order, order, None]
+    assert [k["lease_generation"] for k in doors.record.keywords] == [8, 8, None]
+    assert [k["worker"] for k in doors.record.keywords] == [runner.ref, runner.ref, None]
     assert [c[-1].run_id for c in doors.record.calls][:2] == [order, order]

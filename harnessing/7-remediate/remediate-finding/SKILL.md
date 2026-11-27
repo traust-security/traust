@@ -100,14 +100,15 @@ one for confirmed, open findings with `traust remediation open --repo-url
 yet — running many is the security pack's remediation lane, not this skill).
 Run by that lane (`remediate_finding`, an order core's scheduling door
 submitted), you are given no id: the order names the work item, and
-`traust session run` sets `$TRAUST_RUN_ID` to the order, so `traust
-remediation prepare` with no argument prepares that item. `traust remediation prepare
-<work-item>` prints:
+`traust session run` sets `$TRAUST_RUN_ID` to the order and supplies `--lease-generation N`.
+Pass that original N to the workspace wrapper and to record. `traust remediation prepare
+--lease-generation N` prepares the ordered item; standalone `traust remediation prepare <work-item>` prints the same fields:
 
 | Field | Meaning |
 |---|---|
 | `subject.repository_url` / `subject.sha` | Exact source the finding's `file:line` references resolve against |
 | `fork` / `fix_branch` | Private fork + branch name to push the fix to |
+| `committer` | The machine identity `push_fix.sh` commits under (`traust.yaml` `remediation.committer`); the script reads it from core itself |
 | `items[].decisions` | every decision on the finding — the triage `rationale` among them |
 | `items[].finding` | the finding as it stands: `cwes`, `locations`, `effective_severity` |
 | `items[].strategy` | the preferred strategy for its class (Phase 3 table) |
@@ -134,7 +135,7 @@ the cited source before patching anything.
 ```bash
 bash harnessing/7-remediate/remediate-finding/run_one.sh <work-item>
 # run by the remediation lane (under a run order): no id, the order names it
-bash harnessing/7-remediate/remediate-finding/run_one.sh
+bash harnessing/7-remediate/remediate-finding/run_one.sh --lease-generation N
 ```
 
 This:
@@ -152,10 +153,18 @@ Capture the printed JSON — every subsequent phase uses `worktree` and `out`.
 If the run refuses at the checkout — the forge no longer serves
 `subject.sha` (rebased away, history rewritten) — the work item stays
 `forked` with no worktree, by design (the old silent fallback branched
-from the default head and patched the wrong tree). Do not hand-patch it:
-re-observe the repository (`traust portfolio observe --repo <url>`) so
-its next routed audit re-cuts the finding at a commit the forge serves,
-and prepare that new work item.
+from the default head and patched the wrong tree). Do not hand-patch it.
+The repository needs a fresh observation so its next routed audit re-cuts
+the finding at a commit the forge serves; then prepare that new work item.
+
+- **Standalone run** (no `$TRAUST_RUN_ID`): re-observe it yourself with
+  `traust portfolio observe --repo <url>`.
+- **Scheduled session** (`$TRAUST_RUN_ID` set): do not run `portfolio
+  observe` from the session. The remediation order's claim authorizes this
+  order's own records, not a repository observation, so the door refuses an
+  observation bound to it. End the run with the checkout refusal; the
+  pack's `repo_state` lane re-observes the repository on its own claim
+  (daily), or an operator runs the standalone command.
 
 ---
 
@@ -233,7 +242,7 @@ file, anything whose presence in the index is the finding — **declare
 the removal; never delete or move the file yourself** (no lane offers
 `rm`, and a worktree deletion is not the same fix). Write the path, one
 per line, to `<out>/declared-removals.txt` and pass that file to
-Phase 4d's `push_fix.sh commit` as its fifth argument: the script — the
+Phase 4d's `push_fix.sh commit` as its last argument: the script — the
 deterministic side — validates every declared path (tracked at the
 audited commit; no traversal or `.git` shapes) and stages it as
 `git rm --cached` in its own fresh clone, keeping the worktree copy.
@@ -432,11 +441,12 @@ per assessment 2026-07-31 C2, potentially tainted by hostile target test
 code; it is never read), lays the snapshot over a **fresh clone** at the
 recorded pre-agent base commit (SHA-verified after checkout, so the clone
 is exactly the audited tree plus your snapshot), and commits under the
-fixed machine identity `sci-remediation <sci-remediation@localhost>` —
+deployment's machine identity — the script asks core for the work item's `committer`
+(`traust-remediation` unless `traust.yaml` names another), `<committer>@localhost` —
 no human committer, no signing, no hooks:
 
 ```bash
-bash harnessing/7-remediate/remediate-finding/push_fix.sh commit \
+bash harnessing/7-remediate/remediate-finding/push_fix.sh commit --work-item <work_item_id> \
   <worktree> <audited_commit> <fork_url> <out>/commit-message.txt \
   [<out>/declared-removals.txt]   # only when Phase 3 declared untracking
 ```
@@ -536,7 +546,7 @@ Only after Phase 5b ACCEPT:
 bash harnessing/7-remediate/remediate-finding/push_fix.sh push \
   <fix_clone> <fork_url> <fix_branch> <fix_commit>
 # run by the remediation lane (under a run order): the order names the work item
-python3 -m traust.cli remediation record <out>/<work-item>-remediation.json
+python3 -m traust.cli remediation record <out>/<work-item>-remediation.json --lease-generation N
 # run by hand: name the work item you prepared
 python3 -m traust.cli remediation record <out>/<work-item>-remediation.json \
   --work-item <work-item>
@@ -665,8 +675,8 @@ layout; `push_fix.sh push` removes it after the push, `push_fix.sh discard` when
 - **Deterministic commit** (followup ask E): the agent never runs a
   mutating git command; `push_fix.sh` commits a file-level snapshot of
   the worktree (`.git` excluded) on a fresh clone at the recorded
-  pre-agent base commit, under the fixed machine identity
-  `sci-remediation <sci-remediation@localhost>` — attributable to the
+  pre-agent base commit, under the deployment's machine identity
+  (`<committer> <<committer>@localhost>`, a name ending in `-remediation`) — attributable to the
   harness, never to a person, and never signed.
 - **Embargo**: commit messages and branch names use the internal
   finding ID, never a CVE or public tracker reference.

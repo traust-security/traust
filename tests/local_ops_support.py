@@ -1,13 +1,13 @@
 """Isolated execution of the real local rig script and configuration installer.
 
 Only external provisioning is replaced: containers, dependency installation,
-Postgres schema setup, and the bootstrap login. All other Python, including
-configuration heredocs and the approval command, runs in the test interpreter.
+and Postgres schema setup. Configuration, logins and approval use the real CLI.
 """
 
 from __future__ import annotations
 
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -40,7 +40,6 @@ if args == ["python", "-"] and "OPS_DSN" in os.environ:
     sys.exit(0)
 if args[:5] == ["python", "-m", "traust.cli", "auth", "local"]:
     record("auth")
-    sys.exit(0)
 if args and args[0] == "python":
     os.execv(sys.executable, [sys.executable, *args[1:]])
 os.execvp(args[0], args)
@@ -63,6 +62,7 @@ class LocalOpsRig:
         self.root.mkdir()
         for relative in (
             "scripts/local_ops.sh",
+            "scripts/check_ops_pins.py",
             "scripts/install_traust",
             "Makefile",
             "config/traust.example.yaml",
@@ -103,7 +103,7 @@ class LocalOpsRig:
             if binary is None:
                 raise RuntimeError(f"local rig tests require {name}")
             (self.bin_dir / name).symlink_to(binary)
-        (self.bin_dir / "python3").symlink_to(sys.executable)
+        self._executable("python3", f'#!/bin/bash\nexec {shlex.quote(sys.executable)} "$@"\n')
         self._executable("uv", f"#!{sys.executable}\n{_UV}")
         self._executable("podman", _CONTAINER)
         for name in ("syft", "gitleaks"):
@@ -113,6 +113,9 @@ class LocalOpsRig:
         for name in (
             "OPS_DSN",
             "TRAUST_OPERATOR_CONFIG_HOME",
+            "TRAUST_RECORDER_TOKEN_FILE",
+            "TRAUST_RUN_ID",
+            "OPS_SIGNED_SMOKE",
             "COSIGN_PASSWORD",
             "GITHUB_TOKEN",
             "ANTHROPIC_API_KEY",
@@ -141,7 +144,7 @@ class LocalOpsRig:
         path.chmod(0o755)
 
     def run(
-        self, *args: str, env: dict[str, str] | None = None
+        self, *args: str, env: dict[str, str] | None = None, timeout: int = 30
     ) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
             ["/bin/bash", str(self.root / "scripts" / "local_ops.sh"), *args],
@@ -149,7 +152,7 @@ class LocalOpsRig:
             env=self.env | (env or {}),
             capture_output=True,
             text=True,
-            timeout=30,
+            timeout=timeout,
             check=False,
         )
 

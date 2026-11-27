@@ -6,13 +6,15 @@ from __future__ import annotations
 import contextlib
 import io
 import json
+import shlex
 import shutil
 import subprocess
 import tempfile
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 from traust_core.v1.errors import NotFoundError, ServiceError, ValidationError
@@ -74,11 +76,14 @@ class Processes:
 
 
 @pytest.fixture(autouse=True)
-def model_registry(monkeypatch: pytest.MonkeyPatch) -> None:
+def model_registry(monkeypatch: pytest.MonkeyPatch, leased_core: SimpleNamespace) -> None:
     """The registry is whichever Processes the test installed as `subprocess.run`."""
-    monkeypatch.setattr(
-        session, "load", lambda: SimpleNamespace(model_catalog=session.subprocess.run)
-    )
+
+    def load(*_):
+        leased_core.model_catalog = session.subprocess.run
+        return leased_core
+
+    monkeypatch.setattr(session, "load", load)
 
 
 @pytest.fixture
@@ -95,7 +100,8 @@ class Checkout:
     def __init__(self, error: Exception | None = None) -> None:
         self.error, self.released, self.path = error, False, None
 
-    def __call__(self, url: str, config_home: Path | None) -> Checkout:
+    def __call__(self, url: str, config_home: Path | None, ref: object = None) -> Checkout:
+        self.url, self.ref = url, ref
         return self
 
     def __enter__(self) -> Checkout:
@@ -103,6 +109,7 @@ class Checkout:
             raise self.error
         self.path = Path(tempfile.mkdtemp(prefix="traust-session-")) / "checkout"
         self.path.mkdir()
+        (self.path / "cited.py").write_text("source at the assessed commit\n")
         return self
 
     def __exit__(self, *exc: object) -> None:
@@ -368,6 +375,31 @@ def test_a_session_runs_with_the_runners_own_claude_config_dir(
 
 
 ORDER = "8f7d5e2a-1c3b-4d5e-9f60-7a8b9c0d1e2f"
+GENERATION = 7
+FENCE = ("--lease-generation", str(GENERATION))
+CLAIM = ("--run-id", ORDER, *FENCE)
+NOW = datetime(2026, 1, 1, tzinfo=UTC)
+WORKER = "session-worker"
+
+
+@pytest.fixture(autouse=True)
+def leased_core(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
+    lease = SimpleNamespace(
+        id=UUID(ORDER),
+        lease_holder=WORKER,
+        lease_generation=GENERATION,
+        state="leased",
+        lease_expires_at=NOW + timedelta(minutes=5),
+    )
+
+    def get(order_id: UUID) -> SimpleNamespace:
+        assert order_id == lease.id
+        return lease
+
+    services = SimpleNamespace(ops=SimpleNamespace(get=get))
+    core = SimpleNamespace(services=lambda: services, clock=SimpleNamespace(now=lambda: NOW))
+    monkeypatch.setattr(session, "load_recorder", lambda _: SimpleNamespace(ref=WORKER))
+    return core
 
 
 class Recorded:
@@ -379,7 +411,10 @@ class Recorded:
 
     def __call__(self, order_id: object, config_home: object) -> list[SimpleNamespace]:
         self.asked.append(order_id)
-        return [SimpleNamespace(id=i, kind=k) for i, k in self.answers[len(self.asked) - 1]]
+        return [
+            SimpleNamespace(id=i, kind=k, target_purl=None)
+            for i, k in self.answers[len(self.asked) - 1]
+        ]
 
 
 @pytest.mark.parametrize(
@@ -411,14 +446,38 @@ def test_an_ordered_audit_succeeds_only_if_this_attempt_recorded_its_kind_for_th
 ) -> None:
     recorded = Recorded(before, after)
     monkeypatch.setattr(session, "order_assessments", recorded)
-    _, result = run(
-        "--skill", "secure-code-audit", "--role", "deep-audit", "--repo", REPO, "--run-id", ORDER
-    )
+    _, result = run("--skill", "secure-code-audit", "--role", "deep-audit", "--repo", REPO, *CLAIM)
     assert result["outcome"] == outcome
     assert result.get("reason") == (None if written else "session-output-invalid")
     assert result["written"] == written
     assert [str(o) for o in recorded.asked] == [ORDER, ORDER]
     assert processes.agent_call()[1]["env"]["TRAUST_RUN_ID"] == ORDER
+    assert shlex.split(processes.agent_call()[0][-1])[-2:] == list(FENCE)
+
+
+@pytest.mark.parametrize(
+    ("assessments", "outcome"), [([], "failed"), ([("t-1", "triage")], "succeeded")]
+)
+def test_scheduled_triage_requires_its_bound_assessment(
+    processes: Processes,
+    monkeypatch: pytest.MonkeyPatch,
+    assessments: list[tuple[str, str]],
+    outcome: str,
+) -> None:
+    monkeypatch.setattr(session, "order_assessments", Recorded([], assessments))
+    replies = iter(
+        [
+            (UUID(ORDER), HEAD, ()),
+            (UUID(ORDER), HEAD, tuple(aid for aid, _ in assessments)),
+        ]
+    )
+    monkeypatch.setattr(session, "_triage_source", lambda *_: next(replies))
+    _, result = run("--skill", "triage", "--role", "triage-verifier", "--repo", REPO, *CLAIM)
+    assert result["outcome"] == outcome
+    assert result["written"] == [aid for aid, _ in assessments]
+    words = shlex.split(processes.agent_call()[0][-1])
+    assert words[:3] == ["/triage", ORDER, "--repo"]
+    assert words[4:] == ["--auto", "--fresh", *FENCE]
 
 
 def test_a_failed_lookup_after_the_session_still_carries_what_it_spent(
@@ -433,9 +492,7 @@ def test_a_failed_lookup_after_the_session_still_carries_what_it_spent(
             raise ServiceError("core unavailable") from None
 
     monkeypatch.setattr(session, "order_assessments", lookup)
-    rc, result = run(
-        "--skill", "secure-code-audit", "--role", "deep-audit", "--repo", REPO, "--run-id", ORDER
-    )
+    rc, result = run("--skill", "secure-code-audit", "--role", "deep-audit", "--repo", REPO, *CLAIM)
     assert (rc, result["outcome"], result["reason"]) == (1, "failed", "runner-crashed")
     assert len(result["usage"]) == 2
 
@@ -454,9 +511,7 @@ def test_a_configuration_that_exits_rather_than_raising_answers_bad_request(
         return answer
 
     monkeypatch.setattr(session, "order_assessments", lookup)
-    rc, result = run(
-        "--skill", "secure-code-audit", "--role", "deep-audit", "--repo", REPO, "--run-id", ORDER
-    )
+    rc, result = run("--skill", "secure-code-audit", "--role", "deep-audit", "--repo", REPO, *CLAIM)
     assert (rc, result["outcome"], result["reason"]) == (1, "failed", "bad_request")
     assert len(result["usage"]) == 2
     assert processes.agent_calls()
@@ -484,12 +539,106 @@ def test_a_manual_or_non_recording_session_is_not_checked(
     processes: Processes, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(session, "order_assessments", lambda *_: pytest.fail("checked"))
-    monkeypatch.setenv("TRAUST_RUN_ID", ORDER)  # inherited from an outer ordered session
     _, result = run("--skill", "secure-code-audit", "--role", "deep-audit", "--repo", REPO)
     assert result["outcome"] == "succeeded"
     assert "TRAUST_RUN_ID" not in processes.agent_call()[1]["env"]
-    _, result = run("--skill", "threat-model", "--role", "threat-model", "--run-id", ORDER)
+    _, result = run("--skill", "dependency-watch", "--role", "fact-judge", "--run-id", ORDER)
     assert result["outcome"] == "succeeded"
+
+
+@pytest.mark.parametrize("skill", sorted(session.BOUND_SKILLS))
+def test_no_recording_skill_can_launch_without_its_original_claim(
+    skill: str,
+    processes: Processes,
+    checkout: Checkout,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(session, "order_assessments", lambda *_: pytest.fail("read prior output"))
+    for flags in ([], ["--lease-generation", "0"], ["--lease-generation", str(GENERATION - 1)]):
+        rc, result = run("--skill", skill, "--role", "fixture", "--run-id", ORDER, *flags)
+        assert (rc, result["reason"]) == (1, "bad_request")
+    assert not processes.agent_calls() and checkout.path is None
+
+
+@pytest.mark.parametrize("changed", ["state", "lease_holder", "lease_expires_at", "worker-flag"])
+def test_generation_alone_does_not_authorize_a_session(
+    processes: Processes,
+    leased_core: SimpleNamespace,
+    changed: str,
+) -> None:
+    held = leased_core.services().ops.get(UUID(ORDER))
+    flags = []
+    if changed == "worker-flag":
+        flags = ["--worker", "another-worker"]
+    else:
+        setattr(
+            held,
+            changed,
+            {
+                "state": "succeeded",
+                "lease_holder": "another-worker",
+                "lease_expires_at": NOW,
+            }[changed],
+        )
+    rc, result = run("--skill", "secure-code-audit", "--role", "deep-audit", *CLAIM, *flags)
+    assert (rc, result["reason"]) == (1, "bad_request")
+    assert not processes.agent_calls()
+
+
+@pytest.mark.parametrize("flags", [(), FENCE, ("--run-id", str(UUID(int=1)), *FENCE)])
+def test_an_inherited_order_cannot_be_dropped_or_swapped(
+    processes: Processes,
+    monkeypatch: pytest.MonkeyPatch,
+    flags: tuple[str, ...],
+) -> None:
+    monkeypatch.setenv("TRAUST_RUN_ID", ORDER)
+    rc, result = run("--skill", "secure-code-audit", "--role", "deep-audit", *flags)
+    assert (rc, result["reason"]) == (1, "bad_request")
+    assert not processes.agent_calls()
+
+
+@pytest.mark.parametrize(
+    "flags",
+    [
+        ("--run-id", ORDER),
+        ("--run-id=manual",),
+        ("--lease-generation", "7"),
+        ("--lease-generation=7",),
+        ("--lease-gen=7",),
+    ],
+)
+@pytest.mark.parametrize("claim", [(), CLAIM], ids=["no-claim", "leased"])
+def test_skill_arguments_cannot_set_recording_authority(
+    processes: Processes,
+    flags: tuple[str, ...],
+    claim: tuple[str, ...],
+) -> None:
+    for skill in ("secure-code-audit", "recall-benchmark"):
+        rc, result = run("--skill", skill, "--role", "fixture", *claim, "--", *flags)
+        assert (rc, result["reason"]) == (1, "bad_request")
+    assert not processes.agent_calls()
+
+
+@pytest.mark.parametrize("skill", sorted(session.OPTIONAL_RECORDING_SKILLS))
+def test_optional_writers_receive_the_fence_but_need_not_record(
+    skill: str, processes: Processes
+) -> None:
+    rc, result = run("--skill", skill, "--role", "fixture", *CLAIM)
+    command, settings = processes.agent_call()
+    assert (rc, result["written"]) == (0, [])
+    assert shlex.split(command[-1])[-2:] == list(FENCE)
+    assert settings["env"]["TRAUST_RUN_ID"] == ORDER
+
+
+def test_stamped_followup_receives_the_same_generation(
+    processes: Processes,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(session, "order_assessments", Recorded([], [("scan", "vuln_scan")]))
+    run(*CLAIM, *STAMPED_SCAN)
+    (scan, _), (followup, env) = processes.agent_calls()
+    assert shlex.split(scan[-1])[-2:] == shlex.split(followup[-1])[-2:] == list(FENCE)
+    assert env["env"]["TRAUST_RUN_ID"] == ORDER
 
 
 @pytest.mark.parametrize(
@@ -514,7 +663,7 @@ def test_an_ordered_fix_succeeds_only_when_this_order_recorded_its_report(
         "_report_recorded_by",
         lambda work_item, args: None if reporter is None else UUID(reporter),
     )
-    _, result = run("--skill", "remediate-finding", "--role", "remediation", "--run-id", ORDER)
+    _, result = run("--skill", "remediate-finding", "--role", "remediation", *CLAIM)
     succeeded = outcome == "succeeded"
     assert (result["outcome"], result.get("reason")) == (
         outcome,
@@ -522,6 +671,7 @@ def test_an_ordered_fix_succeeds_only_when_this_order_recorded_its_report(
     )
     assert result["written"] == ([item] if succeeded else [])
     assert processes.agent_call()[1]["env"]["TRAUST_RUN_ID"] == ORDER
+    assert shlex.split(processes.agent_call()[0][-1])[-2:] == list(FENCE)
 
 
 def test_an_order_naming_no_work_item_is_refused_before_the_agent_starts(
@@ -531,7 +681,7 @@ def test_an_order_naming_no_work_item_is_refused_before_the_agent_starts(
         raise ValidationError(f"order {order} names no work item")
 
     monkeypatch.setattr(session, "_ordered_work_item", no_item)
-    rc, result = run("--skill", "remediate-finding", "--role", "remediation", "--run-id", ORDER)
+    rc, result = run("--skill", "remediate-finding", "--role", "remediation", *CLAIM)
     assert (rc, result["outcome"], result["reason"]) == (1, "failed", "bad_request")
     assert processes.agent_calls() == []
 
@@ -543,7 +693,7 @@ def test_a_lookup_core_cannot_answer_before_the_session_is_not_a_bad_request(
         raise ServiceError("core unavailable")
 
     monkeypatch.setattr(session, "_ordered_work_item", unavailable)
-    rc, result = run("--skill", "remediate-finding", "--role", "remediation", "--run-id", ORDER)
+    rc, result = run("--skill", "remediate-finding", "--role", "remediation", *CLAIM)
     assert (rc, result["outcome"], result["reason"]) == (1, "failed", "runner-crashed")
     assert processes.agent_calls() == []
 
@@ -555,6 +705,509 @@ def test_a_configuration_that_exits_before_a_fix_session_still_answers(
         raise SystemExit(2)
 
     monkeypatch.setattr(session, "_ordered_work_item", exits)
-    rc, result = run("--skill", "remediate-finding", "--role", "remediation", "--run-id", ORDER)
+    rc, result = run("--skill", "remediate-finding", "--role", "remediation", *CLAIM)
     assert (rc, result["outcome"], result["reason"]) == (1, "failed", "bad_request")
     assert processes.agent_calls() == []
+
+
+@pytest.fixture
+def scheduled_triage(
+    monkeypatch: pytest.MonkeyPatch,
+    leased_core: SimpleNamespace,
+) -> SimpleNamespace:
+    repo_id, ref_id, audit_id = uuid4(), uuid4(), uuid4()
+    order = SimpleNamespace(repository_id=repo_id)
+    ref = SimpleNamespace(id=ref_id, repository_id=repo_id, sha=ANCHOR)
+    audit = SimpleNamespace(
+        id=audit_id, repository_ref_id=ref_id, kind="secure_code", status="completed"
+    )
+    records: list[SimpleNamespace] = []
+    services = SimpleNamespace(
+        ops=leased_core.services().ops,
+        portfolio=SimpleNamespace(
+            get_repository=lambda _: SimpleNamespace(url=REPO),
+            inventory=SimpleNamespace(get_ref=lambda _: ref),
+        ),
+        assessment=SimpleNamespace(
+            latest_on_default_line=lambda *_: audit,
+            get=lambda _: audit,
+            list_artifacts=lambda *_: [object()],
+        ),
+    )
+    leased_core.services = lambda: services
+    monkeypatch.setattr(session, "resolve_model", lambda _: "fixture-model")
+    monkeypatch.setattr(session, "scoped_recording_order", lambda *_: order)
+    monkeypatch.setattr(session, "order_assessments", lambda *_: list(records))
+
+    def record(**changes: object) -> SimpleNamespace:
+        values = {
+            "id": uuid4(),
+            "kind": "triage",
+            "run_order_id": UUID(ORDER),
+            "repository_ref_id": ref_id,
+            "baseline_assessment_id": audit_id,
+            "assessor": "triage",
+            "status": "completed",
+            "target_purl": None,
+        }
+        values.update(changes)
+        row = SimpleNamespace(**values)
+        records.append(row)
+        return row
+
+    return SimpleNamespace(
+        order=order, ref=ref, audit=audit, records=records, services=services, record=record
+    )
+
+
+def test_scheduled_triage_reads_the_audited_commit_and_records_that_source(
+    monkeypatch: pytest.MonkeyPatch, checkout: Checkout, scheduled_triage: SimpleNamespace
+) -> None:
+    def agent(command: list[str], skill: str, env: dict[str, str]) -> tuple[Any, tuple]:
+        words = shlex.split(command[-1])
+        assert words == [
+            "/triage",
+            str(scheduled_triage.audit.id),
+            "--repo",
+            str(checkout.path),
+            "--auto",
+            "--fresh",
+            *FENCE,
+        ]
+        assert not checkout.path.is_relative_to(HARNESS_ROOT)
+        assert (Path(words[3]) / "cited.py").read_text() == "source at the assessed commit\n"
+        assert env["TRAUST_RUN_ID"] == ORDER
+        scheduled_triage.record()
+        return subprocess.CompletedProcess(command, 0), ()
+
+    monkeypatch.setattr(session, "session", agent)
+    rc, result = run("--skill", "triage", "--role", "triage-verifier", "--repo", REPO, *CLAIM)
+    assert (rc, result["outcome"]) == (0, "succeeded")
+    assert result["written"] == [str(scheduled_triage.records[0].id)]
+    assert checkout.url == REPO and checkout.ref.value == ANCHOR and checkout.released
+
+
+def test_completed_triage_is_reclaimed_without_a_checkout_or_model(
+    processes: Processes, checkout: Checkout, scheduled_triage: SimpleNamespace
+) -> None:
+    recorded = scheduled_triage.record()
+    # A later audit must not change which assessment this order already triaged.
+    scheduled_triage.services.assessment.latest_on_default_line = lambda *_: pytest.fail("latest")
+    rc, result = run("--skill", "triage", "--role", "triage-verifier", "--repo", REPO, *CLAIM)
+    assert (rc, result["written"]) == (0, [str(recorded.id)])
+    assert not processes.agent_calls() and checkout.path is None
+
+
+@pytest.mark.parametrize(
+    "mutation", ["wrong-order", "wrong-repository", "wrong-baseline", "incomplete", "no-artifact"]
+)
+def test_triage_reclaim_rejects_invalid_completion_evidence(
+    processes: Processes, scheduled_triage: SimpleNamespace, mutation: str
+) -> None:
+    row = scheduled_triage.record()
+    if mutation == "wrong-order":
+        row.run_order_id = uuid4()
+    elif mutation == "wrong-repository":
+        scheduled_triage.ref.repository_id = uuid4()
+    elif mutation == "wrong-baseline":
+        scheduled_triage.audit.repository_ref_id = uuid4()
+    elif mutation == "incomplete":
+        row.status = "running"
+    else:
+        scheduled_triage.services.assessment.list_artifacts = lambda *_: []
+    rc, result = run("--skill", "triage", "--role", "triage-verifier", "--repo", REPO, *CLAIM)
+    assert (rc, result["outcome"], result["reason"]) == (1, "failed", "bad_request")
+    assert not processes.agent_calls()
+
+
+def test_triage_reclaim_checks_order_authorization_and_repository_first(
+    processes: Processes, scheduled_triage: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    scheduled_triage.record()
+    rc, result = run(
+        "--skill",
+        "triage",
+        "--role",
+        "triage-verifier",
+        "--repo",
+        "https://github.com/example/other",
+        *CLAIM,
+    )
+    assert (rc, result["reason"]) == (1, "bad_request")
+    monkeypatch.setattr(
+        session,
+        "scoped_recording_order",
+        lambda *_: (_ for _ in ()).throw(ValidationError("wrong lease attempt")),
+    )
+    rc, result = run("--skill", "triage", "--role", "triage-verifier", "--repo", REPO, *CLAIM)
+    assert (rc, result["reason"]) == (1, "bad_request")
+    assert not processes.agent_calls()
+
+
+@pytest.fixture
+def scheduled_sweep(
+    monkeypatch: pytest.MonkeyPatch,
+    leased_core: SimpleNamespace,
+) -> SimpleNamespace:
+    repo_id, ref_id, first, second = uuid4(), uuid4(), uuid4(), uuid4()
+    order = SimpleNamespace(asset="verify_remediation", repository_id=repo_id, work_item_id=None)
+    head = SimpleNamespace(id=ref_id, repository_id=repo_id, sha=HEAD, name="main", kind="branch")
+    records: list[SimpleNamespace] = []
+    reports: list[SimpleNamespace] = []
+    state = SimpleNamespace(queued=True, skip="already_verified")
+
+    def record(*findings: UUID) -> SimpleNamespace:
+        row = SimpleNamespace(
+            id=uuid4(),
+            kind="verification",
+            run_order_id=UUID(ORDER),
+            status="completed",
+            occurred_at=datetime(2026, 1, 1, tzinfo=UTC),
+            target_purl=None,
+        )
+        records.append(row)
+        reports.append(
+            SimpleNamespace(
+                verification_id=row.id,
+                repository_ref_id=ref_id,
+                verdicts=tuple(SimpleNamespace(finding_id=i) for i in findings),
+                regression_ids=(),
+            )
+        )
+        return row
+
+    views = [SimpleNamespace(finding=SimpleNamespace(id=i)) for i in (first, second)]
+    services = SimpleNamespace(
+        ops=leased_core.services().ops,
+        portfolio=SimpleNamespace(
+            get_repository=lambda _: SimpleNamespace(url=REPO),
+            default_ref=lambda _: head,
+            inventory=SimpleNamespace(get_ref=lambda _: head),
+        ),
+        assessment=SimpleNamespace(
+            list_for_order=lambda _: [r for r in records if r.run_order_id == UUID(ORDER)],
+            list_for_repository=lambda *_: list(records),
+        ),
+        findings=SimpleNamespace(on_ref=lambda _: views),
+        verification=SimpleNamespace(
+            sweep=lambda _: SimpleNamespace(
+                queued=[object()] if state.queued else [],
+                skipped=[] if state.queued else [SimpleNamespace(skip=state.skip)],
+            ),
+            list=lambda *_: SimpleNamespace(items=tuple(reports), next=None),
+            _verifications=lambda _: list(reports),
+        ),
+    )
+    from contextlib import nullcontext
+    from types import MethodType
+
+    from traust_core.v1.services.remediation import VerificationService
+
+    services.verification._uow = nullcontext()
+    services.verification._assessment = services.assessment
+    services.verification._portfolio = services.portfolio
+    services.verification._inventory = services.portfolio.inventory
+    services.verification._findings = services.findings
+    services.verification.sweep_covered = MethodType(
+        VerificationService.sweep_covered, services.verification
+    )
+    services.verification.work_item_covered = MethodType(
+        VerificationService.work_item_covered, services.verification
+    )
+    leased_core.services = lambda: services
+    monkeypatch.setattr(session, "resolve_model", lambda _: "fixture-model")
+    monkeypatch.setattr(session, "scoped_recording_order", lambda *_: order)
+    monkeypatch.setattr(
+        session,
+        "order_assessments",
+        lambda *_: [r for r in records if r.run_order_id == UUID(ORDER)],
+    )
+    return SimpleNamespace(
+        order=order,
+        head=head,
+        first=first,
+        second=second,
+        records=records,
+        reports=reports,
+        views=views,
+        state=state,
+        services=services,
+        record=record,
+    )
+
+
+@pytest.mark.parametrize(
+    ("still_queued", "finish_second", "outcome"),
+    [(True, False, "failed"), (False, False, "failed"), (False, True, "succeeded")],
+)
+def test_reclaimed_sweep_runs_remaining_work_and_requires_complete_coverage(
+    monkeypatch: pytest.MonkeyPatch,
+    scheduled_sweep: SimpleNamespace,
+    still_queued: bool,
+    finish_second: bool,
+    outcome: str,
+) -> None:
+    sweep = scheduled_sweep
+    sweep.record(sweep.first)
+    called = []
+
+    def agent(command: list[str], skill: str, env: dict[str, str]) -> tuple[Any, tuple]:
+        called.append(command[-1])
+        assert env["TRAUST_RUN_ID"] == ORDER
+        sweep.state.queued = still_queued
+        if finish_second:
+            sweep.record(sweep.second)
+        return subprocess.CompletedProcess(command, 0), ()
+
+    monkeypatch.setattr(session, "session", agent)
+    rc, result = run(
+        "--skill",
+        "verify-remediation",
+        "--role",
+        "verification-verdict",
+        "--repo",
+        REPO,
+        *CLAIM,
+    )
+    assert called == [f"/verify-remediation full-sweep --repo-url {REPO} {' '.join(FENCE)}"]
+    assert result["outcome"] == outcome
+    if outcome == "succeeded":
+        assert rc == 0
+        assert result["written"] == sorted(str(r.id) for r in sweep.records)
+    else:
+        assert (rc, result["reason"]) == (1, "session-output-invalid")
+
+
+@pytest.mark.parametrize("complete", [False, True])
+def test_unqueued_reclaimed_sweep_requires_proof_without_launching(
+    processes: Processes, scheduled_sweep: SimpleNamespace, complete: bool
+) -> None:
+    sweep = scheduled_sweep
+    row = sweep.record(*(sweep.first, sweep.second) if complete else (sweep.first,))
+    sweep.state.queued = False
+    rc, result = run(
+        "--skill",
+        "verify-remediation",
+        "--role",
+        "verification-verdict",
+        "--repo",
+        REPO,
+        *CLAIM,
+    )
+    assert not processes.agent_calls()
+    if complete:
+        assert (rc, result["outcome"], result["written"]) == (0, "succeeded", [str(row.id)])
+    else:
+        assert (rc, result["outcome"], result["reason"]) == (1, "failed", "session-output-invalid")
+
+
+@pytest.mark.parametrize("complete", [False, True])
+def test_new_sweep_does_not_accept_another_orders_partial_verification(
+    processes: Processes, scheduled_sweep: SimpleNamespace, complete: bool
+) -> None:
+    sweep = scheduled_sweep
+    row = sweep.record(*(sweep.first, sweep.second) if complete else (sweep.first,))
+    row.run_order_id = uuid4()
+    sweep.state.queued = False
+    rc, result = run(
+        "--skill",
+        "verify-remediation",
+        "--role",
+        "verification-verdict",
+        "--repo",
+        REPO,
+        *CLAIM,
+    )
+    assert not processes.agent_calls()
+    if complete:
+        assert (rc, result["outcome"], result["written"]) == (0, "succeeded", [])
+    else:
+        assert (rc, result["reason"]) == (1, "session-output-invalid")
+
+
+@pytest.mark.parametrize(
+    ("skip", "proven"),
+    [("nothing_open", True), ("head_unchanged", True), ("unobserved", True), (None, False)],
+)
+def test_an_unqueued_sweep_without_this_orders_evidence_needs_a_reason(
+    processes: Processes, scheduled_sweep: SimpleNamespace, skip: str | None, proven: bool
+) -> None:
+    """No verification by this order and no ALREADY_VERIFIED: Core's own skip reason must say
+    there is nothing to verify, or the order fails rather than passing without evidence."""
+    sweep = scheduled_sweep
+    sweep.state.queued = False
+    sweep.state.skip = skip
+    rc, result = run(
+        "--skill",
+        "verify-remediation",
+        "--role",
+        "verification-verdict",
+        "--repo",
+        REPO,
+        *CLAIM,
+    )
+    assert not processes.agent_calls()
+    if proven:
+        assert (rc, result["outcome"], result["written"]) == (0, "succeeded", [])
+    else:
+        assert (rc, result["outcome"], result["reason"]) == (1, "failed", "session-output-invalid")
+
+
+def test_sweep_coverage_does_not_count_another_line_or_order(
+    processes: Processes, scheduled_sweep: SimpleNamespace
+) -> None:
+    sweep = scheduled_sweep
+    sweep.record(sweep.first, sweep.second)
+    sweep.state.queued = False
+    sweep.head.name = "release"
+    other = SimpleNamespace(
+        repository_id=sweep.head.repository_id, sha=HEAD, name="main", kind="branch"
+    )
+    sweep.services.portfolio.inventory.get_ref = lambda _: other
+    rc, result = run(
+        "--skill",
+        "verify-remediation",
+        "--role",
+        "verification-verdict",
+        "--repo",
+        REPO,
+        *CLAIM,
+    )
+    assert (rc, result["reason"]) == (1, "session-output-invalid")
+    assert not processes.agent_calls()
+
+
+def test_sweep_does_not_accept_proof_if_the_observed_head_moves_during_the_check(
+    processes: Processes, scheduled_sweep: SimpleNamespace
+) -> None:
+    sweep = scheduled_sweep
+    sweep.record(sweep.first, sweep.second)
+    sweep.state.queued = False
+    heads = iter([sweep.head, SimpleNamespace(id=uuid4(), sha=ANCHOR)])
+    sweep.services.portfolio.default_ref = lambda _: next(heads)
+    rc, result = run(
+        "--skill",
+        "verify-remediation",
+        "--role",
+        "verification-verdict",
+        "--repo",
+        REPO,
+        *CLAIM,
+    )
+    assert (rc, result["reason"]) == (1, "session-output-invalid")
+    assert not processes.agent_calls()
+
+
+def test_finding_reported_since_partial_sweep_is_not_silently_skipped(
+    processes: Processes, scheduled_sweep: SimpleNamespace
+) -> None:
+    sweep = scheduled_sweep
+    sweep.record(sweep.first, sweep.second)
+    sweep.views.append(SimpleNamespace(finding=SimpleNamespace(id=uuid4())))
+    sweep.state.queued = False
+    rc, result = run(
+        "--skill",
+        "verify-remediation",
+        "--role",
+        "verification-verdict",
+        "--repo",
+        REPO,
+        *CLAIM,
+    )
+    assert (rc, result["reason"]) == (1, "session-output-invalid")
+    assert not processes.agent_calls()
+
+
+def test_default_sweep_ignores_findings_only_on_other_lines(
+    processes: Processes, scheduled_sweep: SimpleNamespace
+) -> None:
+    sweep = scheduled_sweep
+    row = sweep.record(sweep.first, sweep.second)
+    branch_only = uuid4()
+    sweep.services.findings.records = SimpleNamespace(
+        ids_for_repository=lambda _: {sweep.first, sweep.second, branch_only}
+    )
+    sweep.state.queued = False
+    rc, result = run(
+        "--skill",
+        "verify-remediation",
+        "--role",
+        "verification-verdict",
+        "--repo",
+        REPO,
+        *CLAIM,
+    )
+    assert (rc, result["outcome"], result["written"]) == (0, "succeeded", [str(row.id)])
+    assert not processes.agent_calls()
+
+
+@pytest.mark.parametrize("external_origin", [False, True])
+def test_new_regression_is_excluded_only_if_the_order_first_reported_it(
+    processes: Processes, scheduled_sweep: SimpleNamespace, external_origin: bool
+) -> None:
+    sweep = scheduled_sweep
+    row = sweep.record(sweep.first, sweep.second)
+    regression = uuid4()
+    sweep.views.append(SimpleNamespace(finding=SimpleNamespace(id=regression)))
+    sweep.reports[0].regression_ids = (regression,)
+    origins = [SimpleNamespace(finding_id=regression, assessment_id=row.id)]
+    if external_origin:
+        origins.append(SimpleNamespace(finding_id=regression, assessment_id=uuid4()))
+    sweep.services.findings.occurrences = lambda **_: origins
+    sweep.state.queued = False
+    rc, result = run(
+        "--skill",
+        "verify-remediation",
+        "--role",
+        "verification-verdict",
+        "--repo",
+        REPO,
+        *CLAIM,
+    )
+    assert not processes.agent_calls()
+    if external_origin:
+        assert (rc, result["reason"]) == (1, "session-output-invalid")
+    else:
+        assert (rc, result["written"]) == (0, [str(row.id)])
+
+
+@pytest.mark.parametrize("full", [False, True])
+def test_work_item_reclaim_only_skips_a_report_covering_all_its_findings(
+    monkeypatch: pytest.MonkeyPatch, scheduled_sweep: SimpleNamespace, full: bool
+) -> None:
+    sweep = scheduled_sweep
+    sweep.order.work_item_id = uuid4()
+    row = sweep.record(*(sweep.first, sweep.second) if full else (sweep.first,))
+    item = SimpleNamespace(
+        finding_ids=(sweep.first, sweep.second),
+        fork=SimpleNamespace(url=REPO),
+        fix_commit=HEAD,
+    )
+    sweep.services.verification.prepare = lambda _: SimpleNamespace(
+        subject=SimpleNamespace(repository_id=sweep.order.repository_id),
+        work_item=item,
+        verifications=tuple(sweep.reports),
+    )
+    called = []
+
+    def agent(command: list[str], skill: str, env: dict[str, str]) -> tuple[Any, tuple]:
+        called.append(command[-1])
+        return subprocess.CompletedProcess(command, 0), ()
+
+    monkeypatch.setattr(session, "session", agent)
+    rc, result = run(
+        "--skill",
+        "verify-remediation",
+        "--role",
+        "verification-verdict",
+        "--repo",
+        REPO,
+        *CLAIM,
+    )
+    if full:
+        assert (rc, result["written"], called) == (0, [str(row.id)], [])
+    else:
+        assert (rc, result["reason"]) == (1, "session-output-invalid")
+        assert called == [
+            f"/verify-remediation {sweep.order.work_item_id} {REPO}@{HEAD} {' '.join(FENCE)}"
+        ]

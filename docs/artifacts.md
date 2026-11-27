@@ -25,7 +25,7 @@ and [findings-routing.md](findings-routing.md).
    v
  triage (/triage, N adversarial votes) -> verdicts: true_positive | hardening |
    |   citation gate, symbol index,      undetermined | false_positive | duplicate;
-   |   verdict-evidence lint             derived severity, owner hint
+   |   verdict-evidence lint             CVSS severity, owner hint
    v
  execution evidence                   -> reproducing exploits, crashes, re-tested
    |   (/validate-findings,              fixes: class-1 evidence

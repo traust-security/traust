@@ -7,20 +7,33 @@ import json
 import os
 import sys
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import ValidationError as ModelValidationError
 from traust_core.v1.errors import NotFoundError, TraustError, ValidationError
 from traust_core.v1.models.common import Provenance
 from traust_core.v1.models.inventory import Product, RefName, RepositoryRef
-from traust_core.v1.models.operations import MAX_TARGET_PROVENANCE_BYTES, JobResult, Outcome
-from traust_core.v1.models.values import GitSha, ProductSlug
+from traust_core.v1.models.operations import (
+    MAX_TARGET_PROVENANCE_BYTES,
+    AssetRequest,
+    JobResult,
+    OrderReason,
+    Outcome,
+    RecordKind,
+    RunOrder,
+    WorkerId,
+)
+from traust_core.v1.models.values import GitSha, HttpsRepoUrl, ProductSlug
 from traust_core.v1.models.vocabulary import Ecosystem, RefKind, SourceType
 
-from traust.context import add_config_home_arg
+from traust.context import Context, add_config_home_arg, load_recorder
+
+if TYPE_CHECKING:
+    from traust.ops.materializers import ManifestSbomMaterializer, RepoStateMaterializer
 
 
 def parser(group: str, op: str, about: str) -> argparse.ArgumentParser:
@@ -52,6 +65,102 @@ def add_run_order_arg(ap: argparse.ArgumentParser) -> None:
     )
 
 
+def add_lease_generation_arg(ap: argparse.ArgumentParser) -> None:
+    ap.add_argument(
+        "--lease-generation",
+        type=int,
+        help="generation returned by the original claim (required with a run order)",
+    )
+
+
+def add_materializer_lease_args(ap: argparse.ArgumentParser) -> None:
+    ap.add_argument("--run-id", default="manual", help="the order id (default: manual)")
+    ap.add_argument("--worker", help="the worker returned by the original claim")
+    add_lease_generation_arg(ap)
+
+
+def materialize_repository(
+    args: argparse.Namespace, materializer: ManifestSbomMaterializer | RepoStateMaterializer
+) -> int:
+    """Bind deterministic repository writes as well as agent-written reports."""
+    try:
+        explicit = None if args.run_id == "manual" else uuid.UUID(args.run_id)
+        order = recording_order_id(explicit, args.lease_generation)
+        if (order is None and args.worker is not None) or (order is not None and not args.worker):
+            raise ValidationError("bound repository recording requires --worker")
+    except (ValueError, ValidationError) as error:
+        print(f"ERROR: {error}", file=sys.stderr)
+        return answer(JobResult.failed(OrderReason.BAD_REQUEST))
+    request = AssetRequest(
+        asset=materializer.asset,
+        run_id=str(order) if order is not None else "manual",
+        partition=args.repo,
+    )
+    return answer(
+        materializer.materialize(
+            request,
+            worker=WorkerId(args.worker) if args.worker else None,
+            lease_generation=args.lease_generation,
+        )
+    )
+
+
+def recording_order_id(
+    explicit: uuid.UUID | None, lease_generation: int | None
+) -> uuid.UUID | None:
+    """A bound writer needs the original attempt; it cannot drop or replace an inherited order."""
+    if RUN_ORDER_ENV in os.environ:
+        try:
+            inherited = uuid.UUID(os.environ[RUN_ORDER_ENV])
+        except ValueError as error:
+            raise ValidationError("invalid scheduled run order id") from error
+        if explicit not in (None, inherited):
+            raise ValidationError("--run-id conflicts with the scheduled run order")
+        explicit = inherited
+    if explicit is None:
+        if lease_generation is not None:
+            raise ValidationError("--lease-generation requires a run order id")
+    elif type(lease_generation) is not int or lease_generation < 1:
+        raise ValidationError("a bound record requires the original positive --lease-generation")
+    return explicit
+
+
+def report_provenance(order_id: uuid.UUID | None, source: SourceType) -> Provenance:
+    """Provenance describes the event, not the lease that authorizes its recording."""
+    return Provenance(
+        run_id=order_id or uuid.uuid4(),
+        source=source,
+        occurred_at=datetime.now(UTC),
+    )
+
+
+def scoped_recording_order(
+    core: Context,
+    order_id: uuid.UUID,
+    kind: RecordKind,
+    source: SourceType,
+    lease_generation: int | None,
+) -> RunOrder:
+    """Preflight a session before launching it; its writer rechecks under the lease lock."""
+    recording_order_id(order_id, lease_generation)
+    assert lease_generation is not None
+    services = core.services()
+    order = services.ops.get(order_id)
+    if order.repository_id is None:
+        raise ValidationError("recording needs a leased repository order")
+    origin = report_provenance(order_id, source)
+    order = services.ops.check_recording(
+        order_id,
+        load_recorder(core),
+        kind,
+        order.repository_id,
+        origin,
+        lease_generation=lease_generation,
+    )
+    services.findings.decisions.require_order_ledger(signed=kind is RecordKind.TRIAGE)
+    return order
+
+
 def register_commit(
     services: Any, repository_id: uuid.UUID, sha: str, branch: str | None
 ) -> RepositoryRef:
@@ -59,6 +168,27 @@ def register_commit(
     decides the default line from the forge-observed default branch name."""
     name, kind = (RefName(branch), RefKind.BRANCH) if branch else (None, None)
     return services.portfolio.register_ref(repository_id, GitSha.parse(sha), name, kind)
+
+
+@contextmanager
+def recording_repository(
+    services: Any,
+    url: HttpsRepoUrl,
+    public: bool,
+    order_id: uuid.UUID | None,
+    worker: WorkerId | None,
+    lease_generation: int | None,
+) -> Iterator[uuid.UUID]:
+    """Fence ref creation and assessment recording together; only manual runs create repos."""
+    if order_id is None:
+        yield services.portfolio.register_repository(url, public).id
+        return
+    repo = services.portfolio.find_repository(url)
+    if repo is None or repo.id is None:
+        raise NotFoundError(f"unregistered repository: {url}")
+    assert worker is not None and lease_generation is not None
+    with services.ops.bound(order_id, repo.id, worker=worker, lease_generation=lease_generation):
+        yield repo.id
 
 
 def interactive() -> Provenance:

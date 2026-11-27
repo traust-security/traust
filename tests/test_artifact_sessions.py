@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import io
 import json
 import os
@@ -25,9 +26,10 @@ from traust_core.v1.models.below_range import (
 from traust_core.v1.models.dependencies import AdvisoryRecord
 from traust_core.v1.models.identity import IdentitySource, Principal
 from traust_core.v1.models.inventory import Repository, RepositoryRef
-from traust_core.v1.models.operations import OrderRequest, SessionTask, WorkerId
+from traust_core.v1.models.operations import OrderRequest, RunOrder, SessionTask, WorkerId
 from traust_core.v1.models.vocabulary import ActorKind
 from traust_core.v1.providers.base import Acquisition, Result
+from traust_core.v1.providers.clock import FixedClock
 from traust_core.v1.repositories.contract import SqlTraustUnitOfWork
 from traust_core.v1.services.artifact_publishing import PublishSpec, PublishSpecs
 from traust_core.v1.services.below_range import BelowRangeService
@@ -37,7 +39,7 @@ from tests.test_impact_below_range import PACKET
 from tests.test_impact_doors import REPO, SHA, Lookup
 from traust.cli import impact, session
 from traust.context import load
-from traust.ops.sessions import SessionRunner, read_file
+from traust.ops.sessions import AUDIT, SessionRunner, read_file
 from traust.paths import HARNESS_ROOT
 
 WORKER = WorkerId("session-worker")
@@ -50,6 +52,7 @@ class Estate:
     core: Context
     config: Path
     order_id: UUID
+    lease_generation: int
     repo_id: UUID
     ref_id: UUID
     packets_id: UUID
@@ -121,9 +124,12 @@ def estate(home: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Estat
     queued = services.ops.submit(
         OrderRequest(asset="below_range_review", priority=1, repository_id=repo.id), principal
     )
+    services.ops.admit(queued.id)
     claimed = services.ops.claim(WORKER, timedelta(minutes=5))
     assert claimed.id == queued.id
-    return Estate(core, home, claimed.id, repo.id, ref.id, scan.assessment_id)
+    return Estate(
+        core, home, claimed.id, claimed.lease_generation, repo.id, ref.id, scan.assessment_id
+    )
 
 
 def executor(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mode: str = "valid") -> Path:
@@ -200,6 +206,8 @@ def run(estate: Estate, *extra: str) -> tuple[int, dict]:
                 str(estate.order_id),
                 "--worker",
                 WORKER,
+                "--lease-generation",
+                str(estate.lease_generation),
                 *extra,
             ]
         )
@@ -242,6 +250,9 @@ def test_a_real_fixture_executor_records_findings_usage_and_audit(
     estate: Estate, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     seen = executor(tmp_path, monkeypatch)
+    order = estate.core.services().ops.get(estate.order_id)
+    recorded_at = order.started_at + timedelta(seconds=30)
+    estate.core.clock = FixedClock(recorded_at)
     code, result = run(estate)
     assert code == 0 and result["outcome"] == "succeeded" and result["usage"]
     captured = json.loads(seen.read_text())
@@ -259,6 +270,7 @@ def test_a_real_fixture_executor_records_findings_usage_and_audit(
     assert (Path(captured["env"]["CLAUDE_CONFIG_DIR"]) / "skills" / "dependency-watch").exists()
     audit = estate.core.services().ops.manifest(estate.order_id).sessions[0]
     assert audit.task_sha256 == captured["task_sha256"]
+    assert audit.lease_generation == captured["task"]["lease_generation"] == estate.lease_generation
     assert tuple(file.path for file in audit.inputs) == tuple(captured["task"]["input"])
     assert all(file.sha256 and file.bytes >= 0 for file in audit.inputs)
     artifact_id = UUID(result["written"][0])
@@ -269,6 +281,7 @@ def test_a_real_fixture_executor_records_findings_usage_and_audit(
     assert document.coverage_gaps[0].package == GAP.package
     with SqlTraustUnitOfWork(estate.core.database) as uow:
         [recorded] = uow.assessments.list_for_run_order(estate.order_id)
+        assert recorded.occurred_at == recorded_at
         assert len(uow.occurrences.list_for_assessment(recorded.id)) == 1
     again, repeated = run(estate)
     assert again == 0 and repeated["written"] == result["written"]
@@ -342,7 +355,7 @@ def test_nested_source_names_use_contract_path_order(
         estate.core.config.forge_hosts,
         "api",
     )
-    task = runner.prepare("dependency-watch", "below-range", REPO, tmp_path / "nested")
+    task, _ = runner.prepare("dependency-watch", "below-range", REPO, tmp_path / "nested")
     paths = tuple(task.input)
     assert paths.index("input/_sources/x/foo.go") < paths.index("input/_sources/x/foo/bar.go")
 
@@ -388,6 +401,203 @@ def test_wrong_workers_and_missing_packets_never_start_an_executor(
         runner.prepare("dependency-watch", "below-range", REPO, estate.config.parent / "refused")
 
 
+def write_verdicts(estate: Estate, root: Path, task: SessionTask) -> None:
+    index = json.loads(read_file(root, "input/below-range.json"))
+    models = {slot: getattr(task.models, slot) for slot in ("reviewer_a", "reviewer_b")}
+    doc = {
+        "artifact": "below-range-verdicts",
+        "packets_assessment_id": str(estate.packets_id),
+        "cases": [
+            {
+                "case": PACKET.case,
+                "reviews": [
+                    {"model": model, "verdict": "applicable", "evidence": "lib.go:2"}
+                    for model in models.values()
+                ],
+                "verdict": "applicable",
+            }
+        ],
+        "coverage_gaps": index["coverage_gaps"],
+    }
+    (root / task.output.path).write_text(json.dumps(doc))
+
+
+def prepare_argv(estate: Estate, root: Path) -> list[str]:
+    return [
+        "--config-home",
+        str(estate.config),
+        "--task",
+        str(root),
+        "--skill",
+        "dependency-watch",
+        "--mode",
+        "below-range",
+        "--repo",
+        REPO,
+        "--run-id",
+        str(estate.order_id),
+        "--worker",
+        WORKER,
+    ]
+
+
+def stage_ordered(estate: Estate, root: Path) -> None:
+    assert (
+        session.prepare(
+            [
+                *prepare_argv(estate, root),
+                "--lease-generation",
+                str(estate.lease_generation),
+            ]
+        )
+        == 0
+    )
+    task = SessionTask.parse(read_file(root, "task.json"))
+    assert task.lease_generation == estate.lease_generation
+    write_verdicts(estate, root, task)
+
+
+def test_ordered_prepare_requires_the_explicit_current_claim_before_staging(
+    estate: Estate, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "must not exist"
+    base = prepare_argv(estate, root)
+    for flags in ([], ["--lease-generation", "0"], ["--lease-generation", "97"]):
+        assert session.prepare([*base, *flags]) != 0
+    monkeypatch.setenv("TRAUST_RUN_ID", str(UUID(int=1)))
+    assert session.prepare([*base, "--lease-generation", str(estate.lease_generation)]) != 0
+    assert not root.exists()
+    assert not estate.core.services().ops.manifest(estate.order_id).sessions
+
+
+def test_split_record_uses_the_staged_claim_and_checks_holder_and_order(
+    estate: Estate, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "ordered"
+    stage_ordered(estate, root)
+    ops = estate.core.services().ops
+    (staged,) = ops.manifest(estate.order_id).sessions
+    assert staged.lease_generation == estate.lease_generation
+    flags = ["--config-home", str(estate.config), "--task", str(root)]
+    assert session.record(flags) != 0
+    assert session.record([*flags, "--worker", "another-worker"]) != 0
+    flags.extend(["--worker", WORKER])
+    with pytest.raises(SystemExit):
+        session.record([*flags, "--lease-generation", str(estate.lease_generation)])
+    with monkeypatch.context() as mp:
+        mp.setenv("TRAUST_RUN_ID", str(UUID(int=1)))
+        assert session.record(flags) != 0
+    assert ops.manifest(estate.order_id).sessions == (staged,)
+    with SqlTraustUnitOfWork(estate.core.database) as uow:
+        assert uow.assessments.list_for_run_order(estate.order_id) == []
+    assert session.record(flags) == session.record(flags) == 0
+    first, finished = ops.manifest(estate.order_id).sessions
+    assert first == staged and finished.lease_generation == staged.lease_generation
+    assert finished.task_sha256 == staged.task_sha256 and finished.output.artifact_id
+
+
+def reclaim(estate: Estate) -> RunOrder:
+    first = estate.core.services().ops.get(estate.order_id)
+    # Same order, holder, start and expiry. Only the DB generation distinguishes the claims.
+    estate.core.clock = FixedClock(first.lease_expires_at + timedelta(seconds=1))
+    assert estate.core.services().ops.requeue_expired() == 1
+    estate.core.clock = FixedClock(first.started_at)
+    current = estate.core.services().ops.claim(WORKER, timedelta(minutes=5), order_id=first.id)
+    assert current is not None and current.started_at == first.started_at
+    assert current.lease_generation == first.lease_generation + 1
+    return current
+
+
+def test_headless_cannot_record_bytes_from_a_reclaimed_attempt(
+    estate: Estate,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    executor(tmp_path, monkeypatch)
+    execute = session.execute
+
+    def reclaim_after_executor(*args):
+        result = execute(*args)
+        reclaim(estate)
+        return result
+
+    monkeypatch.setattr(session, "execute", reclaim_after_executor)
+    rc, result = run(estate)
+    assert rc != 0 and result["usage"] and not result["written"]
+    assert not estate.core.services().ops.manifest(estate.order_id).sessions
+    with SqlTraustUnitOfWork(estate.core.database) as uow:
+        assert uow.assessments.list_for_run_order(estate.order_id) == []
+
+
+def test_split_record_rejects_old_bytes_even_if_both_local_receipts_are_rewritten(
+    estate: Estate,
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "old task"
+    stage_ordered(estate, root)
+    ops = estate.core.services().ops
+    first = ops.get(estate.order_id)
+    stage = ops.manifest(first.id).sessions
+    current = reclaim(estate)
+    flags = ["--config-home", str(estate.config), "--task", str(root), "--worker", WORKER]
+    assert session.record(flags) != 0
+    task_doc = json.loads(read_file(root, "task.json"))
+    task_doc["lease_generation"] = current.lease_generation
+    replacement = SessionTask.from_document(task_doc)
+    (root / "task.json").write_bytes(replacement.payload)
+    audit = json.loads(read_file(root, AUDIT))
+    audit.update(
+        lease_generation=current.lease_generation,
+        task_sha256=hashlib.sha256(replacement.payload).hexdigest(),
+    )
+    (root / AUDIT).write_text(json.dumps(audit))
+    assert session.record(flags) != 0
+    assert ops.manifest(first.id).sessions == stage
+    with SqlTraustUnitOfWork(estate.core.database) as uow:
+        assert uow.assessments.list_for_run_order(first.id) == []
+
+
+def test_expiry_after_domain_write_rolls_back_results_and_success_evidence(
+    estate: Estate,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = tmp_path / "expires during write"
+    stage_ordered(estate, root)
+    ops = estate.core.services().ops
+    first = ops.get(estate.order_id)
+    stage = ops.manifest(first.id).sessions
+    clock = FixedClock(first.started_at)
+    estate.core.clock = clock
+    original = BelowRangeService.record
+    wrote = []
+
+    def expire_after_record(service, *args, **kwargs):
+        result = original(service, *args, **kwargs)
+        wrote.append(result.assessment_id)
+        monkeypatch.setattr(clock, "now", lambda: first.lease_expires_at)
+        return result
+
+    monkeypatch.setattr(BelowRangeService, "record", expire_after_record)
+    assert (
+        session.record(
+            [
+                "--config-home",
+                str(estate.config),
+                "--task",
+                str(root),
+                "--worker",
+                WORKER,
+            ]
+        )
+        != 0
+    )
+    assert wrote
+    assert ops.manifest(first.id).sessions == stage
+    with SqlTraustUnitOfWork(estate.core.database) as uow:
+        assert uow.assessments.list_for_run_order(first.id) == []
+
+
 def test_interactive_halves_keep_manual_attribution(
     estate: Estate, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -412,25 +622,8 @@ def test_interactive_halves_keep_manual_attribution(
             == 0
         )
     task = SessionTask.parse(read_file(root, "task.json"))
-    assert task.run_id is None
-    index = json.loads(read_file(root, "input/below-range.json"))
-    models = {slot: getattr(task.models, slot) for slot in ("reviewer_a", "reviewer_b")}
-    doc = {
-        "artifact": "below-range-verdicts",
-        "packets_assessment_id": str(estate.packets_id),
-        "cases": [
-            {
-                "case": PACKET.case,
-                "reviews": [
-                    {"model": model, "verdict": "applicable", "evidence": "lib.go:2"}
-                    for model in models.values()
-                ],
-                "verdict": "applicable",
-            }
-        ],
-        "coverage_gaps": index["coverage_gaps"],
-    }
-    (root / task.output.path).write_text(json.dumps(doc))
+    assert task.run_id is None and task.lease_generation is None
+    write_verdicts(estate, root, task)
     with contextlib.redirect_stdout(out):
         assert session.record(["--config-home", str(estate.config), "--task", str(root)]) == 0
     result = json.loads(out.getvalue().splitlines()[-1])

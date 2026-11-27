@@ -1,0 +1,29 @@
+# Explicit allowlist: nothing from the live security pack can be claimed here.
+pack: smoke
+assets:
+  repo_state:
+    partitions: dynamic:repo
+    trigger: {every: 24h}
+    priority: 20
+    run: [python3, scripts/ops_smoke/forge.py, portfolio, observe, --repo, "{repo_url}", --run-id, "{run_id}", --worker, "{worker}", --lease-generation, "{lease_generation}"]
+  manifest_sbom:
+    partitions: dynamic:repo
+    deps: [repo_state]
+    trigger: {every: 24h}
+    priority: 25
+    requires: {tools: [syft]}
+    run: [bash, scripts/ops_smoke/after_commit.sh, manifest_sbom, "{run_id}", "{repo_url}", "{worker}", python3, scripts/ops_smoke/forge.py, impact, manifest-sbom, --repo, "{repo_url}", --run-id, "{run_id}", --worker, "{worker}", --lease-generation, "{lease_generation}"]
+  smoke_authored:
+    partitions: dynamic:repo
+    requires: {config: [identity]}
+    run: [bash, scripts/ops_smoke/after_commit.sh, smoke_authored, "{run_id}", "{repo_url}", "{worker}", python3, scripts/ops_smoke/records.py, authored, "{run_id}", --lease-generation, "{lease_generation}"]
+  smoke_triage:
+    # One order explicitly submitted on the good repository, not a model session.
+    partitions: dynamic:repo
+    requires: {config: [ledger, identity, review]}
+    run: [bash, scripts/ops_smoke/after_commit.sh, smoke_triage, "{run_id}", "{repo_url}", "{worker}", python3, scripts/ops_smoke/records.py, record, "{run_id}", --lease-generation, "{lease_generation}"]
+  ledger_audit:
+    trigger: {every: 1m}
+    priority: 50
+    requires: {config: [ledger]}
+    run: [python3, -m, traust.cli, ledger, audit, --run-id, "{run_id}"]

@@ -1,0 +1,31 @@
+{
+  "title": "Synthetic review of the offline smoke repository",
+  "metadata": {
+    "date": "2026-10-23", "scope": "One inert requirements file in the smoke fixture",
+    "repository": "https://github.com/example/smoke-repo", "ref": "main", "ref_kind": "default",
+    "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "executive_summary": {
+    "prose": "This report contains one synthetic review marker to exercise the recording door. It does not report a vulnerability in the named package.",
+    "severity_counts": {"critical": 0, "high": 1, "medium": 0, "low": 0, "informational": 0}
+  },
+  "severity_criteria": [
+    {"level": "critical", "definition": "Critical in the synthetic report rubric."},
+    {"level": "high", "definition": "High in the synthetic report rubric."},
+    {"level": "medium", "definition": "Medium in the synthetic report rubric."},
+    {"level": "low", "definition": "Low in the synthetic report rubric."}
+  ],
+  "findings": [{
+    "id": "SMOKE_REPO-aaaaaaa-001", "title": "Synthetic dependency review marker", "severity": "high",
+    "cwes": ["CWE-20"], "locations": [{"path": "requirements.txt", "lines": "1"}],
+    "description": "This inert fixture finding exists solely to exercise the real authored-recording and triage services.",
+    "remediation": "Review the synthetic marker; no package change is indicated."
+  }],
+  "findings_summary": [
+    {"severity": "critical", "count": 0, "finding_ids": []},
+    {"severity": "high", "count": 1, "finding_ids": ["SMOKE_REPO-aaaaaaa-001"]},
+    {"severity": "medium", "count": 0, "finding_ids": []},
+    {"severity": "low", "count": 0, "finding_ids": []}
+  ],
+  "remediation_roadmap": [{"priority": "p3", "action": "Review the synthetic marker.", "addresses": ["SMOKE_REPO-aaaaaaa-001"]}]
+}

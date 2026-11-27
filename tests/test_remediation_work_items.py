@@ -8,6 +8,8 @@ from __future__ import annotations
 import contextlib
 import io
 import json
+import os
+import subprocess
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
@@ -88,7 +90,8 @@ def doors(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
         record=Door(ITEM),
         record_order=Door(ITEM),
         prepare=Door(SimpleNamespace(model_dump_json=lambda indent=None: '{"prepared": true}')),
-        order=Door(SimpleNamespace(work_item_id=ITEM.work_item_id)),
+        order=Door(SimpleNamespace(repository_id=REPO_ID)),
+        bound=Door(contextlib.nullcontext(SimpleNamespace(work_item_id=ITEM.work_item_id))),
         register_ref=Door(SimpleNamespace(id=REF_ID)),
         assemble=Door(DRAFT),
         candidates=Door([CANDIDATES]),
@@ -113,9 +116,10 @@ def doors(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
             register_ref=stub.register_ref,
         ),
     )
-    services.ops = SimpleNamespace(get=stub.order)
+    services.ops = SimpleNamespace(get=stub.order, bound=stub.bound)
     monkeypatch.setattr(Context, "services", lambda self: services)
     monkeypatch.setattr(remediation, "load_caller", lambda core: RUNNER)
+    monkeypatch.setattr(remediation, "load_recorder", lambda core: RUNNER)
     monkeypatch.delenv("TRAUST_RUN_ID", raising=False)
     return stub
 
@@ -268,11 +272,14 @@ def test_an_ordered_run_records_through_its_order(
         (FIXTURES / "remediation-report.json").read_text().replace("FINDING_ID", str(FINDING_ID))
     )
     order_id = uuid.uuid4()
-    rc, out = run(remediation.record, home, str(report), "--run-id", str(order_id))
+    argv = (str(report), "--run-id", str(order_id))
+    assert run(remediation.record, home, *argv)[0] == 2
+    rc, out = run(remediation.record, home, *argv, "--lease-generation", "17")
     assert (rc, out) == (0, ITEM.model_dump(mode="json"))
     [(doc, provenance, bound_to, principal)] = doors.record_order.calls
     assert isinstance(doc, RemediationArtifact) and (bound_to, principal) == (order_id, RUNNER)
     assert (provenance.run_id, provenance.source) == (order_id, SourceType.TRIAGE_REPORT)
+    assert doors.record_order.keywords == [{"lease_generation": 17}]
     assert doors.record.calls == []
     with pytest.raises(SystemExit):  # the order names the work item: never both
         run(
@@ -281,6 +288,8 @@ def test_an_ordered_run_records_through_its_order(
             str(report),
             "--run-id",
             str(order_id),
+            "--lease-generation",
+            "17",
             "--work-item",
             str(ITEM.work_item_id),
         )
@@ -290,22 +299,72 @@ def test_an_ordered_run_prepares_the_work_item_its_order_names(
     doors: SimpleNamespace, home: Path
 ) -> None:
     order_id = uuid.uuid4()
-    rc, out = run(remediation.prepare, home, "--run-id", str(order_id))
+    args = ("--run-id", str(order_id), "--lease-generation", "17")
+    assert run(remediation.prepare, home, "--run-id", str(order_id))[0] == 2
+    rc, out = run(remediation.prepare, home, *args)
     assert (rc, out) == (0, {"prepared": True})
     assert doors.order.calls == [(order_id,)]
+    assert doors.bound.calls == [(order_id, REPO_ID)]
+    assert doors.bound.keywords == [{"worker": RUNNER.ref, "lease_generation": 17}]
     assert doors.prepare.calls == [(ITEM.work_item_id,)]
-    doors.order.result = SimpleNamespace(work_item_id=None)
-    rc, err = run(remediation.prepare, home, "--run-id", str(order_id))
+    doors.bound.result = contextlib.nullcontext(SimpleNamespace(work_item_id=None))
+    rc, err = run(remediation.prepare, home, *args)
+    assert rc == 2 and "names no work item" in err
+    rc, err = run(remediation.prepare, home, str(ITEM.work_item_id), *args)
     assert rc == 2 and "names no work item" in err
     with pytest.raises(SystemExit):  # neither a work item nor an order
         run(remediation.prepare, home)
-    doors.order.result = SimpleNamespace(work_item_id=ITEM.work_item_id)
+    doors.bound.result = contextlib.nullcontext(SimpleNamespace(work_item_id=ITEM.work_item_id))
     other = uuid.uuid4()
-    rc, err = run(remediation.prepare, home, str(other), "--run-id", str(order_id))
+    rc, err = run(remediation.prepare, home, str(other), *args)
     assert rc == 2 and f"runs work item {ITEM.work_item_id}, not {other}" in err
     assert doors.prepare.calls == [(ITEM.work_item_id,)]  # never the other one
-    rc, _ = run(remediation.prepare, home, str(ITEM.work_item_id), "--run-id", str(order_id))
+    rc, _ = run(remediation.prepare, home, str(ITEM.work_item_id), *args)
     assert rc == 0
+    doors.bound.result = ConflictError("stale lease generation")
+    assert run(remediation.prepare, home, *args)[0] == 2
+    assert len(doors.prepare.calls) == 2
+
+
+@pytest.mark.parametrize(
+    ("bound", "argv", "expected"),
+    [
+        (True, ["--lease-generation", "9"], ["--lease-generation", "9"]),
+        (
+            True,
+            ["--lease-generation", "9", str(ITEM_ID)],
+            [str(ITEM_ID), "--lease-generation", "9"],
+        ),
+        (False, [str(ITEM_ID)], [str(ITEM_ID)]),
+    ],
+)
+def test_workspace_wrapper_passes_the_original_prepare_arguments(
+    bound, argv, expected, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Stop at the prepare door: this test must never scaffold or push a fork.
+    seen = tmp_path / "argv"
+    cli = tmp_path / "python3"
+    cli.write_text('#!/bin/sh\nprintf "%s\\n" "$@" > "$SEEN"\nexit 1\n')
+    cli.chmod(0o755)
+    monkeypatch.setenv("SEEN", str(seen))
+    monkeypatch.setenv("PATH", f"{tmp_path}:{os.environ['PATH']}")
+    monkeypatch.setenv("TRAUST_PYTHON", "true")  # campaign path discovery
+    if bound:
+        monkeypatch.setenv("TRAUST_RUN_ID", str(uuid.uuid4()))
+    else:
+        monkeypatch.delenv("TRAUST_RUN_ID", raising=False)
+    wrapper = (
+        Path(__file__).resolve().parents[1] / "harnessing/7-remediate/remediate-finding/run_one.sh"
+    )
+    result = subprocess.run(["bash", str(wrapper), *argv], check=False)
+    assert result.returncode != 0
+    assert seen.read_text().splitlines() == [
+        "-m",
+        "traust.cli",
+        "remediation",
+        "prepare",
+        *expected,
+    ]
 
 
 def test_record_refusals_are_exit_2(doors: SimpleNamespace, home: Path, tmp_path: Path) -> None:

@@ -24,11 +24,22 @@ from traust_core.v1.models.artifacts import (
 from traust_core.v1.models.assessment import AssessmentKind
 from traust_core.v1.models.common import Provenance
 from traust_core.v1.models.component_target import canonical_component_purl
+from traust_core.v1.models.operations import WorkerId
 from traust_core.v1.models.values import GitSha, HttpsRepoUrl
 from traust_core.v1.models.vocabulary import SourceType
 
-from traust.cli._doors import add_branch_arg, add_run_order_arg, parser, register_commit, run, when
-from traust.context import load
+from traust.cli._doors import (
+    add_branch_arg,
+    add_lease_generation_arg,
+    add_run_order_arg,
+    parser,
+    recording_order_id,
+    recording_repository,
+    register_commit,
+    run,
+    when,
+)
+from traust.context import load, load_recorder
 
 # The kind of assessment each audit skill records, and its document's contract type.
 RECORDS: dict[AssessmentKind, tuple[str, type[ArtifactDocument]]] = {
@@ -72,11 +83,13 @@ def main(argv: list[str] | None = None) -> int:
     )
     add_branch_arg(ap)
     add_run_order_arg(ap)
+    add_lease_generation_arg(ap)
     args = ap.parse_args(argv)
     kind = AssessmentKind(args.kind)
     skill, artifact = RECORDS[kind]
 
     def call() -> dict:
+        order_id = recording_order_id(args.run_id, args.lease_generation)
         doc = artifact.parse(args.document.read_bytes())
         core = load(args.config_home)
         url = HttpsRepoUrl.parse(args.repo_url, core.config.forge_hosts)
@@ -110,22 +123,27 @@ def main(argv: list[str] | None = None) -> int:
                     f"report metadata.target.repository ({actual_repo!r}) does not match "
                     f"--repo-url {url!s}"
                 )
+        worker = WorkerId(load_recorder(core).ref) if order_id is not None else None
         services = core.services()
-        repo = services.portfolio.register_repository(url, args.public)
-        ref = register_commit(services, repo.id, str(sha), args.branch)
-        assessment = services.assessment.record(
-            doc,
-            ref.id,
-            kind,
-            f"skill:{skill}",
-            version("traust"),
-            Provenance(
-                run_id=args.run_id or uuid.uuid4(),
-                source=SourceType.VULN_SCAN_REPORT,
-                occurred_at=ran_at(kind, doc),
-            ),
-            run_order_id=args.run_id,
-        )
+        with recording_repository(
+            services, url, args.public, order_id, worker, args.lease_generation
+        ) as repo_id:
+            ref = register_commit(services, repo_id, str(sha), args.branch)
+            assessment = services.assessment.record(
+                doc,
+                ref.id,
+                kind,
+                f"skill:{skill}",
+                version("traust"),
+                Provenance(
+                    run_id=order_id or uuid.uuid4(),
+                    source=SourceType.VULN_SCAN_REPORT,
+                    occurred_at=ran_at(kind, doc),
+                ),
+                run_order_id=order_id,
+                worker=worker,
+                lease_generation=args.lease_generation,
+            )
         return assessment.model_dump(mode="json", exclude_none=True)
 
     return run(call)

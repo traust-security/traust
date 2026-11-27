@@ -382,8 +382,8 @@ def test_repo_checkout_shared_and_session_run_purl_resolution(
     seen_commands: list[list[str]] = []
 
     @contextmanager
-    def fake_checkout(url, config_home, *, sha=None, shared=False):
-        seen_checkout.append((url, sha, shared))
+    def fake_checkout(url, config_home, ref=None, *, shared=False):
+        seen_checkout.append((url, None if ref is None else str(ref), shared))
         yield SimpleNamespace(path=checkout)
 
     monkeypatch.setattr(session, "checkout", fake_checkout)
@@ -1064,7 +1064,7 @@ def test_provenance_json_root_module_and_sha256_cli_doors(
     monkeypatch.setattr(session, "resolve_model", lambda _role: "test-model")
 
     @contextmanager
-    def fake_checkout(url, config_home, *, sha=None, shared=False):
+    def fake_checkout(url, config_home, ref=None, *, shared=False):
         yield SimpleNamespace(path=checkout)
 
     monkeypatch.setattr(session, "checkout", fake_checkout)
@@ -1324,7 +1324,7 @@ def test_provenance_json_root_module_and_sha256_cli_doors(
     )
 
     @contextmanager
-    def fake_ordinary_checkout(url, config_home, *, sha=None, shared=False):
+    def fake_ordinary_checkout(url, config_home, ref=None, *, shared=False):
         yield SimpleNamespace(path=ordinary_checkout)
 
     monkeypatch.setattr(session, "checkout", fake_ordinary_checkout)

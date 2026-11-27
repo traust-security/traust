@@ -57,10 +57,12 @@ VERIFICATION = Verification(
 class Door:
     def __init__(self, result: Any) -> None:
         self.calls: list[tuple[Any, ...]] = []
+        self.keywords: list[dict[str, Any]] = []
         self.result = result
 
-    def __call__(self, *args: Any) -> Any:
+    def __call__(self, *args: Any, **keywords: Any) -> Any:
         self.calls.append(args)
+        self.keywords.append(keywords)
         if isinstance(self.result, Exception):
             raise self.result
         return self.result
@@ -80,6 +82,7 @@ def doors(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
         differential=Door(EVIDENCE),
         differential_of=Door(EVIDENCE),
         record=Door(VERIFICATION),
+        record_order=Door(VERIFICATION),
         list=Door(Page(items=(VERIFICATION,))),
         list_repositories=Door(Page(items=tuple(repos.values()))),
         find_product=Door(SimpleNamespace(id=uuid.uuid4())),
@@ -97,6 +100,7 @@ def doors(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
             differential=stub.differential,
             differential_of=stub.differential_of,
             record=stub.record,
+            record_order=stub.record_order,
             list=stub.list,
         ),
         portfolio=SimpleNamespace(
@@ -273,6 +277,25 @@ def test_record_parses_the_report_and_records_it(
     [(doc, provenance)] = doors.record.calls
     assert isinstance(doc, VerificationArtifact)
     assert provenance.source is SourceType.VERIFICATION_REPORT
+
+
+def test_bound_verify_record_uses_the_supplied_lease(
+    doors: SimpleNamespace, home: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    report = tmp_path / "v.json"
+    report.write_text(FIXTURE.read_text().replace("FINDING_ID", str(uuid.uuid4())))
+    order_id = uuid.uuid4()
+    monkeypatch.setenv("TRAUST_RUN_ID", str(order_id))
+    runner = SimpleNamespace(ref="machine:verify")
+    monkeypatch.setattr(remediation, "load_recorder", lambda core: runner)
+    assert run(remediation.verify_record, home, str(report))[0] == 2
+    rc, _ = run(remediation.verify_record, home, str(report), "--lease-generation", "6")
+    assert rc == 0
+    [(doc, provenance, bound_to, principal)] = doors.record_order.calls
+    assert isinstance(doc, VerificationArtifact)
+    assert (provenance.run_id, bound_to, principal) == (order_id, order_id, runner)
+    assert doors.record_order.keywords == [{"lease_generation": 6}]
+    assert not doors.record.calls
 
 
 def test_record_refusals_are_exit_2(doors: SimpleNamespace, home: Path, tmp_path: Path) -> None:
