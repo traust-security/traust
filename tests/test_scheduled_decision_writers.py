@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import io
 import json
+import runpy
 import shlex
 import subprocess
 from contextlib import redirect_stdout
 from datetime import datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 import yaml
@@ -594,3 +595,42 @@ def test_scheduled_validation_logs_order_id_and_avoids_bad_request_on_stale_leas
     assert str(order.id) in caplog.text
     assert "ConflictError" in caplog.text
     assert "stale lease generation" in caplog.text
+
+
+@pytest.mark.parametrize(
+    "lease_args",
+    [[], ["--lease-generation", "0"]],
+    ids=["no generation", "non-positive generation"],
+)
+def test_validate_findings_refuses_a_bad_lease_without_a_traceback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], lease_args
+) -> None:
+    """A scheduled run (an inherited order) without its original positive generation is a
+    usage error (exit 2, the reason on stderr), never an uncaught ValidationError."""
+    from traust_core.v1.models.validation import ValidationRecordingPolicy
+
+    from traust.cli._doors import RUN_ORDER_ENV
+
+    runner = runpy.run_path(str(skill_dir("validate-findings") / "run.py"))
+    current = SimpleNamespace(policy=ValidationRecordingPolicy.CURRENT)
+    monkeypatch.setattr(runner["TargetAttestation"], "model_validate_json", lambda _: object())
+    monkeypatch.setattr(runner["ValidationRecordInput"], "model_validate_json", lambda _: current)
+    for name in ("attestation", "bindings"):
+        (tmp_path / f"{name}.json").write_text("{}")
+    monkeypatch.setenv(RUN_ORDER_ENV, str(uuid4()))
+    argv = [
+        "synthetic-report",
+        "--targets",
+        "synthetic-scope",
+        "--out",
+        str(tmp_path / "out"),
+        "--target-attestation",
+        str(tmp_path / "attestation.json"),
+        "--record-bindings",
+        str(tmp_path / "bindings.json"),
+        *lease_args,
+    ]
+    with pytest.raises(SystemExit) as exited:
+        runner["main"](argv)
+    err = capsys.readouterr().err
+    assert exited.value.code == 2 and "lease-generation" in err and "Traceback" not in err

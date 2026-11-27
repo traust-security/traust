@@ -20,6 +20,7 @@ import json
 import sys
 from pathlib import Path
 
+from traust_core.v1.errors import ValidationError
 from traust_core.v1.models.validation import (
     TargetAttestation,
     ValidationRecordingPolicy,
@@ -79,7 +80,10 @@ def main(argv: list[str]) -> int:
     bindings = ValidationRecordInput.model_validate_json(args.record_bindings.read_bytes())
     if bindings.policy != ValidationRecordingPolicy.CURRENT:
         ap.error("new runs require current recording policy")
-    order_id = recording_order_id(args.run_id, args.lease_generation)
+    try:
+        order_id = recording_order_id(args.run_id, args.lease_generation)
+    except ValidationError as error:  # a scheduled run without its original generation
+        ap.error(str(error))
     provenance = report_provenance(order_id, SourceType.VALIDATION_REPORT)
     finding_assessments = (
         json.loads(args.finding_assessments.read_bytes()) if args.finding_assessments else None
