@@ -42,7 +42,7 @@ python3 -m traust.cli dashboard view findings-trend $ARGUMENTS
 
 Outputs `<stem>.{json,md,html}` into `--out` (core renders them, stores nothing). Alongside the population block, the latest-bucket ownership cuts split open findings, open Critical/High and risk index by the recorded corpus ownership class. Product/team scope does not replace this split. Unclassified repositories stay unknown; repositories belonging to multiple ownership classes appear in each cut, so cuts are not additive.
 
-## Semantics (fixed by design decisions, 2026-07-10)
+## Semantics
 
 - **Option A open counting.** Every finding from every audited repo counts
   as *open* until a decision closes it. Findings without decisions therefore

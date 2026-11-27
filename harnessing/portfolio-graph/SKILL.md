@@ -25,10 +25,7 @@ allowed-tools:
   - Bash(python3 *-m traust.cli adapters image-packages:*)
   - Bash(ls:*)
   - Bash(jq:*)
-  # Confinement added 2026-07-31 (P1 gate rework — the
-  # widened S1 privilege tokens made this skill's missing
-  # allowlist visible; assessment root-cause 3). Never
-  # widen to a bare interpreter — scope scripts individually.
+  # Never widen to a bare interpreter — scope scripts individually.
 ---
 
 # Portfolio Graph
@@ -39,16 +36,13 @@ allowed-tools:
 > configured roots.
 
 
-The queryable **source-code** graph of the Hybrid Platforms portfolio.
+The queryable **source-code** graph of the portfolio.
 Where the retired `/repo-graph` mapped organization and audit coverage (segments →
 products → repos → findings dirs), this skill maps **how code connects**:
 which repos declare and depend on which Go modules (with versions,
 direct/indirect, and internal-library marking), joined to the product
 spine so dependency questions resolve to shipping products.
 
-Design, layer roadmap, and per-layer dependencies are recorded in
-`plans/portfolio-graph-plan.md` under the configured `progress-tracker` root
-(an external workspace artifact, not bundled with this skill).
 **L1 is multi-ecosystem** (*retired* graph build; syft reads the manifests now, below): Go (`go.mod`) plus npm, PyPI, Maven, Cargo,
 RubyGems, and NuGet manifests, language-gated
 per repo against a `gh-languages` cache. Non-Go package nodes are namespaced

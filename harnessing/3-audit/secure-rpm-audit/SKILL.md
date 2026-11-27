@@ -159,8 +159,7 @@ as the only calendar backstop.
 
 ## Precision Gate
 
-Ported from `/secure-code-audit`'s Precision Gate (the v0.143.0 rules
-plus the v0.191.0 re-calibration), adapted to packaging semantics —
+Adapted from `/secure-code-audit`'s Precision Gate for packaging semantics —
 spec constructs, dist-git patches, vendored-source bundles, and the
 prepared source tree. Measured basis: the leg-2 FP-persistence analysis
 (`analysis-results/scan-testing/sxs-2026-07/fp-persistence-analysis.{json,md}`)
@@ -547,7 +546,7 @@ grype sbom:/tmp/<component>-sbom.cdx.json -o json > /tmp/<component>-grype.json
 grype db status   # record the DB build date in metadata.tools
 ```
 
-Matches feed `dependency_audit` (fixed-in versions in `notes`); promote to findings only where the vulnerable code ships in the built package and is plausibly reachable. Record `"sbom-grype": "ran"` (or `"skipped: <reason>"`) in `metadata.additional.deterministic_steps` — the same convention as the code profile. Note: the opengrep semantic pre-scan is **not** wired for this profile yet — the harness rule pack has no C/C++ or spec-scriptlet rules (backlog: `progress-tracker/plans/opengrep-ruleset-plan.md`); do not improvise one.
+Matches feed `dependency_audit` (fixed-in versions in `notes`); promote to findings only where the vulnerable code ships in the built package and is plausibly reachable. Record `"sbom-grype": "ran"` (or `"skipped: <reason>"`) in `metadata.additional.deterministic_steps` — the same convention as the code profile. Note: the opengrep semantic pre-scan is **not** wired for this profile — the harness rule pack has no C/C++ or spec-scriptlet rules; do not improvise one.
 
 ### Malware-family Signatures (yara)
 
@@ -649,7 +648,7 @@ Examples: `389_DS_BASE-4f9e812-003` · `OPENSSL-9cb7556-012` · `NETWORKMANAGER-
 
 Reports produced by earlier harness versions may carry legacy IDs (`FIND-001`, etc.); these still pass schema validation but draw a strict-mode warning. Do not emit legacy IDs in new reports.
 
-**`metadata.ref` / `metadata.ref_kind`** — explicit ref provenance (harness ≥ 0.122.0, branch-awareness Phase 0), same rules as secure-code-audit. Stamp both together: an explicit dist-git **Branch** input (e.g. `c9s`, `rhel-9.4.0`) → `ref` = that branch name, `ref_kind` = `"branch"`; a tag → `ref_kind` = `"tag"`; no branch requested → `ref` = the default branch name as checked out, `ref_kind` = `"default"`; a bare `commit:<sha>` input (detached) → omit both, `metadata.commit` already pins the state.
+**`metadata.ref` / `metadata.ref_kind`** — explicit ref provenance (harness ≥ 0.122.0), same rules as secure-code-audit. Stamp both together: an explicit dist-git **Branch** input (e.g. `c9s`, `rhel-9.4.0`) → `ref` = that branch name, `ref_kind` = `"branch"`; a tag → `ref_kind` = `"tag"`; no branch requested → `ref` = the default branch name as checked out, `ref_kind` = `"default"`; a bare `commit:<sha>` input (detached) → omit both, `metadata.commit` already pins the state.
 
 ### Report Format
 
@@ -756,8 +755,7 @@ verdict or guarantee precedent matches.
 
 After this skill's report/artifact is written, declare the run's spend
 against the target so `estimate_scan` can calibrate per-skill cost
-models (contract: docs/model-routing.md; analysis:
-progress-tracker/metrics/estimate-calibration-analysis.md §F5):
+models (contract: docs/model-routing.md):
 
 ```bash
 python3 -m traust.cli registry models spend --skill secure-rpm-audit \

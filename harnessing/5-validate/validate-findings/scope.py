@@ -35,11 +35,10 @@ CONTROL_PLANE_NS_PATTERNS = (
     "kube-node-lease",
     "default",
     "openshift",
-    # Prefix pattern (assessment 2026-07-31 F4): the literal list missed
-    # openshift-config (pull secret, IdP binds), openshift-ingress
-    # (wildcard router key), openshift-monitoring, service-ca, ovn/sdn,
-    # marketplace, OLM, csi-drivers — the highest-value namespaces.
-    # Mode-1 explicit_namespaces remain the only unlock, unchanged.
+    # The prefix also protects high-value namespaces such as openshift-config
+    # (pull secrets, IdP binds), openshift-ingress (router key), monitoring,
+    # service-ca, ovn/sdn, marketplace, OLM, and csi-drivers. Only explicit
+    # mode-1 namespace grants can unlock them.
     "openshift-*",
     "openshift-etcd",
     "openshift-etcd-operator",
@@ -55,8 +54,7 @@ CONTROL_PLANE_NS_PATTERNS = (
 )
 
 # Cluster-scoped resources with control-plane blast radius: non-read
-# verbs on these are locked unless the mode-1 ROE grants "*"
-# (assessment 2026-07-31 F2).
+# verbs on these are locked unless the mode-1 ROE grants "*".
 CONTROL_PLANE_CLUSTER_RESOURCES = frozenset(
     {
         "nodes",
@@ -149,10 +147,8 @@ class ClusterScope:
 
     def ns_allowed(self, ns: str | None) -> bool:
         if ns is None:
-            # Cluster-scoped / -A: fail closed (assessment 2026-07-31
-            # F2 defect 1 — "any pattern exists" allowed cluster-wide
-            # actions under every namespaced ROE). Only an explicit
-            # "*" grant authorizes cluster-scoped reach.
+            # Cluster-scoped / -A: fail closed. Only an explicit "*" grant
+            # authorizes cluster-scoped reach.
             return "*" in self.namespaces
         return any(fnmatch.fnmatch(ns, pat) for pat in self.namespaces)
 
@@ -169,11 +165,9 @@ class OffLimit:
     image: str | None = None
 
     def matches(self, a: Action) -> bool:
-        # Fail closed on unknown fields (assessment 2026-07-31 F2
-        # defect 3): a deny rule keyed on resource/name must FIRE when
-        # the action's field is undeterminable — raw steps with
-        # resource=None sailed past every resource-keyed off_limits
-        # rule. A set rule + a None value now counts as a match.
+        # Fail closed on unknown fields: a deny rule keyed on resource/name
+        # must fire when the action's field is undeterminable. A set rule and
+        # a None value count as a match.
         def m(rule, val):
             return rule is None or val is None or fnmatch.fnmatch(val, rule)
 
@@ -311,10 +305,8 @@ class Scope:
         if a.adapter != "k8s":
             return None
         if not a.namespace:
-            # Cluster-scoped leg (assessment 2026-07-31 F2 defect 2:
-            # the early return left nodes/clusterroles/CRDs/MCPs
-            # outside the lock entirely). Reads stay allowed; anything
-            # else on a control-plane cluster resource needs mode-1 "*".
+            # Reads stay allowed; other actions on control-plane cluster
+            # resources need mode-1 "*".
             if a.resource in CONTROL_PLANE_CLUSTER_RESOURCES and a.verb not in READONLY_VERBS:
                 cs = self.clusters.get(a.context) or self.clusters.get("__current__")
                 if cs and "*" in cs.explicit_namespaces:

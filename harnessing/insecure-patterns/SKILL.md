@@ -9,8 +9,6 @@ allowed-tools:
   - Bash(ls:*)
   - Bash(open *.html:*)
   - Read
-  # scoped 2026-07-31 (P1-W4): A11 grandfather retired —
-  # per-script anchored grants replace Bash(python3:*)
 ---
 
 # Insecure Coding Patterns — ASVS 5.0 roll-up

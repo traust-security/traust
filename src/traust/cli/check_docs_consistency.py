@@ -144,8 +144,8 @@ def _to_int(token: str):
 # The canonical pipeline stage count is a DECLARED constant, not derived:
 # deriving it from PROCESS.md's own headings made the gate circular — the
 # doc could drop half the pipeline and the "N-stage" claims still matched
-# (docs-verification 2026-07-31, core-8). Changing the pipeline shape now
-# requires touching this constant AND the docs in one reviewed commit.
+# Changing the pipeline shape requires touching this constant and the docs
+# in one reviewed commit.
 # Canon: README.md pipeline diagram ①–⑨ == PROCESS.md ## Stage 1..9.
 CANONICAL_STAGE_COUNT = 9
 
@@ -400,8 +400,7 @@ def external_tool_failures(repo: Path = REPO) -> list[str]:
                     seen.setdefault(name, str(p.relative_to(repo)))
     # safe-exec profile allowlists are grant surface too: a binary the
     # sandbox may execute is a dependency whether or not any Python file
-    # names it literally (docs-verification 2026-07-31, peripheral-2 —
-    # the gate was blind to YAML allowlists). POSIX text/coreutils
+    # names it literally. POSIX text/coreutils
     # utilities are ignored like the base-system set above.
     _coreutils = {
         "jq",
@@ -455,9 +454,7 @@ def coverage_failures(repo: Path = REPO) -> list[str]:
     skills = [d.name for d in skill_dirs(repo)]
     schemas = sorted(p.name for p in schema_dir().glob("*.json"))
     docs_md = sorted(p.name for p in (repo / "docs").glob("*.md"))
-    # The README's skill and schema inventories were split into docs/ on
-    # 2026-09-09; a mention in the README or in the relevant inventory page
-    # suffices (placement is editorial).
+    # A mention in the README or the relevant inventory page suffices.
     skill_pages = ("README.md", "docs/standalone-usage.md", "docs/campaign-workflow.md")
     schema_pages = ("README.md", "docs/tooling-and-structure-files.md")
     doc_pages = ("README.md", "docs/README.md")
@@ -477,7 +474,7 @@ def coverage_failures(repo: Path = REPO) -> list[str]:
         ("docs/skills.md", skills, "skill", "## {item}"),
         (schema_pages, schemas, "schema", None),
         # every guide under docs/ must be reachable from the README — an
-        # unlinked doc is invisible to harness users. Since 2026-10-14 the
+        # unlinked doc is invisible to harness users. The
         # README links one docs/ index (docs/README.md) instead of listing
         # every page, so a mention in either suffices; the README → index
         # link itself is checked below, keeping every page one hop away.
@@ -498,11 +495,8 @@ def coverage_failures(repo: Path = REPO) -> list[str]:
 
 
 # --- CLI-example flag drift -------------------------------------------------
-# The worst rot class the 2026-07-25 docs-verification sweep found: command
-# examples whose flags no longer exist (`validate_report.py --validate` had
-# been dead for ~150 releases across three docs, and every reader's first
-# command failed). For every maintained-doc line that invokes an in-repo
-# Python script, each `--flag` token following the script path must appear
+# For every maintained-doc line that invokes an in-repo Python script,
+# each `--flag` token following the script path must appear
 # literally in that script's source (argparse add_argument strings). Values
 # are not checked; `--help` is argparse-implicit.
 _SCRIPT_INVOKE_RX = re.compile(
@@ -632,8 +626,7 @@ def partial_enum_failures(repo: Path = REPO) -> list[str]:
 
 
 # --- as-of banners on assessment/draft docs ---------------------------------
-# Point-in-time judgments presented as live rot silently (the 2026-07-25
-# sweep found four such docs up to ~143 releases stale). Any docs/*.md whose
+# Point-in-time judgments presented as live rot silently. Any docs/*.md whose
 # name marks it as an assessment or draft must carry a dated as-of banner.
 _ASOF_DOC_RX = re.compile(r"(assessment|draft|comparison)", re.IGNORECASE)
 _ASOF_LINE_RX = re.compile(r"(?i)(as of|snapshot|assessed at|statuses as of).{0,120}20\d{2}-\d{2}")
@@ -657,11 +650,6 @@ def asof_banner_failures(repo: Path = REPO) -> list[str]:
 
 def conflict_marker_failures(repo: Path) -> list[str]:
     """Unresolved git conflict markers in tracked text files.
-
-    Added 2026-08-13 after a bad push: a rebase-resolution script failed
-    silently, `git rebase --continue` committed the conflicted file, and
-    CHANGELOG.md reached main with six markers in it. Every other gate
-    passed, because none of them looked.
 
     Triggers ONLY on `<<<<<<< ` and `>>>>>>> ` at line start. `=======` is
     deliberately NOT a trigger: it is a legitimate Markdown setext H1
@@ -728,10 +716,8 @@ def conflict_marker_failures(repo: Path) -> list[str]:
 
 
 # --- phantom skills ---------------------------------------------------------
-# coverage_failures() checks one direction: every skill in the tree is
-# mentioned in the docs. This is the other, and it is the one that bit us --
-# two skills moved to the internal extension repo on 2026-09-01 and their
-# README rows stayed, advertising capabilities this repo does not carry.
+# Check both directions: skills in the tree must be mentioned in the docs,
+# and documented skills must not advertise capabilities absent from the tree.
 _EXTERNAL_MARKERS = ("internal extension repo", "external repo", "not in this repo")
 
 
@@ -777,9 +763,7 @@ def phantom_skill_failures(repo: Path = REPO) -> list[str]:
 # --- config/ hygiene ---------------------------------------------------------
 # config/ ships traust.yaml, the model registry, the rule-pack override and the PQC
 # priority-repositories templates, and their README (config/README.md).
-# Anything else is deployment data that leaked back in — the failure shape before 2026-09-03,
-# when corpus-config, product map, budget policy, signing key and safe-exec profiles all sat
-# here — or a template that belongs with its reader.
+# Anything else is deployment data or a template that belongs with its reader.
 CONFIG_SHIPPED = {
     "README.md",
     "traust.example.yaml",

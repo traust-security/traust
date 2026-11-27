@@ -9,8 +9,8 @@ rather than hardcoding an endpoint. The registry covers BOTH tiers:
 Keeping them in one file is the point. When live sources lived as
 hardcoded URLs plus an argparse literal there was no registry to inspect
 and no check to fail, so ``fetch_advisory.py csaf`` could 404 on every
-CVE indefinitely (measured 2026-08-25 — Red Hat keys CSAF advisories by
-RHSA, not CVE). A source in this file with a ``probe`` gets a
+CVE indefinitely (Red Hat keys CSAF advisories by RHSA, not CVE).
+A source in this file with a ``probe`` gets a
 ``feed-source:*`` freshness row for free (traust-core's ProviderCatalog). The registry is
 the project's, not adopter config; ``feeds.osv_access`` in ``traust.yaml`` is the one knob.
 
@@ -23,10 +23,7 @@ Cache location resolves via :func:`traust.context.feeds_cache_dir` (first hit wi
 It is deliberately NOT under ``analysis-results/``. That tree holds work
 we produced — findings, ledgers, derived projections — and a mirror of
 third-party licensed data is a different provenance class with opposite
-retention and redistribution properties. Filing them together is how
-~6 MB of CC-BY/CC0 feed data reached the harness repo's git history
-(commit 67c1d38, 2026-08-25) and how internal personnel data landed one
-``git add -A`` away from a repo slated for open-source release.
+retention and redistribution properties.
 """
 
 from __future__ import annotations
