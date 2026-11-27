@@ -59,6 +59,7 @@ Traust separates security workflow policy, deterministic processing, shared plat
 | **[traust-ledger](https://github.com/traust-security/traust-ledger)** | Finding identity, signed event history, Merkle integrity, signing, verification, and ledger entry points |
 | **[traust-contracts](https://github.com/traust-security/traust-contracts)** | Canonical artifact/config schemas, controlled vocabularies, shared bindings, and database DDL |
 | **[traust-sdk](https://github.com/traust-security/traust-sdk)** | Go-facing integration and typed access; a sibling consumer, not a dependency of the Python harness |
+| **[traust-cli](https://github.com/traust-security/traust-cli)** | Turnkey CLI for adopting and running the Traust skills in the harness of your choice; a sibling consumer, not a dependency of the Python harness |
 
 **Current integration:** the harness installs `traust-engine`, `traust-ledger`, and `traust-contracts`. These components do not yet declare a dependency on `traust-core`. Core's repositories are implemented, but its domain services are mostly stubs; see its [implementation status](https://github.com/traust-security/traust-core#domain-services-stubs). The intended direction is for execution and CLI adapters to call shared core services, with security workflow policy remaining here. The core REST API route for non-Python consumers is planned, not an available SDK integration.
 
