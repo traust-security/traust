@@ -100,9 +100,9 @@ one for confirmed, open findings with `traust remediation open --repo-url
 yet — running many is the security pack's remediation lane, not this skill).
 Run by that lane (`remediate_finding`, an order core's scheduling door
 submitted), you are given no id: the order names the work item, and
-`traust session run` sets `$TRAUST_RUN_ID` to the order, so `traust
-remediation prepare` with no argument prepares that item. `traust remediation prepare
-<work-item>` prints:
+`traust session run` sets `$TRAUST_RUN_ID` to the order and supplies `--lease-generation N`.
+Pass that original N to the workspace wrapper and to record. `traust remediation prepare
+--lease-generation N` prepares the ordered item; standalone `traust remediation prepare <work-item>` prints the same fields:
 
 | Field | Meaning |
 |---|---|
@@ -135,7 +135,7 @@ the cited source before patching anything.
 ```bash
 bash harnessing/7-remediate/remediate-finding/run_one.sh <work-item>
 # run by the remediation lane (under a run order): no id, the order names it
-bash harnessing/7-remediate/remediate-finding/run_one.sh
+bash harnessing/7-remediate/remediate-finding/run_one.sh --lease-generation N
 ```
 
 This:
@@ -153,10 +153,18 @@ Capture the printed JSON — every subsequent phase uses `worktree` and `out`.
 If the run refuses at the checkout — the forge no longer serves
 `subject.sha` (rebased away, history rewritten) — the work item stays
 `forked` with no worktree, by design (the old silent fallback branched
-from the default head and patched the wrong tree). Do not hand-patch it:
-re-observe the repository (`traust portfolio observe --repo <url>`) so
-its next routed audit re-cuts the finding at a commit the forge serves,
-and prepare that new work item.
+from the default head and patched the wrong tree). Do not hand-patch it.
+The repository needs a fresh observation so its next routed audit re-cuts
+the finding at a commit the forge serves; then prepare that new work item.
+
+- **Standalone run** (no `$TRAUST_RUN_ID`): re-observe it yourself with
+  `traust portfolio observe --repo <url>`.
+- **Scheduled session** (`$TRAUST_RUN_ID` set): do not run `portfolio
+  observe` from the session. The remediation order's claim authorizes this
+  order's own records, not a repository observation, so the door refuses an
+  observation bound to it. End the run with the checkout refusal; the
+  pack's `repo_state` lane re-observes the repository on its own claim
+  (daily), or an operator runs the standalone command.
 
 ---
 
@@ -538,7 +546,7 @@ Only after Phase 5b ACCEPT:
 bash harnessing/7-remediate/remediate-finding/push_fix.sh push \
   <fix_clone> <fork_url> <fix_branch> <fix_commit>
 # run by the remediation lane (under a run order): the order names the work item
-python3 -m traust.cli remediation record <out>/<work-item>-remediation.json
+python3 -m traust.cli remediation record <out>/<work-item>-remediation.json --lease-generation N
 # run by hand: name the work item you prepared
 python3 -m traust.cli remediation record <out>/<work-item>-remediation.json \
   --work-item <work-item>

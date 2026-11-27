@@ -68,6 +68,10 @@ allowed-tools:
 
 # Secure Code Audit
 
+For a scheduled run, take `--lease-generation N` from the session invocation
+(before interpreting positional inputs). Keep the inherited `TRAUST_RUN_ID` and pass
+that exact N to record; never look it up again. Omit the flag in standalone runs.
+
 > **Paths.** `analysis-results/…` and `progress-tracker/…` in this skill are the
 > default workspace layout. They resolve through `locations:` in `traust.yaml` in
 > `$TRAUST_CONFIG_HOME` (`docs/setup.md`, Storage locations); substitute your
@@ -1737,7 +1741,7 @@ This Markdown file is for human consumption only — the JSON file remains the a
 **Step 4b — Record the audit in traust-core:**
 
 ```bash
-python3 -m traust.cli reporting record <path-to-report.json> --kind secure_code \
+python3 -m traust.cli reporting record [--lease-generation N] <path-to-report.json> --kind secure_code \
     --repo-url <https URL of the repository> --sha <metadata.commit, full SHA> \
     [--branch <metadata.ref, when ref_kind is branch or default>]
 ```

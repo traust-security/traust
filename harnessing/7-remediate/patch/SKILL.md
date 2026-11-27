@@ -44,6 +44,10 @@ allowed-tools:
 
 # patch
 
+For a scheduled run, take `--lease-generation N` from the session invocation
+(before interpreting positional inputs). Keep the inherited `TRAUST_RUN_ID` and pass
+that exact N to prepare; never look it up again. Omit the flag in standalone runs.
+
 > **Paths.** `analysis-results/…` and `progress-tracker/…` in this skill are the
 > default workspace layout. They resolve through `locations:` in `traust.yaml` in
 > `$TRAUST_CONFIG_HOME` (`docs/setup.md`, Storage locations); substitute your
@@ -188,7 +192,7 @@ flat `findings[]` of dicts. Pull what's present; never guess what's absent.
 
 ### 1a. Recognized containers (priority order)
 
-0. **A work item** (traust-core) — `traust remediation prepare <work-item>`
+0. **A work item** (traust-core) — `traust remediation prepare [--lease-generation N] <work-item>`
    (`traust remediation next --repo-url <url>` names the repository's
    oldest one still waiting for a patch). Read `.items[]`: each finding as
    it stands (`finding.title`, `effective_severity`, `cwes`, `locations[0]`

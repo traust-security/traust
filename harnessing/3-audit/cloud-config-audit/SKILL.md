@@ -25,6 +25,10 @@ allowed-tools:
 
 # Cloud Config Audit — Checkov-Backed IaC Assessment (Declared Layer)
 
+For a scheduled run, take `--lease-generation N` from the session invocation
+(before interpreting positional inputs). Keep the inherited `TRAUST_RUN_ID` and pass
+that exact N to record; never look it up again. Omit the flag in standalone runs.
+
 > **Paths.** `analysis-results/…` and `progress-tracker/…` in this skill are the
 > default workspace layout. They resolve through `locations:` in `traust.yaml` in
 > `$TRAUST_CONFIG_HOME` (`docs/setup.md`, Storage locations); substitute your
@@ -230,7 +234,7 @@ never add, remove, or reword facts.
 ### Findings integration
 
 - Confirmed critical/high findings enter the standard flow (`python3 -m
-  traust.cli cloud-config record <target>-cloud-config-audit.json --repo-url
+  traust.cli cloud-config record [--lease-generation N] <target>-cloud-config-audit.json --repo-url
   <metadata.repository> --sha <target_head> [--branch <scanned branch>]` records the audit, every finding
   and its disposition as a decision): cross-file
   via `/track-findings` disposition events and `/file-security-defect`

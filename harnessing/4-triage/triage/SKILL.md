@@ -10,10 +10,11 @@ description: Triage a batch of raw security findings. Verify each is real,
   asked to "triage findings", "validate scanner output", "prioritize vulns",
   or "review the backlog". Runs interactively by default; pass --auto to
   skip the interview. Scanner source attribution comes from the recorded Core
-  assessment, not a caller-supplied origin flag.
+  assessment, not a caller-supplied origin flag. Scheduled triage verifies
+  against a checkout at the source assessment's exact commit.
   A finding backed by a published CVE with a CVSS score keeps that score's
   band unless recorded evidence bound to the finding shows otherwise.
-argument-hint: "<findings-path> [--prepared-input] [--auto] [--votes N] [--repo PATH] [--fp-rules FILE] [--fresh]"
+argument-hint: "<assessment-id|findings-path> [--prepared-input] [--auto] [--votes N] [--repo PATH] [--fp-rules FILE] [--fresh] [--lease-generation N]"
 user-invocable: true
 metadata:
   harness.tier: "primary"
@@ -64,13 +65,19 @@ Adversarial triage of raw security-scanner output. Does four jobs:
 claimed severity, and **route** each to a component owner. Output is a
 short, ranked, owned list instead of a raw dump.
 
-Invoke with `/triage <findings-path> [--prepared-input] [--auto] [--votes N] [--repo PATH] [--fp-rules FILE]`.
+Invoke with `/triage <assessment-id|findings-path> [--prepared-input] [--auto] [--votes N] [--repo PATH] [--fp-rules FILE]`.
+The scheduled rig supplies the recorded assessment ID (input A), `--auto`,
+`--fresh`, and a temporary `--repo` checkout at that assessment's exact commit.
+For a scheduled write, leave the run ID inherited and copy the invocation's
+literal `--lease-generation N` to `triage record`. Never look up a newer lease
+or retry without the flag. A standalone triage omits it.
 
 **Arguments** (parse from `$ARGUMENTS`; positional `$1`/`$2` expansion is
 not stable across runtimes):
-- findings path (first positional, required): a JSON file, a directory of
-  JSON files, a `*-vuln-findings.json` / legacy `VULN-FINDINGS.json`, a pipeline `results/<target>/<ts>/`
-  directory, or a markdown report.
+- assessment ID or findings path (first positional, required): an existing Core
+  assessment (input A), a JSON file, a directory of JSON files, a
+  `*-vuln-findings.json` / legacy `VULN-FINDINGS.json`, a pipeline
+  `results/<target>/<ts>/` directory, or a markdown report.
 - `--prepared-input`: the positional path is a read-only JSON serialization
   of Core's native `TriageInput`, staged by the trusted caller. Use input (D)
   below, never generic scanner parsing. Do not call `triage intake`,
@@ -516,19 +523,22 @@ Attach to every finding:
 
 ### 1c. Locate the target codebase
 
-Resolve `--repo` (default cwd). For the first 5 findings with a `file`
-(package-only findings have none and are not counted), check the path
-resolves under the repo. Try, in order: (a) `repo/file`
-as-given; (b) `file` as an absolute or cwd-relative path; (c) `repo/file`
-with common prefixes stripped from `file` (`src/`, `app/`, `./`, or the
-repo's own basename, e.g. `harness/grade.py` with `--repo harness`).
-Record which resolution worked and apply it to every finding. If at least
-one file-bearing finding was checked and none resolve, **stop**: tell the
-user verification needs source access and the cited files aren't
-reachable, and suggest a `--repo` value based on the longest common suffix
-you can see. When the batch has no file-bearing finding (every finding is
-package-only), there is nothing to resolve: record `"path_resolution":
-"none: package-only"` and continue.
+Resolve `--repo` (default cwd) to an absolute directory. For the first 5
+findings with a `file` (package-only findings have none and are not counted),
+check the path resolves under that directory. Try, in order: (a) `repo/file`
+as given; (b) `file` as an absolute or cwd-relative path; (c) `repo/file` with
+common prefixes stripped from `file` (`src/`, `app/`, `./`, or the repo's own
+basename, e.g. `harness/grade.py` with `--repo harness`). Resolve symlinks and
+accept a candidate only if its resolved path stays inside the resolved repo.
+Never read cited files outside the target checkout, even when an absolute path
+or symlink points there. Record which resolution worked and apply it to every
+finding. If at least one file-bearing finding was checked and none resolve,
+**stop**: tell the user verification needs source access and the cited files
+aren't reachable, and suggest a `--repo` value based on the longest common
+suffix you can see. When the batch has no file-bearing finding (every finding
+is package-only), there is nothing to resolve: record `"path_resolution":
+"none: package-only"` and continue. A genuinely empty admitted batch has no
+paths to locate; skip this check and follow the zero-finding contract in 1a.
 
 **Checkpoint:** Write tool → `./.triage-state/_chunk.tmp`:
 
@@ -1963,7 +1973,7 @@ ID; zero native counts do not prove the repository secure.
 Bash:
 
 ```
-python3 -m traust.cli triage record <assessment-id> <findings-dir>/<repo>-triage.json --repo {REPO_PATH}
+python3 -m traust.cli triage record <assessment-id> <findings-dir>/<repo>-triage.json --repo {REPO_PATH} [--lease-generation N]
 ```
 
 traust-core records the triage as an assessment with its JSON, then one

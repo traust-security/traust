@@ -58,8 +58,11 @@ def complete(services, order_ids: tuple[str, ...]) -> None:
     for order_id in order_ids:
         identity = UUID(order_id)
         services.ops.admit(identity)
-        assert services.ops.claim(worker, timedelta(minutes=5), order_id=identity) is not None
-        services.ops.complete(identity, worker, JobResult.succeeded())
+        claim = services.ops.claim(worker, timedelta(minutes=5), order_id=identity)
+        assert claim is not None
+        services.ops.complete(
+            identity, worker, JobResult.succeeded(), lease_generation=claim.lease_generation
+        )
 
 
 def test_inventory_url_reaches_observation_and_full_audit_orders(tmp_path: Path) -> None:
@@ -287,9 +290,10 @@ def test_unsuccessful_event_work_stays_visible_until_operator_archives_it(
         for value in first.written:
             order = services.ops.get(UUID(value))
             services.ops.admit(order.id)
-            assert services.ops.claim(worker, timedelta(minutes=5), order_id=order.id) is not None
+            claim = services.ops.claim(worker, timedelta(minutes=5), order_id=order.id)
+            assert claim is not None
             result = outcome if order.asset == failed_asset else JobResult.succeeded()
-            services.ops.complete(order.id, worker, result)
+            services.ops.complete(order.id, worker, result, lease_generation=claim.lease_generation)
             if order.asset == failed_asset:
                 unsuccessful = order.id
         assert unsuccessful is not None

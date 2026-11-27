@@ -38,6 +38,7 @@ from urllib.parse import urlsplit
 
 import pydantic
 import yaml
+from traust_core.v1.context import Context
 from traust_core.v1.errors import ConfigError, NotFoundError, ValidationError
 from traust_core.v1.models.artifacts import (
     FleetFixArtifact,
@@ -69,16 +70,19 @@ from traust_core.v1.models.vocabulary import (
 
 from traust.cli._doors import (
     add_branch_arg,
+    add_lease_generation_arg,
     add_run_order_arg,
     parser,
     products,
+    recording_order_id,
     register_commit,
+    report_provenance,
     run,
 )
 from traust.cli._doors import package_id as find_package_id
 from traust.cli.findings import _repository
 from traust.cli.impact import harness_version
-from traust.context import load, load_caller
+from traust.context import load, load_caller, load_recorder
 
 # Impact classifications that eliminate an advisory match; every other one stays a filed
 # finding (affected, likely_affected, not_observed, inconclusive) and needs verification.
@@ -289,23 +293,26 @@ def record(argv: list[str] | None = None) -> int:
         "guess between a failed attempt and its retry)",
     )
     add_run_order_arg(ap)
+    add_lease_generation_arg(ap)
     args = ap.parse_args(argv)
     if args.run_id is not None and args.work_item is not None:
         ap.error("--work-item or a run order, not both: the order names its work item")
 
     def call() -> dict:
+        order_id = recording_order_id(args.run_id, args.lease_generation)
         doc = RemediationArtifact.parse(args.report.read_bytes())
         when = datetime.now(UTC)
         core = load(args.config_home)
         remediation_ = core.services().remediation
-        if args.run_id is not None:
+        if order_id is not None:
             # core's remediation door shares triage's recording section and source until
             # contracts gives remediation its own
             made = remediation_.record_order(
                 doc,
-                Provenance(run_id=args.run_id, source=SourceType.TRIAGE_REPORT, occurred_at=when),
-                args.run_id,
-                load_caller(core),
+                Provenance(run_id=order_id, source=SourceType.TRIAGE_REPORT, occurred_at=when),
+                order_id,
+                load_recorder(core),
+                lease_generation=args.lease_generation,
             )
         else:
             made = remediation_.record(
@@ -526,31 +533,51 @@ def next_(argv: list[str] | None = None) -> int:
     return run(call)
 
 
+def _prepared_work_item(
+    core: Context,
+    item_id: uuid.UUID | None,
+    order_id: uuid.UUID | None,
+    lease_generation: int | None,
+) -> uuid.UUID:
+    if order_id is not None:
+        assert lease_generation is not None  # recording_order_id checked the pair
+        ops = core.services().ops
+        repository_id = ops.get(order_id).repository_id
+        if repository_id is None:
+            raise ValidationError(f"order {order_id} names no repository to prepare")
+        with ops.bound(
+            order_id,
+            repository_id,
+            worker=WorkerId(load_recorder(core).ref),
+            lease_generation=lease_generation,
+        ) as order:
+            ordered = order.work_item_id
+            if ordered is None:
+                raise ValidationError(f"order {order_id} names no work item to prepare")
+            if item_id not in (None, ordered):
+                raise ValidationError(f"order {order_id} runs work item {ordered}, not {item_id}")
+            return ordered
+    assert item_id is not None  # standalone prepare requires an explicit item
+    return item_id
+
+
 def prepare(argv: list[str] | None = None) -> int:
     ap = _parser("prepare", "Print what a patch of one work item fixes.")
     ap.add_argument(
         "work_item_id", type=uuid.UUID, nargs="?", help="default: the work item the run order names"
     )
     add_run_order_arg(ap)
+    add_lease_generation_arg(ap)
     ap.add_argument("-o", "--out", type=Path, help="write the JSON here instead of stdout")
     args = ap.parse_args(argv)
     if args.work_item_id is None and args.run_id is None:
         ap.error("give a work item, or run under a run order (--run-id)")
 
     def call() -> str | None:
-        services = load(args.config_home).services()
-        work_item_id = args.work_item_id
-        if args.run_id is not None:
-            # under an order, the order decides which work item this run patches
-            ordered = services.ops.get(args.run_id).work_item_id
-            if ordered is None and work_item_id is None:
-                raise ValidationError(f"order {args.run_id} names no work item to prepare")
-            if ordered is not None and work_item_id not in (None, ordered):
-                raise ValidationError(
-                    f"order {args.run_id} runs work item {ordered}, not {work_item_id}"
-                )
-            work_item_id = work_item_id or ordered
-        prepared = services.remediation.prepare(work_item_id)
+        order_id = recording_order_id(args.run_id, args.lease_generation)
+        core = load(args.config_home)
+        work_item_id = _prepared_work_item(core, args.work_item_id, order_id, args.lease_generation)
+        prepared = core.services().remediation.prepare(work_item_id)
         return _emit(prepared.model_dump_json(indent=2), args.out)
 
     return run(call)
@@ -623,11 +650,16 @@ def verify_sweep(argv: list[str] | None = None) -> int:
 def verify_prepare(argv: list[str] | None = None) -> int:
     ap = _parser("verify-prepare", "Print what a verification of one work item re-checks.")
     ap.add_argument("work_item_id", type=uuid.UUID)
+    add_run_order_arg(ap)
+    add_lease_generation_arg(ap)
     ap.add_argument("-o", "--out", type=Path, help="write the JSON here instead of stdout")
     args = ap.parse_args(argv)
 
     def call() -> str | None:
-        prepared = load(args.config_home).services().verification.prepare(args.work_item_id)
+        order_id = recording_order_id(args.run_id, args.lease_generation)
+        core = load(args.config_home)
+        work_item_id = _prepared_work_item(core, args.work_item_id, order_id, args.lease_generation)
+        prepared = core.services().verification.prepare(work_item_id)
         return _emit(prepared.model_dump_json(indent=2), args.out)
 
     return run(call)
@@ -668,21 +700,26 @@ def verify_differential(argv: list[str] | None = None) -> int:
 def verify_record(argv: list[str] | None = None) -> int:
     ap = _parser("verify-record", "Record a validated verification report.")
     ap.add_argument("report", type=Path, help="the verification report JSON")
+    add_run_order_arg(ap)
+    add_lease_generation_arg(ap)
     args = ap.parse_args(argv)
 
     def call() -> dict:
         doc = VerificationArtifact.parse(args.report.read_bytes())
-        when = datetime.now(UTC)
-        made = (
-            load(args.config_home)
-            .services()
-            .verification.record(
+        order_id = recording_order_id(args.run_id, args.lease_generation)
+        core = load(args.config_home)
+        verification = core.services().verification
+        provenance = report_provenance(order_id, SourceType.VERIFICATION_REPORT)
+        if order_id is None:
+            made = verification.record(doc, provenance)
+        else:
+            made = verification.record_order(
                 doc,
-                Provenance(
-                    run_id=uuid.uuid4(), source=SourceType.VERIFICATION_REPORT, occurred_at=when
-                ),
+                provenance,
+                order_id,
+                load_recorder(core),
+                lease_generation=args.lease_generation,
             )
-        )
         return made.model_dump(mode="json")
 
     return run(call)

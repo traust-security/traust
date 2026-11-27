@@ -16,12 +16,22 @@ from pathlib import Path
 from traust_core.v1.models.artifacts import CloudConfigAuditArtifact
 from traust_core.v1.models.cloud_config import CHECKOV, CloudConfigFacts
 from traust_core.v1.models.common import Provenance
+from traust_core.v1.models.operations import WorkerId
 from traust_core.v1.models.values import HttpsRepoUrl
 from traust_core.v1.models.vocabulary import SourceType
 
 from traust.cli import _doors
-from traust.cli._doors import add_branch_arg, add_run_order_arg, parser, register_commit, run
-from traust.context import load
+from traust.cli._doors import (
+    add_branch_arg,
+    add_lease_generation_arg,
+    add_run_order_arg,
+    parser,
+    recording_order_id,
+    recording_repository,
+    register_commit,
+    run,
+)
+from traust.context import load, load_recorder
 
 
 def _parser(op: str, about: str) -> argparse.ArgumentParser:
@@ -88,27 +98,34 @@ def record(argv: list[str] | None = None) -> int:
     ap.add_argument("--public", action="store_true", help="the repository is public")
     add_branch_arg(ap)
     add_run_order_arg(ap)
+    add_lease_generation_arg(ap)
     args = ap.parse_args(argv)
 
     def call() -> dict:
+        order_id = recording_order_id(args.run_id, args.lease_generation)
         doc = CloudConfigAuditArtifact.parse(args.report.read_bytes())
         core = load(args.config_home)
+        worker = WorkerId(load_recorder(core).ref) if order_id is not None else None
         services = core.services()
         url = HttpsRepoUrl.parse(args.repo_url, core.config.forge_hosts)
-        repo = services.portfolio.register_repository(url, args.public)
-        ref = register_commit(services, repo.id, args.sha, args.branch)
-        # The audit's run time makes a re-record the same run; a report without one is a new run.
-        when = _doors.when(doc.metadata.generated_at) or datetime.now(UTC)
-        assessment, decisions = services.assessment.record_audit(
-            doc,
-            ref.id,
-            Provenance(
-                run_id=args.run_id or uuid.uuid4(),
-                source=SourceType.VULN_SCAN_REPORT,
-                occurred_at=when,
-            ),
-            run_order_id=args.run_id,
-        )
+        with recording_repository(
+            services, url, args.public, order_id, worker, args.lease_generation
+        ) as repo_id:
+            ref = register_commit(services, repo_id, args.sha, args.branch)
+            # A report's event time identifies the audit, not the lease that records it.
+            when = _doors.when(doc.metadata.generated_at) or datetime.now(UTC)
+            assessment, decisions = services.assessment.record_audit(
+                doc,
+                ref.id,
+                Provenance(
+                    run_id=order_id or uuid.uuid4(),
+                    source=SourceType.VULN_SCAN_REPORT,
+                    occurred_at=when,
+                ),
+                run_order_id=order_id,
+                worker=worker,
+                lease_generation=args.lease_generation,
+            )
         return {
             "assessment_id": assessment.id,
             "status": assessment.status,

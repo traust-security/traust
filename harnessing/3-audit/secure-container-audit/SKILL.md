@@ -45,6 +45,10 @@ allowed-tools:
 
 # Secure Container Audit
 
+For a scheduled run, take `--lease-generation N` from the session invocation
+(before interpreting positional inputs). Keep the inherited `TRAUST_RUN_ID` and pass
+that exact N to record; never look it up again. Omit the flag in standalone runs.
+
 > **Paths.** `analysis-results/…` and `progress-tracker/…` in this skill are the
 > default workspace layout. They resolve through `locations:` in `traust.yaml` in
 > `$TRAUST_CONFIG_HOME` (`docs/setup.md`, Storage locations); substitute your
@@ -593,7 +597,7 @@ python3 -m traust.cli reporting rate-cvss <path-to-report.json>   # the CVSS cal
 python3 -m traust.cli reporting validate <path-to-report.json>
 python3 -m traust.cli reporting validate --strict <path-to-report.json>   # address warnings
 python3 -m traust.cli reporting render <path-to-report.json> -o <path-to-report.md>
-python3 -m traust.cli reporting record <path-to-report.json> --kind container \
+python3 -m traust.cli reporting record [--lease-generation N] <path-to-report.json> --kind container \
   --repo-url <vcs-url> --sha <vcs-ref>   # when Phase 1's labels declare the source
 ```
 

@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import json
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import yaml
+from traust_core.v1.providers.identity import LOCAL_TOKEN_LIFETIME, LocalIssuer
 
 from tests.local_ops_support import LocalOpsRig
 
@@ -205,6 +209,150 @@ def test_operator_ledger_and_keys_own_signing_even_with_broken_unused_rig_pair(
     assert "cosign" not in rig.events.read_text(encoding="utf-8").splitlines()
 
 
+def test_existing_rig_pair_becomes_required_without_rotation(rig: LocalOpsRig) -> None:
+    faulting_cosign(rig, private=b"original-private", public=b"original-public")
+    setup = rig.run("up")
+    assert setup.returncode == 0, setup.stderr
+    old = config(rig)
+    key, pub = (Path(old["ledger"][name]) for name in ("key_path", "public_key_path"))
+    del old["ledger"]["required"]
+    del old["recording"]
+    save_config(rig, old)
+    login = rig.root / ".local-ops/run/home/credentials.json"
+    human = login.read_bytes()
+    faulting_cosign(rig, status=23)
+
+    upgraded = rig.run("up")
+    assert upgraded.returncode == 0, upgraded.stderr
+    assert config(rig)["ledger"] == {**old["ledger"], "required": True}
+    assert config(rig)["recording"]["triage"] == ["sci_triage"]
+    assert (key.read_bytes(), pub.read_bytes()) == (b"original-private", b"original-public")
+    assert login.read_bytes() == human
+
+
+@pytest.mark.parametrize("kind", ["local", "external", "unreadable"])
+def test_up_preserves_existing_login_and_explains_expiry_recovery(
+    rig: LocalOpsRig, kind: str
+) -> None:
+    setup = rig.run("up")
+    assert setup.returncode == 0, setup.stderr
+    login_path = rig.root / ".local-ops/run/home/credentials.json"
+    if kind == "unreadable":
+        login_path.write_bytes(b"operator-owned unreadable credentials")
+    else:
+        login = json.loads(login_path.read_text())
+        issued = datetime.now(UTC) - 2 * LOCAL_TOKEN_LIFETIME
+        if kind == "local":
+            issuer = LocalIssuer(login_path.parent, SimpleNamespace(now=lambda: issued))
+            login["grant"]["access_token"] = issuer.mint(
+                login["client_id"]
+            ).token.get_secret_value()
+        else:
+            login["issuer"] = "https://operator.example/issuer"
+            login["client_id"] = "operator-chosen"
+            login["grant"]["access_token"] = "operator-owned-token"
+        login["grant"]["expires_at"] = (issued + LOCAL_TOKEN_LIFETIME).isoformat()
+        login_path.write_text(json.dumps(login))
+    original = login_path.read_bytes()
+    rig.events.write_text("")
+
+    result = rig.run("up")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert login_path.read_bytes() == original
+    assert "auth" not in rig.events.read_text().splitlines()
+    assert "human login preserved" in result.stdout
+    assert "traust auth status" in result.stdout
+    assert "traust auth local --identity" in result.stdout
+    assert "external login" in result.stdout
+
+
+@pytest.mark.parametrize("entry", ["missing", "existing", "dangling-symlink"])
+def test_up_refuses_an_operator_home_without_changing_its_login(
+    rig: LocalOpsRig, entry: str
+) -> None:
+    setup = rig.run("up")
+    assert setup.returncode == 0, setup.stderr
+    operator_home = rig.root / "operator-home"
+    operator_home.mkdir()
+    login_path = operator_home / "credentials.json"
+    if entry == "existing":
+        login_path.write_bytes(b"operator-owned credentials")
+    elif entry == "dangling-symlink":
+        login_path.symlink_to(operator_home / "not-present")
+    cfg = config(rig)
+    cfg["home"] = str(operator_home)
+    save_config(rig, cfg)
+    # A rig may not use a different credential home.
+    (rig.root / ".local-ops/run/home/credentials.json").unlink()
+    rig.events.write_text("")
+
+    result = rig.run("up")
+
+    assert result.returncode != 0
+    assert "local rig bootstrap requires its own home and trusted local issuer" in result.stderr
+    assert "auth" not in rig.events.read_text().splitlines()
+    if entry == "existing":
+        assert login_path.read_bytes() == b"operator-owned credentials"
+    elif entry == "dangling-symlink":
+        assert login_path.is_symlink() and not login_path.exists()
+    else:
+        assert not login_path.exists()
+
+
+@pytest.mark.parametrize(
+    "component",
+    [
+        ".local-ops",
+        ".local-ops/run",
+        ".local-ops/run/home",
+        ".local-ops/run/home/local-key.pem",
+        ".local-ops/run/home/local-jwks.json",
+    ],
+)
+def test_up_refuses_symlinked_rig_paths_before_bootstrapping(
+    rig: LocalOpsRig, tmp_path: Path, component: str
+) -> None:
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    sentinel = outside / "sentinel"
+    sentinel.write_bytes(b"operator-owned")
+    link = rig.root / component
+    link.parent.mkdir(parents=True, exist_ok=True)
+    target = outside / "issuer" if component.endswith((".pem", ".json")) else outside
+    if target != outside:
+        target.write_bytes(b"operator-owned issuer")
+    link.symlink_to(target)
+
+    result = rig.run("up")
+
+    assert result.returncode != 0
+    assert "local rig" in result.stderr and "symlink" in result.stderr
+    assert sentinel.read_bytes() == b"operator-owned"
+    if target != outside:
+        assert target.read_bytes() == b"operator-owned issuer"
+    assert sorted(path.name for path in outside.iterdir()) == (
+        ["issuer", "sentinel"] if target != outside else ["sentinel"]
+    )
+    assert rig.events.read_text() == ""
+
+
+def test_up_preserves_dangling_credential_symlink_in_rig_home(rig: LocalOpsRig) -> None:
+    setup = rig.run("up")
+    assert setup.returncode == 0, setup.stderr
+    login_path = rig.root / ".local-ops/run/home/credentials.json"
+    login_path.unlink()
+    login_path.symlink_to(login_path.parent / "missing-operator-login")
+    rig.events.write_text("")
+
+    result = rig.run("up")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert login_path.is_symlink() and not login_path.exists()
+    assert "auth" not in rig.events.read_text().splitlines()
+    assert "human login preserved" in result.stdout
+
+
 def test_no_cosign_deliberately_configures_unsigned_and_continues(rig: LocalOpsRig) -> None:
     result = rig.run("up")
 
@@ -230,3 +378,48 @@ def test_failed_upgrade_keeps_existing_unsigned_placeholder(rig: LocalOpsRig) ->
     assert not {"database", "auth"}.intersection(
         rig.events.read_text(encoding="utf-8").splitlines()
     )
+
+
+def test_tick_loop_can_resolve_the_persisted_review_salt(rig: LocalOpsRig) -> None:
+    rig.env.pop("TRAUST_OPS_VALVE_SALT", None)
+    setup = rig.run("up")
+    assert setup.returncode == 0, setup.stderr
+    salt = rig.root / ".local-ops/run/review-salt"
+    engine = rig.bin_dir / "traust-engine"
+    engine.write_text(
+        f"#!{sys.executable}\n"
+        "from pathlib import Path\n"
+        "import os, sys\n"
+        "from traust_core.v1.context import Config\n"
+        "config = Path(sys.argv[sys.argv.index('--core') + 1])\n"
+        f"expected = Path({str(salt)!r}).read_text()\n"
+        "assert expected and Config.from_file(config).valve_salt() == expected\n"
+    )
+    engine.chmod(0o755)
+    tick = rig.make("ops-run")
+    assert tick.returncode == 0, tick.stderr
+    assert salt.read_text() not in tick.stdout + tick.stderr
+
+
+@pytest.mark.parametrize(
+    ("use_rig_key", "configured_password", "expected"),
+    [(True, None, ""), (True, "from-env", "from-env"), (False, None, None)],
+)
+def test_normal_rig_commands_supply_only_the_rig_keys_default_password(
+    rig: LocalOpsRig, use_rig_key: bool, configured_password: str | None, expected: str | None
+) -> None:
+    # A stale dev-key path can coexist with an operator-owned ledger config.
+    dev_key = rig.root / ".local-ops/run/ledger/dev-key.key"
+    dev_key.parent.mkdir(parents=True)
+    dev_key.touch()
+    rig.config_home.mkdir()
+    save_config(rig, {"ledger": {"key_path": str(dev_key if use_rig_key else "/operator.key")}})
+    if configured_password is not None:
+        (rig.root / ".local-ops/env").write_text(f"export COSIGN_PASSWORD={configured_password}\n")
+    shell = rig.bin_dir / "check-env"
+    shell.write_text(
+        f"#!{sys.executable}\nimport os\nassert os.environ.get('COSIGN_PASSWORD') == {expected!r}\n"
+    )
+    shell.chmod(0o755)
+    result = rig.run("sh", env={"SHELL": str(shell)})
+    assert result.returncode == 0, result.stderr
