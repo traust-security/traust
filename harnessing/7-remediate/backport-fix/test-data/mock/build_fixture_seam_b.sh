@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Build the Seam B fixture: a cri-o stand-in with a remediate-finding-style
-# fix commit, plus a schema-valid *-remediation.json authored from the real
-# cri-o triage finding f001.
+# Build the Seam B fixture: a labelled-fiction widget repo with a remediate-finding-style
+# fix commit, plus a schema-valid *-remediation.json authored from the
+# labelled-fiction triage finding f001.
 #
 #   main       vulnerable internal/lib/restore.go
 #   fix-f001   the remediation commit (ex-wing message, path validation)
@@ -37,7 +37,7 @@ func restoreMounts(dests []string) error {
 	return nil
 }
 GO
-printf 'module github.com/cri-o/cri-o\n\ngo 1.21\n' > go.mod
+printf 'module forge.example.invalid/example/widget\n\ngo 1.21\n' > go.mod
 g add -A && g commit -qm "baseline with vulnerable restoreMounts"
 BASE=$(git rev-parse HEAD)
 
@@ -56,7 +56,7 @@ import (
 func restoreMounts(dests []string) error {
 	for _, d := range dests {
 		clean := filepath.Clean(d)
-		if !strings.HasPrefix(clean, "/run/crio/restore/") {
+		if !strings.HasPrefix(clean, "/run/widget/restore/") {
 			return fmt.Errorf("refusing bind mount outside restore root: %q", d)
 		}
 		if err := os.MkdirAll(clean, 0o755); err != nil {
@@ -71,7 +71,7 @@ g add -A && g commit -qm "ex-wing: fix f001 — validate bind.mounts destination
 Reject checkpoint manifest destinations that escape the restore root
 before creating host paths.
 
-Addresses: cri-o-triage.json#f001
+Addresses: widget-triage.json#f001
 CWEs: CWE-22, CWE-73"
 FIX=$(git rev-parse HEAD)
 
@@ -92,7 +92,7 @@ g add -A && g commit -qm "backport restore-root validation with local drift"
 RC=$(git rev-parse HEAD)
 
 git checkout -q main
-git remote add origin https://github.com/cri-o/cri-o
+git remote add origin https://forge.example.invalid/example/widget
 git update-ref refs/remotes/origin/main "$BASE"
 git update-ref refs/remotes/origin/fix-f001 "$FIX"
 git update-ref refs/remotes/origin/release-a "$RA"
@@ -100,7 +100,7 @@ git update-ref refs/remotes/origin/release-b "$RB"
 git update-ref refs/remotes/origin/release-c "$RC"
 git symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main
 
-# Audit + triage fixtures mirroring the real cri-o f001 finding, then the
+# Audit + triage fixtures for the labelled-fiction f001 finding, then the
 # remediation JSON built from them by make_remediation.py (dogfooding the
 # "generate one from a finding" path rather than hardcoding the artifact).
 python3 - "$WORK" <<'EOF'
@@ -109,9 +109,9 @@ work = sys.argv[1]
 title = ("Checkpoint restore creates arbitrary host paths from untrusted "
          "bind.mounts manifest")
 json.dump({
-  "title": "cri-o Security Audit",
+  "title": "widget Security Audit (labelled fiction)",
   "metadata": {"date": "2026-08-13", "harness_version": "0.265.0-abcdef1",
-               "repository": "https://github.com/cri-o/cri-o"},
+               "repository": "https://forge.example.invalid/example/widget"},
   "findings": [{
     "id": "FIND-001", "title": title, "severity": "medium",
     "cwes": ["CWE-22", "CWE-73"],
@@ -119,30 +119,30 @@ json.dump({
     "description": "Destinations from the untrusted checkpoint manifest reach "
                    "os.MkdirAll without validation, creating arbitrary host paths.",
     "remediation": "Canonicalize and confine destinations to the restore root."}],
-}, open(work + "/cri-o-security-audit.json", "w"), indent=2)
+}, open(work + "/widget-security-audit.json", "w"), indent=2)
 json.dump({
-  "title": "cri-o Triage",
+  "title": "widget Triage (labelled fiction)",
   "metadata": {"date": "2026-08-13", "harness_version": "0.265.0-abcdef1",
-               "repository": "https://github.com/cri-o/cri-o"},
+               "repository": "https://forge.example.invalid/example/widget"},
   "findings": [{
     "id": "f001", "title": title, "severity": "medium",
     "file": "internal/lib/restore.go", "line": 143,
     "verdict": "true_positive",
-    "source": "cri-o-security-audit.json#FIND-001"}],
-}, open(work + "/cri-o-triage.json", "w"), indent=2)
+    "source": "widget-security-audit.json#FIND-001"}],
+}, open(work + "/widget-triage.json", "w"), indent=2)
 EOF
 
 # 5 levels up: mock → test-data → backport-fix → 7-remediate → harnessing → repo root
 HARNESS_ROOT="$(cd "$HERE/../../../../.." && pwd)"
 python3 "$HARNESS_ROOT/harnessing/7-remediate/backport-fix/scripts/make_remediation.py" \
-  --triage "$WORK/cri-o-triage.json" --finding f001 \
+  --triage "$WORK/widget-triage.json" --finding f001 \
   --fix-commit "$FIX" --repo "$FR" \
   --strategy input-validation \
   --rationale "Reject checkpoint manifest bind-mount destinations that escape the restore root before any host path is created." \
-  --build-cmd "GOMAXPROCS=2 make" --test-cmd "go build ./..." \
+  --build-cmd "make --version" --test-cmd "go vet ./..." \
   --check-outcome pass --status checks_passed \
-  --product cri-o --language Go --operator seam-b-mock \
+  --product widget --language Go --operator seam-b-mock \
   --no-validate \
-  --out "$WORK/cri-o.f001-remediation.json" >/dev/null
+  --out "$WORK/widget.f001-remediation.json" >/dev/null
 
-echo "seam B fixture ready: $FR (+ cri-o.f001-remediation.json via make_remediation.py); fix commit: $FIX"
+echo "seam B fixture ready: $FR (+ widget.f001-remediation.json via make_remediation.py); fix commit: $FIX"

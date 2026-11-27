@@ -16,11 +16,11 @@ green.
 
 Usage:
     python3 make_remediation.py \
-        --triage analysis-results/oss-findings/cri-o/cri-o/cri-o-triage.json \
+        --triage analysis-results/<product>/<repo>/widget-triage.json \
         --finding f001 \
         --fix-commit 79a4de5 \
         --repo /path/to/clone \
-        --out cri-o.f001-remediation.json
+        --out widget.f001-remediation.json
 """
 
 from __future__ import annotations
@@ -272,15 +272,20 @@ def build(args) -> dict:
             loc["lines"] = str(tf["line"])
         locations = [loc]
 
-    severity = str(
-        args.severity
-        or tf.get("severity")
-        or tf.get("claimed_severity")
-        or af.get("severity")
-        or "medium"
-    ).lower()
+    # The finding's recorded severity is carried as-is: never a default, never typed here
+    # (CVSS plan D1, D16). The remediation contract requires one, so none fails closed.
+    stated = tf.get("severity") or tf.get("claimed_severity") or af.get("severity")
+    if not stated:
+        raise SystemExit(
+            "no severity: the triage finding and its audit finding state none; "
+            "record it through triage first"
+        )
+    severity = str(stated).lower()
     if severity not in _SEVERITIES:
-        severity = "medium"
+        raise SystemExit(
+            f"severity {stated!r} is not one of {', '.join(_SEVERITIES)}; "
+            "fix the triage or audit record"
+        )
 
     title = args.title or tf.get("title") or af.get("title") or f"Finding {args.finding}"
     try:
@@ -402,12 +407,6 @@ def main() -> None:
     )
     p.add_argument("--title", default="", help="override the finding title")
     p.add_argument(
-        "--severity",
-        default="",
-        choices=("", "critical", "high", "medium", "low", "informational"),
-        help="override the triage/audit severity",
-    )
-    p.add_argument(
         "--audited-commit",
         default="",
         help="commit the finding was found at (default: the fix commit's parent)",
@@ -474,7 +473,7 @@ def main() -> None:
     if not args.triage.is_file():
         raise SystemExit(f"triage JSON not found: {args.triage}")
     if not (args.repo / ".git").exists():
-        raise SystemExit(f"not a git clone: {args.repo}")
+        raise SystemExit(f"not a git working tree: {args.repo}")
 
     report = build(args)
     args.out.parent.mkdir(parents=True, exist_ok=True)

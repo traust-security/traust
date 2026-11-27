@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # End-to-end MOCK run of the backport-fix pipeline, Seam B (remediation
-# input, authored from the real cri-o f001 finding). No LLM calls, no
+# input, authored from the labelled-fiction f001 finding). No LLM calls, no
 # credentials, no network. When the amalgamator sibling is available, the
 # REAL backport_scanner runs (deterministic tiers only). Self-checking.
 #
@@ -18,7 +18,7 @@ CONFIGS="$WORK/configs"; RESULTS="$WORK/results"; FAKE_AR="$WORK/analysis-result
 mkdir -p "$FAKE_AR"
 
 python3 -c "import yaml, jsonschema" 2>/dev/null || {
-  echo "FATAL: python3 needs pyyaml + jsonschema (pip install pyyaml jsonschema)"; exit 1; }
+  echo "FATAL: python3 needs pyyaml + jsonschema (the repo venv has both, locked: run uv sync, then put .venv/bin first on PATH)"; exit 1; }
 unset ANTHROPIC_API_KEY CLAUDE_CODE_USE_VERTEX ANTHROPIC_VERTEX_PROJECT_ID GOOGLE_APPLICATION_CREDENTIALS 2>/dev/null || true
 
 fail() { echo "MOCK SEAM B: FAIL — $1" >&2; exit 1; }
@@ -78,7 +78,7 @@ except jsonschema.ValidationError as e:
 echo "== build fixture (+ schema-valid remediation from real f001) =="
 bash "$HERE/build_fixture_seam_b.sh" "$WORK"
 FR="$WORK/seamB-repo"
-REM="$WORK/cri-o.f001-remediation.json"
+REM="$WORK/widget.f001-remediation.json"
 
 echo "== stage 0: input contract (real validator, real schema) =="
 cd "$HARNESS_ROOT"
@@ -93,7 +93,7 @@ print(m.resolve_schema(None) or '')" 2>/dev/null || true)"
 if [[ -n "$REMED_SCHEMA" ]]; then
   validate_json "$REM" --schema "$REMED_SCHEMA" \
     | grep "ALL PASSED" >/dev/null || fail "remediation JSON does not validate"
-  for fixture in "$HARNESS_ROOT"/harnessing/7-remediate/backport-fix/test-data/crio-*-remediation.json; do
+  for fixture in "$HARNESS_ROOT"/harnessing/7-remediate/backport-fix/test-data/example-widget*-remediation.json; do
     validate_json "$fixture" --schema "$REMED_SCHEMA" \
       | grep "ALL PASSED" >/dev/null || fail "shipped fixture does not validate: $fixture"
   done
@@ -139,7 +139,7 @@ else
     --remediation "$REM" --repo "$FR" --skip-scan --branches release-a \
     --output-dir "$CONFIGS" >/dev/null
 fi
-grep -q "^issue_id: backport-cri-o-f001-release-a$" "$CONFIGS/release-a.yaml" \
+grep -q "^issue_id: backport-widget-f001-release-a$" "$CONFIGS/release-a.yaml" \
   || fail "issue_id not derived from finding_id: $(grep ^issue_id "$CONFIGS/release-a.yaml")"
 
 echo "== stage 4: run_backport.sh with the mock engine =="
@@ -155,24 +155,24 @@ echo "== stage 6: emit + schema-validate + publish =="
 cd "$HARNESS_ROOT"
 python3 harnessing/7-remediate/backport-fix/scripts/emit_backport_report.py \
   --results-dir "$RESULTS" --remediation "$REM" \
-  --output "$WORK/cri-o-backport-report.json" --publish-root "$FAKE_AR" 2>&1 \
+  --output "$WORK/widget-backport-report.json" --publish-root "$FAKE_AR" 2>&1 \
   | grep "validates against schema" >/dev/null || fail "report failed schema validation"
-D="$(ls -d "$FAKE_AR"/remediations/cri-o/cri-o/backport-* 2>/dev/null | head -1 || true)"
-[[ -n "$D" && -f "$D/cri-o-backport-report.json" && -f "$D/cri-o-backport-release-a.patch" ]] \
+D="$(ls -d "$FAKE_AR"/remediations/widget/widget/backport-* 2>/dev/null | head -1 || true)"
+[[ -n "$D" && -f "$D/widget-backport-report.json" && -f "$D/widget-backport-release-a.patch" ]] \
   || fail "published tree incomplete: $(ls "$D" 2>/dev/null)"
 python3 -c "
 import json
-r = json.load(open('$WORK/cri-o-backport-report.json'))
-assert r['source_fix']['finding_refs'] == ['cri-o-triage.json#f001'], r['source_fix']
+r = json.load(open('$WORK/widget-backport-report.json'))
+assert r['source_fix']['finding_refs'] == ['widget-triage.json#f001'], r['source_fix']
 row = [b for b in r['target_branches'] if b['branch'] == 'release-a'][0]
 assert row.get('backport_commit'), 'backport_commit missing from successful branch'
-assert row.get('backport_branch') == 'amalgamator/backport-cri-o-f001-release-a', row
+assert row.get('backport_branch') == 'amalgamator/backport-widget-f001-release-a', row
 hint = r['verification_hint']
 assert hint['branches'][0]['target_branch'] == 'release-a', hint
 assert hint['branches'][0].get('backport_commit') == row['backport_commit'], hint
-assert 'original_audit_report' not in hint or hint['original_audit_report'].endswith('cri-o-security-audit.json'), hint" \
+assert 'original_audit_report' not in hint or hint['original_audit_report'].endswith('widget-security-audit.json'), hint" \
   || fail "backport_commit/backport_branch/verification_hint wrong"
-validate_json "$WORK/cri-o-backport-report.json" \
+validate_json "$WORK/widget-backport-report.json" \
   | grep "ALL PASSED" >/dev/null || fail "backport report failed cross-checks"
 
 echo

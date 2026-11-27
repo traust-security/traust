@@ -34,7 +34,7 @@ def _env(**extra):
 def test_nonzero_engine_exit_overrides_success_shaped_artifacts(tmp_path):
     work = tmp_path
     repo = work / "seamB-repo"
-    rem = work / "cri-o.f001-remediation.json"
+    rem = work / "widget.f001-remediation.json"
     configs = work / "configs"
     results = work / "results"
 
@@ -53,9 +53,9 @@ def test_nonzero_engine_exit_overrides_success_shaped_artifacts(tmp_path):
             "--branches",
             "release-a",
             "--build-cmd",
-            "true",
+            "make --version",
             "--test-cmd",
-            "true",
+            "make --version",
             "--output-dir",
             str(configs),
         ],

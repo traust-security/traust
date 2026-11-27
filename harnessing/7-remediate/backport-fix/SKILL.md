@@ -44,6 +44,10 @@ allowed-tools:
 
 # Backport Fix — Multi-Branch Security Fix Propagation
 
+> **Paths.** `analysis-results/…` in this skill is the default workspace layout. It
+> resolves through `locations:` in `traust.yaml` in `$TRAUST_CONFIG_HOME`
+> (`docs/setup.md`, Storage locations); substitute your configured roots.
+
 You are propagating a **verified security fix** from one branch to
 multiple older release branches using the Amalgamator pipeline. The fix
 has already been applied and tested on one branch (via `remediate-finding`,
@@ -144,8 +148,8 @@ Pass the branches directly. No scanning, no guessing:
 
 ```bash
 python3 harnessing/7-remediate/backport-fix/scripts/generate_backport_configs.py \
-    --remediation router-remediation.json \
-    --repo /path/to/router-clone \
+    --remediation widget-remediation.json \
+    --repo /path/to/widget-clone \
     --branches release-4.16 release-4.17
 ```
 
@@ -159,8 +163,8 @@ every matching branch:
 
 ```bash
 python3 harnessing/7-remediate/backport-fix/scripts/generate_backport_configs.py \
-    --remediation router-remediation.json \
-    --repo /path/to/router-clone \
+    --remediation widget-remediation.json \
+    --repo /path/to/widget-clone \
     --branch-pattern "release-*"
 ```
 
@@ -172,7 +176,7 @@ each branch as:
 |---|---|---|
 | **NEEDS_FIX** | Vulnerable code exists, fix not applied | Config generated, Amalgamator runs |
 | **ALREADY_FIXED** | Deterministic patch-id match (EXACT_MATCH / EQUIVALENT) | Skipped |
-| **NOT_AFFECTED** | Vulnerable code never existed on this branch | Skipped |
+| **BRANCH_UNAFFECTED** | Vulnerable code never existed on this branch (the scanner reports `NOT_AFFECTED`; this is a branch-selection bucket, not the finding validity `not_affected`) | Skipped |
 | **NEEDS REVIEW** | Heuristic/LLM verdicts (LIKELY_PRESENT), scan errors, or anything inconclusive | Listed, **never silently excluded**; generator exits 3 |
 
 Only `NEEDS_FIX` branches get Amalgamator configs. Selection is
@@ -189,7 +193,7 @@ pass the impact analysis directly:
 python3 harnessing/7-remediate/backport-fix/scripts/generate_backport_configs.py \
     --impact <cve>-impact-analysis.json \
     --repo /path/to/clone \
-    --build-cmd "make build" --test-cmd "make test"
+    --build-cmd "<build command>" --test-cmd "<test command>"
 ```
 
 Differences from Seam B, all automatic:
@@ -229,8 +233,8 @@ python3 harnessing/7-remediate/backport-fix/scripts/generate_backport_configs.py
     --repo /path/to/clone \
     --source-branch main \
     --branches release-1.5 release-1.4 \
-    --build-cmd "make build" --test-cmd "make test" \
-    --output-dir /tmp/backport-fix/configs
+    --build-cmd "<build command>" --test-cmd "<test command>" \
+    --output-dir ~/.cache/traust/backport-fix/configs
 ```
 
 The script applies the patch to `origin/<source-branch>`, commits it
@@ -245,7 +249,7 @@ python3 harnessing/7-remediate/backport-fix/scripts/generate_backport_configs.py
     --remediation fio-remediation.json \
     --repo /path/to/clone \
     --branches release-1.5 release-1.4 \
-    --output-dir /tmp/backport-fix/configs
+    --output-dir ~/.cache/traust/backport-fix/configs
 ```
 
 When combined, the remediation JSON provides build/test commands,
@@ -292,7 +296,7 @@ input from the finding rather than hand-writing it:
 python3 harnessing/7-remediate/backport-fix/scripts/make_remediation.py \
     --triage <repo>-triage.json --finding f001 \
     --fix-commit <sha> --repo <path-to-local-clone> \
-    --build-cmd "make build" --test-cmd "make test" \
+    --build-cmd "<build command>" --test-cmd "<test command>" \
     --out <repo>.f001-remediation.json
 ```
 
@@ -322,7 +326,7 @@ python3 harnessing/7-remediate/backport-fix/scripts/generate_backport_configs.py
     --remediation <path-to-remediation.json> \
     --triage <path-to-triage.json> \
     --repo <path-to-local-clone> \
-    --output-dir /tmp/backport-fix/<repo-name>/configs \
+    --output-dir ~/.cache/traust/backport-fix/<repo-name>/configs \
     --scan-only
 ```
 
@@ -336,9 +340,9 @@ This uses the Amalgamator branch scanner to check each release branch
 and prints a summary:
 
 ```
-NEEDS_FIX:     release-1.28, release-1.29, release-1.30
-ALREADY_FIXED: release-1.31
-NOT_AFFECTED:  release-1.27
+NEEDS_FIX:         release-1.28, release-1.29, release-1.30
+ALREADY_FIXED:     release-1.31
+BRANCH_UNAFFECTED: release-1.27
 ```
 
 Review the scan results. If `--scan-only` was passed, stop here.
@@ -350,7 +354,7 @@ python3 harnessing/7-remediate/backport-fix/scripts/generate_backport_configs.py
     --remediation <path-to-remediation.json> \
     --triage <path-to-triage.json> \
     --repo <path-to-local-clone> \
-    --output-dir /tmp/backport-fix/<repo-name>/configs
+    --output-dir ~/.cache/traust/backport-fix/<repo-name>/configs
 ```
 
 One YAML per target branch is written to the output directory. Each
@@ -369,8 +373,26 @@ fix:
 build:
   command: "<build_command>"
   test_command: "<test_command>"
-model: "claude-opus-4-6"
+model: "<the patch-author role, resolved from config/model-registry.yaml>"
 ```
+
+**Build and test commands run through safe-exec (rule S10).** The release
+branch's build machinery is hostile code, so the generator writes each
+`build.command` / `test_command` as
+`<traust python> -m traust.cli util safe-exec run --profile <profile> --timeout 3600 -- <argv>`,
+one wrapped step per `&&`-joined step, under the first profile
+(`go-fuzz`, `java-build`, `node-build`, `rust-fuzz`, `python-test`,
+`generic-build`) that every step passes. The build then sees only the
+profile's scrubbed environment — not the LLM credential the pipeline holds.
+A command safe-exec cannot run as argv fails the generator closed: shell
+operators other than `&&`, `$`/backtick expansion, or a leading `VAR=value`
+assignment. Containerized runs rewrite the interpreter to the image's pinned
+`/opt/traust` venv. This assumes the Amalgamator runs those two fields as
+given; commands its agent shell runs on its own are not covered.
+
+`model` defaults to the registry's `patch-author` role
+(`python3 -m traust.cli registry models resolve patch-author`); `--model` overrides it.
+The generator fails closed when the role cannot be resolved.
 
 The `issue_id` is a validated slug (it reaches Amalgamator worktree
 paths, tracker filenames, and the `amalgamator/<slug>` git branch):
@@ -384,18 +406,17 @@ are preserved in the backport report's `finding_refs[]`.
 **Pick the execution mode first — check the platform (`uname`) and the
 target's build commands:**
 
-- **Containerized (required on macOS for Linux-oriented targets** — CRI-O,
-  kernels, anything needing Linux headers/systemd/seccomp; in practice
-  most OpenShift repos): build the image once
+- **Containerized (required on macOS for Linux-oriented targets** — container runtimes,
+  kernels, anything needing Linux headers/systemd/seccomp): build the image once
   (`podman build -t backport-go -f harnessing/7-remediate/backport-fix/container/Containerfile harnessing/7-remediate/backport-fix`;
   on macOS `podman machine init --cpus 4 --memory 8192 && podman machine start`
   first, and rebuild the image after any Containerfile change), then:
 
   ```bash
   bash harnessing/7-remediate/backport-fix/scripts/run_backport.sh \
-      --config-dir /tmp/backport-fix/<repo-name>/configs \
-      --output-dir /tmp/backport-fix/<repo-name>/results \
-      --container-image quay.io/supathak/crio-backport-test:latest --repo <path-to-local-clone> \
+      --config-dir ~/.cache/traust/backport-fix/<repo-name>/configs \
+      --output-dir ~/.cache/traust/backport-fix/<repo-name>/results \
+      --container-image backport-go --repo <path-to-local-clone> \
       --amalgamator <path-to-amalgamator>
   ```
 
@@ -412,8 +433,8 @@ target's build commands:**
 
   ```bash
   bash harnessing/7-remediate/backport-fix/scripts/run_backport.sh \
-      --config-dir /tmp/backport-fix/<repo-name>/configs \
-      --output-dir /tmp/backport-fix/<repo-name>/results
+      --config-dir ~/.cache/traust/backport-fix/<repo-name>/configs \
+      --output-dir ~/.cache/traust/backport-fix/<repo-name>/results
   ```
 
 Never start a local run on macOS when the config's build command is the
@@ -440,20 +461,20 @@ summary, so a batch cannot look successful to a caller or CI.
 ```bash
 # Seam B
 python3 harnessing/7-remediate/backport-fix/scripts/emit_backport_report.py \
-    --results-dir /tmp/backport-fix/<repo-name>/results \
+    --results-dir ~/.cache/traust/backport-fix/<repo-name>/results \
     --remediation <path-to-remediation.json> \
     --output <repo-name>-backport-report.json
 
 # Seam A — no remediation JSON anywhere in the run
 python3 harnessing/7-remediate/backport-fix/scripts/emit_backport_report.py \
-    --results-dir /tmp/backport-fix/<repo-name>/results \
+    --results-dir ~/.cache/traust/backport-fix/<repo-name>/results \
     --impact <cve>-impact-analysis.json \
     --output <repo-name>-backport-report.json
 
 # Patch/manual input — no artifact at all: metadata comes from the run's
 # own config copies and the source clone's origin
 python3 harnessing/7-remediate/backport-fix/scripts/emit_backport_report.py \
-    --results-dir /tmp/backport-fix/<repo-name>/results \
+    --results-dir ~/.cache/traust/backport-fix/<repo-name>/results \
     --output <repo-name>-backport-report.json \
     [--repository <url>] [--logical-product <name>]
 ```

@@ -33,7 +33,7 @@ class _EnumLike:
         ("EXACT_MATCH", "already_fixed"),
         ("EQUIVALENT", "already_fixed"),
         ("EQUIVALENT_PATCH", "already_fixed"),
-        ("NOT_AFFECTED", "not_affected"),
+        ("NOT_AFFECTED", "branch_unaffected"),
         ("NEEDS_FIX", "needs_fix"),
         ("LIKELY_PRESENT", "ambiguous"),
         ("AMBIGUOUS", "ambiguous"),
@@ -55,7 +55,7 @@ def test_bucket_names(status, bucket):
     [
         ("exact_match", "already_fixed"),
         ("equivalent_patch", "already_fixed"),
-        ("not_affected", "not_affected"),
+        ("not_affected", "branch_unaffected"),
         ("needs_fix", "needs_fix"),
         ("likely_present", "ambiguous"),
         ("ambiguous", "ambiguous"),
@@ -132,7 +132,7 @@ def test_fallback_reads_refs_name_and_raw_status(monkeypatch):
     assert buckets["already_fixed"] == ["release-a"]
     # heuristic verdict still reaches needs-review, never auto-exclusion
     assert buckets["ambiguous"] == ["release-b"]
-    assert buckets["not_affected"] == ["release-c"]
+    assert buckets["branch_unaffected"] == ["release-c"]
     # tags are not branch-selection candidates
     assert buckets["total"] == 3
 
@@ -174,7 +174,7 @@ def test_unknown_ref_is_ambiguous_not_absent(tmp_path):
     import subprocess
 
     subprocess.run(["git", "init", "-q", "-b", "main", str(tmp_path)], check=True)
-    # A missing ref must never read as "module absent" (=> NOT_AFFECTED).
+    # A missing ref must never read as "module absent" (=> BRANCH_UNAFFECTED).
     assert gen.module_version_at(tmp_path, "origin/does-not-exist", "dep") == (
         "ambiguous",
         None,
@@ -256,8 +256,8 @@ def test_triage_enrichment_follows_the_finding_reference(tmp_path):
 @pytest.mark.parametrize(
     "fid",
     [
-        "cve-2026-12345",
-        "fix-cve-2026-12345",  # embedded, not anchored
+        "cve-0000-12345",
+        "fix-cve-0000-12345",  # embedded, not anchored
         "ghsa-abcd-efgh-ijkl",  # GHSA advisory
         "GHSA-ABCD-EFGH-IJKL",  # advisories are usually uppercase
         "pre-ghsa-abcd-efgh-ijkl-post",  # embedded GHSA
@@ -266,15 +266,15 @@ def test_triage_enrichment_follows_the_finding_reference(tmp_path):
 def test_advisory_ids_never_reach_issue_id(fid):
     # Pushed ref names and the preservation branch must not disclose them.
     assert (
-        gen.slug_issue_id([f"triage.json#{fid}"], "cri-o", "release-a", "deadbeef")
+        gen.slug_issue_id([f"triage.json#{fid}"], "widget", "release-a", "deadbeef")
         == "backport-release-a-deadbeef"
     )
 
 
 def test_plain_finding_id_still_shapes_the_issue_id():
     assert (
-        gen.slug_issue_id(["triage.json#f001"], "cri-o", "release-a", "deadbeef")
-        == "backport-cri-o-f001-release-a"
+        gen.slug_issue_id(["triage.json#f001"], "widget", "release-a", "deadbeef")
+        == "backport-widget-f001-release-a"
     )
 
 
@@ -439,7 +439,7 @@ def test_long_branch_fits_every_downstream_component(tmp_path):
         source_branch="main",
         bug_description="t",
         finding_refs=["triage.json#f001"],
-        repo_slug="cri-o",
+        repo_slug="widget",
         safe_branch=slug,
     )
     assert len(f"{slug}.yaml".encode()) <= 255
@@ -447,7 +447,7 @@ def test_long_branch_fits_every_downstream_component(tmp_path):
     assert len(cfg["issue_id"].encode()) <= 255
     assert len(f"refs/heads/amalgamator/{cfg['issue_id']}".encode()) <= 255
     assert (
-        gen.slug_issue_id(["triage.json#f001"], "cri-o", slug, "deadbeef").encode()
+        gen.slug_issue_id(["triage.json#f001"], "widget", slug, "deadbeef").encode()
         == cfg["issue_id"].encode()
     )
 
@@ -493,7 +493,7 @@ def _impact(tmp_path, entry_repo):
     path.write_text(
         _json.dumps(
             {
-                "metadata": {"cve": "CVE-2026-1", "module": "m", "fixed_version": "1.2.3"},
+                "metadata": {"cve": "CVE-0000-00001", "module": "m", "fixed_version": "1.2.3"},
                 "repos": [
                     {
                         "repo": entry_repo,
@@ -522,3 +522,70 @@ def test_impact_mismatch_logs_no_credentials(tmp_path, caplog):
     with pytest.raises(SystemExit):
         gen.read_impact(path, repo, None)
     assert "ghp_SECRET" not in caplog.text
+
+
+# --- Rule S10: generated build/test steps run through safe-exec -------------
+
+_RUN = ["-m", "traust.cli", "util", "safe-exec", "run"]
+
+
+def _steps(wrapped: str) -> list[list[str]]:
+    import shlex
+
+    lexer = shlex.shlex(wrapped, posix=True, punctuation_chars="&")
+    lexer.whitespace_split = True
+    steps: list[list[str]] = [[]]
+    for token in lexer:
+        if token == "&&":
+            steps.append([])
+        else:
+            steps[-1].append(token)
+    return steps
+
+
+def test_generated_build_and_test_commands_are_routed_through_safe_exec(tmp_path):
+    cfg = gen.make_config_yaml(
+        repo_path=tmp_path,
+        fix_commit="a" * 40,
+        target_branch="release-1",
+        source_branch="main",
+        bug_description="t",
+        build_cmd="go build ./...",
+        test_cmd="go test ./... && go vet ./...",
+        model="m",
+    )
+    build = cfg["build"]
+    plain = {
+        "command": [["go", "build", "./..."]],
+        "test_command": [["go", "test", "./..."], ["go", "vet", "./..."]],
+    }
+    for key, want in plain.items():
+        steps = _steps(build[key])
+        assert [s[s.index("--") + 1 :] for s in steps] == want  # the argv itself is unchanged
+        for step in steps:
+            assert pathlib.Path(step[0]).is_absolute()  # the pinned traust interpreter
+            assert step[1:6] == _RUN
+            assert step[step.index("--profile") + 1] == "go-fuzz"
+            assert step[step.index("--timeout") + 1] == str(gen.SAFE_EXEC_TIMEOUT)
+
+
+def test_an_empty_or_already_routed_command_is_left_alone():
+    assert gen.wrap_safe_exec("") == ""
+    routed = gen.wrap_safe_exec("make --version")
+    assert gen.wrap_safe_exec(routed) == routed
+
+
+@pytest.mark.parametrize(
+    ("cmd", "why"),
+    [
+        ("GOMAXPROCS=2 make", "leading assignment"),
+        ("make build | tee log", "needs a shell"),
+        ("make build; make test", "needs a shell"),
+        ("go build $PKG", "shell expansion"),
+        ("go build && ", "empty step"),
+        ("curl https://example.invalid", "passes no safe-exec profile"),
+    ],
+)
+def test_a_command_safe_exec_cannot_run_fails_the_generator_closed(cmd, why):
+    with pytest.raises(SystemExit, match=why):
+        gen.wrap_safe_exec(cmd)

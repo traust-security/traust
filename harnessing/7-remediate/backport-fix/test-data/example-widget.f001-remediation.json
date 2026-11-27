@@ -1,0 +1,75 @@
+{
+  "title": "Remediation: nil pointer dereference in the widget stats handler (labelled fiction)",
+  "metadata": {
+    "date": "2026-07-30",
+    "harness_version": "0.260.2",
+    "logical_product": "example-widget",
+    "repository": "https://forge.example.invalid/example/widget",
+    "audited_commit": "0000000aa",
+    "language": "Go",
+    "operator": "backport-fix-test"
+  },
+  "source_findings": [
+    {
+      "finding_ref": "widget-f001",
+      "title": "nil pointer dereference in the widget stats handler (labelled fiction)",
+      "severity": "medium",
+      "cwes": [
+        "CWE-476"
+      ],
+      "locations": [
+        {
+          "path": "internal/stats/handler.go",
+          "lines": "1"
+        }
+      ]
+    }
+  ],
+  "fork": {
+    "url": "https://forge.example.invalid/example/widget",
+    "visibility": "public",
+    "base_ref": "main",
+    "fix_branch": "fix-stats-nil",
+    "fix_commit": "1111111111111111111111111111111111111111",
+    "upstream_remote": "https://forge.example.invalid/example/widget"
+  },
+  "patch": {
+    "strategy": "input-validation",
+    "rationale": "Labelled fiction for tests and docs: add a nil check before dereferencing the stats result.",
+    "files_changed": [
+      {
+        "path": "internal/stats/handler.go",
+        "change_type": "modified",
+        "hunks": 1,
+        "additions": 3,
+        "deletions": 0
+      }
+    ],
+    "diffstat": {
+      "files": 1,
+      "additions": 3,
+      "deletions": 0
+    }
+  },
+  "checks": [
+    {
+      "name": "go-build",
+      "command": "go build ./...",
+      "outcome": "pass",
+      "duration_seconds": 30
+    },
+    {
+      "name": "unit-tests",
+      "command": "go test ./...",
+      "outcome": "pass",
+      "duration_seconds": 45
+    }
+  ],
+  "summary": {
+    "status": "checks_passed",
+    "checks_passed": 2,
+    "checks_total": 2,
+    "findings_addressed": 1,
+    "ready_for_review": true
+  }
+}

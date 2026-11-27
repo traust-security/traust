@@ -8,13 +8,13 @@ schema-validated *-backport-report.json.
 
 Usage:
     python3 emit_backport_report.py \
-        --results-dir /tmp/backport-fix/results \
+        --results-dir ~/.cache/traust/backport-fix/results \
         --remediation <path-to-remediation.json> \
         --output <repo>-backport-report.json
 
     # Validation is ON by default, against the traust-contracts schema:
     python3 emit_backport_report.py \
-        --results-dir /tmp/backport-fix/results \
+        --results-dir ~/.cache/traust/backport-fix/results \
         --remediation <path-to-remediation.json> \
         --output <repo>-backport-report.json
 """
@@ -1028,7 +1028,7 @@ def publish_results(
         published_report = json.loads(json.dumps(report))
         for row in published_report.get("target_branches", []):
             # The report cannot carry a path that is outside the workspace
-            # (the documented results dir is /tmp/backport-fix/...), so match
+            # (the default results dir is ~/.cache/traust/backport-fix/...), so match
             # the published file by branch instead of relying on the prior
             # patch_path, which build_report may have omitted.
             published_path = branch_patch_map.get(str(row.get("branch", "")))

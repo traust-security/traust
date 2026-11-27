@@ -17,7 +17,7 @@ CONFIGS="$WORK/configs"; RESULTS="$WORK/results"; FAKE_AR="$WORK/analysis-result
 mkdir -p "$FAKE_AR"
 
 python3 -c "import yaml, jsonschema" 2>/dev/null || {
-  echo "FATAL: python3 needs pyyaml + jsonschema (pip install pyyaml jsonschema)"; exit 1; }
+  echo "FATAL: python3 needs pyyaml + jsonschema (the repo venv has both, locked: run uv sync, then put .venv/bin first on PATH)"; exit 1; }
 unset ANTHROPIC_API_KEY CLAUDE_CODE_USE_VERTEX ANTHROPIC_VERTEX_PROJECT_ID GOOGLE_APPLICATION_CREDENTIALS 2>/dev/null || true
 
 fail() { echo "MOCK SEAM A: FAIL — $1" >&2; exit 1; }
@@ -84,7 +84,7 @@ assert_scan() {  # <needle> <why>
 assert_scan "    x release-1" "vulnerable branch must need the fix"
 assert_scan "    v release-2" "independently-bumped z-stream must read ALREADY_FIXED"
 assert_scan "    v release-6" "vanity replace with a fixed version must read ALREADY_FIXED"
-assert_scan "    - release-3" "module absent must read NOT_AFFECTED"
+assert_scan "    - release-3" "module absent must read BRANCH_UNAFFECTED"
 assert_scan "    ? release-4" "replace to a local path must be AMBIGUOUS"
 assert_scan "    ? release-5" "versioned-LHS path replace must be AMBIGUOUS"
 for wrong in "x release-2" "x release-3" "v release-1" "- release-1"; do
@@ -107,8 +107,18 @@ echo "== stage 2: generate 3 configs (skip-scan, mixed-outcome demo set) =="
 python3 harnessing/7-remediate/backport-fix/scripts/generate_backport_configs.py \
   --impact "$WORK/seamA-impact.json" --repo "$FR" \
   --output-dir "$CONFIGS" --skip-scan --branches release-1 release-2 release-3 \
-  --build-cmd "go build ./..." --test-cmd "go test ./..." >/dev/null
+  --build-cmd "go vet ./..." --test-cmd "make --version" >/dev/null
 [[ -f "$CONFIGS/release-1.yaml" && -f "$CONFIGS/release-3.yaml" ]] || fail "configs not generated"
+# Rule S10: every generated build/test step is routed through safe-exec.
+python3 - "$CONFIGS"/*.yaml <<'PY' || fail "a generated build/test step is not routed through safe-exec"
+import shlex, sys, yaml
+for path in sys.argv[1:]:
+    build = yaml.safe_load(open(path))["build"]
+    for key, want in (("command", "go-fuzz"), ("test_command", "go-fuzz")):
+        argv = shlex.split(build[key])
+        assert argv[1:6] == ["-m", "traust.cli", "util", "safe-exec", "run"], (path, build[key])
+        assert argv[argv.index("--profile") + 1] == want, (path, build[key])
+PY
 
 echo "== stage 3: validate configs with the REAL amalgamator loader (optional) =="
 if [[ -d "$AMALG/auto_bug_fix" ]] && python3 -c "import claude_agent_sdk, colorama" 2>/dev/null; then
@@ -155,7 +165,7 @@ python3 -c "
 import json, yaml
 r = json.load(open('$WORK/myrepo-backport-report.json'))
 cfg = yaml.safe_load(open('$CONFIGS/release-1.yaml'))
-assert r['source_fix']['finding_refs'] == ['CVE-2026-4242'], r['source_fix']
+assert r['source_fix']['finding_refs'] == ['CVE-0000-04242'], r['source_fix']
 # provenance must be the run's own config, byte-for-byte — the '0000000'
 # placeholder or a stale commit must fail here
 assert r['source_fix']['commit'] == cfg['fix']['commit'], (r['source_fix'], cfg['fix'])

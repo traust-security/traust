@@ -43,13 +43,13 @@ when you want a full-coverage run (amalgamator sibling + `claude-agent-sdk` /
 
 | Stage | Seam A (impact) | Seam B (remediation) |
 |---|---|---|
-| input contract | real-shape impact JSON (bare `fixed_version`, `products[]`) | triage + audit fixtures mirroring the real cri-o `f001` finding → `make_remediation.py` → remediation JSON, validated against the `remediation` contract schema (traust-contracts) |
+| input contract | real-shape impact JSON (bare `fixed_version`, `products[]`) | triage + audit fixtures for the labelled-fiction `f001` finding → `make_remediation.py` → remediation JSON, validated against the `remediation` contract schema (traust-contracts) |
 | branch selection | version-based scan over 6 branch archetypes (needs-fix / different-z-stream already-fixed / module-absent / path-replace ambiguous ×2 / vanity-replacement fixed) | **real `backport_scanner`**: cherry-picked branch proven ALREADY_FIXED via patch-id; vulnerable branch AMBIGUOUS without the LLM tier → promoted by explicit `--branches` (the documented policy) |
 | fix commit | bump-commit locator on `origin/main` | `fork.fix_commit` from the remediation; `prepare_backport_fork.sh` short-circuit (commit reachable → no token needed) |
-| config contract | real `load_pipeline_config` accepts every YAML | same; also asserts `issue_id: backport-cri-o-f001-release-a` (finding_id-derived slug) |
+| config contract | real `load_pipeline_config` accepts every YAML | same; also asserts `issue_id: backport-widget-f001-release-a` (finding_id-derived slug) |
 | run + collect | mock engine, mixed outcomes (success / pipeline_stop / pipeline_escalation); summary+patch+dossier collected from the run dir; `run_summary.json` counts asserted | success path; patch collection asserted |
-| delivery | dry-run plans exactly one immutable `ex-wing/…` ref; stop/escalation gated out; `delivery.json` asserted | planned ref asserted to be `ex-wing/backport-cri-o-f001-release-a-<sha10>` |
-| report + publish | emitted from the impact artifact (`--impact`, no remediation JSON); schema-**valid**; `remediations/example-product/myrepo/` receives report + patch + delivery record; CVE `finding_refs`, fix commit and source branch (read back from the per-branch `config.yaml`) asserted | same via `--remediation`, plus `finding_refs == ["cri-o-triage.json#f001"]` asserted |
+| delivery | dry-run plans exactly one immutable `ex-wing/…` ref; stop/escalation gated out; `delivery.json` asserted | planned ref asserted to be `ex-wing/backport-widget-f001-release-a-<sha10>` |
+| report + publish | emitted from the impact artifact (`--impact`, no remediation JSON); schema-**valid**; `remediations/example-product/myrepo/` receives report + patch + delivery record; CVE `finding_refs`, fix commit and source branch (read back from the per-branch `config.yaml`) asserted | same via `--remediation`, plus `finding_refs == ["widget-triage.json#f001"]` asserted |
 | security property | the mock engine **refuses to run if `GITHUB_TOKEN` is in its environment** — proving run_backport.sh's token stripping with a dummy token exported | same |
 | invocation binding | collection only accepts a run dir newer than this config's marker and named after its YAML, so a branch that produced nothing cannot inherit another branch's summary/patch | same |
 
@@ -77,5 +77,5 @@ succeed).
   triage + audit pair — so the kit also covers the "generate one from a
   finding" path rather than asserting against a hardcoded blob.
 - The mock engine honors the generated configs' `repository.workdir`
-  (`/tmp/bugfix-backport-*`), mirroring the real pipeline; those
+  (under `~/.cache/traust/backport-fix/work/`), mirroring the real pipeline; those
   directories are left behind like real runs leave theirs.

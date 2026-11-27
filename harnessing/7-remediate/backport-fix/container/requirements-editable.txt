@@ -1,0 +1,4 @@
+# setuptools for the editable traust install (its own build backend), hash-pinned:
+# pip download "setuptools>=68" --only-binary=:all: --python-version 3.12, then pip hash the wheel.
+setuptools==84.2.1 \
+    --hash=sha256:ca140b45d5325a9478f880e351484f62fef15f336462e449ca0c03c873d589c2

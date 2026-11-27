@@ -6,13 +6,13 @@
 # directory organized per target branch.
 #
 # Usage (local):
-#   bash run_backport.sh --config-dir /tmp/backport-fix/configs \
-#                        --output-dir /tmp/backport-fix/results
+#   bash run_backport.sh --config-dir ~/.cache/traust/backport-fix/configs \
+#                        --output-dir ~/.cache/traust/backport-fix/results
 #
 # Usage (containerized):
-#   bash run_backport.sh --config-dir /tmp/backport-fix/configs \
-#                        --output-dir /tmp/backport-fix/results \
-#                        --container-image quay.io/supathak/crio-backport-test:latest \
+#   bash run_backport.sh --config-dir ~/.cache/traust/backport-fix/configs \
+#                        --output-dir ~/.cache/traust/backport-fix/results \
+#                        --container-image backport-go \
 #                        --repo /path/to/local/clone
 #
 # Prerequisites (local):
@@ -30,7 +30,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 CONFIG_DIR=""
 SINGLE_CONFIG=""
-OUTPUT_DIR="/tmp/backport-fix/results"
+OUTPUT_DIR=""  # default: the per-user state root (below), never a shared /tmp path
 CONTAINER_IMAGE=""
 REPO_PATH=""
 CONTAINER_RUNTIME=""
@@ -54,7 +54,7 @@ if [[ -z "$CONFIG_DIR" && -z "$SINGLE_CONFIG" ]]; then
   echo "Usage: run_backport.sh --config-dir <dir> | --config <file> [options]" >&2
   echo >&2
   echo "Options:" >&2
-  echo "  --output-dir <dir>          Where to store results (default: /tmp/backport-fix/results)" >&2
+  echo "  --output-dir <dir>          Where to store results (default: ~/.cache/traust/backport-fix/results)" >&2
   echo "  --container-image <image>   Run Amalgamator inside this container image" >&2
   echo "  --repo <path>               Local repo clone to mount into container" >&2
   echo "  --amalgamator <path>        Path to Amalgamator source (mounted into container)" >&2
@@ -96,6 +96,11 @@ if [[ -z "${ANTHROPIC_API_KEY:-}" && -z "${CLAUDE_CODE_USE_VERTEX:-}" ]]; then
   echo "  Set Vertex AI credentials or ANTHROPIC_API_KEY for Amalgamator." >&2
 fi
 
+if [[ -z "$OUTPUT_DIR" ]]; then
+  STATE_ROOT="${XDG_CACHE_HOME:-$HOME/.cache}/traust/backport-fix"
+  mkdir -p "$STATE_ROOT" && chmod 700 "$STATE_ROOT"
+  OUTPUT_DIR="$STATE_ROOT/results"
+fi
 mkdir -p "$OUTPUT_DIR"
 
 # Canonicalize every path handed to the container runtime: podman needs
@@ -225,7 +230,7 @@ run_amalgamator() {
   if [[ -n "$CONTAINER_IMAGE" ]]; then
     # --- Containerized mode ---
     # Rewrite the config YAML to use container-internal paths.
-    # The host config has host paths (e.g. /Users/.../cri-o); inside the
+    # The host config has host paths (e.g. /Users/.../widget); inside the
     # container the repo lives at /workspace/repo.
     local container_config_dir
     container_config_dir=$(mktemp -d)
@@ -235,12 +240,32 @@ run_amalgamator() {
     # branch name may legally contain quotes. Interpolating them into -c
     # source was host code execution.
     python3 -c '
-import sys, yaml
+import shlex, sys, yaml
 src, dst = sys.argv[1], sys.argv[2]
 with open(src) as f:
     cfg = yaml.safe_load(f)
 cfg.setdefault("repository", {})["source_path"] = "/workspace/repo"
 cfg["repository"]["workdir"] = "/workspace/workdir"
+# The generator routes build/test steps through safe-exec with the HOST
+# interpreter; inside the image that is the pinned /opt/traust venv.
+RUN = ["-m", "traust.cli", "util", "safe-exec", "run"]
+def in_image(cmd):
+    lex = shlex.shlex(cmd, posix=True, punctuation_chars="&")
+    lex.whitespace_split = True
+    steps = [[]]
+    for token in lex:
+        if token == "&&":
+            steps.append([])
+        else:
+            steps[-1].append(token)
+    for argv in steps:
+        if argv[1:6] != RUN:
+            sys.exit("refusing a build step not routed through safe-exec: " + shlex.join(argv))
+    return " && ".join(shlex.join(["/opt/traust/bin/python", *a[1:]]) for a in steps)
+build = cfg.get("build") or {}
+for key in ("command", "test_command"):
+    if build.get(key):
+        build[key] = in_image(build[key])
 # no output.directory rewrite: the pipeline ignores it for artifacts
 # (results are collected from /workspace/runs via podman cp + find)
 with open(dst, "w") as f:
@@ -553,8 +578,8 @@ for config in "${CONFIGS[@]}"; do
 import sys, yaml
 with open(sys.argv[1]) as f:
     c = yaml.safe_load(f)
-print(c.get("repository", {}).get("workdir", "/tmp/bugfix-workdir"))
-' "$config" 2>/dev/null || echo "/tmp/bugfix-workdir")
+print(c.get("repository", {}).get("workdir", ""))
+' "$config" 2>/dev/null || echo "")
 
   # Search for summary.json in multiple locations:
   # 1. The branch results directory (container mode copies here)

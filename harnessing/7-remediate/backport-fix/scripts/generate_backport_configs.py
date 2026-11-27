@@ -12,7 +12,7 @@ Usage:
         --remediation <path-to-remediation.json> \
         --triage <path-to-triage.json> \
         --repo <path-to-local-clone> \
-        --output-dir /tmp/backport-fix/configs
+        --output-dir ~/.cache/traust/backport-fix/configs
 
     # Scan only (no config generation):
     python3 generate_backport_configs.py \
@@ -24,7 +24,7 @@ Usage:
     python3 generate_backport_configs.py \
         --remediation <path-to-remediation.json> \
         --repo <path-to-local-clone> \
-        --output-dir /tmp/backport-fix/configs \
+        --output-dir ~/.cache/traust/backport-fix/configs \
         --branch-pattern "release-*"
 
     # From a patch file (no commit SHA required):
@@ -33,18 +33,20 @@ Usage:
         --repo <path-to-local-clone> \
         --source-branch main \
         --branches release-1.5 release-1.4 \
-        --build-cmd "make build" --test-cmd "make test" \
-        --output-dir /tmp/backport-fix/configs
+        --build-cmd "<build command>" --test-cmd "<test command>" \
+        --output-dir ~/.cache/traust/backport-fix/configs
 """
 
 from __future__ import annotations
 
 import argparse
+import functools
 import hashlib
 import json
 import logging
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -150,7 +152,7 @@ def read_remediation(path: Path) -> dict:
 def read_triage(path: Path, finding_refs: list[str] | None = None) -> dict:
     """Read a *-triage.json and extract severity/description context.
 
-    When the remediation names a finding (e.g. "cri-o-triage.json#f001"),
+    When the remediation names a finding (e.g. "widget-triage.json#f001"),
     pick THAT finding: a multi-finding triage file otherwise contributes an
     unrelated vulnerability's title to bug_description.
     """
@@ -414,8 +416,8 @@ def _bucket_scan_status(status) -> str:
     s = str(getattr(status, "value", status)).upper()
     if s in ("EXACT_MATCH", "EQUIVALENT", "EQUIVALENT_PATCH", "ALREADY_FIXED"):
         return "already_fixed"
-    if s == "NOT_AFFECTED":
-        return "not_affected"
+    if s == "NOT_AFFECTED":  # the scanner's word; not the finding validity `not_affected`
+        return "branch_unaffected"
     if s == "NEEDS_FIX":
         return "needs_fix"
     return "ambiguous"
@@ -439,7 +441,7 @@ def scan_branches(
     """
     Run the Amalgamator branch scanner to find vulnerable branches.
 
-    Returns dict with keys: needs_fix, already_fixed, not_affected, ambiguous.
+    Returns dict with keys: needs_fix, already_fixed, branch_unaffected, ambiguous.
     Each value is a list of branch names.
     """
     try:
@@ -463,7 +465,7 @@ def scan_branches(
 
     # Re-bucket per-branch: the scanner's already_fixed grouping includes
     # the heuristic LIKELY_PRESENT, which must not auto-exclude.
-    buckets = {"needs_fix": [], "already_fixed": [], "not_affected": [], "ambiguous": []}
+    buckets = {"needs_fix": [], "already_fixed": [], "branch_unaffected": [], "ambiguous": []}
     for r in report.results:
         buckets[_bucket_scan_status(getattr(r, "status", ""))].append(r.branch)
     buckets["total"] = len(report.results)
@@ -558,7 +560,7 @@ def scan_branches_subprocess(
             )
             sys.exit(1)
         refs = report.get("refs", [])
-        buckets = {"needs_fix": [], "already_fixed": [], "not_affected": [], "ambiguous": []}
+        buckets = {"needs_fix": [], "already_fixed": [], "branch_unaffected": [], "ambiguous": []}
         for r in refs:
             if r.get("ref_type", "branch") != "branch":
                 continue
@@ -809,7 +811,7 @@ def module_version_at(repo_path: Path, ref: str, module: str):
     'absent' means: the ref exists, and neither file lists the module.
     A ref that does not resolve, or a file that exists but cannot be read, is
     'ambiguous' — never 'absent', which would silently report a branch as
-    not affected.
+    unaffected.
     """
     try:
         r = subprocess.run(
@@ -914,12 +916,18 @@ def scan_branches_by_version(
 ) -> dict:
     """Classify branches by effective module version vs fixed_version
     (patch-ids can't match an independently-bumped branch)."""
-    result = {"needs_fix": [], "already_fixed": [], "not_affected": [], "ambiguous": [], "total": 0}
+    result = {
+        "needs_fix": [],
+        "already_fixed": [],
+        "branch_unaffected": [],
+        "ambiguous": [],
+        "total": 0,
+    }
     for br in list_release_branches(repo_path, branch_pattern, branches):
         result["total"] += 1
         status, ver = module_version_at(repo_path, f"origin/{br}", module)
         if status == "absent":
-            result["not_affected"].append(br)
+            result["branch_unaffected"].append(br)
             continue
         if status != "found":
             result["ambiguous"].append(br)
@@ -1118,6 +1126,179 @@ def safe_slug(branch: str, used: set[str] | None = None) -> str:
     return slug
 
 
+MODEL_ROLE = "patch-author"
+
+
+def private_root() -> Path:
+    """The per-user state root: `$XDG_CACHE_HOME` (or `~/.cache`)/traust/backport-fix.
+    Never a fixed shared /tmp path, which another user could plant or squat."""
+    base = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache")
+    return base / "traust" / "backport-fix"
+
+
+def ensure_private(path: Path) -> Path:
+    """Create `path` (and the state root) owner-only (0700)."""
+    root = private_root()
+    for d in (root, path):
+        d.mkdir(parents=True, exist_ok=True, mode=0o700)
+        if d == root or root in d.parents:
+            d.chmod(0o700)
+    return path
+
+
+@functools.cache
+def traust_python() -> str:
+    """An interpreter that can run `traust.cli` (safe-exec, the model registry): this one,
+    then the harness venv. Absolute, so a wrapped command runs under the same pinned
+    traust wherever the pipeline's own `python3` points. Fails closed."""
+    root = _paths.harness_root()
+    for exe in (sys.executable, *([str(root / ".venv" / "bin" / "python")] if root else [])):
+        try:
+            r = subprocess.run(
+                [exe, "-c", "import traust.cli.groups.util"], capture_output=True, timeout=60
+            )
+        except (OSError, subprocess.SubprocessError):
+            continue
+        if r.returncode == 0:
+            return str(Path(exe).absolute())
+    raise SystemExit(
+        "no interpreter here can import traust.cli: run from the harness venv "
+        "(uv sync, then .venv/bin/python)"
+    )
+
+
+# Profiles tried in order; a command takes the first one every segment passes.
+SAFE_EXEC_PROFILES = (
+    "go-fuzz",
+    "java-build",
+    "node-build",
+    "rust-fuzz",
+    "python-test",
+    "generic-build",
+)
+SAFE_EXEC_TIMEOUT = 3600  # a build or test suite; safe-exec's own default is 120s
+_SAFE_EXEC_RUN = ("-m", "traust.cli", "util", "safe-exec", "run")
+
+
+def _command_segments(cmd: str) -> list[list[str]]:
+    """`a && b` as argv vectors. safe-exec runs argv with no shell, so anything a
+    shell would interpret is refused here rather than silently changing meaning."""
+    lexer = shlex.shlex(cmd, posix=True, punctuation_chars=";&|<>()")
+    lexer.whitespace_split = True
+    try:
+        tokens = list(lexer)
+    except ValueError as e:
+        raise SystemExit(f"build command {cmd!r} does not parse: {e}") from e
+    segments: list[list[str]] = [[]]
+    for token in tokens:
+        if token == "&&":
+            segments.append([])
+        elif token and all(c in ";&|<>()" for c in token):
+            raise SystemExit(
+                f"build command {cmd!r}: {token!r} needs a shell; safe-exec runs argv only "
+                "(chain steps with &&, or wrap them in a make target)"
+            )
+        elif "$" in token or "`" in token:
+            raise SystemExit(
+                f"build command {cmd!r}: {token!r} needs shell expansion, which safe-exec "
+                "does not do; pass the literal value"
+            )
+        else:
+            segments[-1].append(token)
+    if any(not seg for seg in segments):
+        raise SystemExit(f"build command {cmd!r} has an empty step")
+    for seg in segments:
+        if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", seg[0]):
+            raise SystemExit(
+                f"build command {cmd!r}: the leading assignment {seg[0]!r} is not "
+                "supported; safe-exec passes only its profile's environment"
+            )
+    return segments
+
+
+def _routed(seg: list[str]) -> bool:
+    return len(seg) > len(_SAFE_EXEC_RUN) and tuple(seg[1 : 1 + len(_SAFE_EXEC_RUN)]) == (
+        _SAFE_EXEC_RUN
+    )
+
+
+def _passes(python: str, profile: str, seg: list[str]) -> bool:
+    r = subprocess.run(
+        [
+            python,
+            "-m",
+            "traust.cli",
+            "util",
+            "safe-exec",
+            "check",
+            "--profile",
+            profile,
+            "--",
+            *seg,
+        ],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    return r.returncode == 0
+
+
+def wrap_safe_exec(cmd: str, timeout: int = SAFE_EXEC_TIMEOUT) -> str:
+    """Route a target build/test command through `traust util safe-exec run`: the
+    checkout's build machinery is hostile code (rule S10). Each `&&` step runs under
+    the first profile every step passes; none passing fails closed. Empty stays empty."""
+    if not cmd.strip():
+        return ""
+    segments = _command_segments(cmd)
+    if all(_routed(seg) for seg in segments):
+        return cmd
+    if any(_routed(seg) for seg in segments):
+        raise SystemExit(f"build command {cmd!r} mixes routed and unrouted steps")
+    python = traust_python()
+    for profile in SAFE_EXEC_PROFILES:
+        if all(_passes(python, profile, seg) for seg in segments):
+            return " && ".join(
+                shlex.join(
+                    [
+                        python,
+                        *_SAFE_EXEC_RUN,
+                        "--profile",
+                        profile,
+                        "--timeout",
+                        str(timeout),
+                        "--",
+                        *seg,
+                    ]
+                )
+                for seg in segments
+            )
+    raise SystemExit(
+        f"build command {cmd!r} passes no safe-exec profile ({', '.join(SAFE_EXEC_PROFILES)}); "
+        "see `python3 -m traust.cli util safe-exec list-profiles`"
+    )
+
+
+def resolve_model(role: str = MODEL_ROLE) -> str:
+    """The concrete model for `role` from config/model-registry.yaml (alignment rule A12:
+    no model id is written in a skill or script). Fails closed when it can't resolve."""
+    try:
+        r = subprocess.run(
+            [traust_python(), "-m", "traust.cli", "registry", "models", "resolve", role],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+    except (OSError, subprocess.TimeoutExpired) as e:
+        raise SystemExit(f"cannot resolve the {role} model: {e} (pass --model)") from e
+    model = r.stdout.strip()
+    if r.returncode != 0 or not model:
+        raise SystemExit(
+            f"cannot resolve the {role} model from the registry: "
+            f"{(r.stderr or r.stdout).strip()} (pass --model)"
+        )
+    return model
+
+
 def make_config_yaml(
     repo_path: Path,
     fix_commit: str,
@@ -1128,11 +1309,13 @@ def make_config_yaml(
     test_cmd: str = "",
     finding_refs: list[str] | None = None,
     repo_slug: str = "",
-    model: str = "claude-opus-4-6",
+    model: str | None = None,
     max_retries: int = 3,
     safe_branch: str | None = None,
+    work_root: Path | None = None,
 ) -> dict:
     """Produce an Amalgamator auto_bug_fix-compatible YAML dict."""
+    model = model or resolve_model()
     short = fix_commit[:10]
     # Caller passes the SAME allocation used for the config filename; deriving
     # it again here let two colliding branches share issue_id/workdir/branch.
@@ -1144,7 +1327,7 @@ def make_config_yaml(
         "bug_description": bug_description,
         "repository": {
             "source_path": str(repo_path),
-            "workdir": f"/tmp/bugfix-backport-{safe_branch}-{short}",
+            "workdir": str((work_root or private_root() / "work") / f"{safe_branch}-{short}"),
         },
         "branches": {
             "source": f"origin/{source_branch}",
@@ -1154,8 +1337,8 @@ def make_config_yaml(
             "commit": fix_commit,
         },
         "build": {
-            "command": build_cmd,
-            "test_command": test_cmd,
+            "command": wrap_safe_exec(build_cmd),
+            "test_command": wrap_safe_exec(test_cmd),
         },
         "model": model,
     }
@@ -1445,8 +1628,9 @@ def main():
         "--output-dir",
         "-o",
         type=Path,
-        default=Path("/tmp/backport-fix/configs"),
-        help="Directory to write generated YAML configs",
+        default=None,
+        help="Directory to write generated YAML configs "
+        "(default: ~/.cache/traust/backport-fix/configs, owner-only)",
     )
     parser.add_argument(
         "--branch-pattern",
@@ -1469,8 +1653,9 @@ def main():
     parser.add_argument(
         "--model",
         type=str,
-        default="claude-opus-4-6",
-        help="Model name for Amalgamator config (default: claude-opus-4-6)",
+        default=None,
+        help="Model name for the Amalgamator config "
+        f"(default: the registry's {MODEL_ROLE} role, `traust registry models resolve`)",
     )
     parser.add_argument(
         "--max-retries",
@@ -1570,7 +1755,7 @@ def main():
         scan_result = {
             "needs_fix": list(args.branches),
             "already_fixed": [],
-            "not_affected": [],
+            "branch_unaffected": [],
             "ambiguous": [],
             "total": len(args.branches),
         }
@@ -1651,9 +1836,9 @@ def main():
         print(f"  ALREADY FIXED ({len(scan_result['already_fixed'])}):")
         for b in scan_result["already_fixed"]:
             print(f"    v {b}")
-    if scan_result["not_affected"]:
-        print(f"  NOT AFFECTED ({len(scan_result['not_affected'])}):")
-        for b in scan_result["not_affected"]:
+    if scan_result["branch_unaffected"]:
+        print(f"  BRANCH UNAFFECTED ({len(scan_result['branch_unaffected'])}):")
+        for b in scan_result["branch_unaffected"]:
             print(f"    - {b}")
     if scan_result["ambiguous"]:
         print(f"  AMBIGUOUS ({len(scan_result['ambiguous'])}):")
@@ -1682,6 +1867,9 @@ def main():
     cwes_str = ", ".join(ctx["cwes"]) if ctx["cwes"] else ""
     bug_desc = f"Backport: {bug_desc} ({cwes_str})" if cwes_str else f"Backport: {bug_desc}"
 
+    if args.output_dir is None:
+        args.output_dir = ensure_private(private_root() / "configs")
+    work_root = ensure_private(private_root() / "work")
     used_slugs: set[str] = set()
     for branch in scan_result["needs_fix"]:
         slug = safe_slug(branch, used_slugs)
@@ -1698,6 +1886,7 @@ def main():
             model=args.model,
             max_retries=args.max_retries,
             safe_branch=slug,
+            work_root=work_root,
         )
         out_path = args.output_dir / f"{slug}.yaml"
         write_config(cfg, out_path)

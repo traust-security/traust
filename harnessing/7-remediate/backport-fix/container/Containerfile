@@ -1,12 +1,12 @@
-# Containerfile for Go-based repos (cri-o, kubernetes, operators, etc.)
+# Containerfile for Go-based repos (Linux-oriented Go projects)
 #
 # Build:
 #   podman build -t backport-go:latest -f container/Containerfile .
 #
 # Usage:
 #   bash run_backport.sh \
-#       --config-dir /tmp/backport-fix/configs \
-#       --output-dir /tmp/backport-fix/results \
+#       --config-dir ~/.cache/traust/backport-fix/configs \
+#       --output-dir ~/.cache/traust/backport-fix/results \
 #       --container-image backport-go:latest \
 #       --repo /path/to/repo \
 #       --amalgamator /path/to/amalgamator
@@ -70,6 +70,53 @@ RUN python3 -m pip install --no-cache-dir \
         claude-agent-sdk==0.2.161 \
         litellm==1.103.9 \
         'anthropic[vertex]==1.13.0'
+
+# traust + traust-core in their own venv, for `traust util safe-exec run`: the
+# generator routes every build/test step through it (rule S10), so the target's
+# build runs with a scrubbed environment. Kept apart from the Amalgamator's pins.
+# Nothing is installed unpinned:
+#   - registry packages: hash-pinned from traust's uv.lock
+#     (container/requirements-traust.txt; regenerate with the uv export in its header);
+#   - the four traust-security repos: fetched at commit SHAs — the uv.lock revisions,
+#     and for traust a development commit carrying the safe-exec CLI
+#     (tests/test_backport_container_pins.py keeps the ARGs equal to uv.lock);
+#   - build backends, hash-pinned, builds run without isolation: hatchling
+#     (container/requirements-build.txt) in a separate build venv for the three
+#     libraries; setuptools (container/requirements-editable.txt) for traust.
+# traust is an editable install of its source tree, so it finds harnessing/ and
+# packs/ the way a checkout does.
+ARG TRAUST_REF=e83e2dea1678160fc296e82b0a3e3e2487189e56
+ARG TRAUST_CORE_REF=5b8dea0e6c714190c38c51719cd2e25cc946009b
+ARG TRAUST_CONTRACTS_REF=485578cbe584ad224d57b2c7c778174c0b66ba7c
+ARG TRAUST_LEDGER_REF=95fd75ed9b7f548322f528f1fd99263ed6733960
+COPY container/requirements-traust.txt container/requirements-build.txt container/requirements-editable.txt /tmp/
+RUN set -eux; \
+    fetch() { \
+      git init -q "/opt/src/$1"; \
+      git -C "/opt/src/$1" fetch -q --depth 1 "https://github.com/traust-security/$1.git" "$2"; \
+      git -C "/opt/src/$1" checkout -q --detach FETCH_HEAD; \
+      test "$(git -C "/opt/src/$1" rev-parse HEAD)" = "$2"; \
+    }; \
+    fetch traust "$TRAUST_REF"; \
+    fetch traust-core "$TRAUST_CORE_REF"; \
+    fetch traust-contracts "$TRAUST_CONTRACTS_REF"; \
+    fetch traust-ledger "$TRAUST_LEDGER_REF"; \
+    python3 -m venv /opt/build; \
+    /opt/build/bin/python -m pip install -q --no-cache-dir --require-hashes \
+        -r /tmp/requirements-build.txt; \
+    /opt/build/bin/python -m pip wheel -q --no-cache-dir --no-deps --no-build-isolation \
+        -w /tmp/wheels /opt/src/traust-contracts /opt/src/traust-ledger /opt/src/traust-core; \
+    python3 -m venv /opt/traust; \
+    /opt/traust/bin/python -m pip install -q --no-cache-dir --require-hashes --no-deps \
+        -r /tmp/requirements-traust.txt; \
+    /opt/traust/bin/python -m pip install -q --no-cache-dir --no-deps /tmp/wheels/*.whl; \
+    /opt/traust/bin/python -m pip install -q --no-cache-dir --require-hashes \
+        -r /tmp/requirements-editable.txt; \
+    /opt/traust/bin/python -m pip install -q --no-cache-dir --no-deps --no-build-isolation \
+        -e /opt/src/traust; \
+    /opt/traust/bin/python -m pip check; \
+    /opt/traust/bin/python -m traust.cli util safe-exec list-profiles >/dev/null; \
+    rm -rf /opt/build /tmp/wheels /tmp/requirements-*.txt
 
 WORKDIR /workspace
 

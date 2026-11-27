@@ -5,7 +5,7 @@
 # Branch archetypes (module google.golang.org/grpc, fixed_version 1.71.3):
 #   release-1  v1.50.0                    -> NEEDS_FIX
 #   release-2  v1.71.3 (different z-stream than main) -> ALREADY_FIXED
-#   release-3  module absent              -> NOT_AFFECTED
+#   release-3  module absent              -> BRANCH_UNAFFECTED
 #   release-4  replace => local path      -> AMBIGUOUS
 #   release-5  modules.txt versioned-LHS path replace -> AMBIGUOUS
 #   release-6  vanity replacement path with version   -> ALREADY_FIXED
@@ -61,7 +61,7 @@ git symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main
 python3 - "$WORK" <<'EOF'
 import json, sys
 json.dump({
-    "metadata": {"cve": "CVE-2026-4242", "module": "google.golang.org/grpc",
+    "metadata": {"cve": "CVE-0000-04242", "module": "google.golang.org/grpc",
                  "ecosystem": "go", "vulnerable_range": "< 1.71.3",
                  "fixed_version": "1.71.3"},
     "repos": [{"repo": "repo:github.com/example/myrepo",

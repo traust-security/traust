@@ -3,6 +3,7 @@ finding (make_remediation.py) and impact-artifact metadata (emitter)."""
 
 import importlib.util
 import json
+import os
 import pathlib
 import re
 import subprocess
@@ -34,10 +35,19 @@ emit = _load("emit_backport_report.py")
 @pytest.mark.parametrize(
     "raw,want",
     [
-        ("https://github.com/cri-o/cri-o.git", "https://github.com/cri-o/cri-o"),
-        ("https://github.com/cri-o/cri-o", "https://github.com/cri-o/cri-o"),
-        ("git@github.com:cri-o/cri-o.git", "https://github.com/cri-o/cri-o"),
-        ("git@gitlab.cee.redhat.com:grp/proj.git", "https://gitlab.cee.redhat.com/grp/proj"),
+        (
+            "https://forge.example.invalid/example/widget.git",
+            "https://forge.example.invalid/example/widget",
+        ),
+        (
+            "https://forge.example.invalid/example/widget",
+            "https://forge.example.invalid/example/widget",
+        ),
+        (
+            "git@forge.example.invalid:example/widget.git",
+            "https://forge.example.invalid/example/widget",
+        ),
+        ("git@gitlab.example.invalid:grp/proj.git", "https://gitlab.example.invalid/grp/proj"),
     ],
 )
 def test_normalize_repo_url(raw, want):
@@ -96,12 +106,12 @@ def test_emitter_normalizes_repo_ids(raw, want):
 
 
 def test_impact_metadata_single_repo(tmp_path):
-    art = tmp_path / "cve-2026-4242-impact-analysis.json"
+    art = tmp_path / "cve-0000-04242-impact-analysis.json"
     art.write_text(
         json.dumps(
             {
                 "metadata": {
-                    "cve": "CVE-2026-4242",
+                    "cve": "CVE-0000-04242",
                     "module": "google.golang.org/grpc",
                     "fixed_version": "1.71.3",
                 },
@@ -112,7 +122,7 @@ def test_impact_metadata_single_repo(tmp_path):
         )
     )
     meta = emit.read_impact_metadata(art, None)
-    assert meta["finding_refs"] == ["CVE-2026-4242"]
+    assert meta["finding_refs"] == ["CVE-0000-04242"]
     assert meta["repository"] == "https://github.com/example/myrepo"
     assert meta["logical_product"] == "example-product"
     # the advisory carries neither; both resolve from the run's configs
@@ -124,14 +134,14 @@ def test_impact_metadata_preserves_repo_case(tmp_path):
     art.write_text(
         json.dumps(
             {
-                "metadata": {"cve": "CVE-2026-1"},
-                "repos": [{"repo": "repo:gitlab.cee.redhat.com/Org/Proj"}],
+                "metadata": {"cve": "CVE-0000-00001"},
+                "repos": [{"repo": "repo:gitlab.example.invalid/Org/Proj"}],
             }
         )
     )
-    meta = emit.read_impact_metadata(art, "gitlab.cee.redhat.com/org/proj")
+    meta = emit.read_impact_metadata(art, "gitlab.example.invalid/org/proj")
     # matching is case-insensitive; the emitted URL keeps the entry's casing
-    assert meta["repository"] == "https://gitlab.cee.redhat.com/Org/Proj"
+    assert meta["repository"] == "https://gitlab.example.invalid/Org/Proj"
 
 
 def test_resolve_from_configs_rejects_mixed_runs(tmp_path):
@@ -159,7 +169,7 @@ def test_impact_metadata_requires_repo_selector_when_ambiguous(tmp_path):
     art.write_text(
         json.dumps(
             {
-                "metadata": {"cve": "CVE-2026-4242"},
+                "metadata": {"cve": "CVE-0000-04242"},
                 "repos": [{"repo": "repo:github.com/a/one"}, {"repo": "repo:github.com/b/two"}],
             }
         )
@@ -170,7 +180,7 @@ def test_impact_metadata_requires_repo_selector_when_ambiguous(tmp_path):
     assert meta["repository"] == "https://github.com/b/two"
 
 
-def _branch_repo(tmp_path, branch="amalgamator/backport-cri-o-f001-release-a"):
+def _branch_repo(tmp_path, branch="amalgamator/backport-widget-f001-release-a"):
     """A source clone with the preserved branch, as the Amalgamator leaves it."""
     import subprocess
 
@@ -200,7 +210,9 @@ def _result_dir(tmp_path, repo, *, tracker=None, outcome="success"):
         + "\nbranches:\n  source: origin/main\n"
     )
     (d / "summary.json").write_text(
-        json.dumps({"targets": [{"outcome": outcome, "issue_id": "backport-cri-o-f001-release-a"}]})
+        json.dumps(
+            {"targets": [{"outcome": outcome, "issue_id": "backport-widget-f001-release-a"}]}
+        )
     )
     if tracker is not None:
         (d / "tracker.json").write_text(json.dumps(tracker))
@@ -214,7 +226,7 @@ def test_backport_commit_derived_from_preserved_branch(tmp_path):
     d = _result_dir(tmp_path, repo)
     row = emit.read_branch_result(d, emit._source_repo(d))
     assert row["backport_commit"] == head
-    assert row["backport_branch"] == "amalgamator/backport-cri-o-f001-release-a"
+    assert row["backport_branch"] == "amalgamator/backport-widget-f001-release-a"
 
 
 def test_tracker_value_still_wins_over_branch_head(tmp_path):
@@ -748,7 +760,7 @@ def test_impact_artifact_userinfo_is_stripped(tmp_path):
     impact.write_text(
         json.dumps(
             {
-                "metadata": {"cve": "CVE-2026-1234"},
+                "metadata": {"cve": "CVE-0000-01234"},
                 "repos": [
                     {
                         "repo": f"repo:https://x-access-token:{_SECRET}@github.com/o/r",
@@ -1268,7 +1280,7 @@ def test_report_harness_version_carries_the_checkout_sha():
 
 
 def test_published_patches_are_linked_when_results_sit_outside_the_workspace(tmp_path, monkeypatch):
-    # The documented results dir is /tmp/backport-fix/...: build_report cannot
+    # The default results dir is ~/.cache/traust/backport-fix/...: build_report cannot
     # express that path (the contract requires workspace-relative), so publish
     # must add the link to the file it just copied.
     workspace = tmp_path / "ws"
@@ -1458,3 +1470,54 @@ def test_patch_mode_never_runs_checkout_hooks_or_filters(tmp_path):
     sha = gen.apply_patch_as_commit(repo, patch, "main")
     assert re.fullmatch(r"[0-9a-f]{40}", sha)
     assert not marker.exists(), "a clone-controlled hook or filter ran on the host"
+
+
+def _make_remediation(tmp_path, finding: dict, *extra: str) -> subprocess.CompletedProcess:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    git = ["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t"]
+    subprocess.run(["git", "init", "-q", str(repo)], check=True, env=env)
+    (repo / "x").write_text("x\n")
+    subprocess.run([*git, "add", "x"], check=True, env=env)
+    subprocess.run([*git, "commit", "-qm", "fix"], check=True, env=env)
+    triage = tmp_path / "triage.json"
+    triage.write_text(json.dumps({"findings": [{"id": "f001", "file": "x", **finding}]}))
+    return subprocess.run(
+        [
+            sys.executable,
+            str(_SKILL / "make_remediation.py"),
+            *("--triage", str(triage), "--finding", "f001", "--repo", str(repo)),
+            *("--fix-commit", "HEAD", "--repo-url", "https://github.com/o/r"),
+            *("--build-cmd", "true", "--cwe", "CWE-79", "--no-validate"),
+            *("--out", str(tmp_path / "rem.json")),
+            *extra,
+        ],
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+
+def test_make_remediation_carries_the_findings_own_severity(tmp_path):
+    proc = _make_remediation(tmp_path, {"title": "t", "claimed_severity": "HIGH"})
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    data = json.loads((tmp_path / "rem.json").read_text())
+    assert data["source_findings"][0]["severity"] == "high"
+
+
+@pytest.mark.parametrize(
+    ("finding", "error"),
+    [({"title": "t"}, "no severity"), ({"title": "t", "severity": "moderate"}, "not one of")],
+    ids=["none stated", "outside the scale"],
+)
+def test_make_remediation_never_defaults_a_severity(tmp_path, finding, error):
+    # CVSS plan D1/D16: no "medium" fallback; the contract requires one, so fail closed
+    proc = _make_remediation(tmp_path, finding)
+    assert proc.returncode != 0 and error in proc.stderr
+    assert not (tmp_path / "rem.json").exists()
+
+
+def test_make_remediation_takes_no_typed_severity(tmp_path):
+    proc = _make_remediation(tmp_path, {"title": "t", "severity": "low"}, "--severity", "high")
+    assert proc.returncode == 2 and "unrecognized arguments: --severity" in proc.stderr
