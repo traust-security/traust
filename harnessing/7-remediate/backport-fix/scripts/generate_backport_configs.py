@@ -51,6 +51,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from typing import NoReturn
 
 import yaml
 
@@ -1177,65 +1178,113 @@ SAFE_EXEC_PROFILES = (
     "generic-build",
 )
 SAFE_EXEC_TIMEOUT = 3600  # a build or test suite; safe-exec's own default is 120s
-_SAFE_EXEC_RUN = ("-m", "traust.cli", "util", "safe-exec", "run")
+# `-I`: isolated mode — the checkout is the working directory, and plain `-m` would put
+# it first on sys.path, so a branch shipping its own `traust/cli` would replace the
+# sandbox. It also ignores PYTHON* variables and the user site.
+_SAFE_EXEC_RUN = ("-I", "-m", "traust.cli", "util", "safe-exec", "run")
+_SHELL_ONLY = frozenset(";|&<>()")
+_EXPANSION = frozenset("$`")
+_GLOB = frozenset("*?[]{}~")
+
+
+def _refuse(cmd: str, why: str) -> NoReturn:
+    raise SystemExit(f"build command {cmd!r}: {why}; safe-exec runs argv with no shell")
 
 
 def _command_segments(cmd: str) -> list[list[str]]:
-    """`a && b` as argv vectors. safe-exec runs argv with no shell, so anything a
-    shell would interpret is refused here rather than silently changing meaning."""
-    lexer = shlex.shlex(cmd, posix=True, punctuation_chars=";&|<>()")
-    lexer.whitespace_split = True
-    try:
-        tokens = list(lexer)
-    except ValueError as e:
-        raise SystemExit(f"build command {cmd!r} does not parse: {e}") from e
+    """`a && b` as argv vectors, read the way a POSIX shell would read them: quotes
+    and backslashes decide what is literal, and only an UNQUOTED `&&` separates steps.
+    Anything a shell would interpret beyond that is refused, not passed on with a
+    changed meaning: other operators, expansion, globs, `~`, comments, line breaks
+    and leading `VAR=value` assignments. Quote a character to pass it literally."""
+    if "\n" in cmd or "\r" in cmd:
+        _refuse(cmd, "a line break would start a second command")
     segments: list[list[str]] = [[]]
-    for token in tokens:
-        if token == "&&":
+    word: list[str] | None = None  # None: between words; [] is an empty quoted word
+    literal = False  # the current word has quoted or escaped characters
+    quote = ""
+    i = 0
+
+    def end_word() -> None:
+        nonlocal word, literal
+        if word is not None:
+            text = "".join(word)
+            if not segments[-1] and not literal and re.fullmatch(r"[A-Za-z_]\w*=.*", text):
+                _refuse(cmd, f"the leading assignment {text!r} is not supported")
+            segments[-1].append(text)
+        word, literal = None, False
+
+    while i < len(cmd):
+        c = cmd[i]
+        if quote == "'":
+            if c == "'":
+                quote = ""
+            else:
+                word.append(c)  # type: ignore[union-attr]
+        elif quote == '"':
+            if c == '"':
+                quote = ""
+            elif c in _EXPANSION:
+                _refuse(cmd, f"{c!r} inside double quotes is shell expansion")
+            elif c == "\\" and i + 1 < len(cmd) and cmd[i + 1] in '"\\$`':
+                word.append(cmd[i + 1])  # type: ignore[union-attr]
+                i += 1
+            else:
+                word.append(c)  # type: ignore[union-attr]
+        elif c.isspace():
+            end_word()
+        elif c in "'\"":
+            quote, literal = c, True
+            word = word if word is not None else []
+        elif c == "\\":
+            if i + 1 >= len(cmd):
+                _refuse(cmd, "a trailing backslash continues the line")
+            word = (word if word is not None else []) + [cmd[i + 1]]
+            literal = True
+            i += 1
+        elif c == "&" and cmd[i + 1 : i + 2] == "&":
+            end_word()
             segments.append([])
-        elif token and all(c in ";&|<>()" for c in token):
-            raise SystemExit(
-                f"build command {cmd!r}: {token!r} needs a shell; safe-exec runs argv only "
-                "(chain steps with &&, or wrap them in a make target)"
+            i += 1
+        elif c in _SHELL_ONLY:
+            _refuse(
+                cmd, f"{c!r} needs a shell (chain steps with &&, or wrap them in a make target)"
             )
-        elif "$" in token or "`" in token:
-            raise SystemExit(
-                f"build command {cmd!r}: {token!r} needs shell expansion, which safe-exec "
-                "does not do; pass the literal value"
-            )
+        elif c in _EXPANSION:
+            _refuse(cmd, f"{c!r} is shell expansion; pass the literal value")
+        elif c in _GLOB:
+            _refuse(cmd, f"unquoted {c!r} is a shell glob or home expansion; quote it")
+        elif c == "#" and word is None:
+            _refuse(cmd, "'#' starts a shell comment")
         else:
-            segments[-1].append(token)
+            word = (word if word is not None else []) + [c]
+        i += 1
+    if quote:
+        _refuse(cmd, f"an unterminated {quote} quote")
+    end_word()
     if any(not seg for seg in segments):
-        raise SystemExit(f"build command {cmd!r} has an empty step")
-    for seg in segments:
-        if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", seg[0]):
-            raise SystemExit(
-                f"build command {cmd!r}: the leading assignment {seg[0]!r} is not "
-                "supported; safe-exec passes only its profile's environment"
-            )
+        _refuse(cmd, "an empty step")
     return segments
 
 
-def _routed(seg: list[str]) -> bool:
-    return len(seg) > len(_SAFE_EXEC_RUN) and tuple(seg[1 : 1 + len(_SAFE_EXEC_RUN)]) == (
-        _SAFE_EXEC_RUN
-    )
+def _inner(cmd: str, seg: list[str]) -> list[str]:
+    """The target argv of a step. A step already in the routed shape is unwrapped and
+    re-routed through the normal path — its interpreter, profile and timeout are never
+    trusted as given (a remediation JSON supplies these commands)."""
+    for at in range(1, len(seg)):
+        if seg[at : at + 5] == ["-m", "traust.cli", "util", "safe-exec", "run"]:
+            if "--" not in seg[at + 5 :]:
+                _refuse(cmd, "a safe-exec step without `--` before its argv")
+            inner = seg[seg.index("--", at + 5) + 1 :]
+            if not inner:
+                _refuse(cmd, "a safe-exec step with no argv")
+            return inner
+    return seg
 
 
 def _passes(python: str, profile: str, seg: list[str]) -> bool:
     r = subprocess.run(
-        [
-            python,
-            "-m",
-            "traust.cli",
-            "util",
-            "safe-exec",
-            "check",
-            "--profile",
-            profile,
-            "--",
-            *seg,
-        ],
+        [python, *_SAFE_EXEC_RUN[:-1], "check", "--profile", profile, "--", *seg],
         capture_output=True,
         text=True,
         timeout=120,
@@ -1246,17 +1295,14 @@ def _passes(python: str, profile: str, seg: list[str]) -> bool:
 def wrap_safe_exec(cmd: str, timeout: int = SAFE_EXEC_TIMEOUT) -> str:
     """Route a target build/test command through `traust util safe-exec run`: the
     checkout's build machinery is hostile code (rule S10). Each `&&` step runs under
-    the first profile every step passes; none passing fails closed. Empty stays empty."""
+    the first profile every step passes; none passing fails closed. Empty stays empty.
+    The result is serialized from the validated argv, never the input text."""
     if not cmd.strip():
         return ""
-    segments = _command_segments(cmd)
-    if all(_routed(seg) for seg in segments):
-        return cmd
-    if any(_routed(seg) for seg in segments):
-        raise SystemExit(f"build command {cmd!r} mixes routed and unrouted steps")
+    steps = [_inner(cmd, seg) for seg in _command_segments(cmd)]
     python = traust_python()
     for profile in SAFE_EXEC_PROFILES:
-        if all(_passes(python, profile, seg) for seg in segments):
+        if all(_passes(python, profile, step) for step in steps):
             return " && ".join(
                 shlex.join(
                     [
@@ -1267,10 +1313,10 @@ def wrap_safe_exec(cmd: str, timeout: int = SAFE_EXEC_TIMEOUT) -> str:
                         "--timeout",
                         str(timeout),
                         "--",
-                        *seg,
+                        *step,
                     ]
                 )
-                for seg in segments
+                for step in steps
             )
     raise SystemExit(
         f"build command {cmd!r} passes no safe-exec profile ({', '.join(SAFE_EXEC_PROFILES)}); "

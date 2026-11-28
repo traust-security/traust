@@ -191,8 +191,14 @@ def _config_target(branch_dir: Path) -> str:
     return str(target).removeprefix("origin/").strip()
 
 
-def read_branch_result(branch_dir: Path, repo_path: Path | None = None) -> dict:
+def read_branch_result(
+    branch_dir: Path, repo_path: Path | None = None, *, allow_legacy: bool = False
+) -> dict:
     """Read Amalgamator outputs for a single branch.
+
+    run_backport.sh records each branch's verdict in result.json at collection
+    time. Without a readable one a branch is never reported successful, unless
+    `allow_legacy` reads result dirs written before result.json existed.
 
     repo_path is the source clone from the run's config copy; it is only used
     to read the preserved amalgamator/<issue_id> branch head when the tracker
@@ -322,8 +328,10 @@ def read_branch_result(branch_dir: Path, repo_path: Path | None = None) -> dict:
                     recorded_exit = exit_val
                 elif isinstance(exit_val, str) and exit_val.strip().isdigit():
                     recorded_exit = int(exit_val)
+            else:
+                has_record = False
         except (OSError, json.JSONDecodeError):
-            pass
+            has_record = False
 
     # The verdict persisted at collection time is authoritative. The engine's
     # summary can still look successful when the engine exited nonzero, so it
@@ -340,6 +348,15 @@ def read_branch_result(branch_dir: Path, repo_path: Path | None = None) -> dict:
             )
 
     successful = result["status"] in ("success", "passed", "partial_success")
+    if successful and not has_record and not allow_legacy:
+        # No collection-time verdict (the runner could not write it): the
+        # engine's success-shaped summary alone never publishes a success.
+        result["status"] = "failed"
+        result["error"] = result["error"] or (
+            "no readable result.json verdict for this branch; pass --legacy-results "
+            "only for result dirs written before result.json existed"
+        )
+        successful = False
     if successful and recorded_head:
         # Immutable evidence recorded at collection time wins outright: the
         # tracker can be rewritten by a later run, and the branch is mutable.
@@ -615,10 +632,11 @@ def _contract_status(status: str) -> tuple[str, str]:
     """(contract status, stop_reason) for a runner verdict."""
     if status in ("success", "passed"):
         return "succeeded", ""
-    if status == "skipped":
+    if status in ("skipped", "pipeline_stop"):
+        # pipeline_stop: the fix is already on the target, so nothing was
+        # needed. The runner and run_summary.json count it as skipped too.
         return "skipped", ""
     reason = {
-        "pipeline_stop": "pipeline_stop",
         "pipeline_escalation": "pipeline_escalation",
         "worktree_error": "worktree_error",
         "timeout": "timeout",
@@ -629,13 +647,16 @@ def _contract_status(status: str) -> tuple[str, str]:
 def build_report(
     results_dir: Path,
     rem_meta: dict,
+    *,
+    allow_legacy: bool = False,
 ) -> dict:
     """Build the full backport report from collected results."""
     branch_results = []
     branch_sources: dict[str, str] = {}
     for entry in sorted(results_dir.iterdir()):
-        if entry.is_dir() and entry.name != "__pycache__":
-            row = read_branch_result(entry, _source_repo(entry))
+        # Dot-directories are the runner's own (its run lock), never a branch.
+        if entry.is_dir() and entry.name != "__pycache__" and not entry.name.startswith("."):
+            row = read_branch_result(entry, _source_repo(entry), allow_legacy=allow_legacy)
             # Directory names are sanitized slugs; the real target comes from
             # result.json or the config copy. Two directories can therefore
             # resolve to one branch (release-a and release-4-16), which would
@@ -1075,6 +1096,12 @@ def publish_results(
 def main():
     parser = argparse.ArgumentParser(description="Emit a backport report from Amalgamator results.")
     parser.add_argument(
+        "--legacy-results",
+        action="store_true",
+        help="read result dirs written before run_backport recorded result.json: "
+        "the engine's summary then decides a branch's status",
+    )
+    parser.add_argument(
         "--results-dir",
         "-d",
         required=True,
@@ -1194,7 +1221,7 @@ def main():
             "config copies (patch/manual input)"
         )
         rem_meta = read_run_metadata(args.results_dir, args.repository, args.logical_product)
-    report = build_report(args.results_dir, rem_meta)
+    report = build_report(args.results_dir, rem_meta, allow_legacy=args.legacy_results)
 
     # Validation is ON by default: the skill promises validated reports, and
     # an opt-in flag meant the documented commands emitted unchecked JSON.
@@ -1208,9 +1235,11 @@ def main():
             schema_path = contracts_schema_path("backport-report.schema.json")
             if schema_path is None:
                 log.error(
-                    "backport-report schema not found — install traust-contracts "
-                    "(or check out it as a sibling), or pass --no-schema to skip "
-                    "validation deliberately"
+                    "backport-report schema not found in the installed traust-contracts. "
+                    "The contract ships with traust-contracts#187; until traust pins a "
+                    "revision that has it, validate against a checkout of that branch "
+                    "with --schema <path>/artifacts_schema/v1/backport-report.schema.json, "
+                    "or pass --no-schema to skip validation deliberately"
                 )
                 sys.exit(1)
 

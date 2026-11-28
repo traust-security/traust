@@ -58,18 +58,18 @@ RUN set -eux; \
 ENV PATH="/usr/local/go/bin:/root/go/bin:${PATH}"
 ENV GOPATH="/root/go"
 
-# Amalgamator runtime dependencies, mirrored from ../amalgamator/pyproject.toml
-# and pinned to ../amalgamator/uv.lock. Keep this list in sync when the
-# Amalgamator's dependencies change. 'anthropic[vertex]' pulls google-auth,
-# required for the CLAUDE_CODE_USE_VERTEX=1 path the runner configures.
-# Pinning keeps the image reproducible and stops a compromised release
-# entering a pipeline that runs untrusted code.
-RUN python3 -m pip install --no-cache-dir \
-        pyyaml==6.0.3 \
-        colorama==0.4.6 \
-        claude-agent-sdk==0.2.161 \
-        litellm==1.103.9 \
-        'anthropic[vertex]==1.13.0'
+# Amalgamator runtime dependencies: the top-level pins mirror the Amalgamator's
+# pyproject.toml (pyyaml, colorama, claude-agent-sdk, litellm, anthropic[vertex];
+# the vertex extra pulls google-auth for the CLAUDE_CODE_USE_VERTEX=1 path), and
+# the COMPLETE transitive set is hash-pinned in container/requirements-amalgamator.txt,
+# installed --no-deps. A later rebuild therefore cannot resolve a different (or
+# compromised) release into a pipeline that runs untrusted code. Regenerate the
+# file when the Amalgamator's dependencies change (instructions in its header).
+COPY container/requirements-amalgamator.txt /tmp/requirements-amalgamator.txt
+RUN python3 -m pip install --no-cache-dir --require-hashes --no-deps \
+        -r /tmp/requirements-amalgamator.txt \
+    && python3 -m pip check \
+    && rm -f /tmp/requirements-amalgamator.txt
 
 # traust + traust-core in their own venv, for `traust util safe-exec run`: the
 # generator routes every build/test step through it (rule S10), so the target's

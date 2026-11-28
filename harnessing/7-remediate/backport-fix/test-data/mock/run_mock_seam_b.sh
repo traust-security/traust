@@ -153,10 +153,13 @@ unset PYTHONPATH
 
 echo "== stage 6: emit + schema-validate + publish =="
 cd "$HARNESS_ROOT"
-python3 harnessing/7-remediate/backport-fix/scripts/emit_backport_report.py \
+EMIT_OUT="$(python3 harnessing/7-remediate/backport-fix/scripts/emit_backport_report.py \
   --results-dir "$RESULTS" --remediation "$REM" \
-  --output "$WORK/widget-backport-report.json" --publish-root "$FAKE_AR" 2>&1 \
-  | grep "validates against schema" >/dev/null || fail "report failed schema validation"
+  --output "$WORK/widget-backport-report.json" --publish-root "$FAKE_AR" 2>&1 || true)"
+if grep -q "schema not found" <<<"$EMIT_OUT"; then
+  fail "the installed traust-contracts has no backport-report schema (traust-contracts#187)"
+fi
+grep -q "validates against schema" <<<"$EMIT_OUT" || fail "report failed schema validation"
 D="$(ls -d "$FAKE_AR"/remediations/widget/widget/backport-* 2>/dev/null | head -1 || true)"
 [[ -n "$D" && -f "$D/widget-backport-report.json" && -f "$D/widget-backport-release-a.patch" ]] \
   || fail "published tree incomplete: $(ls "$D" 2>/dev/null)"

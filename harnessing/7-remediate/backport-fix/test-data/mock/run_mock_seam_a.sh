@@ -116,7 +116,7 @@ for path in sys.argv[1:]:
     build = yaml.safe_load(open(path))["build"]
     for key, want in (("command", "go-fuzz"), ("test_command", "go-fuzz")):
         argv = shlex.split(build[key])
-        assert argv[1:6] == ["-m", "traust.cli", "util", "safe-exec", "run"], (path, build[key])
+        assert argv[1:7] == ["-I", "-m", "traust.cli", "util", "safe-exec", "run"], (path, build[key])
         assert argv[argv.index("--profile") + 1] == want, (path, build[key])
 PY
 
@@ -153,11 +153,14 @@ assert (s['passed'], s['failed'], s['skipped']) == (1, 1, 1), s" || fail "run_su
 
 echo "== stage 6: emit from the IMPACT artifact (no remediation JSON) + publish =="
 cd "$HARNESS_ROOT"
-python3 harnessing/7-remediate/backport-fix/scripts/emit_backport_report.py \
+EMIT_OUT="$(python3 harnessing/7-remediate/backport-fix/scripts/emit_backport_report.py \
   --results-dir "$RESULTS" \
   --impact "$WORK/seamA-impact.json" \
-  --output "$WORK/myrepo-backport-report.json" --publish-root "$FAKE_AR" 2>&1 \
-  | grep "validates against schema" >/dev/null || fail "report failed schema validation"
+  --output "$WORK/myrepo-backport-report.json" --publish-root "$FAKE_AR" 2>&1 || true)"
+if grep -q "schema not found" <<<"$EMIT_OUT"; then
+  fail "the installed traust-contracts has no backport-report schema (traust-contracts#187)"
+fi
+grep -q "validates against schema" <<<"$EMIT_OUT" || fail "report failed schema validation"
 D="$(ls -d "$FAKE_AR"/remediations/example-product/myrepo/backport-* 2>/dev/null | head -1 || true)"
 [[ -n "$D" && -f "$D/myrepo-backport-report.json" && -f "$D/myrepo-backport-release-1.patch" ]] \
   || fail "published tree incomplete: $(ls "$D" 2>/dev/null)"

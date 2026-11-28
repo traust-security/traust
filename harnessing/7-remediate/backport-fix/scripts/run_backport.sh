@@ -36,6 +36,7 @@ REPO_PATH=""
 CONTAINER_RUNTIME=""
 AMALGAMATOR_PATH=""
 SELINUX_RELABEL=false
+TRUSTED_TARGET=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -46,6 +47,7 @@ while [[ $# -gt 0 ]]; do
     --repo)             REPO_PATH="$2"; shift 2;;
     --amalgamator)      AMALGAMATOR_PATH="$2"; shift 2;;
     --selinux-relabel)  SELINUX_RELABEL=true; shift;;
+    --trusted-target)   TRUSTED_TARGET=true; shift;;
     *) echo "Unknown argument: $1" >&2; exit 1;;
   esac
 done
@@ -60,6 +62,8 @@ if [[ -z "$CONFIG_DIR" && -z "$SINGLE_CONFIG" ]]; then
   echo "  --amalgamator <path>        Path to Amalgamator source (mounted into container)" >&2
   echo "  --selinux-relabel           Let podman relabel host mounts (:z). Recursively" >&2
   echo "                              changes host labels and persists." >&2
+  echo "  --trusted-target            Required with an LLM credential: the operator attests the" >&2
+  echo "                              target repository is trusted (see the credential note)." >&2
   exit 1
 fi
 
@@ -89,6 +93,20 @@ else
     echo "  Ensure Amalgamator is installed or set PYTHONPATH." >&2
     exit 1
   fi
+fi
+
+# The pipeline's agent shell runs commands in the same context as the model
+# credential, and safe-exec wraps only the configured build/test fields, so a
+# hostile target can induce an agent command that reads the key (or the mounted
+# ADC file). Until a credential broker keeps the key out of that context, a run
+# that would forward a credential needs the operator to attest the target is
+# trusted. A credential-free run (the mock kit) needs no attestation.
+if [[ -n "${ANTHROPIC_API_KEY:-}" || -n "${CLAUDE_CODE_USE_VERTEX:-}" ]] \
+    && [[ "$TRUSTED_TARGET" != true ]]; then
+  echo "[run_backport] ERROR: refusing to forward an LLM credential without --trusted-target." >&2
+  echo "  Commands the pipeline's agent runs can read the credential; pass --trusted-target" >&2
+  echo "  only for a repository you trust, with a narrowly scoped, short-lived credential." >&2
+  exit 1
 fi
 
 if [[ -z "${ANTHROPIC_API_KEY:-}" && -z "${CLAUDE_CODE_USE_VERTEX:-}" ]]; then
@@ -205,12 +223,31 @@ local_home() {
   fi
 }
 
+# One run per output directory: the runner deletes and rewrites each branch's
+# artifacts and then summarizes them, so two invocations sharing the directory
+# would delete or mix each other's results. mkdir is the atomic test-and-set.
+RUN_LOCK="$OUTPUT_DIR/.run_backport.lock"
+LOCK_HELD=false
+
 cleanup_run_home() {
   if [[ -n "${RUN_HOME:-}" && -d "$RUN_HOME" ]]; then
     rm -rf "$RUN_HOME"
   fi
+  if [[ "$LOCK_HELD" == true ]]; then
+    rm -rf "$RUN_LOCK"
+    LOCK_HELD=false
+  fi
 }
 trap cleanup_run_home EXIT
+
+if ! mkdir "$RUN_LOCK" 2>/dev/null; then
+  holder="$(cat "$RUN_LOCK/pid" 2>/dev/null || echo unknown)"
+  echo "[run_backport] ERROR: another run holds $OUTPUT_DIR (pid $holder)." >&2
+  echo "  Use a different --output-dir, or remove $RUN_LOCK if that run is gone." >&2
+  exit 1
+fi
+LOCK_HELD=true
+echo "$$" > "$RUN_LOCK/pid"
 
 run_amalgamator() {
   local config_file="$1"
@@ -232,8 +269,28 @@ run_amalgamator() {
     # Rewrite the config YAML to use container-internal paths.
     # The host config has host paths (e.g. /Users/.../widget); inside the
     # container the repo lives at /workspace/repo.
-    local container_config_dir
-    container_config_dir=$(mktemp -d)
+    local container_config_dir container_name=""
+    container_config_dir="$(mktemp -d "${TMPDIR:-/tmp}/backport-fix-config.XXXXXX")"
+    # Armed the moment the temp tree exists: a malformed config, a refused build
+    # step or the SELinux preflight below must not leave it (or, later, a
+    # stopped container) behind. EXIT covers set -e failures and error returns;
+    # INT/TERM an operator abort. The global run-home cleanup keeps running.
+    cleanup_container() {
+      if [[ -n "${container_config_dir:-}" && -d "$container_config_dir" ]]; then
+        rm -rf "$container_config_dir"
+      fi
+      if [[ -n "${container_name:-}" ]]; then
+        "$CONTAINER_RUNTIME" rm -f "$container_name" >/dev/null 2>&1 || true
+      fi
+      cleanup_run_home
+    }
+    on_signal() {
+      cleanup_container
+      trap - EXIT INT TERM
+      exit 130
+    }
+    trap cleanup_container EXIT
+    trap on_signal INT TERM
     local container_config="$container_config_dir/$(basename "$config_file")"
 
     # Paths go through argv: config filenames are branch-derived, and a git
@@ -248,18 +305,26 @@ cfg.setdefault("repository", {})["source_path"] = "/workspace/repo"
 cfg["repository"]["workdir"] = "/workspace/workdir"
 # The generator routes build/test steps through safe-exec with the HOST
 # interpreter; inside the image that is the pinned /opt/traust venv.
-RUN = ["-m", "traust.cli", "util", "safe-exec", "run"]
+RUN = ["-I", "-m", "traust.cli", "util", "safe-exec", "run"]
+def split_steps(cmd):
+    # The generator joins shlex.join-quoted steps with " && "; a literal "&&"
+    # argument is quoted, so split only outside quotes.
+    parts, cur, quote, i = [], [], "", 0
+    while i < len(cmd):
+        c = cmd[i]
+        if c == quote:
+            quote = ""
+        elif not quote and c in "\x27\x22":
+            quote = c
+        if not quote and cmd.startswith(" && ", i):
+            parts.append("".join(cur)); cur = []; i += 4; continue
+        cur.append(cmd[i]); i += 1
+    parts.append("".join(cur))
+    return [shlex.split(p) for p in parts]
 def in_image(cmd):
-    lex = shlex.shlex(cmd, posix=True, punctuation_chars="&")
-    lex.whitespace_split = True
-    steps = [[]]
-    for token in lex:
-        if token == "&&":
-            steps.append([])
-        else:
-            steps[-1].append(token)
+    steps = split_steps(cmd)
     for argv in steps:
-        if argv[1:6] != RUN:
+        if argv[1:7] != RUN:
             sys.exit("refusing a build step not routed through safe-exec: " + shlex.join(argv))
     return " && ".join(shlex.join(["/opt/traust/bin/python", *a[1:]]) for a in steps)
 build = cfg.get("build") or {}
@@ -384,27 +449,7 @@ with open(dst, "w") as f:
     fi
 
     # Run container WITHOUT --rm so we can copy results out after it exits.
-    local container_name="backport-${branch_name}-$$"
-
-    # Aborted runs must not leave a stopped container or a temp config tree
-    # behind. EXIT covers set -e failures and error returns; INT/TERM cover an
-    # operator abort (Ctrl-C reaches the whole process group). The normal path
-    # disarms the traps only after the artifacts are copied out.
-    cleanup_container() {
-      if [[ -n "${container_config_dir:-}" && -d "$container_config_dir" ]]; then
-        rm -rf "$container_config_dir"
-      fi
-      if [[ -n "${container_name:-}" ]]; then
-        "$CONTAINER_RUNTIME" rm -f "$container_name" >/dev/null 2>&1 || true
-      fi
-    }
-    on_signal() {
-      cleanup_container
-      trap - EXIT INT TERM
-      exit 130
-    }
-    trap cleanup_container EXIT
-    trap on_signal INT TERM
+    container_name="backport-${branch_name}-$$"
 
     local run_rc=0
     set +e
@@ -444,7 +489,8 @@ with open(dst, "w") as f:
     # Artifacts are safely out of the container: remove it and the rewritten
     # config, then disarm the traps.
     cleanup_container
-    trap - EXIT INT TERM
+    trap cleanup_run_home EXIT
+    trap - INT TERM
     return "$run_rc"
   else
     # --- Local mode ---
@@ -702,8 +748,8 @@ else:
   # Persist provenance AND the canonical verdict at collection time. This is
   # written even when no summary was collected, so a consumer can never fall
   # back to the engine's (possibly success-shaped) artifacts.
-  python3 - "$branch_dir" "$branch_dir/config.yaml" \
-           "$canonical" "${run_rc:-0}" "$summary_outcome" <<'PY' 2>/dev/null || true
+  if ! python3 - "$branch_dir" "$branch_dir/config.yaml" \
+           "$canonical" "${run_rc:-0}" "$summary_outcome" <<'PY'
 import json, subprocess, sys, yaml
 from pathlib import Path
 bd = Path(sys.argv[1])
@@ -733,6 +779,22 @@ rec = {
 }
 (bd / "result.json").write_text(json.dumps(rec, indent=2) + "\n")
 PY
+  then
+    # No verdict record means no trustworthy verdict: write a minimal failed
+    # one so neither the batch summary nor the report can fall back to the
+    # engine's (possibly success-shaped) artifacts.
+    echo "[run_backport] $branch_name: could not write result.json — recording as failed" >&2
+    printf '{"outcome": "failed", "summary_outcome": "%s", "engine_exit_code": %d, "head_sha": ""}\n' \
+      "${summary_outcome//[^A-Za-z_]/}" "${run_rc:-0}" > "$branch_dir/result.json"
+    if [[ "$canonical" == "success" || "$canonical" == "passed" ]]; then
+      PASSED=$((PASSED - 1))
+      FAILED=$((FAILED + 1))
+    elif [[ "$canonical" == "pipeline_stop" ]]; then
+      SKIPPED=$((SKIPPED - 1))
+      FAILED=$((FAILED + 1))
+    fi
+    canonical="failed"
+  fi
 
 
   # Collect candidate.patch — workdir-diff fallback, only when the run-dir

@@ -224,7 +224,7 @@ def test_backport_commit_derived_from_preserved_branch(tmp_path):
     # run preserves amalgamator/<issue_id>, so the head is the provenance.
     repo, head = _branch_repo(tmp_path)
     d = _result_dir(tmp_path, repo)
-    row = emit.read_branch_result(d, emit._source_repo(d))
+    row = emit.read_branch_result(d, emit._source_repo(d), allow_legacy=True)
     assert row["backport_commit"] == head
     assert row["backport_branch"] == "amalgamator/backport-widget-f001-release-a"
 
@@ -233,7 +233,7 @@ def test_tracker_value_still_wins_over_branch_head(tmp_path):
     repo, head = _branch_repo(tmp_path)
     other = "d" * 40
     d = _result_dir(tmp_path, repo, tracker={"backport_commit": other})
-    row = emit.read_branch_result(d, emit._source_repo(d))
+    row = emit.read_branch_result(d, emit._source_repo(d), allow_legacy=True)
     assert row["backport_commit"] == other != head
 
 
@@ -599,8 +599,22 @@ def test_success_row_without_provenance_is_refused(tmp_path):
         "finding_refs": [],
         "remediation_path": "",
     }
-    with pytest.raises(SystemExit):
-        emit.build_report(results, rem)
+    with pytest.raises(SystemExit):  # legacy dirs: a success needs provenance
+        emit.build_report(results, rem, allow_legacy=True)
+    # Qodo #464: by default a missing verdict never publishes as succeeded
+    report = emit.build_report(results, rem)
+    [row] = report["target_branches"]
+    assert row["status"] == "failed" and "result.json" in row["error"]
+    assert report["summary"]["succeeded"] == 0
+
+
+@pytest.mark.parametrize("record", ["{not json", "[]"])
+def test_an_unreadable_verdict_record_is_no_verdict(tmp_path, record):
+    results = tmp_path / "results"
+    _write_branch(results / "release-a")
+    (results / "release-a" / "result.json").write_text(record)
+    row = emit.read_branch_result(results / "release-a")
+    assert row["status"] == "failed"
 
 
 def test_engine_failure_overrides_a_success_shaped_summary(tmp_path):
@@ -1472,9 +1486,11 @@ def test_patch_mode_never_runs_checkout_hooks_or_filters(tmp_path):
     assert not marker.exists(), "a clone-controlled hook or filter ran on the host"
 
 
-def _make_remediation(tmp_path, finding: dict, *extra: str) -> subprocess.CompletedProcess:
+def _make_remediation(
+    tmp_path, finding: dict, *extra: str, repo_url: str = "https://github.com/o/r"
+) -> subprocess.CompletedProcess:
     repo = tmp_path / "repo"
-    repo.mkdir()
+    repo.mkdir(parents=True)
     env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
     git = ["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t"]
     subprocess.run(["git", "init", "-q", str(repo)], check=True, env=env)
@@ -1488,7 +1504,7 @@ def _make_remediation(tmp_path, finding: dict, *extra: str) -> subprocess.Comple
             sys.executable,
             str(_SKILL / "make_remediation.py"),
             *("--triage", str(triage), "--finding", "f001", "--repo", str(repo)),
-            *("--fix-commit", "HEAD", "--repo-url", "https://github.com/o/r"),
+            *("--fix-commit", "HEAD", "--repo-url", repo_url),
             *("--build-cmd", "true", "--cwe", "CWE-79", "--no-validate"),
             *("--out", str(tmp_path / "rem.json")),
             *extra,
@@ -1500,10 +1516,49 @@ def _make_remediation(tmp_path, finding: dict, *extra: str) -> subprocess.Comple
 
 
 def test_make_remediation_carries_the_findings_own_severity(tmp_path):
-    proc = _make_remediation(tmp_path, {"title": "t", "claimed_severity": "HIGH"})
+    proc = _make_remediation(tmp_path, {"title": "t", "severity": "HIGH"})
     assert proc.returncode == 0, proc.stdout + proc.stderr
     data = json.loads((tmp_path / "rem.json").read_text())
     assert data["source_findings"][0]["severity"] == "high"
+
+
+def test_a_scanner_claim_is_not_the_remediation_severity(tmp_path):
+    # Qodo #464: claimed_severity outranked the audit's adjudicated severity
+    proc = _make_remediation(tmp_path, {"title": "t", "claimed_severity": "HIGH"})
+    assert proc.returncode != 0 and "triage the finding first" in proc.stderr
+    audit = tmp_path / "audit.json"
+    audit.write_text(json.dumps({"findings": [{"id": "A1", "severity": "low"}]}))
+    proc = _make_remediation(
+        tmp_path / "again",
+        {"title": "t", "claimed_severity": "HIGH", "source": "audit.json#A1"},
+        "--audit",
+        str(audit),
+    )
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    data = json.loads((tmp_path / "again" / "rem.json").read_text())
+    assert data["source_findings"][0]["severity"] == "low"
+
+
+def test_an_explicit_scp_style_url_loses_its_userinfo(tmp_path):
+    # Qodo #464: an explicit scp-style --repo-url / --fork-url kept its token
+    proc = _make_remediation(
+        tmp_path,
+        {"title": "t", "severity": "low"},
+        "--fork-url",
+        "tok3n@forge.example.invalid:example/fork.git",
+        repo_url="tok3n@forge.example.invalid:example/widget.git",
+    )
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    text = (tmp_path / "rem.json").read_text()
+    assert "tok3n" not in text
+    data = json.loads(text)
+    assert data["metadata"]["repository"] == "https://forge.example.invalid/example/widget.git"
+    assert data["fork"]["url"] == "https://forge.example.invalid/example/fork.git"
+
+
+def test_an_explicit_url_that_is_not_https_is_refused(tmp_path):
+    proc = _make_remediation(tmp_path, {"title": "t", "severity": "low"}, "--fork-url", "file:///x")
+    assert proc.returncode != 0 and "--fork-url must be an https" in proc.stderr
 
 
 @pytest.mark.parametrize(
@@ -1521,3 +1576,46 @@ def test_make_remediation_never_defaults_a_severity(tmp_path, finding, error):
 def test_make_remediation_takes_no_typed_severity(tmp_path):
     proc = _make_remediation(tmp_path, {"title": "t", "severity": "low"}, "--severity", "high")
     assert proc.returncode == 2 and "unrecognized arguments: --severity" in proc.stderr
+
+
+def test_a_fix_already_on_the_target_is_skipped_in_the_report_and_the_batch_summary(tmp_path):
+    # Qodo #464: the report said failed where run_summary.json said skipped
+    results = tmp_path / "results"
+    _write_branch(
+        results / "release-a",
+        outcome="pipeline_stop",
+        result={"outcome": "pipeline_stop", "engine_exit_code": 0, "head_sha": ""},
+    )
+    report = emit.build_report(results, _NUM_REM)
+    [row] = report["target_branches"]
+    batch = _load("write_run_summary.py").build(results, ["release-a"], None)
+    assert row["status"] == "skipped" and "stop_reason" not in row
+    assert batch["skipped"] == 1 and report["summary"]["skipped"] == 1
+
+
+def test_a_missing_report_contract_fails_closed_and_names_it(tmp_path, monkeypatch, caplog):
+    # Qodo #464: the pinned traust-contracts predates backport-report.schema.json
+    # (traust-contracts#187). Default mode must refuse, and say what to do.
+    results = tmp_path / "results"
+    _write_branch(results / "release-a")
+    monkeypatch.setattr(emit, "contracts_schema_path", lambda name: None)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "emit",
+            "--results-dir",
+            str(results),
+            "--output",
+            str(tmp_path / "r.json"),
+            "--no-publish",
+            "--repository",
+            "https://github.com/o/r",
+            "--logical-product",
+            "p",
+        ],
+    )
+    with caplog.at_level("ERROR"), pytest.raises(SystemExit) as exc:
+        emit.main()
+    assert exc.value.code == 1
+    assert "traust-contracts#187" in caplog.text and "--schema" in caplog.text

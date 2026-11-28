@@ -67,8 +67,22 @@ if [[ "$sub" == "show" ]]; then
   set -- --no-textconv --no-ext-diff "$@"
 fi
 
+# Git itself comes from a fixed system PATH, never the caller's: a writable
+# directory early in an agent's PATH could otherwise supply its own `git`.
+# The same fixed PATH is all git's own subprocesses see.
+TRUSTED_PATH="/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin"
+git_bin="$(PATH="$TRUSTED_PATH" command -v git || true)"
+[[ "$git_bin" == /* && -x "$git_bin" ]] || {
+  echo "safe_git: no git on the trusted PATH ($TRUSTED_PATH)" >&2
+  exit 2
+}
+if [[ -n "$(find "$git_bin" "$(dirname "$git_bin")" -maxdepth 0 -perm -0002 2>/dev/null)" ]]; then
+  echo "safe_git: refusing world-writable git or git directory: $git_bin" >&2
+  exit 2
+fi
+
 exec env -i \
-  PATH="${PATH:-/usr/bin:/bin}" \
+  PATH="$TRUSTED_PATH" \
   HOME="${HOME:-/tmp}" \
   TMPDIR="${TMPDIR:-/tmp}" \
   GIT_CONFIG_NOSYSTEM=1 \
@@ -76,7 +90,7 @@ exec env -i \
   GIT_ATTR_NOSYSTEM=1 \
   GIT_TERMINAL_PROMPT=0 \
   GIT_OPTIONAL_LOCKS=0 \
-  git -C "$repo" \
+  "$git_bin" -C "$repo" \
     -c core.hooksPath=/dev/null \
     -c core.fsmonitor= \
     -c core.pager=cat \

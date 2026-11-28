@@ -48,3 +48,28 @@ def test_the_build_backends_are_hash_pinned():
     for name in ("requirements-build.txt", "requirements-editable.txt"):
         reqs = _requirements(name)
         assert reqs and all(hashes for _, hashes in reqs.values()), name
+
+
+def test_the_amalgamator_layer_is_the_complete_hash_pinned_set():
+    # Qodo #464: only the five top-level packages were pinned, without hashes
+    reqs = _requirements("requirements-amalgamator.txt")
+    assert all(hashes for _, hashes in reqs.values())
+    top = {
+        "pyyaml": "6.0.3",
+        "colorama": "0.4.6",
+        "claude-agent-sdk": "0.2.161",
+        "litellm": "1.103.9",
+        "anthropic": "1.13.0",
+        "google-auth": None,
+    }
+    for name, version in top.items():
+        assert name in reqs, name
+        assert version is None or reqs[name][0] == version, name
+    containerfile = (CONTAINER / "Containerfile").read_text()
+    install = re.search(
+        r"pip install --no-cache-dir --require-hashes --no-deps \\\s*"
+        r"-r /tmp/requirements-amalgamator\.txt",
+        containerfile,
+    )
+    assert install, "the Amalgamator layer must install the locked set with hashes, no deps"
+    assert "claude-agent-sdk==" not in containerfile  # no unhashed top-level installs left

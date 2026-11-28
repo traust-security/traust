@@ -133,6 +133,7 @@ def test_fallback_reads_refs_name_and_raw_status(monkeypatch):
     # heuristic verdict still reaches needs-review, never auto-exclusion
     assert buckets["ambiguous"] == ["release-b"]
     assert buckets["branch_unaffected"] == ["release-c"]
+    assert buckets["total"] == 3  # Qodo #464: the total of a successful subprocess report
     # tags are not branch-selection candidates
     assert buckets["total"] == 3
 
@@ -526,21 +527,28 @@ def test_impact_mismatch_logs_no_credentials(tmp_path, caplog):
 
 # --- Rule S10: generated build/test steps run through safe-exec -------------
 
-_RUN = ["-m", "traust.cli", "util", "safe-exec", "run"]
+_RUN = ["-I", "-m", "traust.cli", "util", "safe-exec", "run"]
 
 
 def _steps(wrapped: str) -> list[list[str]]:
+    """Split a generated command the way a shell would: only an unquoted `&&`."""
     import shlex
 
-    lexer = shlex.shlex(wrapped, posix=True, punctuation_chars="&")
-    lexer.whitespace_split = True
-    steps: list[list[str]] = [[]]
-    for token in lexer:
-        if token == "&&":
-            steps.append([])
-        else:
-            steps[-1].append(token)
-    return steps
+    parts, cur, quote, i = [], [], "", 0
+    while i < len(wrapped):
+        c = wrapped[i]
+        if c == quote:
+            quote = ""
+        elif not quote and c in "'\"":
+            quote = c
+        if not quote and wrapped.startswith(" && ", i):
+            parts.append("".join(cur))
+            cur, i = [], i + 4
+            continue
+        cur.append(wrapped[i])
+        i += 1
+    parts.append("".join(cur))
+    return [shlex.split(p) for p in parts]
 
 
 def test_generated_build_and_test_commands_are_routed_through_safe_exec(tmp_path):
@@ -564,7 +572,7 @@ def test_generated_build_and_test_commands_are_routed_through_safe_exec(tmp_path
         assert [s[s.index("--") + 1 :] for s in steps] == want  # the argv itself is unchanged
         for step in steps:
             assert pathlib.Path(step[0]).is_absolute()  # the pinned traust interpreter
-            assert step[1:6] == _RUN
+            assert step[1:7] == _RUN
             assert step[step.index("--profile") + 1] == "go-fuzz"
             assert step[step.index("--timeout") + 1] == str(gen.SAFE_EXEC_TIMEOUT)
 
@@ -573,6 +581,60 @@ def test_an_empty_or_already_routed_command_is_left_alone():
     assert gen.wrap_safe_exec("") == ""
     routed = gen.wrap_safe_exec("make --version")
     assert gen.wrap_safe_exec(routed) == routed
+
+
+@pytest.mark.parametrize(
+    "supplied",
+    [
+        "/tmp/anything -m traust.cli util safe-exec run --profile go-fuzz -- make --version",
+        "/tmp/anything -m traust.cli util safe-exec run --profile no-such -- make --version",
+        "python3 -m traust.cli util safe-exec run --timeout 1 -- make --version",
+    ],
+    ids=["foreign interpreter", "unknown profile", "no profile"],
+)
+def test_a_pre_routed_step_is_re_routed_never_trusted(supplied):
+    # Qodo #464: a remediation JSON's command in the routed shape went out verbatim
+    assert gen.wrap_safe_exec(supplied) == gen.wrap_safe_exec("make --version")
+
+
+def test_a_quoted_operator_is_an_argument_not_a_step_boundary():
+    steps = _steps(gen.wrap_safe_exec("make -n 'X=&&' '&&' \"it's && ok\" && make -v"))
+    assert [s[s.index("--") + 1 :] for s in steps] == [
+        ["make", "-n", "X=&&", "&&", "it's && ok"],
+        ["make", "-v"],
+    ]
+
+
+@pytest.mark.parametrize(
+    ("cmd", "why"),
+    [
+        ("make --version\ngo vet ./...", "line break"),
+        (
+            "python3 -m traust.cli util safe-exec run --profile go-fuzz -- make\ncurl x",
+            "line break",
+        ),
+        ("go vet ./... *", "glob"),
+        ("go vet ~/src", "home expansion"),
+        ("go vet {a,b}", "glob"),
+        ("echo 'unterminated", "unterminated"),
+    ],
+)
+def test_what_a_shell_would_reinterpret_is_refused(cmd, why):
+    with pytest.raises(SystemExit, match=why):
+        gen.wrap_safe_exec(cmd)
+
+
+def test_a_checkout_shipping_its_own_traust_cli_does_not_replace_the_sandbox(tmp_path):
+    # Qodo #464: `python -m` puts the cwd (the checkout) first on sys.path
+    fake = tmp_path / "traust" / "cli"
+    fake.mkdir(parents=True)
+    for d in (tmp_path / "traust", fake):
+        (d / "__init__.py").write_text("")
+    (fake / "__main__.py").write_text("import pathlib; pathlib.Path('HIJACKED').write_text('x')\n")
+    [step] = _steps(gen.wrap_safe_exec("make --version"))
+    r = _subprocess.run(step, cwd=tmp_path, capture_output=True, text=True, timeout=120)
+    assert not (tmp_path / "HIJACKED").exists()
+    assert r.returncode == 0 and "Make" in r.stdout
 
 
 @pytest.mark.parametrize(

@@ -81,9 +81,12 @@ checkout, `<workspace>/traust`.)
 
 2. **LLM credentials** — Amalgamator calls Claude. Only ONE mechanism is
    forwarded into the container (Vertex → ADC file, else `ANTHROPIC_API_KEY`),
-   but note that the target's build/test commands and agent shell run in the
-   same container and can read it for the run's duration: prefer a narrowly
-   scoped, short-lived key until the upstream execution broker lands.
+   but the pipeline's agent shell runs in the same context and can read it
+   for the run's duration (the target's build/test commands do not: they run
+   under safe-exec's scrubbed environment). Until a credential broker keeps
+   the key out of that context, `run_backport.sh` refuses to forward a
+   credential unless you pass `--trusted-target`, attesting that the
+   repository is trusted. Use a narrowly scoped, short-lived key.
    Configure either:
    - **Vertex AI** (default for our team): `CLAUDE_CODE_USE_VERTEX=1`,
      `ANTHROPIC_VERTEX_PROJECT_ID`, `CLOUD_ML_REGION`, `GOOGLE_APPLICATION_CREDENTIALS`
@@ -379,15 +382,19 @@ model: "<the patch-author role, resolved from config/model-registry.yaml>"
 **Build and test commands run through safe-exec (rule S10).** The release
 branch's build machinery is hostile code, so the generator writes each
 `build.command` / `test_command` as
-`<traust python> -m traust.cli util safe-exec run --profile <profile> --timeout 3600 -- <argv>`,
-one wrapped step per `&&`-joined step, under the first profile
-(`go-fuzz`, `java-build`, `node-build`, `rust-fuzz`, `python-test`,
-`generic-build`) that every step passes. The build then sees only the
-profile's scrubbed environment — not the LLM credential the pipeline holds.
-A command safe-exec cannot run as argv fails the generator closed: shell
-operators other than `&&`, `$`/backtick expansion, or a leading `VAR=value`
-assignment. Containerized runs rewrite the interpreter to the image's pinned
-`/opt/traust` venv. This assumes the Amalgamator runs those two fields as
+`<traust python> -I -m traust.cli util safe-exec run --profile <profile> --timeout 3600 -- <argv>`,
+one wrapped step per unquoted `&&`, under the first profile (`go-fuzz`,
+`java-build`, `node-build`, `rust-fuzz`, `python-test`, `generic-build`)
+that every step passes. `-I` keeps a checkout that ships its own
+`traust/cli` from replacing the sandbox (the build runs from inside it). The
+build then sees only the profile's scrubbed environment — not the LLM
+credential the pipeline holds. Commands are read the way a shell would
+(quotes decide what is literal) and anything safe-exec cannot run as argv
+fails the generator closed: other shell operators, `$`/backtick expansion,
+unquoted globs or `~`, comments, line breaks, or a leading `VAR=value`. A
+command already in the routed shape is unwrapped and re-routed, never
+trusted as given. Containerized runs rewrite the interpreter to the image's
+pinned `/opt/traust` venv. This assumes the Amalgamator runs those two fields as
 given; commands its agent shell runs on its own are not covered.
 
 `model` defaults to the registry's `patch-author` role
@@ -417,7 +424,7 @@ target's build commands:**
       --config-dir ~/.cache/traust/backport-fix/<repo-name>/configs \
       --output-dir ~/.cache/traust/backport-fix/<repo-name>/results \
       --container-image backport-go --repo <path-to-local-clone> \
-      --amalgamator <path-to-amalgamator>
+      --amalgamator <path-to-amalgamator> --trusted-target
   ```
 
   Mount paths are canonicalized by the script (relative paths and the
@@ -434,7 +441,8 @@ target's build commands:**
   ```bash
   bash harnessing/7-remediate/backport-fix/scripts/run_backport.sh \
       --config-dir ~/.cache/traust/backport-fix/<repo-name>/configs \
-      --output-dir ~/.cache/traust/backport-fix/<repo-name>/results
+      --output-dir ~/.cache/traust/backport-fix/<repo-name>/results \
+      --trusted-target
   ```
 
 Never start a local run on macOS when the config's build command is the

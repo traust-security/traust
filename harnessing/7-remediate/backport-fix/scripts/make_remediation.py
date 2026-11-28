@@ -235,6 +235,24 @@ def normalize_repo_url(url: str) -> str:
     return url
 
 
+def explicit_repo_url(url: str, flag: str) -> str:
+    """An operator-given --repo-url / --fork-url as a credential-free https URL.
+
+    The same scp-style (`user@host:path`) and ssh:// / git:// handling as a
+    discovered remote, so `token@host:org/repo` never reaches the artifact with
+    its userinfo; anything that is not then a plain https URL is refused."""
+    value = _paths.strip_url_credentials(url)
+    scp = re.match(r"^(?P<user>[^/@:]+)@(?P<host>[^/:]+):(?P<path>.+)$", value)
+    if scp:
+        value = _paths.strip_url_credentials(f"https://{scp['host']}/{scp['path']}")
+    for pre in ("ssh://", "git://"):
+        if value.startswith(pre):
+            value = _paths.strip_url_credentials("https://" + value.removeprefix(pre))
+    if not re.fullmatch(r"https://[^/@\s]+/\S+", value):
+        raise SystemExit(f"{flag} must be an https (or scp-style) repository URL, got {value!r}")
+    return value
+
+
 def build(args) -> dict:
     with Path(args.triage).open() as f:
         triage = json.load(f)
@@ -274,11 +292,13 @@ def build(args) -> dict:
 
     # The finding's recorded severity is carried as-is: never a default, never typed here
     # (CVSS plan D1, D16). The remediation contract requires one, so none fails closed.
-    stated = tf.get("severity") or tf.get("claimed_severity") or af.get("severity")
+    # A scanner's claimed_severity is an unverified claim, never the remediation's
+    # severity: only the triaged or audited value counts.
+    stated = tf.get("severity") or af.get("severity")
     if not stated:
         raise SystemExit(
-            "no severity: the triage finding and its audit finding state none; "
-            "record it through triage first"
+            "no severity: neither the triage finding nor its audit finding has an "
+            "adjudicated one; triage the finding first"
         )
     severity = str(stated).lower()
     if severity not in _SEVERITIES:
@@ -293,7 +313,7 @@ def build(args) -> dict:
     except RuntimeError as e:
         raise SystemExit(f"--fix-commit not resolvable in {args.repo}: {e}") from e
     if args.repo_url:
-        repo_url = _paths.strip_url_credentials(args.repo_url)
+        repo_url = explicit_repo_url(args.repo_url, "--repo-url")
     else:
         try:
             repo_url = normalize_repo_url(git(args.repo, "remote", "get-url", "origin"))
@@ -362,7 +382,7 @@ def build(args) -> dict:
         "metadata": metadata,
         "source_findings": [source_finding],
         "fork": {
-            "url": _paths.strip_url_credentials(args.fork_url or repo_url),
+            "url": explicit_repo_url(args.fork_url, "--fork-url") if args.fork_url else repo_url,
             "visibility": args.visibility,
             "base_ref": base_ref,
             "fix_branch": args.fix_branch or f"ex-wing/{args.finding}",

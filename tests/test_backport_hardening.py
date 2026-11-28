@@ -158,6 +158,7 @@ exec {real_stat} "$@"
         [
             "bash",
             str(RUNNER),
+            "--trusted-target",  # these runs forward a credential on purpose
             "--config",
             str(cfg),
             "--output-dir",
@@ -401,6 +402,7 @@ def test_container_abort_cleans_up_container_and_temp_config(tmp_path):
         [
             "bash",
             str(RUNNER),
+            "--trusted-target",  # these runs forward a credential on purpose
             "--config",
             str(cfg),
             "--output-dir",
@@ -475,7 +477,15 @@ def test_local_mode_drops_github_credentials_even_when_allowlisted(tmp_path):
         }
     )
     proc = subprocess.run(
-        ["bash", str(RUNNER), "--config", str(cfg), "--output-dir", str(tmp_path / "res")],
+        [
+            "bash",
+            str(RUNNER),
+            "--trusted-target",
+            "--config",
+            str(cfg),
+            "--output-dir",
+            str(tmp_path / "res"),
+        ],
         capture_output=True,
         text=True,
         env=env,
@@ -550,7 +560,15 @@ def _fallback_fixture(tmp_path, *, engine_exit):
     # Adversarial: a hostile parent process could export this too.
     env["GIT_EXTERNAL_DIFF"] = str(driver)
     proc = subprocess.run(
-        ["bash", str(RUNNER), "--config-dir", str(configs), "--output-dir", str(results)],
+        [
+            "bash",
+            str(RUNNER),
+            "--trusted-target",
+            "--config-dir",
+            str(configs),
+            "--output-dir",
+            str(results),
+        ],
         capture_output=True,
         text=True,
         env=env,
@@ -692,7 +710,15 @@ def test_local_mode_runs_with_a_private_home(tmp_path):
         }
     )
     proc = subprocess.run(
-        ["bash", str(RUNNER), "--config", str(cfg), "--output-dir", str(tmp_path / "res")],
+        [
+            "bash",
+            str(RUNNER),
+            "--trusted-target",
+            "--config",
+            str(cfg),
+            "--output-dir",
+            str(tmp_path / "res"),
+        ],
         capture_output=True,
         text=True,
         env=env,
@@ -712,3 +738,29 @@ def test_local_mode_runs_with_a_private_home(tmp_path):
     assert engine_env["_git_email"] == "caller@example.test"
     # The private HOME is removed when the run ends.
     assert not home.is_dir()
+
+
+def test_safe_git_never_runs_a_git_from_the_callers_path(tmp_path):
+    # Qodo #464: a writable directory early in PATH could supply its own `git`
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-q", "-b", "main")
+    (repo / "f").write_text("x\n")
+    _git(repo, "add", "f")
+    _git(repo, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "x")
+    marker = tmp_path / "FAKE_GIT_RAN"
+    fake = tmp_path / "bin"
+    fake.mkdir()
+    (fake / "git").write_text(f"#!/bin/sh\ntouch '{marker}'\necho 0000000\n")
+    (fake / "git").chmod(0o755)
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    env["PATH"] = f"{fake}:{env['PATH']}"
+    r = subprocess.run(
+        ["bash", str(SKILL / "scripts" / "safe_git.sh"), "-C", str(repo), "rev-parse", "HEAD"],
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    assert r.returncode == 0, r.stderr
+    assert not marker.exists()
+    assert re.fullmatch(r"[0-9a-f]{40}", r.stdout.strip())
