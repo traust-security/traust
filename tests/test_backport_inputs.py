@@ -1672,3 +1672,22 @@ def test_an_incomplete_verdict_never_reports_success(tmp_path, record):
         assert row["status"] == "failed", (allow_legacy, row)
         assert "result.json is incomplete or malformed" in row["error"]
         assert "backport_commit" not in row or not row["backport_commit"]
+
+
+@pytest.mark.parametrize("exit_code", [0, 1])
+def test_an_engine_skipped_verdict_is_failed_in_the_report_and_the_batch_summary(
+    tmp_path, exit_code
+):
+    # Qodo #464: the report called it skipped while the runner counted it failed
+    results = tmp_path / "results"
+    _write_branch(
+        results / "release-a",
+        outcome="skipped",
+        result={"outcome": "skipped", "engine_exit_code": exit_code, "head_sha": ""},
+    )
+    report = emit.build_report(results, _NUM_REM)
+    [row] = report["target_branches"]
+    batch = _load("write_run_summary.py").build(results, ["release-a"], None)
+    assert row["status"] == "failed" and row["stop_reason"] == "error"
+    assert batch["failed"] == 1 and report["summary"]["failed"] == 1
+    assert batch["skipped"] == report["summary"]["skipped"] == 0

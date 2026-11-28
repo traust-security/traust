@@ -658,9 +658,11 @@ def _contract_status(status: str) -> tuple[str, str]:
     """(contract status, stop_reason) for a runner verdict."""
     if status in ("success", "passed"):
         return "succeeded", ""
-    if status in ("skipped", "pipeline_stop"):
-        # pipeline_stop: the fix is already on the target, so nothing was
-        # needed. The runner and run_summary.json count it as skipped too.
+    if status == "pipeline_stop":
+        # The fix is already on the target, so nothing was needed. This is the
+        # ONLY skipped verdict: the runner and run_summary.json count every
+        # other non-success outcome, an engine-reported "skipped" included, as
+        # failed, so the report must too.
         return "skipped", ""
     reason = {
         "pipeline_escalation": "pipeline_escalation",
