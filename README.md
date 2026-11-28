@@ -28,7 +28,7 @@ Then start your agent from the workflow engine's root directory and type `/` to 
  (inputs)                                    (analysis-results)    │   (progress-tracker → Drive, Slack, Jira)
                                                                    ├─▶ ⑤ Live validation  (validate-* / deploy-operator)
                                                                    ├─▶ ⑥ Fuzzing          (create-fuzzing)
-                                                                   └─▶ ⑦ Remediation      (remediate-finding / patch / property-test / verify)
+                                                                   └─▶ ⑦ Remediation      (remediate-finding / backport-fix / patch / property-test / verify)
 
   Stages ③–⑦ feed the append-only disposition ledger (track-findings), gated by human countersign;
   follow-up scans (vuln-scan, verify-remediation regressions, dependency-watch) enter it directly.

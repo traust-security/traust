@@ -1,0 +1,685 @@
+"""Branch-selection policy of the backport-fix generator: only
+deterministic patch-id matches may auto-exclude a branch."""
+
+import importlib.util
+import pathlib
+import re
+
+import pytest
+
+yaml = pytest.importorskip("yaml")
+
+_MOD_PATH = (
+    pathlib.Path(__file__).resolve().parent.parent
+    / "harnessing"
+    / "7-remediate"
+    / "backport-fix"
+    / "scripts"
+    / "generate_backport_configs.py"
+)
+_spec = importlib.util.spec_from_file_location("backport_gen", _MOD_PATH)
+gen = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(gen)
+
+
+class _EnumLike:
+    def __init__(self, value):
+        self.value = value
+
+
+@pytest.mark.parametrize(
+    "status,bucket",
+    [
+        ("EXACT_MATCH", "already_fixed"),
+        ("EQUIVALENT", "already_fixed"),
+        ("EQUIVALENT_PATCH", "already_fixed"),
+        ("NOT_AFFECTED", "branch_unaffected"),
+        ("NEEDS_FIX", "needs_fix"),
+        ("LIKELY_PRESENT", "ambiguous"),
+        ("AMBIGUOUS", "ambiguous"),
+        ("ERROR", "ambiguous"),
+        ("", "ambiguous"),
+        # scanner JSON display names (subprocess-fallback wire form):
+        # ALREADY_FIXED covers exactly EXACT_MATCH+EQUIVALENT; LIKELY_FIXED
+        # is the heuristic and must reach needs-review
+        ("ALREADY_FIXED", "already_fixed"),
+        ("LIKELY_FIXED", "ambiguous"),
+    ],
+)
+def test_bucket_names(status, bucket):
+    assert gen._bucket_scan_status(status) == bucket
+
+
+@pytest.mark.parametrize(
+    "wire,bucket",
+    [
+        ("exact_match", "already_fixed"),
+        ("equivalent_patch", "already_fixed"),
+        ("not_affected", "branch_unaffected"),
+        ("needs_fix", "needs_fix"),
+        ("likely_present", "ambiguous"),
+        ("ambiguous", "ambiguous"),
+        ("error", "ambiguous"),
+    ],
+)
+def test_bucket_wire_values_and_enum_members(wire, bucket):
+    assert gen._bucket_scan_status(wire) == bucket
+    assert gen._bucket_scan_status(_EnumLike(wire)) == bucket
+
+
+def test_likely_present_never_auto_excluded():
+    # The heuristic verdict must reach needs-review, not silent exclusion.
+    assert gen._bucket_scan_status("LIKELY_PRESENT") != "already_fixed"
+    assert gen._bucket_scan_status(_EnumLike("likely_present")) != "already_fixed"
+
+
+# ---------------------------------------------------------------------------
+# Subprocess fallback (used when backport_scanner is not importable in this
+# interpreter). Pins the three defects found against the current scanner:
+# stdout is not JSON, the report key is refs[] (name/raw_status), and the exit
+# code is a verdict (0/1/3) rather than a failure signal.
+# ---------------------------------------------------------------------------
+
+import json as _json
+import subprocess as _subprocess
+
+
+class _FakeRun:
+    def __init__(self, returncode, refs):
+        self.returncode = returncode
+        self.refs = refs
+        self.stderr = ""
+
+    def __call__(self, cmd, **kwargs):
+        # Interpreter probe (`-c "import backport_scanner..."`): report success.
+        if "--output" not in cmd:
+            return _subprocess.CompletedProcess(cmd, 0, "", "")
+        # The scanner writes JSON only to --output; stdout is human-readable.
+        out = cmd[cmd.index("--output") + 1]
+        pathlib.Path(out).write_text(_json.dumps({"refs": self.refs}))
+        return _subprocess.CompletedProcess(cmd, self.returncode, "REPORT TEXT\n", "")
+
+
+def _fallback(monkeypatch, returncode, refs):
+    monkeypatch.setattr(gen.subprocess, "run", _FakeRun(returncode, refs))
+    return gen.scan_branches_subprocess(pathlib.Path("/tmp/repo"), "a" * 40)
+
+
+@pytest.mark.parametrize("returncode", [0, 1, 3])
+def test_fallback_accepts_verdict_exit_codes(monkeypatch, returncode):
+    # 1 = needs_fix and 3 = ambiguous are successful scans, not failures.
+    buckets = _fallback(
+        monkeypatch,
+        returncode,
+        [
+            {"name": "release-a", "ref_type": "branch", "raw_status": "needs_fix"},
+        ],
+    )
+    assert buckets["needs_fix"] == ["release-a"]
+
+
+def test_fallback_reads_refs_name_and_raw_status(monkeypatch):
+    buckets = _fallback(
+        monkeypatch,
+        0,
+        [
+            {"name": "release-a", "ref_type": "branch", "raw_status": "exact_match"},
+            {"name": "release-b", "ref_type": "branch", "raw_status": "likely_present"},
+            {"name": "release-c", "ref_type": "branch", "raw_status": "not_affected"},
+            {"name": "v1.0", "ref_type": "tag", "raw_status": "needs_fix"},
+        ],
+    )
+    assert buckets["already_fixed"] == ["release-a"]
+    # heuristic verdict still reaches needs-review, never auto-exclusion
+    assert buckets["ambiguous"] == ["release-b"]
+    assert buckets["branch_unaffected"] == ["release-c"]
+    assert buckets["total"] == 3  # Qodo #464: the total of a successful subprocess report
+    # tags are not branch-selection candidates
+    assert buckets["total"] == 3
+
+
+def test_fallback_rejects_exit_2(monkeypatch):
+    monkeypatch.setattr(gen.subprocess, "run", _FakeRun(2, []))
+    with pytest.raises(SystemExit):
+        gen.scan_branches_subprocess(pathlib.Path("/tmp/repo"), "a" * 40)
+
+
+# ---------------------------------------------------------------------------
+# go.mod parsing: version-qualified replace directives and ref errors
+# ---------------------------------------------------------------------------
+
+
+def test_version_qualified_replace_only_applies_to_the_required_version():
+    # replace dep v1.0.0 => dep v1.9.0 does NOT apply when v1.2.0 is required;
+    # honouring it unconditionally made a vulnerable branch look bumped.
+    text = "module x\nrequire dep v1.2.0\nreplace dep v1.0.0 => dep v1.9.0\n"
+    assert gen._module_version_from_gomod(text, "dep") == "v1.2.0"
+
+
+def test_version_qualified_replace_applies_when_it_matches():
+    text = "module x\nrequire dep v1.2.0\nreplace dep v1.2.0 => dep v1.9.0\n"
+    assert gen._module_version_from_gomod(text, "dep") == "v1.9.0"
+
+
+def test_unqualified_replace_still_applies():
+    text = "module x\nrequire dep v1.2.0\nreplace dep => dep v1.9.0\n"
+    assert gen._module_version_from_gomod(text, "dep") == "v1.9.0"
+
+
+def test_path_replace_is_ambiguous():
+    text = "module x\nrequire dep v1.2.0\nreplace dep => ../local\n"
+    assert gen._module_version_from_gomod(text, "dep") == "path"
+
+
+def test_unknown_ref_is_ambiguous_not_absent(tmp_path):
+    import subprocess
+
+    subprocess.run(["git", "init", "-q", "-b", "main", str(tmp_path)], check=True)
+    # A missing ref must never read as "module absent" (=> BRANCH_UNAFFECTED).
+    assert gen.module_version_at(tmp_path, "origin/does-not-exist", "dep") == (
+        "ambiguous",
+        None,
+    )
+
+
+def test_exact_replace_beats_wildcard_regardless_of_order():
+    # Go: an exact-version replacement wins over a wildcard one, whatever the
+    # directive order. Last-match-wins inverted this and hid a vulnerable pin.
+    text = (
+        "module x\nrequire dep v1.2.0\n"
+        "replace dep => dep v1.9.0\n"
+        "replace dep v1.2.0 => dep v1.3.0\n"
+    )
+    assert gen._module_version_from_gomod(text, "dep") == "v1.3.0"
+
+
+def test_safe_slug_is_allowlisted_and_collision_safe():
+    used = set()
+    slug = gen.safe_slug("release-1';__import__('os').system('id');'", used)
+    assert re.fullmatch(r"[A-Za-z0-9._-]+", slug), slug
+    dotted = gen.safe_slug("release-1.2", used)
+    slashed = gen.safe_slug("release-1/2", used)
+    assert dotted != slashed, (dotted, slashed)
+
+
+def test_slug_collision_suffix_is_itself_checked():
+    used = set()
+    first = gen.safe_slug("release-1.2", used)
+    # Pre-seed the obvious hash candidate so the allocator must keep going.
+    import hashlib
+
+    digest = hashlib.sha256(b"release-1/2").hexdigest()[:8]
+    used.add(f"{first}-{digest}")
+    second = gen.safe_slug("release-1/2", used)
+    assert second not in used - {second}
+    assert second != f"{first}-{digest}"
+    assert len({first, second}) == 2
+
+
+def test_slug_never_yields_a_dot_directory():
+    assert gen.safe_slug("..") == "branch"
+    assert gen.safe_slug("...yaml") == "yaml"
+
+
+def test_config_uses_the_allocated_slug_for_issue_id_and_workdir(tmp_path):
+    cfg = gen.make_config_yaml(
+        repo_path=tmp_path,
+        fix_commit="a" * 40,
+        target_branch="release-1/2",
+        source_branch="main",
+        bug_description="t",
+        safe_branch="release-1-2-deadbeef",
+    )
+    assert "release-1-2-deadbeef" in cfg["issue_id"]
+    assert "release-1-2-deadbeef" in cfg["repository"]["workdir"]
+
+
+def test_triage_enrichment_follows_the_finding_reference(tmp_path):
+    import json
+
+    triage = tmp_path / "triage.json"
+    triage.write_text(
+        json.dumps(
+            {
+                "findings": [
+                    {"id": "f001", "title": "unrelated", "severity": "low"},
+                    {"id": "f002", "title": "wanted", "severity": "high"},
+                ]
+            }
+        )
+    )
+    assert gen.read_triage(triage, ["repo-triage.json#f002"])["title"] == "wanted"
+    assert gen.read_triage(triage, ["repo-triage.json#f002"])["severity"] == "high"
+    # no match -> first finding, as before
+    assert gen.read_triage(triage, ["nope#f999"])["title"] == "unrelated"
+
+
+@pytest.mark.parametrize(
+    "fid",
+    [
+        "cve-0000-12345",
+        "fix-cve-0000-12345",  # embedded, not anchored
+        "ghsa-abcd-efgh-ijkl",  # GHSA advisory
+        "GHSA-ABCD-EFGH-IJKL",  # advisories are usually uppercase
+        "pre-ghsa-abcd-efgh-ijkl-post",  # embedded GHSA
+    ],
+)
+def test_advisory_ids_never_reach_issue_id(fid):
+    # Pushed ref names and the preservation branch must not disclose them.
+    assert (
+        gen.slug_issue_id([f"triage.json#{fid}"], "widget", "release-a", "deadbeef")
+        == "backport-release-a-deadbeef"
+    )
+
+
+def test_plain_finding_id_still_shapes_the_issue_id():
+    assert (
+        gen.slug_issue_id(["triage.json#f001"], "widget", "release-a", "deadbeef")
+        == "backport-widget-f001-release-a"
+    )
+
+
+def _fake_report_run(payload_text, returncode):
+    class _Run:
+        stderr = ""
+
+        def __call__(self, cmd, **kwargs):
+            if "--output" not in cmd:
+                return _subprocess.CompletedProcess(cmd, 0, "", "")
+            pathlib.Path(cmd[cmd.index("--output") + 1]).write_text(payload_text)
+            return _subprocess.CompletedProcess(cmd, returncode, "", "")
+
+    return _Run()
+
+
+def test_fallback_fails_closed_when_the_scanner_reports_ref_errors(monkeypatch):
+    # A crash also exits 1; only the report can distinguish it from the
+    # "needs_fix present" verdict.
+    monkeypatch.setattr(
+        gen.subprocess,
+        "run",
+        _fake_report_run(_json.dumps({"summary": {"errors": 2}, "refs": []}), 1),
+    )
+    with pytest.raises(SystemExit):
+        gen.scan_branches_subprocess(pathlib.Path("/tmp/repo"), "a" * 40)
+
+
+def test_fallback_fails_closed_on_a_malformed_report(monkeypatch):
+    monkeypatch.setattr(gen.subprocess, "run", _fake_report_run("{not json", 1))
+    with pytest.raises(SystemExit):
+        gen.scan_branches_subprocess(pathlib.Path("/tmp/repo"), "a" * 40)
+
+
+# ---------------------------------------------------------------------------
+# find_bump_commit: an ambiguous parent is not proof of a vulnerable parent
+# ---------------------------------------------------------------------------
+
+
+class _FakeRevGit:
+    def __init__(self, shas, has_parent=True):
+        self.shas = list(shas)
+        self.has_parent = has_parent
+
+    def __call__(self, cmd, **kwargs):
+        if "rev-list" in cmd:
+            return _subprocess.CompletedProcess(cmd, 0, " ".join(self.shas), "")
+        if "rev-parse" in cmd:
+            return _subprocess.CompletedProcess(cmd, 0 if self.has_parent else 1, "", "")
+        raise AssertionError(cmd)
+
+
+def _bump(monkeypatch, versions, shas=("c1",), has_parent=True):
+    def fake_at(repo, ref, module):
+        return versions.get(ref, ("absent", None))
+
+    monkeypatch.setattr(gen, "module_version_at", fake_at)
+    monkeypatch.setattr(gen.subprocess, "run", _FakeRevGit(shas, has_parent=has_parent))
+    return gen.find_bump_commit(pathlib.Path("/tmp/repo"), "origin/main", "dep", "v1.71.3")
+
+
+def _fixed(version):
+    return ("found", version)
+
+
+def test_bump_accepts_a_vulnerable_parent(monkeypatch):
+    result = _bump(
+        monkeypatch,
+        {
+            "origin/main": _fixed("v1.80.0"),
+            "c1": _fixed("v1.80.0"),
+            "c1~1": _fixed("v1.50.0"),
+        },
+    )
+    assert result == ("found", "c1")
+
+
+def test_bump_accepts_a_newly_introduced_module(monkeypatch):
+    result = _bump(
+        monkeypatch,
+        {
+            "origin/main": _fixed("v1.80.0"),
+            "c1": _fixed("v1.80.0"),
+            "c1~1": ("absent", None),
+        },
+    )
+    assert result == ("found", "c1")
+
+
+def test_bump_walks_past_an_already_fixed_parent(monkeypatch):
+    result = _bump(
+        monkeypatch,
+        {
+            "origin/main": _fixed("v1.80.0"),
+            "c1": _fixed("v1.80.0"),
+            "c1~1": _fixed("v1.80.0"),
+            "c2": _fixed("v1.80.0"),
+            "c2~1": _fixed("v1.50.0"),
+        },
+        shas=("c1", "c2"),
+    )
+    assert result == ("found", "c2")
+
+
+def test_bump_fails_closed_on_an_ambiguous_parent(monkeypatch):
+    # The parent's state cannot prove vulnerability; do not return the child.
+    result = _bump(
+        monkeypatch,
+        {
+            "origin/main": _fixed("v1.80.0"),
+            "c1": _fixed("v1.80.0"),
+            "c1~1": ("ambiguous", None),
+        },
+    )
+    assert result == ("not_located", None)
+
+
+def test_bump_fails_closed_on_an_uncomparable_parent_version(monkeypatch):
+    result = _bump(
+        monkeypatch,
+        {
+            "origin/main": _fixed("v1.80.0"),
+            "c1": _fixed("v1.80.0"),
+            "c1~1": _fixed("not-a-version"),
+        },
+    )
+    assert result == ("not_located", None)
+
+
+def test_bump_accepts_the_root_commit(monkeypatch):
+    result = _bump(
+        monkeypatch,
+        {
+            "origin/main": _fixed("v1.80.0"),
+            "c1": _fixed("v1.80.0"),
+            "c1~1": _fixed("v1.50.0"),
+        },
+        has_parent=False,
+    )
+    assert result == ("found", "c1")
+
+
+def test_long_branch_slug_is_capped_and_deterministic():
+    # Branch names are attacker-controlled and legally long; the slug lands in
+    # filenames, workdirs and ref components, all capped at 255 bytes.
+    long_a = "release-" + "a" * 240
+    long_b = "release-" + "a" * 239 + "b"
+    slug_a = gen.safe_slug(long_a)
+    slug_b = gen.safe_slug(long_b)
+    assert len(slug_a) <= gen._SLUG_MAX
+    assert slug_a == gen.safe_slug(long_a)  # deterministic
+    assert slug_a != slug_b  # differs only past the cap
+
+
+def test_long_branch_fits_every_downstream_component(tmp_path):
+    long_branch = "release-" + "c" * 240
+    slug = gen.safe_slug(long_branch)
+    cfg = gen.make_config_yaml(
+        repo_path=tmp_path,
+        fix_commit="a" * 40,
+        target_branch=long_branch,
+        source_branch="main",
+        bug_description="t",
+        finding_refs=["triage.json#f001"],
+        repo_slug="widget",
+        safe_branch=slug,
+    )
+    assert len(f"{slug}.yaml".encode()) <= 255
+    assert len(pathlib.Path(cfg["repository"]["workdir"]).name.encode()) <= 255
+    assert len(cfg["issue_id"].encode()) <= 255
+    assert len(f"refs/heads/amalgamator/{cfg['issue_id']}".encode()) <= 255
+    assert (
+        gen.slug_issue_id(["triage.json#f001"], "widget", slug, "deadbeef").encode()
+        == cfg["issue_id"].encode()
+    )
+
+
+# ---------------------------------------------------------------------------
+# Qodo findings: duplicate --branches entries and credential-bearing logs
+# ---------------------------------------------------------------------------
+
+
+def test_duplicate_branches_are_deduplicated():
+    # A repeated entry generated two configs with different slugs but one
+    # target ref, running the same release twice.
+    assert gen._dedupe_branches(["release-a", "release-a", " release-b ", ""]) == [
+        "release-a",
+        "release-b",
+    ]
+    assert gen.list_release_branches(
+        pathlib.Path("/nonexistent"), None, ["release-a", "release-a"]
+    ) == ["release-a"]
+
+
+def _credential_origin_repo(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    _subprocess.run(
+        [
+            "git",
+            "-C",
+            str(repo),
+            "remote",
+            "add",
+            "origin",
+            "https://x-access-token:ghp_SECRET@github.com/o/r",
+        ],
+        check=True,
+    )
+    return repo
+
+
+def _impact(tmp_path, entry_repo):
+    path = tmp_path / "impact.json"
+    path.write_text(
+        _json.dumps(
+            {
+                "metadata": {"cve": "CVE-0000-00001", "module": "m", "fixed_version": "1.2.3"},
+                "repos": [
+                    {
+                        "repo": entry_repo,
+                        "classification": "version_not_in_range",
+                        "version": "v1.0.0",
+                    }
+                ],
+            }
+        )
+    )
+    return path
+
+
+def test_impact_match_logs_and_records_no_credentials(tmp_path, caplog):
+    repo = _credential_origin_repo(tmp_path)
+    path = _impact(tmp_path, "repo:https://x-access-token:ghp_SECRET2@github.com/o/r")
+    meta = gen.read_impact(path, repo, None)
+    assert "ghp_SECRET" not in caplog.text and "ghp_SECRET2" not in caplog.text
+    assert "ghp_SECRET" not in _json.dumps(meta)
+    assert meta["repo_id"] == "https://github.com/o/r"
+
+
+def test_impact_mismatch_logs_no_credentials(tmp_path, caplog):
+    repo = _credential_origin_repo(tmp_path)
+    path = _impact(tmp_path, "repo:https://github.com/other/x")
+    with pytest.raises(SystemExit):
+        gen.read_impact(path, repo, None)
+    assert "ghp_SECRET" not in caplog.text
+
+
+# --- Rule S10: generated build/test steps run through safe-exec -------------
+
+_RUN = ["-I", "-m", "traust.cli", "util", "safe-exec", "run"]
+
+
+def _steps(wrapped: str) -> list[list[str]]:
+    """Split a generated command the way a shell would: only an unquoted `&&`."""
+    import shlex
+
+    parts, cur, quote, i = [], [], "", 0
+    while i < len(wrapped):
+        c = wrapped[i]
+        if c == quote:
+            quote = ""
+        elif not quote and c in "'\"":
+            quote = c
+        if not quote and wrapped.startswith(" && ", i):
+            parts.append("".join(cur))
+            cur, i = [], i + 4
+            continue
+        cur.append(wrapped[i])
+        i += 1
+    parts.append("".join(cur))
+    return [shlex.split(p) for p in parts]
+
+
+def test_generated_build_and_test_commands_are_routed_through_safe_exec(tmp_path):
+    cfg = gen.make_config_yaml(
+        repo_path=tmp_path,
+        fix_commit="a" * 40,
+        target_branch="release-1",
+        source_branch="main",
+        bug_description="t",
+        build_cmd="go build ./...",
+        test_cmd="go test ./... && go vet ./...",
+        model="m",
+    )
+    build = cfg["build"]
+    plain = {
+        "command": [["go", "build", "./..."]],
+        "test_command": [["go", "test", "./..."], ["go", "vet", "./..."]],
+    }
+    for key, want in plain.items():
+        steps = _steps(build[key])
+        assert [s[s.index("--") + 1 :] for s in steps] == want  # the argv itself is unchanged
+        for step in steps:
+            assert pathlib.Path(step[0]).is_absolute()  # the pinned traust interpreter
+            assert step[1:7] == _RUN
+            assert step[step.index("--profile") + 1] == "go-fuzz"
+            assert step[step.index("--timeout") + 1] == str(gen.SAFE_EXEC_TIMEOUT)
+
+
+def test_an_empty_or_already_routed_command_is_left_alone():
+    assert gen.wrap_safe_exec("") == ""
+    routed = gen.wrap_safe_exec("make --version")
+    assert gen.wrap_safe_exec(routed) == routed
+
+
+@pytest.mark.parametrize(
+    "supplied",
+    [
+        "/tmp/evil/python3 -m traust.cli util safe-exec run --profile go-fuzz -- make --version",
+        "/tmp/evil/python3 -I -m traust.cli util safe-exec run --profile no-such -- make --version",
+        "python3 -m traust.cli util safe-exec run --timeout 1 -- make --version",
+    ],
+    ids=["foreign python", "unknown profile", "no profile"],
+)
+def test_a_pre_routed_step_is_re_routed_never_trusted(supplied):
+    # Qodo #464: a remediation JSON's command in the routed shape went out verbatim
+    assert gen.wrap_safe_exec(supplied) == gen.wrap_safe_exec("make --version")
+
+
+def test_safe_exec_looking_arguments_are_not_unwrapped():
+    # Qodo #464: `_inner` unwrapped any argv that merely contained the routed tokens
+    wrapped = gen.wrap_safe_exec("make -m traust.cli util safe-exec run -- go version")
+    [step] = _steps(wrapped)
+    assert step[step.index("--") + 1 :] == [
+        "make",
+        "-m",
+        "traust.cli",
+        "util",
+        "safe-exec",
+        "run",
+        "--",
+        "go",
+        "version",
+    ]
+
+
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        "/tmp/anything -m traust.cli util safe-exec run --profile go-fuzz -- make --version",
+        "python3 -m traust.cli util safe-exec run --cwd /x -- make --version",
+        "python3 -m traust.cli util safe-exec run --timeout soon -- make --version",
+        "python3 -m traust.cli util safe-exec run --profile go-fuzz",
+    ],
+    ids=["non-python head", "unknown option", "bad timeout", "no argv"],
+)
+def test_a_malformed_or_foreign_routed_step_is_refused(cmd):
+    with pytest.raises(SystemExit):
+        gen.wrap_safe_exec(cmd)
+
+
+def test_a_quoted_operator_is_an_argument_not_a_step_boundary():
+    steps = _steps(gen.wrap_safe_exec("make -n 'X=&&' '&&' \"it's && ok\" && make -v"))
+    assert [s[s.index("--") + 1 :] for s in steps] == [
+        ["make", "-n", "X=&&", "&&", "it's && ok"],
+        ["make", "-v"],
+    ]
+
+
+@pytest.mark.parametrize(
+    ("cmd", "why"),
+    [
+        ("make --version\ngo vet ./...", "line break"),
+        (
+            "python3 -m traust.cli util safe-exec run --profile go-fuzz -- make\ncurl x",
+            "line break",
+        ),
+        ("go vet ./... *", "glob"),
+        ("go vet ~/src", "home expansion"),
+        ("go vet {a,b}", "glob"),
+        ("echo 'unterminated", "unterminated"),
+    ],
+)
+def test_what_a_shell_would_reinterpret_is_refused(cmd, why):
+    with pytest.raises(SystemExit, match=why):
+        gen.wrap_safe_exec(cmd)
+
+
+def test_a_checkout_shipping_its_own_traust_cli_does_not_replace_the_sandbox(tmp_path):
+    # Qodo #464: `python -m` puts the cwd (the checkout) first on sys.path
+    fake = tmp_path / "traust" / "cli"
+    fake.mkdir(parents=True)
+    for d in (tmp_path / "traust", fake):
+        (d / "__init__.py").write_text("")
+    (fake / "__main__.py").write_text("import pathlib; pathlib.Path('HIJACKED').write_text('x')\n")
+    [step] = _steps(gen.wrap_safe_exec("make --version"))
+    r = _subprocess.run(step, cwd=tmp_path, capture_output=True, text=True, timeout=120)
+    assert not (tmp_path / "HIJACKED").exists()
+    assert r.returncode == 0 and "Make" in r.stdout
+
+
+@pytest.mark.parametrize(
+    ("cmd", "why"),
+    [
+        ("GOMAXPROCS=2 make", "leading assignment"),
+        ("make build | tee log", "needs a shell"),
+        ("make build; make test", "needs a shell"),
+        ("go build $PKG", "shell expansion"),
+        ("go build && ", "empty step"),
+        ("curl https://example.invalid", "passes no safe-exec profile"),
+    ],
+)
+def test_a_command_safe_exec_cannot_run_fails_the_generator_closed(cmd, why):
+    with pytest.raises(SystemExit, match=why):
+        gen.wrap_safe_exec(cmd)

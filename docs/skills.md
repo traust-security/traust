@@ -51,6 +51,7 @@ field on every skill.
 | [validate-browser-finding](#validate-browser-finding) | ⑤ Validation | `primary` | `/validate-browser-finding` |
 | [validate-findings](#validate-findings) | ⑤ Validation | `primary` | `/validate-findings` |
 | [create-fuzzing](#create-fuzzing) | ⑥ Fuzzing | `primary` | `/create-fuzzing` |
+| [backport-fix](#backport-fix) | ⑦ Remediation | `primary` | `/backport-fix` |
 | [fleet-fix](#fleet-fix) | ⑦ Remediation | `primary` | `/fleet-fix` |
 | [patch](#patch) | ⑦ Remediation | `primary` | `/patch` |
 | [property-test](#property-test) | ⑦ Remediation | `primary` | `/property-test` |
@@ -291,6 +292,16 @@ Use when the user asks to write, scaffold, run, or extend a fuzz harness for a p
 - **Invoke:** `/create-fuzzing`
 - **Skill:** [harnessing/6-fuzz/create-fuzzing/SKILL.md](../harnessing/6-fuzz/create-fuzzing/SKILL.md)
 - **Produces / consumes:** [Integrations](../harnessing/6-fuzz/create-fuzzing/SKILL.md#integrations)
+
+## backport-fix
+
+Use when a security fix has been applied to one branch (typically main or the latest release) and needs propagating to older supported release branches — "backport this fix", "propagate fix to older releases", "which branches still need this CVE fix?". Scans release branches to identify which ones are still vulnerable, generates Amalgamator configuration YAMLs, runs the multi-phase backport pipeline per branch, and emits a schema-validated backport report with candidate patches.
+
+- **Stage:** ⑦ Remediation
+- **Tier:** `primary`
+- **Invoke:** `/backport-fix` — arguments: `<remediation-json | --impact impact-json> [--repo <path>] [--branches <pattern>] [--scan-only]`
+- **Skill:** [harnessing/7-remediate/backport-fix/SKILL.md](../harnessing/7-remediate/backport-fix/SKILL.md)
+- **Produces / consumes:** [Integrations](../harnessing/7-remediate/backport-fix/SKILL.md#integrations)
 
 ## fleet-fix
 

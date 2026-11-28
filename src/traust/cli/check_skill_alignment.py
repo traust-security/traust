@@ -416,6 +416,13 @@ EXEMPTIONS: dict[tuple[str, str], str] = {
     "skill gained its Integrations section",
     (
         "A9",
+        "backport-fix:*-backport-report.json",
+    ): "human-review record of one fix's propagation across release branches: "
+    "delivering a backported branch is a human decision (deliver_backport.sh is "
+    "deliberately not granted), so no skill reads the report; its advisory "
+    "worklist is the only machine-facing output",
+    (
+        "A9",
         "security-audit-phased:phase4-final.json",
     ): "terminal report of the phased lane; enters the pipeline via /triage generic JSON ingest",
     (

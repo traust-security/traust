@@ -1,0 +1,480 @@
+#!/usr/bin/env python3
+"""
+make_remediation.py — Synthesize a remediation JSON from a triage finding.
+
+`remediate-finding` emits a *-remediation.json as the byproduct of actually
+producing a fix. When the fix ALREADY exists as a commit (upstream, a
+sustaining fork, a teammate's PR), there is nothing to remediate — but
+backport-fix still needs that artifact as its Seam B input. This builds a
+schema-valid one from the finding plus the existing commit.
+
+The patch block is derived from the commit itself (git numstat/name-status),
+so files_changed/diffstat describe the real fix rather than hand-typed
+guesses. Checks default to `skip` — claiming `pass` for a build nobody ran
+here would be a lie; pass --check-outcome pass when the commit is known
+green.
+
+Usage:
+    python3 make_remediation.py \
+        --triage analysis-results/<product>/<repo>/widget-triage.json \
+        --finding f001 \
+        --fix-commit 79a4de5 \
+        --repo /path/to/clone \
+        --out widget.f001-remediation.json
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import logging
+import re
+import subprocess
+import sys
+from datetime import date
+from pathlib import Path
+
+# Sibling module in this same directory; see the NOTE in emit_backport_report.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import _harness_paths as _paths
+
+log = logging.getLogger(__name__)
+
+_SEVERITIES = ("critical", "high", "medium", "low", "informational")
+_CHANGE_TYPE = {"A": "added", "M": "modified", "D": "deleted", "R": "renamed"}
+# schema/remediation.schema.json $defs.fix_strategy
+_STRATEGIES = (
+    "input-validation",
+    "bound-resource",
+    "rbac-scope-down",
+    "auth-add",
+    "tls-enforce",
+    "url-allowlist",
+    "digest-pin",
+    "config-default-harden",
+    "api-restrict",
+    "remove-feature",
+    "dependency-bump",
+    "other",
+)
+_CWE_RE = re.compile(r"^CWE-\d{1,5}$")
+
+
+def git(repo: Path, *args: str) -> str:
+    try:
+        r = subprocess.run(
+            ["git", "-C", str(repo), *args],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except subprocess.TimeoutExpired:
+        raise SystemExit(f"git {' '.join(args)} timed out in {repo}") from None
+    if r.returncode != 0:
+        raise RuntimeError(f"git {' '.join(args)} failed: {r.stderr.strip()}")
+    return r.stdout.strip()
+
+
+def find_entry(report: dict, finding_id: str) -> dict:
+    for f in report.get("findings", []):
+        if str(f.get("id", "")) == finding_id:
+            return f
+    raise SystemExit(
+        f"finding {finding_id!r} not found (ids: "
+        f"{[f.get('id') for f in report.get('findings', [])][:10]})"
+    )
+
+
+def resolve_audit(
+    triage_path: Path, triage_finding: dict, explicit: Path | None
+) -> tuple[dict | None, str]:
+    """Locate the audit report backing a triage finding; returns (audit, audit_finding_id)."""
+    source = str(triage_finding.get("source", ""))
+    audit_id = source.rsplit("#", 1)[-1] if "#" in source else ""
+    path = explicit
+    if path is None and source:
+        candidate = triage_path.parent / source.split("#", 1)[0]
+        if candidate.is_file():
+            path = candidate
+    if path is None or not path.is_file():
+        return None, audit_id
+    with Path(path).open() as f:
+        audit = json.load(f)
+    if not audit_id:
+        # An explicit --audit names the report but not the entry: join on the
+        # finding id (the same id the audit uses), or take the sole finding of
+        # a per-finding audit. Without this the file was loaded and ignored.
+        findings = audit.get("findings") if isinstance(audit, dict) else None
+        if isinstance(findings, list) and len(findings) == 1:
+            audit_id = str(findings[0].get("id") or triage_finding.get("id", "")).strip()
+        else:
+            audit_id = str(triage_finding.get("id", "")).strip()
+    return audit, audit_id
+
+
+def patch_block(repo: Path, sha: str, strategy: str, rationale: str) -> dict:
+    """Derive files_changed/diffstat from the commit itself.
+
+    A merge commit's own `git show` is a combined diff and is usually empty
+    even when the merge brings the fix in, so a merge is diffed against its
+    first parent (its effect on the mainline) instead.
+    """
+    parents = git(repo, "rev-list", "--parents", "-n", "1", sha).split()[1:]
+    if len(parents) > 1:
+        name_args = ("diff", "--name-status", f"{sha}^1", sha)
+        num_args = ("diff", "--numstat", f"{sha}^1", sha)
+    else:
+        name_args = ("show", "--name-status", "--format=", sha)
+        num_args = ("show", "--numstat", "--format=", sha)
+
+    files: list[dict] = []
+    for line in git(repo, *name_args).splitlines():
+        parts = line.split("\t")
+        if len(parts) < 2:
+            continue
+        files.append(
+            {
+                "path": parts[-1],
+                "change_type": _CHANGE_TYPE.get(parts[0][:1], "modified"),
+            }
+        )
+    additions = deletions = 0
+    for line in git(repo, *num_args).splitlines():
+        cols = line.split("\t")
+        if len(cols) >= 3 and cols[0].isdigit() and cols[1].isdigit():
+            additions += int(cols[0])
+            deletions += int(cols[1])
+    if not files:
+        raise SystemExit(f"commit {sha} changes no files — wrong commit?")
+    return {
+        "strategy": strategy,
+        "rationale": rationale,
+        "files_changed": files,
+        "diffstat": {"files": len(files), "additions": additions, "deletions": deletions},
+    }
+
+
+def harness_version() -> str:
+    return _paths.harness_version(with_rev=True)
+
+
+def normalize_repo_url(url: str) -> str:
+    """https URL for a git remote, with any embedded credential removed."""
+    url = _paths.strip_url_credentials(url).removesuffix(".git")
+    scp = re.match(r"^(?P<user>[^/@:]+)@(?P<host>[^/:]+):(?P<path>.+)$", url)
+    if scp:
+        clean = f"https://{scp['host']}/{scp['path']}"
+        return _paths.strip_url_credentials(clean).removesuffix(".git")
+    for pre in ("ssh://", "git://"):
+        if url.startswith(pre):
+            return "https://" + url.removeprefix(pre)
+    return url
+
+
+def explicit_repo_url(url: str, flag: str) -> str:
+    """An operator-given --repo-url / --fork-url as a credential-free https URL.
+
+    The same scp-style (`user@host:path`) and ssh:// / git:// handling as a
+    discovered remote, so `token@host:org/repo` never reaches the artifact with
+    its userinfo; anything that is not then a plain https URL is refused."""
+    value = _paths.strip_url_credentials(url)
+    scp = re.match(r"^(?P<user>[^/@:]+)@(?P<host>[^/:]+):(?P<path>.+)$", value)
+    if scp:
+        value = _paths.strip_url_credentials(f"https://{scp['host']}/{scp['path']}")
+    for pre in ("ssh://", "git://"):
+        if value.startswith(pre):
+            value = _paths.strip_url_credentials("https://" + value.removeprefix(pre))
+    if not re.fullmatch(r"https://[^/@\s]+/\S+", value):
+        raise SystemExit(f"{flag} must be an https (or scp-style) repository URL, got {value!r}")
+    return value
+
+
+def build(args) -> dict:
+    with Path(args.triage).open() as f:
+        triage = json.load(f)
+    tf = find_entry(triage, args.finding)
+    audit, audit_id = resolve_audit(args.triage, tf, args.audit)
+    af = {}
+    if audit and audit_id:
+        try:
+            af = find_entry(audit, audit_id)
+        except SystemExit:
+            log.warning("audit finding %s not found; falling back to triage fields", audit_id)
+
+    cwes = list(args.cwe) or list(af.get("cwes") or [])
+    bad = [c for c in cwes if not _CWE_RE.match(str(c))]
+    if bad:
+        raise SystemExit(f"invalid CWE id(s) {bad} — expected CWE-NNN")
+    if not cwes:
+        where = (
+            "the resolved audit finding carries none"
+            if af
+            else "no audit finding was resolved (triage `source` missing or not "
+            "'<audit>.json#<id>')"
+        )
+        raise SystemExit(
+            f"no CWEs: {where} — pass --cwe CWE-NNN (repeatable) or --audit <security-audit.json>"
+        )
+
+    locations = af.get("locations") or []
+    if not locations:
+        path = tf.get("file")
+        if not path:
+            raise SystemExit("no locations: finding has no file, and no audit report was resolved")
+        loc = {"path": path}
+        if tf.get("line"):
+            loc["lines"] = str(tf["line"])
+        locations = [loc]
+
+    # The finding's recorded severity is carried as-is: never a default, never typed here
+    # (CVSS plan D1, D16). The remediation contract requires one, so none fails closed.
+    # A scanner's claimed_severity is an unverified claim, never the remediation's
+    # severity: only the triaged or audited value counts. Triage decides when it has
+    # the field: an explicit null (rejected or undetermined) never falls back to the
+    # audit's severity. The audit's counts only when triage has no severity field.
+    stated = tf.get("severity") if "severity" in tf else af.get("severity")
+    if not stated:
+        raise SystemExit(
+            "no severity: neither the triage finding nor its audit finding has an "
+            "adjudicated one; triage the finding first"
+        )
+    severity = str(stated).lower()
+    if severity not in _SEVERITIES:
+        raise SystemExit(
+            f"severity {stated!r} is not one of {', '.join(_SEVERITIES)}; "
+            "fix the triage or audit record"
+        )
+
+    title = args.title or tf.get("title") or af.get("title") or f"Finding {args.finding}"
+    try:
+        fix_commit = git(args.repo, "rev-parse", f"{args.fix_commit}^{{commit}}")
+    except RuntimeError as e:
+        raise SystemExit(f"--fix-commit not resolvable in {args.repo}: {e}") from e
+    if args.repo_url:
+        repo_url = explicit_repo_url(args.repo_url, "--repo-url")
+    else:
+        try:
+            repo_url = normalize_repo_url(git(args.repo, "remote", "get-url", "origin"))
+        except RuntimeError:
+            raise SystemExit(f"{args.repo} has no 'origin' remote — pass --repo-url") from None
+
+    base_ref = args.base_ref
+    if not base_ref:
+        try:
+            base_ref = git(
+                args.repo, "symbolic-ref", "refs/remotes/origin/HEAD", "--short"
+            ).removeprefix("origin/")
+        except Exception:
+            base_ref = "main"
+
+    audited = args.audited_commit
+    if not audited:
+        try:
+            audited = git(args.repo, "rev-parse", "--short", f"{fix_commit}^")
+        except Exception:
+            audited = ""
+
+    checks = []
+    if args.build_cmd:
+        checks.append({"name": "build", "command": args.build_cmd, "outcome": args.check_outcome})
+    if args.test_cmd:
+        checks.append(
+            {"name": "unit-tests", "command": args.test_cmd, "outcome": args.check_outcome}
+        )
+    if not checks:
+        raise SystemExit("--build-cmd and/or --test-cmd is required (backport-fix reads them)")
+
+    metadata = {
+        "date": args.date or date.today().isoformat(),
+        "harness_version": harness_version(),
+        "logical_product": args.product or repo_url.rstrip("/").rsplit("/", 1)[-1],
+        "repository": repo_url,
+        "operator": args.operator,
+    }
+    if audited:
+        metadata["audited_commit"] = audited
+    if args.language:
+        metadata["language"] = args.language
+
+    source_finding = {
+        "finding_ref": f"{args.triage.name}#{args.finding}",
+        "title": title,
+        "severity": severity,
+        "cwes": cwes,
+        "locations": locations,
+    }
+    # Thread the audit path through so the backport report's
+    # verification_hint can name the original audit.
+    audit_path = args.audit
+    if audit_path is None and audit is not None:
+        source = str(tf.get("source", ""))
+        candidate = args.triage.parent / source.split("#", 1)[0]
+        if candidate.is_file():
+            audit_path = candidate
+    if audit_path is not None:
+        source_finding["audit_report_path"] = str(audit_path)
+
+    passed = sum(1 for c in checks if c["outcome"] == "pass")
+    return {
+        "title": f"Remediation: {title}",
+        "metadata": metadata,
+        "source_findings": [source_finding],
+        "fork": {
+            "url": explicit_repo_url(args.fork_url, "--fork-url") if args.fork_url else repo_url,
+            "visibility": args.visibility,
+            "base_ref": base_ref,
+            "fix_branch": args.fix_branch or f"ex-wing/{args.finding}",
+            "fix_commit": fix_commit,
+            "upstream_remote": repo_url,
+        },
+        "patch": patch_block(
+            args.repo,
+            fix_commit,
+            args.strategy,
+            args.rationale
+            or f"Existing fix {fix_commit[:10]} closes {args.finding}; "
+            "recorded for propagation to release branches.",
+        ),
+        "checks": checks,
+        "summary": {
+            "status": args.status,
+            "checks_passed": passed,
+            "checks_total": len(checks),
+        },
+    }
+
+
+def main() -> None:
+    p = argparse.ArgumentParser(
+        description="Synthesize a schema-valid remediation JSON from a triage finding "
+        "plus an existing fix commit."
+    )
+    p.add_argument("--triage", required=True, type=Path, help="*-triage.json")
+    p.add_argument("--finding", required=True, help="triage finding id (e.g. f001)")
+    p.add_argument("--fix-commit", required=True, help="existing commit containing the fix")
+    p.add_argument("--repo", required=True, type=Path, help="local clone holding the fix commit")
+    p.add_argument(
+        "--audit",
+        type=Path,
+        default=None,
+        help="*-security-audit.json for CWEs/locations "
+        "(default: resolved from the triage finding's source field)",
+    )
+    p.add_argument(
+        "--cwe", action="append", default=[], help="CWE-NNN (repeatable); overrides the audit"
+    )
+    p.add_argument("--title", default="", help="override the finding title")
+    p.add_argument(
+        "--audited-commit",
+        default="",
+        help="commit the finding was found at (default: the fix commit's parent)",
+    )
+    p.add_argument("--out", "-o", type=Path, required=True)
+    p.add_argument("--repo-url", default="", help="override the repository URL (default: origin)")
+    p.add_argument(
+        "--fork-url", default="", help="private mirror URL (default: the repository URL)"
+    )
+    p.add_argument("--visibility", default="public", choices=("public", "private", "internal"))
+    p.add_argument("--base-ref", default="", help="branch the fix lives on (default: origin/HEAD)")
+    p.add_argument("--fix-branch", default="", help="default: ex-wing/<finding>")
+    p.add_argument(
+        "--strategy",
+        default="other",
+        choices=_STRATEGIES,
+        help="patch strategy (schema fix_strategy enum)",
+    )
+    p.add_argument("--rationale", default="", help="why the fix closes the root cause")
+    p.add_argument("--build-cmd", default="", help="build command backport-fix will run per branch")
+    p.add_argument("--test-cmd", default="", help="test command backport-fix will run per branch")
+    p.add_argument(
+        "--check-outcome",
+        default="skip",
+        choices=("pass", "fail", "skip", "error"),
+        help="outcome recorded for the checks (default: skip — not run here)",
+    )
+    p.add_argument(
+        "--status",
+        default="patched",
+        choices=(
+            "candidate",
+            "forked",
+            "patched",
+            "checks_passed",
+            "checks_failed",
+            "revalidated_fixed",
+            "revalidated_still_vulnerable",
+            "pr_opened",
+            "merged",
+            "abandoned",
+        ),
+    )
+    p.add_argument("--product", default="", help="logical_product (default: repo name)")
+    p.add_argument("--language", default="")
+    p.add_argument("--operator", default="make-remediation")
+    p.add_argument("--date", default="", help="YYYY-MM-DD (default: today)")
+    p.add_argument("--no-validate", action="store_true", help="skip schema validation")
+    p.add_argument(
+        "--schema",
+        type=Path,
+        default=None,
+        help="remediation contract schema (default: resolved from "
+        "the installed contracts package or a sibling checkout)",
+    )
+    p.add_argument("--verbose", "-v", action="store_true")
+    args = p.parse_args()
+
+    logging.basicConfig(
+        level=logging.DEBUG if args.verbose else logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(message)s",
+        datefmt="%H:%M:%S",
+    )
+    if not args.triage.is_file():
+        raise SystemExit(f"triage JSON not found: {args.triage}")
+    if not (args.repo / ".git").exists():
+        raise SystemExit(f"not a git working tree: {args.repo}")
+
+    report = build(args)
+    args.out.parent.mkdir(parents=True, exist_ok=True)
+    with Path(args.out).open("w") as f:
+        json.dump(report, f, indent=2)
+    log.info("Wrote %s", args.out)
+
+    if not args.no_validate:
+        if args.schema is not None:
+            # An operator-supplied schema file is checked as given.
+            if not Path(args.schema).is_file():
+                args.out.unlink(missing_ok=True)
+                raise SystemExit(f"--schema not found: {args.schema}")
+            outcome = _paths.validate_with_file(args.out, args.schema)
+        else:
+            # Otherwise the contract is named: traust validates through traust-core,
+            # which pins the contracts commit.
+            outcome = _paths.validate_with_core(args.out, "remediation")
+        if outcome is None:
+            log.error(
+                "no interpreter can run traust.cli reporting validate (the harness "
+                "venv) — refusing to emit an unvalidated remediation JSON. "
+                "Pass --no-validate deliberately to skip."
+            )
+            args.out.unlink(missing_ok=True)
+            sys.exit(1)
+        passed, output = outcome
+        print(output.strip().splitlines()[-1] if output.strip() else "")
+        if not passed:
+            log.error("Schema validation FAILED:\n%s", output)
+            args.out.unlink(missing_ok=True)
+            sys.exit(1)
+
+    print(f"  finding_ref: {report['source_findings'][0]['finding_ref']}")
+    print(f"  fix_commit:  {report['fork']['fix_commit']}")
+    print(f"  files:       {report['patch']['diffstat']}")
+    print(
+        "\n  Next: python3 "
+        "harnessing/7-remediate/backport-fix/scripts/generate_backport_configs.py "
+        f"--remediation {args.out} --repo {args.repo} "
+        "--branch-pattern 'release-*' --scan-only"
+    )
+
+
+if __name__ == "__main__":
+    main()

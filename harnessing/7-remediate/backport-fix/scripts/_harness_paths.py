@@ -1,0 +1,269 @@
+"""Workspace / sibling resolution shared by the backport-fix scripts.
+
+    workspace = HARNESS_WORKSPACE if set, else the first ancestor of this
+                checkout that contains analysis-results/
+    harness   = this checkout when it carries VERSION, else <workspace>/traust
+                (the harness is a sibling of the internal skills overlay)
+    contracts = the installed traust-contracts package, else a sibling
+                traust-contracts checkout
+
+Never a fixed parent count. This skill already moved one tier deeper
+(harnessing/backport-fix -> harnessing/7-remediate/backport-fix), and every
+depth-based lookup broke silently: publish-by-default started pointing at
+<repo>/analysis-results (inside the checkout, not the corpus) and the VERSION
+reads always missed. The README records the same failure class from the
+earlier restructure ("Why the search, not a fixed depth").
+
+Kept in one module so the resolution rules have a single implementation and
+one test surface. Import path: these scripts are run directly, so their own
+directory is sys.path[0]; importlib-based loaders (the unit tests) must add
+it, which both scripts do before importing this module.
+"""
+
+from __future__ import annotations
+
+import os
+import re
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+_VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
+_SHA_RE = re.compile(r"[0-9a-f]{7,40}")  # remediation.schema.json harness_version suffix
+
+
+_URL_USERINFO_RE = re.compile(r"(?P<scheme>[A-Za-z][A-Za-z0-9+.-]*://)(?P<userinfo>[^/?#]*@)")
+
+
+def strip_url_credentials(url: str) -> str:
+    """Drop `user:token@` from a URL's authority.
+
+    Origins, `--repo-url` and `--fork-url` values are written into published
+    artifacts and printed to terminals; a remote rewritten as
+    `https://x-access-token:ghp_...@github.com/o/r` must never travel with the
+    token attached. Only the authority is touched, so an `@` in a path or
+    query survives. scp-like `user@host:path` forms are handled by the callers
+    that convert them to https.
+    """
+    return _URL_USERINFO_RE.sub(r"\g<scheme>", str(url or "").strip())
+
+
+def repo_root() -> Path:
+    """This checkout's root, found by marker rather than by counting parents."""
+    here = Path(__file__).resolve().parent
+    for parent in here.parents:
+        if (parent / ".git").exists():
+            return parent
+    # Packaged install (no .git): scripts -> backport-fix -> 7-remediate ->
+    # harnessing -> repo root.
+    return here.parents[3]
+
+
+def _from_env(name: str, base: Path) -> Path | None:
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return None
+    p = Path(raw).expanduser()
+    return p if p.is_absolute() else (base / p).resolve()
+
+
+def workspace_root(*, required: bool = False) -> Path | None:
+    """Directory holding the sibling repos: analysis-results/, traust/, ..."""
+    root = repo_root()
+    env = _from_env("HARNESS_WORKSPACE", root)
+    if env is not None:
+        if required and not (env / "analysis-results").is_dir():
+            raise SystemExit(
+                f"HARNESS_WORKSPACE={env} has no analysis-results/ — "
+                "point it at the directory holding the sibling repos"
+            )
+        return env
+    for parent in root.parents:
+        if (parent / "analysis-results").is_dir():
+            return parent
+    if required:
+        raise SystemExit(
+            "workspace (the directory holding analysis-results/) not found "
+            f"above {root} — set HARNESS_WORKSPACE"
+        )
+    return None
+
+
+def checkout_version(root: Path) -> str:
+    """The harness version: VERSION (legacy) or pyproject [project].version.
+
+    Upstream retired the release machinery (VERSION is gone), so the version
+    now lives in pyproject.toml; VERSION still wins when present so older
+    checkouts keep reporting the same value.
+    """
+    version_file = root / "VERSION"
+    if version_file.is_file():
+        try:
+            return version_file.read_text().strip()
+        except OSError:
+            return ""
+    pyproject = root / "pyproject.toml"
+    if not pyproject.is_file():
+        return ""
+    try:
+        import tomllib
+
+        data = tomllib.loads(pyproject.read_text())
+    except (OSError, ValueError):
+        return ""
+    project = data.get("project")
+    return str(project.get("version", "")).strip() if isinstance(project, dict) else ""
+
+
+def _is_harness_checkout(root: Path) -> bool:
+    return (root / "VERSION").is_file() or (root / "pyproject.toml").is_file()
+
+
+def harness_root() -> Path | None:
+    """The harness checkout: this repo when cloned here, else the sibling."""
+    root = repo_root()
+    if _is_harness_checkout(root):
+        return root
+    ws = workspace_root()
+    if ws is None:
+        return None
+    candidate = ws / "traust"
+    return candidate if _is_harness_checkout(candidate) else None
+
+
+def analysis_results_root() -> Path | None:
+    """Where reports are published: AUDIT_RESULTS_ROOT, else the sibling.
+
+    A relative AUDIT_RESULTS_ROOT resolves against the workspace root (the
+    directory the corpus hangs off), falling back to this checkout.
+    """
+    root = repo_root()
+    ws = workspace_root()
+    env = _from_env("AUDIT_RESULTS_ROOT", ws or root)
+    if env is not None:
+        return env
+    return (ws / "analysis-results") if ws is not None else None
+
+
+def harness_version(*, with_rev: bool = False) -> str:
+    """The harness VERSION (optionally suffixed with its short SHA).
+
+    traust-internal carries no VERSION of its own: the number belongs to the
+    upstream harness, which is a sibling checkout. Returns "0.0.0" when that
+    checkout is not present, so callers never fabricate a version.
+    """
+    harness = harness_root()
+    if harness is None:
+        return "0.0.0"
+    version = checkout_version(harness)
+    if not _VERSION_RE.fullmatch(version):
+        return "0.0.0"
+    if not with_rev:
+        return version
+    try:
+        sha = subprocess.run(
+            ["git", "-C", str(harness), "rev-parse", "--short=7", "HEAD"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=True,
+        ).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        return version
+    return f"{version}-{sha}" if _SHA_RE.fullmatch(sha) else version
+
+
+def _isolated(cmd: list[str]) -> subprocess.CompletedProcess[str]:
+    """Run `python -I …` from a neutral directory.
+
+    -I ignores PYTHON* variables and user site-packages and never puts the
+    working directory on sys.path, so a target checkout (the cwd, or on
+    PYTHONPATH) cannot shadow `traust` and fake a passing validation.
+    """
+    return subprocess.run(
+        cmd, capture_output=True, text=True, timeout=120, cwd=Path(tempfile.gettempdir())
+    )
+
+
+def validator_python() -> str | None:
+    """Interpreter that can run `traust.cli reporting validate`, else None.
+
+    This interpreter first, then the harness venv (the harness is a sibling
+    checkout, so its dependencies need not be in ours). Probed isolated, as run.
+    """
+    root = harness_root()
+    for exe in (
+        sys.executable,
+        *([str(root / ".venv" / "bin" / "python")] if root is not None else []),
+    ):
+        try:
+            r = _isolated([exe, "-I", "-c", "import traust.cli.groups.reporting"])
+        except (OSError, subprocess.SubprocessError):
+            continue
+        if r.returncode == 0:
+            return exe
+    return None
+
+
+def validate_with_core(document: Path, schema: str) -> tuple[bool, str] | None:
+    """Check `document` against the named contract through traust's own door.
+
+    traust reaches traust-contracts only through traust-core (contracts and core
+    AGENTS.md): `traust.cli reporting validate --schema <name>` runs Core's
+    ReportingService against the contracts commit Core pins. None when no
+    interpreter can run it; otherwise (passed, the validator's output).
+    """
+    python = validator_python()
+    if python is None:
+        return None
+    cmd = [
+        python,
+        "-I",
+        "-m",
+        "traust.cli",
+        "reporting",
+        "validate",
+        "--schema",
+        schema,
+        str(Path(document).resolve()),
+    ]
+    try:
+        r = _isolated(cmd)
+    except subprocess.TimeoutExpired:
+        return False, "validation timed out"
+    return r.returncode == 0, (r.stdout or "") + (r.stderr or "")
+
+
+def validate_with_file(document: Path, schema_file: Path) -> tuple[bool, str]:
+    """Check `document` against an operator-supplied schema file.
+
+    Sibling `$ref`s (the remediation contract references report.schema.json)
+    resolve from the schema file's own directory, never from the network.
+    """
+    import json
+
+    from jsonschema import Draft202012Validator, FormatChecker
+    from referencing import Registry, Resource
+    from referencing.jsonschema import DRAFT202012
+
+    base = Path(schema_file).resolve().parent
+    schema = json.loads(Path(schema_file).read_text(encoding="utf-8"))
+
+    def retrieve(uri: str) -> Resource:
+        path = (base / Path(uri).name).resolve()
+        if path.parent != base or not path.is_file():
+            raise LookupError(f"unresolvable $ref outside the schema directory: {uri}")
+        return Resource.from_contents(
+            json.loads(path.read_text(encoding="utf-8")), default_specification=DRAFT202012
+        )
+
+    validator = Draft202012Validator(
+        schema, registry=Registry(retrieve=retrieve), format_checker=FormatChecker()
+    )
+    data = json.loads(Path(document).read_text(encoding="utf-8"))
+    errors = [
+        f"{'/'.join(map(str, e.absolute_path)) or '<root>'}: fails {e.validator}"
+        for e in validator.iter_errors(data)
+    ]
+    return not errors, "\n".join(errors) or "ALL PASSED"
