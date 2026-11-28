@@ -42,7 +42,7 @@ python3 -m traust.cli check skill-alignment      # equivalent
 | `products` | corpus-intake's doors on traust-core: products and their corpus ownership | `add`, `list`, `update` |
 | `registry` | Model/product registry and the recorded product map | `models`, `product-map`, `products` |
 | `remediation` | The remediation loop's doors on traust-core (remediate-finding, patch, property-test, fleet-fix, verify-remediation) | `assemble`, `candidates`, `fleet-approve`, `fleet-claim`, `fleet-record`, `fleet-submit`, `fleet-targets`, `fork`, `mutation-evidence`, `next`, `open`, `prepare`, `progress`, `property-evidence`, `record`, `verifications`, `verify-differential`, `verify-prepare`, `verify-record`, `verify-sweep`, `work-items` |
-| `repo` | A commit's files through core's checkout service (the mirror cache): prints the workspace path, for skills and hand runs | `checkout` |
+| `repo` | A commit's files through core's checkout service (the mirror cache): prints the workspace path and releases shared/managed checkouts, for skills and hand runs | `checkout`, `release` |
 | `reporting` | Report validation, rendering & recording | `lint`, `rate-cvss`, `rate-threats`, `record`, `render`, `sarif`, `validate` |
 | `session` | Headless skill sessions and artifact-only task preparation/recording | `prepare`, `record`, `run` |
 | `tools` | One door over traust-core's tool registry: each registered tool's readiness, version and database; one tool over a checkout, SBOM, image or symbols, its typed result as JSON | `list`, `run` |
@@ -177,6 +177,10 @@ After admission, `traust findings find <report.json> --label <report-local-id>
 --repo-url <audited-source-https-url>` is an optional scoped diagnostic. Exit 0 with
 `finding_id: null` means no match, not an identity/admission receipt. Do not revive
 stamping or invent a canonical-audit intake command to hide that gap.
+
+### Component PURL audits
+
+`traust assessments prepare` and `traust session run` accept component PURL targets pinned to a 40- or 64-char hex `--sha` (plus optional `--release-ref`, `--module-path` including `"."` for root-published packages, and `--provenance-json <path>` for an independently authenticated provenance envelope verified by Core's configured `ProvenanceVerifier`). `traust reporting record` accepts 40- or 64-char hex `--sha` and verifies `--purl` against `metadata.target.purl`.
 
 ### Shareable-output redaction
 

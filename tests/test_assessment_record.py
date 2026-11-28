@@ -489,3 +489,41 @@ def test_record_binds_the_assessment_to_its_order(doors, home, tmp_path, monkeyp
     assert [k["lease_generation"] for k in doors.record.keywords] == [8, 8, None]
     assert [k["worker"] for k in doors.record.keywords] == [runner.ref, runner.ref, None]
     assert [c[-1].run_id for c in doors.record.calls][:2] == [order, order]
+
+
+def test_an_ordered_component_record_carries_the_claim(
+    doors, home, tmp_path: Path, monkeypatch
+) -> None:
+    """A component report recorded under a run order passes the claim's worker and lease
+    generation to core (traust-core#551), the same as a whole-repository report."""
+    purl = "pkg:npm/%40acme/cache-lib@1.2.0"
+    body = security_audit()
+    body["metadata"] = {
+        **body["metadata"],
+        "repository": URL,
+        "commit": SHA,
+        "target": {
+            "purl": purl,
+            "repository": URL,
+            "commit": SHA,
+            "module_path": "packages/cache-lib",
+            "verification": {
+                "strategy": "workspace_package",
+                "manifest_paths": ["package.json", "packages/cache-lib/package.json"],
+            },
+        },
+    }
+    path = document(tmp_path, body)
+    runner = SimpleNamespace(ref="machine:runner")
+    monkeypatch.setattr(assessment_record, "load_recorder", lambda core: runner)
+    order = uuid.uuid4()
+    argv = (str(path), "--kind", "secure_code", "--repo-url", URL, "--sha", SHA, "--purl", purl)
+    assert run(home, *argv, "--run-id", str(order), "--lease-generation", "8")[0] == 0
+    # No generation: an ordered component record is refused before core is asked.
+    assert run(home, *argv, "--run-id", str(order))[0] == 2
+    assert doors.bound.calls == [(order, doors.find_repository.result.id)]
+    assert doors.bound.keywords == [{"worker": runner.ref, "lease_generation": 8}]
+    [(_, keywords)] = list(zip(doors.record.calls, doors.record.keywords, strict=True))
+    assert keywords["run_order_id"] == order
+    assert keywords["worker"] == runner.ref
+    assert keywords["lease_generation"] == 8

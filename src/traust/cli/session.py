@@ -43,9 +43,21 @@ from traust_core.v1.context import (
     Services,
     Workspace,
 )
-from traust_core.v1.errors import NotFoundError, ServiceError, TraustError, ValidationError
+from traust_core.v1.errors import (
+    NotFoundError,
+    ServiceError,
+    TraustError,
+    UnresolvedTargetError,
+    ValidationError,
+)
 from traust_core.v1.models.assessment import Assessment, AssessmentKind, DiffRefused
 from traust_core.v1.models.base import Dto
+from traust_core.v1.models.component_target import (
+    ComponentTarget,
+    ComponentTargetRequest,
+    DsseEnvelope,
+    canonical_component_purl,
+)
 from traust_core.v1.models.operations import (
     JobResult,
     ModelName,
@@ -65,6 +77,7 @@ from traust.cli._doors import (
     RUN_ORDER_ENV,
     add_lease_generation_arg,
     answer,
+    load_provenance_json,
     parser,
     recording_order_id,
     scoped_recording_order,
@@ -231,23 +244,36 @@ def diff_anchor(url: str, clone: Path) -> str:
 
 
 @contextmanager
-def checkout(url: str, config_home: Path | None, ref: GitSha | None = None) -> Iterator[Workspace]:
-    """Check out a registered repository at the supplied commit or its observed default head.
+def checkout(
+    url: str,
+    config_home: Path | None,
+    ref: GitSha | str | None = None,
+    *,
+    shared: bool = False,
+) -> Iterator[Workspace]:
+    """Check out a pinned commit (`ref`) or a registered repository's observed default head.
 
     The mirror's worktree holds the history a diff scan anchors at; it is released after use.
+    `shared` is a read-only checkout reused across component PURL audits of one commit.
     """
     core = load(config_home)
     services = core.services()
     parsed = HttpsRepoUrl.parse(url, core.config.forge_hosts)
-    repo = services.portfolio.find_repository(parsed)
-    if repo is None or repo.id is None:
-        raise NotFoundError(f"{url}: not in the inventory (`traust portfolio observe` records it)")
+    if isinstance(ref, str):
+        ref = GitSha.parse(ref)
     if ref is None:
+        repo = services.portfolio.find_repository(parsed)
+        if repo is None or repo.id is None:
+            raise NotFoundError(
+                f"{url}: not in the inventory (`traust portfolio observe` records it)"
+            )
         head = services.portfolio.default_ref(repo.id)
         if head is None:
             raise NotFoundError(f"{url}: no observed default head to check out")
         ref = GitSha.parse(head.sha)
-    workspace = services.checkouts.checkout(CheckoutRequest(repo=parsed, ref=ref)).data
+    workspace = services.checkouts.checkout(
+        CheckoutRequest(repo=parsed, ref=ref, shared=shared)
+    ).data
     try:
         yield workspace
     finally:
@@ -281,7 +307,10 @@ def run(argv: list[str] | None = None) -> int:
     ap.add_argument(
         "--checkout",
         action="store_true",
-        help="pass a checkout of --repo's observed default head (the order's commit), not its URL",
+        help=(
+            "pass a checkout of --repo at --sha (or its observed default head when --sha is "
+            "omitted), not its URL"
+        ),
     )
     ap.add_argument(
         "--mode", help="the skill's mode token, before the repository (e.g. threat-model review)"
@@ -290,9 +319,28 @@ def run(argv: list[str] | None = None) -> int:
     ap.add_argument("--worker", help="the engine worker holding the order's lease")
     add_lease_generation_arg(ap)
     ap.add_argument("--rule", help="the router rule that routed the order")
+    ap.add_argument("--purl", help="versioned component PURL target for a pinned monorepo audit")
+    ap.add_argument("--sha", help="immutable 40- or 64-char commit SHA pinning the audit target")
+    ap.add_argument("--release-ref", help="optional release tag pinning the component PURL")
+    ap.add_argument(
+        "--module-path",
+        help="optional module path hint ('.' for root) verified against manifests",
+    )
+    ap.add_argument(
+        "--provenance-json",
+        type=Path,
+        metavar="PATH",
+        help=(
+            "path to an authenticated provenance JSON envelope for external_provenance verification"
+        ),
+    )
     argv = sys.argv[1:] if argv is None else argv
     split = argv.index("--") if "--" in argv else len(argv)
     args, extra = ap.parse_args(argv[:split]), argv[split + 1 :]
+    if args.sha and not (args.checkout or args.purl):
+        ap.error("--sha needs --checkout or --purl")
+    if not args.purl and (args.release_ref or args.module_path or args.provenance_json):
+        ap.error("--release-ref, --module-path, and --provenance-json require --purl")
     artifact_mode = (args.skill, args.mode) in SESSIONS
     if artifact_mode or args.skill in BOUND_SKILLS:
         # The child receives binding flags from this runner, not from free-form skill args.
@@ -475,12 +523,83 @@ def run(argv: list[str] | None = None) -> int:
         # generation; it cannot read a newer claim to label an older session's output.
         extra = [*extra, "--lease-generation", str(args.lease_generation)]
     usage: tuple[ModelUsage, ...] = ()
+    if args.purl and (not args.sha or not args.repo):
+        print(
+            f"run {args.run_id}: {OrderReason.UNRESOLVED_TARGET}: "
+            "--purl requires --repo and --sha pin",
+            file=sys.stderr,
+        )
+        return answer(JobResult.refused(OrderReason.UNRESOLVED_TARGET))
+    provenance_record: DsseEnvelope | None = None
+    if args.provenance_json is not None:
+        try:
+            provenance_record = load_provenance_json(args.provenance_json)
+        except ValidationError as e:
+            print(f"run {args.run_id}: {OrderReason.BAD_REQUEST}: {e}", file=sys.stderr)
+            return answer(JobResult.failed(OrderReason.BAD_REQUEST))
     if triage_ref is not None:
         entered = checkout(args.repo, args.config_home, triage_ref)
+    elif args.purl:
+        entered = checkout(args.repo, args.config_home, args.sha, shared=True)
+    elif args.checkout:
+        entered = checkout(args.repo, args.config_home, args.sha)
     else:
-        entered = checkout(args.repo, args.config_home) if args.checkout else nullcontext(None)
+        entered = nullcontext(None)
+    resolved_target: ComponentTarget | None = None
     try:
         with entered as workspace:
+            target_args: list[str] = []
+            target_json_path: Path | None = None
+            if args.purl:
+                if workspace is None:
+                    print(
+                        f"run {args.run_id}: {OrderReason.UNRESOLVED_TARGET}: "
+                        "component PURL run requires a pinned checkout",
+                        file=sys.stderr,
+                    )
+                    return answer(JobResult.refused(OrderReason.UNRESOLVED_TARGET))
+                core = load(args.config_home)
+                try:
+                    resolved_target = core.services().component_targets.resolve(
+                        ComponentTargetRequest(
+                            purl=args.purl,
+                            repository=args.repo,
+                            commit=args.sha,
+                            release_ref=args.release_ref,
+                            module_path=args.module_path,
+                            provenance_record=provenance_record,
+                        ),
+                        workspace.path,
+                    )
+                except UnresolvedTargetError as e:
+                    print(
+                        f"run {args.run_id}: {OrderReason.UNRESOLVED_TARGET}: {e}",
+                        file=sys.stderr,
+                    )
+                    return answer(JobResult.refused(OrderReason.UNRESOLVED_TARGET))
+                fd, tmp_name = tempfile.mkstemp(prefix="traust-target-", suffix=".json")
+                target_json_path = Path(tmp_name)
+                try:
+                    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                        handle.write(
+                            resolved_target.model_dump_json(indent=2, exclude_none=True) + "\n"
+                        )
+                    target_json_path.chmod(0o444)
+                except BaseException:
+                    target_json_path.unlink(missing_ok=True)
+                    raise
+                target_args = [
+                    "--purl",
+                    resolved_target.purl,
+                    "--commit",
+                    resolved_target.commit,
+                    "--module-path",
+                    resolved_target.module_path,
+                    "--target-json",
+                    str(target_json_path),
+                ]
+                if resolved_target.release_ref:
+                    target_args.extend(["--release-ref", resolved_target.release_ref])
             if triage_source is not None:
                 assert workspace is not None
                 target = [str(triage_source), "--repo", str(workspace.path)]
@@ -490,7 +609,12 @@ def run(argv: list[str] | None = None) -> int:
                     if workspace is not None
                     else ([args.repo] if args.repo else [])
                 )
-            command = [*AGENT, "--model", model, prompt(args.skill, [*mode, *target, *extra])]
+            command = [
+                *AGENT,
+                "--model",
+                model,
+                prompt(args.skill, [*mode, *target, *target_args, *extra]),
+            ]
             try:
                 done, usage = session(command, args.skill, env)
                 if done.returncode == 0 and pr_model:
@@ -509,6 +633,13 @@ def run(argv: list[str] | None = None) -> int:
             except (OSError, TraustError, subprocess.CalledProcessError) as e:
                 print(f"run {args.run_id}: {OrderReason.RUNNER_CRASHED}: {e}", file=sys.stderr)
                 return answer(_spent(JobResult.failed(OrderReason.RUNNER_CRASHED), usage))
+            finally:
+                if target_json_path is not None:
+                    try:
+                        target_json_path.chmod(0o600)
+                        target_json_path.unlink(missing_ok=True)
+                    except OSError:
+                        pass
     except (ValidationError, NotFoundError, ServiceError) as e:
         print(f"run {args.run_id}: {OrderReason.NOT_FOUND}: {e}", file=sys.stderr)
         return answer(JobResult.refused(OrderReason.NOT_FOUND))
@@ -588,7 +719,7 @@ def run(argv: list[str] | None = None) -> int:
             return answer(_spent(JobResult.failed(OrderReason.RUNNER_CRASHED), usage))
     if order_id is not None and kind is not None:
         try:
-            recorded = _recorded(order_id, kind, args)
+            recorded = _recorded(order_id, kind, args, expected_target=resolved_target)
         except SystemExit:
             print(f"run {args.run_id}: {OrderReason.BAD_REQUEST}: configuration", file=sys.stderr)
             return answer(_spent(JobResult.failed(OrderReason.BAD_REQUEST), usage))
@@ -696,9 +827,34 @@ def _triage_source(
     return audit.id, GitSha.parse(ref.sha), ()
 
 
-def _recorded(order_id: UUID, kind: AssessmentKind, args: argparse.Namespace) -> set[str]:
-    """The ids of the order's assessments of `kind`."""
-    return {str(a.id) for a in order_assessments(order_id, args.config_home) if a.kind == kind}
+def _recorded(
+    order_id: UUID,
+    kind: AssessmentKind,
+    args: argparse.Namespace,
+    *,
+    expected_target: ComponentTarget | None = None,
+) -> set[str]:
+    """The ids of the order's assessments of `kind` matching the session's target scope."""
+    assessments = order_assessments(order_id, args.config_home)
+    if expected_target is None:
+        return {str(a.id) for a in assessments if a.kind == kind and a.target_purl is None}
+    expected_purl = canonical_component_purl(expected_target.purl)
+    expected_commit = expected_target.commit.strip().lower()
+    expected_repo = expected_target.repository.strip().rstrip("/")
+    services = load(args.config_home).services()
+    matched: set[str] = set()
+    for a in assessments:
+        if a.kind != kind or not a.target_purl:
+            continue
+        if canonical_component_purl(a.target_purl) != expected_purl:
+            continue
+        ref, repo = services.portfolio.inventory.resolve(a.repository_ref_id)
+        if (
+            ref.sha.strip().lower() == expected_commit
+            and repo.url.strip().rstrip("/") == expected_repo
+        ):
+            matched.add(str(a.id))
+    return matched
 
 
 def _ordered_work_item(order_id: UUID, args: argparse.Namespace) -> UUID:

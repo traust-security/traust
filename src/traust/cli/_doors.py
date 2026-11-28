@@ -10,13 +10,16 @@ import uuid
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from pydantic import ValidationError as ModelValidationError
 from traust_core.v1.errors import NotFoundError, TraustError, ValidationError
 from traust_core.v1.models.common import Provenance
+from traust_core.v1.models.component_target import DsseEnvelope
 from traust_core.v1.models.inventory import Product, RefName, RepositoryRef
 from traust_core.v1.models.operations import (
+    MAX_TARGET_PROVENANCE_BYTES,
     AssetRequest,
     JobResult,
     OrderReason,
@@ -245,3 +248,26 @@ def package_id(services: Any, ecosystem: str, name: str) -> uuid.UUID:
     if found is None:
         raise NotFoundError(f"no {ecosystem} package named {name} is recorded")
     return found.id
+
+
+def load_provenance_json(path: Path) -> DsseEnvelope:
+    """Read a size-bounded DSSE provenance envelope (Core verifies its signature and type)."""
+    try:
+        with path.open("rb") as handle:
+            raw = handle.read(MAX_TARGET_PROVENANCE_BYTES + 1)
+    except OSError as exc:
+        raise ValidationError(f"cannot read --provenance-json {path}: {exc}") from exc
+    if len(raw) > MAX_TARGET_PROVENANCE_BYTES:
+        raise ValidationError(
+            f"--provenance-json {path} exceeds {MAX_TARGET_PROVENANCE_BYTES} bytes"
+        )
+    try:
+        data = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValidationError(f"invalid JSON in --provenance-json {path}: {exc}") from exc
+    if not isinstance(data, dict) or not data:
+        raise ValidationError(f"--provenance-json {path} must contain a non-empty JSON object")
+    try:
+        return DsseEnvelope.model_validate(data)
+    except ModelValidationError as exc:
+        raise ValidationError(f"--provenance-json {path} is not a DSSE envelope: {exc}") from exc

@@ -47,6 +47,7 @@ allowed-tools:
   - Bash(python3 *-m traust.cli adapters checkov:*)
   - Bash(python3 *-m traust.cli adapters gitleaks:*)
   - Bash(python3 *-m traust.cli adapters osv:*)
+  - Bash(python3 *-m traust.cli assessments prepare:*)
   - Bash(python3 *-m traust.cli reporting record:*)
   - Bash(python3 *-m traust.cli adapters fork-lag:*)
   - Bash(python3 *-m traust.cli adapters config-matrix:*)
@@ -111,6 +112,15 @@ Perform a comprehensive security assessment of one or more codebases using indus
    - There is no Category column; prioritize by segment
      (openshift → operator-catalog → services) and then row order.
 
+
+5. **A versioned component PURL target** (`--purl <pkg:…@version>` with a pinned source repository URL and immutable 40- or 64-char commit SHA or verified release tag, plus optional `--module-path` (`"."` for root-published packages) and `--provenance-json`). A PURL audit asks about that **child package** (or root-published package when `module_path == "."`), not unrelated sibling packages; a whole-repository audit remains a separate request. Verify the association deterministically through `traust-core` before auditing:
+
+   ```bash
+   python3 -m traust.cli assessments prepare --repo-url <https-url> --kind secure_code \
+       --purl <purl> [--sha <40-or-64-char-sha>] [--release-ref <tag>] \
+       [--module-path <path>] [--provenance-json <path>] --checkout <local-path>
+   ```
+   Never infer a component's module path or version from a matching directory name, a private workspace root version, or the current default branch. If `assessments prepare` exits `3` (`unresolved: true`), stop and return an unresolved target with its reported reason.
 ---
 
 ## Repository Access
@@ -120,9 +130,12 @@ Perform a comprehensive security assessment of one or more codebases using indus
 When a full local checkout is required for deep analysis (e.g. running static analysis tools, tracing cross-file data flows, or inspecting build configurations):
 
 ```bash
-traust repo checkout <github-url> --ref <commit-sha> --history 1
+traust repo checkout <github-url> --ref <commit-sha> --history 1 [--shared]
+# When done with a --shared checkout, release your reference instead of rm -rf:
+traust repo release <github-url> --ref <commit-sha> --path <local-path> --shared
 ```
 
+Pass `--shared` for pinned component PURL audits so the pinned tree is checked out once and reused read-only across sibling child PURLs at the same commit; end your hold with `traust repo release --shared` when finished.
 The command prints the checkout's path (`<local-path>` below). If the input names a branch rather than a commit SHA, resolve it to its head SHA first (the GitHub MCP tools, or `gh api repos/{org}/{repo}/commits/{branch} --jq '.sha'`).
 
 **Always analyze the branch or commit ref specified in the input data**, not the repository default branch. The ref represents the exact code shipped in the operator version being assessed.
@@ -135,14 +148,24 @@ While surveying the checkout's tree (before pass 1), check for IaC content this 
 
 ## Deduplication
 
-Before beginning analysis, deduplicate the input list by `(GitHub URL, Branch)` pair. If the same repository at the same ref appears across multiple operator versions or payload images:
+Separate **source context reuse** from **assessment deduplication**:
 
-1. Analyze it **once**.
-2. Place the canonical report in the first product's output directory.
-3. Create **symbolic links** from every other product directory that shares the same repo+ref back to the canonical report.
+- **Source context (checkout + deterministic pre-scans/index):** share by `(GitHub URL, Commit)` across whole-repo and child-PURL runs at the same pinned commit.
+- **Reports and assessments:**
+  - Whole-repository audits deduplicate by `(GitHub URL, Branch/Commit)`. If the same repository at the same ref appears across multiple operator versions or payload images:
+    1. Analyze it **once**.
+    2. Place the canonical report in the first product's output directory.
+    3. Create **symbolic links** from every other product directory that shares the same repo+ref back to the canonical report.
+  - **Component PURL audits deduplicate by `(GitHub URL, Commit, Target PURL)` — never by `(GitHub URL, Branch)` alone.** Two child PURLs at the same commit (e.g. `spring-beans@7.1.0` and `spring-context@7.1.0`) reuse the shared checkout and index work but MUST produce distinct reports and distinct recorded assessments.
 
-This avoids redundant work when repos like `openshift/kubernetes` or `stolostron/multicluster-observability-operator` appear across many operator versions.
+### Component PURL Review Method
 
+When auditing a verified component PURL (`metadata.target` from `assessments prepare`):
+
+1. **Starting point, not evidence boundary.** Begin in `metadata.target.module_path`, then follow relevant internal dependencies, production consumers, and shared build or configuration files anywhere in the pinned monorepo tree as needed to determine whether a weakness actually affects the target package. When `metadata.target.module_path == "."`, start at the repository root while scoping findings to the declared root package rather than independent child packages in subdirectories.
+2. **Establish realized target impact and conditions — never file hypothetical misuse.** Attribute a finding to the target PURL only when code in the target (or a dependency/configuration affecting it) combines with its actual production usage or configuration in the pinned tree to create a realized security flaw. Cite every repo-relative path at the pinned commit that establishes the finding (target module, sibling dependency, production consumer/config) in `locations[]` and state the conditions under which it affects the target in `description`. When production consumers in the pinned tree affirmatively enforce the boundary or isolation invariant so the cross-module flaw does not occur in actual usage, do **not** file a speculative "caller could misuse the library" vulnerability or weakness in `findings[]` — record the verified consumer mitigation in `negative_results` instead. This rule is for first-party **code** findings only: a third-party advisory in the target's manifests follows the [Dependency and advisory gate](#dependency-and-advisory-gate) — it stays a finding at the published score until evidence disproves it, unproven reachability never drops it, and only impact-analysis evidence (`version_not_in_range`, `not_imported`; `unresolved_manifest` / `coverage_unknown` are gaps, not clean) moves it to `not_affected`; never assume a default `symbol` evidence level.
+3. **Exclude unrelated sibling-only flaws.** Do not report vulnerabilities that exist only in sibling packages or consumers without affecting the target PURL in `findings[]`, even when repo-wide pre-scans surface hits in sibling paths. Concrete security flaws observed purely in an unrequested sibling package may be logged under `metadata.additional.out_of_scope_observations[]` (never in `findings[]`).
+4. **Record unresolvable cross-module connections.** If a necessary dependency, consumer wiring, or shared configuration connection cannot be established from the pinned tree, record an explicit `metadata.additional.coverage_gaps[]` entry (`tool: "component-purl-review"`) rather than guessing or assuming clean.
 ---
 
 ## Prioritization
@@ -1492,8 +1515,7 @@ findings/multicluster-engine/kube-rbac-proxy/kube-rbac-proxy-security-audit.json
 
 ### Report File Name
 
-Each report file must be named: `<repo-name>-security-audit.json`
-
+Each whole-repository report file must be named `<repo-name>-security-audit.json`. Each component PURL report file must be named `<repo-name>--<purl-slug>-security-audit.json` (where `<purl-slug>` normalizes the full canonical versioned PURL after `pkg:` — type, namespace, name, and `@version` — to `[A-Za-z0-9._-]`; when the normalized slug exceeds 64 characters, use `<slug[:51]>-<sha256(canonical_purl)[:12]>` after trimming any trailing `-` on the 51-char prefix, e.g. `spring-framework--maven-org.springframework-spring-beans-7.1.0-security-audit.json`) so two child PURLs or two versions of the same package never overwrite each other even for long coordinates.
 ### Finding IDs
 
 Every finding `id` must be **globally unique across the entire campaign**, not just within its own report, so that a finding can be located by ID alone without first knowing which repository it belongs to. Use the canonical format:
@@ -1510,7 +1532,7 @@ Every finding `id` must be **globally unique across the entire campaign**, not j
 
 Examples: `STACKROX-4f9e812-003` · `KUBE_RBAC_PROXY-9cb7556-012` · `CLUSTER_MONITORING_OPERA-a1b2c3d-001`.
 
-**Always populate `metadata.commit`** with the full 40-char SHA (or at minimum the same 7-char short SHA) so the ID is reproducible and the finding can be traced to an exact code state. This field is also the **change-detection anchor for the continuous-operations router** (`traust.ops.router`, docs/continuous-operations.md): re-audit frequency is computed by diffing this SHA against the repo's live HEAD, and a report without a parseable SHA makes the repo invisible to change detection until a fresh audit re-establishes the anchor. The regex the schema and validator enforce for reports produced by harness ≥ 0.12.0 is:
+**Always populate `metadata.commit`** with the full 40- or 64-char SHA (or at minimum the same 7-char short SHA) so the ID is reproducible and the finding can be traced to an exact code state. This field is also the **change-detection anchor for the continuous-operations router** (`traust.ops.router`, docs/continuous-operations.md): re-audit frequency is computed by diffing this SHA against the repo's live HEAD, and a report without a parseable SHA makes the repo invisible to change detection until a fresh audit re-establishes the anchor. The regex the schema and validator enforce for reports produced by harness ≥ 0.12.0 is:
 
 ```
 ^[A-Z][A-Z0-9_]{0,23}-[a-f0-9]{7}-\d{3}$
@@ -1541,6 +1563,7 @@ missing size or priority semantics.
 
 Key profile obligations for this skill:
 - Set `metadata.audit_profile: "code"`.
+- On component PURL audits, stamp `metadata.target` verbatim from Core's `assessments prepare` output — or, in headless/worker runs, from the read-only staged target JSON file named in the prompt (`--target-json <path>` or worker staged file containing `purl`, `repository`, `commit`, `module_path`, optional `release_ref`, and `verification`); never reconstruct or alter verification fields. Omit `metadata.target` on whole-repository audits.
 - Always emit `peach_isolation_review` (`applicable: false` + rationale for single-tenant).
 - Always emit `review_surface_coverage`: one entry per review surface ([`review-surfaces.md` → Recording coverage](review-surfaces.md#recording-coverage)). Required from traust 0.20.0; the validator checks every `finding_ids`, `negative` and `not_assessed` entry against the rest of the report.
 - Include `metadata.loc_breakdown` on all new reports.
@@ -1710,9 +1733,9 @@ This Markdown file is for human consumption only — the JSON file remains the a
 ```bash
 python3 -m traust.cli reporting record [--lease-generation N] <path-to-report.json> --kind secure_code \
     --repo-url <https URL of the repository> --sha <metadata.commit, full SHA> \
-    [--branch <metadata.ref, when ref_kind is branch or default>]
+    [--branch <metadata.ref, when ref_kind is branch or default>] \
+    [--purl <metadata.target.purl, on component PURL audits>]
 ```
-
 It records a secure-code assessment of that commit with the report as its
 artifact (schema-checked; the same report again is the same run, by
 `metadata.date`); `traust assessments coverage` reads the gaps it states.

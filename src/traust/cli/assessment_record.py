@@ -11,6 +11,7 @@ from datetime import UTC, date, datetime, time
 from importlib.metadata import version
 from pathlib import Path
 
+from traust_core.v1.errors import ValidationError
 from traust_core.v1.models.artifacts import (
     ArtifactDocument,
     FuzzReportArtifact,
@@ -22,8 +23,9 @@ from traust_core.v1.models.artifacts import (
 )
 from traust_core.v1.models.assessment import AssessmentKind
 from traust_core.v1.models.common import Provenance
+from traust_core.v1.models.component_target import canonical_component_purl
 from traust_core.v1.models.operations import WorkerId
-from traust_core.v1.models.values import HttpsRepoUrl
+from traust_core.v1.models.values import GitSha, HttpsRepoUrl
 from traust_core.v1.models.vocabulary import SourceType
 
 from traust.cli._doors import (
@@ -75,6 +77,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--repo-url", required=True, help="https URL of the audited repository")
     ap.add_argument("--sha", required=True, help="the audited commit")
     ap.add_argument("--public", action="store_true", help="the repository is public")
+    ap.add_argument(
+        "--purl",
+        help="expected versioned component PURL; refuses recording if metadata.target.purl differs",
+    )
     add_branch_arg(ap)
     add_run_order_arg(ap)
     add_lease_generation_arg(ap)
@@ -86,13 +92,43 @@ def main(argv: list[str] | None = None) -> int:
         order_id = recording_order_id(args.run_id, args.lease_generation)
         doc = artifact.parse(args.document.read_bytes())
         core = load(args.config_home)
+        url = HttpsRepoUrl.parse(args.repo_url, core.config.forge_hosts)
+        sha = GitSha.parse(args.sha)
+        target = getattr(getattr(doc, "metadata", None), "target", None)
+        if target is not None and args.purl is None:
+            raise ValidationError(
+                "component report carrying metadata.target requires --purl matching target.purl"
+            )
+        if args.purl is not None:
+            actual_purl = getattr(target, "purl", None) if target is not None else None
+            if actual_purl is None:
+                raise ValidationError(
+                    f"report metadata.target.purl ({actual_purl!r}) does not match "
+                    f"--purl {args.purl!r}"
+                )
+            if canonical_component_purl(actual_purl) != canonical_component_purl(args.purl):
+                raise ValidationError(
+                    f"report metadata.target.purl ({actual_purl!r}) does not match "
+                    f"--purl {args.purl!r}"
+                )
+            actual_commit = (getattr(target, "commit", "") or "").strip().lower()
+            if actual_commit != str(sha).lower():
+                raise ValidationError(
+                    f"report metadata.target.commit ({actual_commit!r}) does not match "
+                    f"--sha {sha!s}"
+                )
+            actual_repo = (getattr(target, "repository", "") or "").strip().rstrip("/")
+            if actual_repo != str(url).rstrip("/"):
+                raise ValidationError(
+                    f"report metadata.target.repository ({actual_repo!r}) does not match "
+                    f"--repo-url {url!s}"
+                )
         worker = WorkerId(load_recorder(core).ref) if order_id is not None else None
         services = core.services()
-        url = HttpsRepoUrl.parse(args.repo_url, core.config.forge_hosts)
         with recording_repository(
             services, url, args.public, order_id, worker, args.lease_generation
         ) as repo_id:
-            ref = register_commit(services, repo_id, args.sha, args.branch)
+            ref = register_commit(services, repo_id, str(sha), args.branch)
             assessment = services.assessment.record(
                 doc,
                 ref.id,

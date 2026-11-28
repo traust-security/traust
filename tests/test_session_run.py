@@ -411,7 +411,10 @@ class Recorded:
 
     def __call__(self, order_id: object, config_home: object) -> list[SimpleNamespace]:
         self.asked.append(order_id)
-        return [SimpleNamespace(id=i, kind=k) for i, k in self.answers[len(self.asked) - 1]]
+        return [
+            SimpleNamespace(id=i, kind=k, target_purl=None)
+            for i, k in self.answers[len(self.asked) - 1]
+        ]
 
 
 @pytest.mark.parametrize(
@@ -745,6 +748,7 @@ def scheduled_triage(
             "baseline_assessment_id": audit_id,
             "assessor": "triage",
             "status": "completed",
+            "target_purl": None,
         }
         values.update(changes)
         row = SimpleNamespace(**values)
@@ -859,6 +863,7 @@ def scheduled_sweep(
             run_order_id=UUID(ORDER),
             status="completed",
             occurred_at=datetime(2026, 1, 1, tzinfo=UTC),
+            target_purl=None,
         )
         records.append(row)
         reports.append(

@@ -6,4 +6,5 @@ from traust.cli.groups._registry import passthrough_op
 
 REPO: dict[str, object] = {
     "checkout": passthrough_op("repo", "Print a commit's checked-out workspace path.", "checkout"),
+    "release": passthrough_op("repo", "Release a checked-out workspace.", "release"),
 }
