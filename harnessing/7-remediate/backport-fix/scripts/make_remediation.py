@@ -440,14 +440,16 @@ def main() -> None:
     log.info("Wrote %s", args.out)
 
     if not args.no_validate:
-        # The contract is named, never a file: traust validates through traust-core,
-        # which pins the contracts commit (an explicit --schema contributes its name).
-        name = (
-            "remediation"
-            if args.schema is None
-            else Path(args.schema).name.removesuffix(".schema.json")
-        )
-        outcome = _paths.validate_with_core(args.out, name)
+        if args.schema is not None:
+            # An operator-supplied schema file is checked as given.
+            if not Path(args.schema).is_file():
+                args.out.unlink(missing_ok=True)
+                raise SystemExit(f"--schema not found: {args.schema}")
+            outcome = _paths.validate_with_file(args.out, args.schema)
+        else:
+            # Otherwise the contract is named: traust validates through traust-core,
+            # which pins the contracts commit.
+            outcome = _paths.validate_with_core(args.out, "remediation")
         if outcome is None:
             log.error(
                 "no interpreter can run traust.cli reporting validate (the harness "

@@ -30,16 +30,19 @@ validate_json() {
   local report="$1" schema_name="${2:-}"
   local tpy="" cand
   for cand in python3 "$WORKSPACE/traust/.venv/bin/python"; do
-    if "$cand" -c "import traust.cli.groups.reporting" 2>/dev/null; then tpy="$cand"; break; fi
+    if (cd / && "$cand" -I -c "import traust.cli.groups.reporting") 2>/dev/null; then tpy="$cand"; break; fi
   done
   if [[ -z "$tpy" ]]; then
-    echo "ALL PASSED (traust.cli not available — validation skipped)"
-    return 0
+    # Fail closed: no validator is not a passing validation.
+    echo "FAIL: no interpreter can run traust.cli reporting validate"
+    return 1
   fi
+  local doc
+  doc="$(cd "$(dirname "$report")" && pwd)/$(basename "$report")"
   if [[ -n "$schema_name" ]]; then
-    "$tpy" -m traust.cli reporting validate --schema "$schema_name" "$report" 2>&1 | tail -1
+    (cd / && "$tpy" -I -m traust.cli reporting validate --schema "$schema_name" "$doc") 2>&1 | tail -1
   else
-    "$tpy" -m traust.cli reporting validate "$report" 2>&1 | tail -1
+    (cd / && "$tpy" -I -m traust.cli reporting validate "$doc") 2>&1 | tail -1
   fi
 }
 

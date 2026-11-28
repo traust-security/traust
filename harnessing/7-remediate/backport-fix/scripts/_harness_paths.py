@@ -26,6 +26,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 _VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
@@ -173,11 +174,23 @@ def harness_version(*, with_rev: bool = False) -> str:
     return f"{version}-{sha}" if _SHA_RE.fullmatch(sha) else version
 
 
+def _isolated(cmd: list[str]) -> subprocess.CompletedProcess[str]:
+    """Run `python -I …` from a neutral directory.
+
+    -I ignores PYTHON* variables and user site-packages and never puts the
+    working directory on sys.path, so a target checkout (the cwd, or on
+    PYTHONPATH) cannot shadow `traust` and fake a passing validation.
+    """
+    return subprocess.run(
+        cmd, capture_output=True, text=True, timeout=120, cwd=Path(tempfile.gettempdir())
+    )
+
+
 def validator_python() -> str | None:
     """Interpreter that can run `traust.cli reporting validate`, else None.
 
     This interpreter first, then the harness venv (the harness is a sibling
-    checkout, so its dependencies need not be in ours).
+    checkout, so its dependencies need not be in ours). Probed isolated, as run.
     """
     root = harness_root()
     for exe in (
@@ -185,11 +198,7 @@ def validator_python() -> str | None:
         *([str(root / ".venv" / "bin" / "python")] if root is not None else []),
     ):
         try:
-            r = subprocess.run(
-                [exe, "-c", "import traust.cli.groups.reporting"],
-                capture_output=True,
-                timeout=60,
-            )
+            r = _isolated([exe, "-I", "-c", "import traust.cli.groups.reporting"])
         except (OSError, subprocess.SubprocessError):
             continue
         if r.returncode == 0:
@@ -208,9 +217,53 @@ def validate_with_core(document: Path, schema: str) -> tuple[bool, str] | None:
     python = validator_python()
     if python is None:
         return None
-    cmd = [python, "-m", "traust.cli", "reporting", "validate", "--schema", schema, str(document)]
+    cmd = [
+        python,
+        "-I",
+        "-m",
+        "traust.cli",
+        "reporting",
+        "validate",
+        "--schema",
+        schema,
+        str(Path(document).resolve()),
+    ]
     try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        r = _isolated(cmd)
     except subprocess.TimeoutExpired:
         return False, "validation timed out"
     return r.returncode == 0, (r.stdout or "") + (r.stderr or "")
+
+
+def validate_with_file(document: Path, schema_file: Path) -> tuple[bool, str]:
+    """Check `document` against an operator-supplied schema file.
+
+    Sibling `$ref`s (the remediation contract references report.schema.json)
+    resolve from the schema file's own directory, never from the network.
+    """
+    import json
+
+    from jsonschema import Draft202012Validator, FormatChecker
+    from referencing import Registry, Resource
+    from referencing.jsonschema import DRAFT202012
+
+    base = Path(schema_file).resolve().parent
+    schema = json.loads(Path(schema_file).read_text(encoding="utf-8"))
+
+    def retrieve(uri: str) -> Resource:
+        path = (base / Path(uri).name).resolve()
+        if path.parent != base or not path.is_file():
+            raise LookupError(f"unresolvable $ref outside the schema directory: {uri}")
+        return Resource.from_contents(
+            json.loads(path.read_text(encoding="utf-8")), default_specification=DRAFT202012
+        )
+
+    validator = Draft202012Validator(
+        schema, registry=Registry(retrieve=retrieve), format_checker=FormatChecker()
+    )
+    data = json.loads(Path(document).read_text(encoding="utf-8"))
+    errors = [
+        f"{'/'.join(map(str, e.absolute_path)) or '<root>'}: fails {e.validator}"
+        for e in validator.iter_errors(data)
+    ]
+    return not errors, "\n".join(errors) or "ALL PASSED"

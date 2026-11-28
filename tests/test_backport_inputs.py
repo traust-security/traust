@@ -311,6 +311,47 @@ def test_contracts_are_validated_through_traust_core(tmp_path):
     assert not passed
 
 
+def test_a_checkout_cannot_impersonate_the_validator(tmp_path, monkeypatch):
+    # Qodo #464: a spoofed `traust` on PYTHONPATH or in the cwd must not fake a pass.
+    fake = tmp_path / "evil"
+    for pkg in ("traust", "traust/cli", "traust/cli/groups"):
+        (fake / pkg).mkdir(parents=True)
+        (fake / pkg / "__init__.py").write_text("")
+    (fake / "traust" / "cli" / "groups" / "reporting.py").write_text("")
+    (fake / "traust" / "cli" / "__main__.py").write_text("raise SystemExit(0)\n")
+    bad = tmp_path / "bad.json"
+    bad.write_text("{}")
+    monkeypatch.setenv("PYTHONPATH", str(fake))
+    monkeypatch.chdir(fake)
+    passed, _ = _load("_harness_paths.py").validate_with_core(bad, "remediation")
+    assert not passed
+
+
+def test_an_operator_schema_file_is_checked_as_given(tmp_path):
+    # Qodo #464: an explicit --schema was reduced to a contract name; it is the file now.
+    paths = _load("_harness_paths.py")
+    (tmp_path / "part.schema.json").write_text(
+        json.dumps({"$id": "part.schema.json", "type": "string", "minLength": 3})
+    )
+    schema = tmp_path / "custom.schema.json"
+    schema.write_text(
+        json.dumps(
+            {
+                "type": "object",
+                "required": ["name"],
+                "properties": {"name": {"$ref": "part.schema.json"}},
+            }
+        )
+    )
+    doc = tmp_path / "doc.json"
+    doc.write_text(json.dumps({"name": "ok!"}))
+    assert paths.validate_with_file(doc, schema)[0]
+    doc.write_text(json.dumps({"name": "x"}))
+    assert not paths.validate_with_file(doc, schema)[0]
+    doc.write_text("{}")
+    assert not paths.validate_with_file(doc, schema)[0]
+
+
 def test_no_skill_script_reads_traust_contracts_directly():
     # tests/test_engine_imports.py only sees literal module names; the skill used to
     # import traust_contracts through a variable, so check the text as well.
