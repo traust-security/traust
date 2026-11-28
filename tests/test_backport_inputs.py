@@ -261,6 +261,42 @@ def test_a_sha256_tracker_commit_is_not_a_backport_commit(tmp_path):
     assert all(len(b.get("backport_commit", "")) in (0, 40) for b in report["target_branches"])
 
 
+def test_a_sha256_head_is_not_reduced_to_a_branch_only_verification_input(tmp_path):
+    # Qodo #464: a SHA-256 recorded head was accepted as provenance, then dropped from
+    # the row, leaving a verification hint that named only the mutable branch.
+    results = tmp_path / "results"
+    _write_branch(
+        results / "release-a",
+        target="origin/release-a",
+        result={
+            "issue_id": "backport-x",
+            "target_branch": "release-a",
+            "engine_exit_code": 0,
+            "outcome": "success",
+            "head_sha": "f" * 64,
+        },
+    )
+    _write_branch(results / "release-b", target="origin/release-b")
+    rem = {
+        "seam": "remediation",
+        "audit_report_path": "",
+        "repository": "https://github.com/o/r",
+        "logical_product": "p",
+        "language": "",
+        "fix_commit": "d" * 40,
+        "fix_branch_name": "",
+        "base_ref": "main",
+        "fork_url": "",
+        "cwes": [],
+        "finding_refs": [],
+        "remediation_path": "",
+    }
+    report = emit.build_report(results, rem)
+    hinted = [b["target_branch"] for b in report["verification_hint"]["branches"]]
+    assert hinted == ["release-b"]
+    assert "release-a" in report["notes"] and "SHA-256" in report["notes"]
+
+
 def test_contract_schemas_come_from_traust_core():
     # traust-core is the only consumer of traust-contracts (contracts AGENTS.md):
     # the skill resolves schemas through the contracts commit Core pins.

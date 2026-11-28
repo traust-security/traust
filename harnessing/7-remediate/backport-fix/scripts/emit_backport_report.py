@@ -720,6 +720,7 @@ def build_report(
     # succeeded | failed (+ stop_reason) | skipped. `succeeded` means a backport
     # actually landed, so a success without a patch or provenance is failed.
     contract_rows = []
+    sha256_heads: set[str] = set()
     for r in branch_results:
         cstatus, reason = _contract_status(r["status"])
         error = r.get("error", "")
@@ -751,6 +752,10 @@ def build_report(
         # 40 hex: passed to verification.schema.json's patched_commit (contracts#187).
         if re.fullmatch(r"[0-9a-f]{40}", commit):
             row["backport_commit"] = commit
+        elif re.fullmatch(r"[0-9a-f]{64}", commit):
+            # A SHA-256 head can't be carried until verification takes SHA-256; it
+            # must not degrade to a branch-name-only (mutable) verification input.
+            sha256_heads.add(row["branch"])
         if r.get("backport_branch"):
             row["backport_branch"] = _safe_ref(r["backport_branch"])
         if error:
@@ -871,7 +876,16 @@ def build_report(
 
     # verification_hint carries INPUTS only: the contract deliberately has no
     # command line, because a string from an artifact is never executed.
-    successful = [r for r in contract_rows if r["status"] == "succeeded"]
+    successful = [
+        r for r in contract_rows if r["status"] == "succeeded" and r["branch"] not in sha256_heads
+    ]
+    if sha256_heads:
+        report["notes"] = (
+            "No verification input for "
+            + ", ".join(sorted(sha256_heads))
+            + ": the backport commit is a SHA-256 object id, which verification does not "
+            "accept yet, and a branch name alone is mutable."
+        )
     if successful:
         hint = {
             "repository": repository,
