@@ -44,8 +44,8 @@ import yaml
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _harness_paths import (
     analysis_results_root,
-    contracts_schema_path,
     harness_version,
+    validate_with_core,
     workspace_root,
 )
 
@@ -1193,8 +1193,8 @@ def main():
         "-s",
         type=Path,
         default=None,
-        help="Schema for validation (default: the bundled "
-        "the traust-contracts backport-report schema; validation is ON)",
+        help="An operator-supplied schema file to validate against instead (default: "
+        "the backport-report contract through traust-core; validation is ON)",
     )
     parser.add_argument(
         "--no-schema", action="store_true", help="Skip schema validation (not recommended)"
@@ -1268,37 +1268,41 @@ def main():
 
     # Validation is ON by default: the skill promises validated reports, and
     # an opt-in flag meant the documented commands emitted unchecked JSON.
-    # A missing bundled schema is a packaging error, not a reason to emit
-    # unchecked output — fail closed unless --no-schema is explicit.
-    if args.no_schema:
-        schema_path = None
-    else:
-        schema_path = args.schema
-        if schema_path is None:
-            schema_path = contracts_schema_path("backport-report.schema.json")
-            if schema_path is None:
-                log.error(
-                    "backport-report schema not found in the installed traust-contracts. "
-                    "The contract ships with traust-contracts#187; until traust pins a "
-                    "revision that has it, validate against a checkout of that branch "
-                    "with --schema <path>/artifacts_schema/v1/backport-report.schema.json, "
-                    "or pass --no-schema to skip validation deliberately"
-                )
-                sys.exit(1)
-
-    schema_ok = True
-    if schema_path is not None:
-        schema_ok = validate_against_schema(report, schema_path)
-        if not schema_ok:
-            log.error(
-                "Report failed schema validation — writing --output for "
-                "debugging, but NOT publishing an invalid report."
-            )
-
+    # The --output file is always written (for debugging); an invalid or
+    # unvalidated report is never published unless --no-schema is explicit.
     args.output.parent.mkdir(parents=True, exist_ok=True)
     with Path(args.output).open("w") as f:
         json.dump(report, f, indent=2)
+    schema_ok = True
+    if args.schema is not None:
+        schema_ok = validate_against_schema(report, args.schema)
+    elif not args.no_schema:
+        # traust reaches traust-contracts only through traust-core: the contract is
+        # named, and Core validates against the contracts commit it pins.
+        outcome = validate_with_core(args.output, "backport-report")
+        if outcome is None:
+            log.error(
+                "no interpreter can run traust.cli reporting validate (the harness "
+                "venv) — refusing to publish an unvalidated report; pass "
+                "--no-schema to skip validation deliberately"
+            )
+            sys.exit(1)
+        schema_ok, output = outcome
+        if schema_ok:
+            log.info("Report validates against schema (backport-report, through traust-core).")
+        else:
+            log.error("%s", output.strip())
+            if "has no artifacts_schema/v1/backport-report" in output:
+                log.error(
+                    "the traust-core this harness pins predates the backport-report "
+                    "contract (traust-contracts#187): it lands once Core re-pins to "
+                    "#187's merge commit"
+                )
     if not schema_ok:
+        log.error(
+            "Report failed schema validation — --output written for debugging, but "
+            "NOT publishing an invalid report."
+        )
         sys.exit(1)
 
     # Publishing is on by default; explicit missing root errors, a missing

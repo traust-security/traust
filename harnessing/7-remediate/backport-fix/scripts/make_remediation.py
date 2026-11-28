@@ -158,45 +158,6 @@ def harness_version() -> str:
     return _paths.harness_version(with_rev=True)
 
 
-def _validator_python() -> str | None:
-    """Interpreter that can import traust.cli.reporting, else None.
-
-    Preference: this interpreter, then the harness venv (the repo's
-    documented convention is ../traust/.venv/bin/python — the harness is a
-    sibling checkout, so its dependencies are not in ours).
-    """
-    for exe in (
-        sys.executable,
-        *(
-            [str(_paths.harness_root() / ".venv" / "bin" / "python")]
-            if _paths.harness_root() is not None
-            else []
-        ),
-    ):
-        try:
-            r = subprocess.run(
-                [exe, "-c", "from traust.cli import reporting"],
-                capture_output=True,
-                timeout=60,
-            )
-        except (OSError, subprocess.SubprocessError):
-            continue
-        if r.returncode == 0:
-            return exe
-    return None
-
-
-def resolve_schema(explicit: Path | None) -> Path | None:
-    """The remediation contract schema: --schema, else the one traust-core pins.
-
-    traust-core is the only consumer of traust-contracts, so the schema never
-    comes from an installed traust-contracts package or a sibling checkout.
-    """
-    if explicit is not None:
-        return explicit if explicit.is_file() else None
-    return _paths.contracts_schema_path("remediation.schema.json")
-
-
 def normalize_repo_url(url: str) -> str:
     """https URL for a git remote, with any embedded credential removed."""
     url = _paths.strip_url_credentials(url).removesuffix(".git")
@@ -479,47 +440,26 @@ def main() -> None:
     log.info("Wrote %s", args.out)
 
     if not args.no_validate:
-        if args.schema is not None and not args.schema.is_file():
-            raise SystemExit(f"--schema not found: {args.schema}")
-        schema = resolve_schema(args.schema)
-        python = _validator_python()
-        if schema is not None and python is not None:
-            cmd = [
-                python,
-                "-m",
-                "traust.cli",
-                "reporting",
-                "validate",
-                "--schema",
-                str(schema),
-                str(args.out),
-            ]
-        else:
-            cmd = None
-
-        if cmd:
-            try:
-                r = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
-            except subprocess.TimeoutExpired:
-                args.out.unlink(missing_ok=True)
-                raise SystemExit("validation timed out — output removed") from None
-            print(r.stdout.strip().splitlines()[-1] if r.stdout.strip() else "")
-            if r.returncode != 0:
-                log.error("Schema validation FAILED:\n%s", r.stdout or r.stderr)
-                args.out.unlink(missing_ok=True)
-                sys.exit(1)
-        else:
-            missing = (
-                "the remediation schema"
-                if schema is None
-                else "a validator (traust.cli / the harness venv)"
-            )
+        # The contract is named, never a file: traust validates through traust-core,
+        # which pins the contracts commit (an explicit --schema contributes its name).
+        name = (
+            "remediation"
+            if args.schema is None
+            else Path(args.schema).name.removesuffix(".schema.json")
+        )
+        outcome = _paths.validate_with_core(args.out, name)
+        if outcome is None:
             log.error(
-                "%s could not be found — refusing to emit an unvalidated "
-                "remediation JSON. Install the contracts package, set "
-                "HARNESS_WORKSPACE, or pass --no-validate deliberately.",
-                missing,
+                "no interpreter can run traust.cli reporting validate (the harness "
+                "venv) — refusing to emit an unvalidated remediation JSON. "
+                "Pass --no-validate deliberately to skip."
             )
+            args.out.unlink(missing_ok=True)
+            sys.exit(1)
+        passed, output = outcome
+        print(output.strip().splitlines()[-1] if output.strip() else "")
+        if not passed:
+            log.error("Schema validation FAILED:\n%s", output)
             args.out.unlink(missing_ok=True)
             sys.exit(1)
 

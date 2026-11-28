@@ -25,6 +25,7 @@ from __future__ import annotations
 import os
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 _VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
@@ -172,17 +173,44 @@ def harness_version(*, with_rev: bool = False) -> str:
     return f"{version}-{sha}" if _SHA_RE.fullmatch(sha) else version
 
 
-def contracts_schema_path(name: str) -> Path | None:
-    """Resolve a v1 artifact schema by basename, through traust-core.
+def validator_python() -> str | None:
+    """Interpreter that can run `traust.cli reporting validate`, else None.
 
-    traust-core is the only consumer of traust-contracts (contracts AGENTS.md):
-    the schema comes from the contracts commit Core pins, never from an
-    installed traust-contracts, a sibling checkout or a vendored copy. None
-    when traust-core isn't importable or doesn't ship the schema.
+    This interpreter first, then the harness venv (the harness is a sibling
+    checkout, so its dependencies need not be in ours).
     """
-    try:
-        from traust_core.v1 import contracts
-    except ImportError:
+    root = harness_root()
+    for exe in (
+        sys.executable,
+        *([str(root / ".venv" / "bin" / "python")] if root is not None else []),
+    ):
+        try:
+            r = subprocess.run(
+                [exe, "-c", "import traust.cli.groups.reporting"],
+                capture_output=True,
+                timeout=60,
+            )
+        except (OSError, subprocess.SubprocessError):
+            continue
+        if r.returncode == 0:
+            return exe
+    return None
+
+
+def validate_with_core(document: Path, schema: str) -> tuple[bool, str] | None:
+    """Check `document` against the named contract through traust's own door.
+
+    traust reaches traust-contracts only through traust-core (contracts and core
+    AGENTS.md): `traust.cli reporting validate --schema <name>` runs Core's
+    ReportingService against the contracts commit Core pins. None when no
+    interpreter can run it; otherwise (passed, the validator's output).
+    """
+    python = validator_python()
+    if python is None:
         return None
-    path = Path(contracts.schema_path(name.removesuffix(".schema.json")))
-    return path if path.is_file() else None
+    cmd = [python, "-m", "traust.cli", "reporting", "validate", "--schema", schema, str(document)]
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+    except subprocess.TimeoutExpired:
+        return False, "validation timed out"
+    return r.returncode == 0, (r.stdout or "") + (r.stderr or "")

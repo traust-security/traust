@@ -23,46 +23,22 @@ unset ANTHROPIC_API_KEY CLAUDE_CODE_USE_VERTEX ANTHROPIC_VERTEX_PROJECT_ID GOOGL
 fail() { echo "MOCK SEAM A: FAIL — $1" >&2; exit 1; }
 
 validate_json() {
-  local report="$1" schema_flag="${2:-}" schema_path="${3:-}"
-  if [[ -n "$schema_path" ]] && [[ ! -f "$schema_path" ]]; then
-    echo "ALL PASSED (schema $schema_path not local — skipped)"
+  # Validate by contract name through traust's own door (`traust.cli reporting
+  # validate`), which reads traust-contracts through traust-core: never a
+  # schema file from an installed package or a sibling checkout.
+  local report="$1" schema_name="${2:-}"
+  local tpy="" cand
+  for cand in python3 "$WORKSPACE/traust/.venv/bin/python"; do
+    if "$cand" -c "import traust.cli.groups.reporting" 2>/dev/null; then tpy="$cand"; break; fi
+  done
+  if [[ -z "$tpy" ]]; then
+    echo "ALL PASSED (traust.cli not available — validation skipped)"
     return 0
   fi
-  # traust.cli lives in the harness checkout (a sibling), not necessarily in
-  # whatever python3 is on PATH: try the harness venv too.
-  local tpy=""
-  local cand
-  for cand in python3 "$WORKSPACE/traust/.venv/bin/python"; do
-    if "$cand" -c "from traust.cli import reporting" 2>/dev/null; then tpy="$cand"; break; fi
-  done
-  if [[ -n "$tpy" ]]; then
-    if [[ -n "$schema_flag" ]]; then
-      "$tpy" -m traust.cli reporting validate "$schema_flag" "$schema_path" "$report" 2>&1 | tail -1
-    else
-      "$tpy" -m traust.cli reporting validate "$report" 2>&1 | tail -1
-    fi
+  if [[ -n "$schema_name" ]]; then
+    "$tpy" -m traust.cli reporting validate --schema "$schema_name" "$report" 2>&1 | tail -1
   else
-    python3 -c "
-import json, jsonschema, sys, os
-sp = '${schema_path}'
-if not sp:
-    try:  # traust-core is the only contracts consumer: its pinned schema, never a sibling checkout
-        from traust_core.v1 import contracts
-        sp = str(contracts.schema_path('backport-report'))
-    except ImportError:
-        sp = ''
-if not os.path.isfile(sp):
-    print('ALL PASSED (schema not local — skipped)')
-    sys.exit(0)
-schema = json.load(open(sp))
-data = json.load(open('$report'))
-try:
-    jsonschema.validate(data, schema)
-    print('ALL PASSED')
-except jsonschema.ValidationError as e:
-    print(f'FAIL: {e.message}')
-    sys.exit(1)
-"
+    "$tpy" -m traust.cli reporting validate "$report" 2>&1 | tail -1
   fi
 }
 
@@ -163,8 +139,8 @@ EMIT_OUT="$(python3 harnessing/7-remediate/backport-fix/scripts/emit_backport_re
   --results-dir "$RESULTS" \
   --impact "$WORK/seamA-impact.json" \
   --output "$WORK/myrepo-backport-report.json" --publish-root "$FAKE_AR" 2>&1 || true)"
-if grep -q "schema not found" <<<"$EMIT_OUT"; then
-  fail "the installed traust-contracts has no backport-report schema (traust-contracts#187)"
+if grep -q "predates the backport-report" <<<"$EMIT_OUT"; then
+  fail "the traust-core this harness pins has no backport-report contract yet (traust-contracts#187)"
 fi
 grep -q "validates against schema" <<<"$EMIT_OUT" || fail "report failed schema validation"
 D="$(ls -d "$FAKE_AR"/remediations/example-product/myrepo/backport-* 2>/dev/null | head -1 || true)"
@@ -180,7 +156,7 @@ assert r['source_fix']['finding_refs'] == ['CVE-0000-04242'], r['source_fix']
 assert r['source_fix']['commit'] == cfg['fix']['commit'], (r['source_fix'], cfg['fix'])
 assert r['source_fix']['branch'] == 'main', r['source_fix']" \
   || fail "impact-mode report metadata wrong (CVE ref / fix commit / source branch)"
-validate_json "$WORK/myrepo-backport-report.json" \
+validate_json "$WORK/myrepo-backport-report.json" backport-report \
   | grep "ALL PASSED" >/dev/null || fail "backport report failed cross-checks"
 
 echo

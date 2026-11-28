@@ -297,16 +297,18 @@ def test_a_sha256_head_is_not_reduced_to_a_branch_only_verification_input(tmp_pa
     assert "release-a" in report["notes"] and "SHA-256" in report["notes"]
 
 
-def test_contract_schemas_come_from_traust_core():
-    # traust-core is the only consumer of traust-contracts (contracts AGENTS.md):
-    # the skill resolves schemas through the contracts commit Core pins.
-    from traust_core.v1 import contracts
-
+def test_contracts_are_validated_through_traust_core(tmp_path):
+    # traust-core is the only consumer of traust-contracts (contracts AGENTS.md); the
+    # consumer ratchet allows traust only Core's context/models/errors, so the skill
+    # validates by contract name through `traust.cli reporting validate`.
     paths = _load("_harness_paths.py")
-    want = contracts.schema_path("remediation")
-    assert paths.contracts_schema_path("remediation.schema.json") == want
-    assert mk.resolve_schema(None) == want
-    assert paths.contracts_schema_path("no-such-artifact.schema.json") is None
+    fixture = _SKILL.parent / "test-data" / "example-widget.f001-remediation.json"
+    passed, output = paths.validate_with_core(fixture, "remediation")
+    assert passed, output
+    bad = tmp_path / "bad.json"
+    bad.write_text("{}")
+    passed, _ = paths.validate_with_core(bad, "remediation")
+    assert not passed
 
 
 def test_no_skill_script_reads_traust_contracts_directly():
@@ -319,7 +321,8 @@ def test_no_skill_script_reads_traust_contracts_directly():
         if path.is_file()
         and path.suffix in {".py", ".sh"}
         and re.search(
-            r"traust_contracts|ai_security_contracts|traust-contracts/artifacts_schema",
+            r"traust_contracts|ai_security_contracts|traust-contracts/artifacts_schema"
+            r"|traust_core\.v1\.contracts|from traust_core\.v1 import contracts",
             path.read_text(encoding="utf-8"),
         )
     ]
@@ -1706,7 +1709,14 @@ def test_a_missing_report_contract_fails_closed_and_names_it(tmp_path, monkeypat
     # (traust-contracts#187). Default mode must refuse, and say what to do.
     results = tmp_path / "results"
     _write_branch(results / "release-a")
-    monkeypatch.setattr(emit, "contracts_schema_path", lambda name: None)
+    monkeypatch.setattr(
+        emit,
+        "validate_with_core",
+        lambda path, name: (
+            False,
+            "ERROR: traust-contracts has no artifacts_schema/v1/backport-report.schema.json",
+        ),
+    )
     monkeypatch.setattr(
         sys,
         "argv",
@@ -1726,7 +1736,7 @@ def test_a_missing_report_contract_fails_closed_and_names_it(tmp_path, monkeypat
     with caplog.at_level("ERROR"), pytest.raises(SystemExit) as exc:
         emit.main()
     assert exc.value.code == 1
-    assert "traust-contracts#187" in caplog.text and "--schema" in caplog.text
+    assert "traust-contracts#187" in caplog.text and "NOT publishing" in caplog.text
 
 
 @pytest.mark.parametrize(

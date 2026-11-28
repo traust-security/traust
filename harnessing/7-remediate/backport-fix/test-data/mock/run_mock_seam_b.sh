@@ -24,61 +24,22 @@ unset ANTHROPIC_API_KEY CLAUDE_CODE_USE_VERTEX ANTHROPIC_VERTEX_PROJECT_ID GOOGL
 fail() { echo "MOCK SEAM B: FAIL — $1" >&2; exit 1; }
 
 validate_json() {
-  local report="$1" schema_flag="${2:-}" schema_path="${3:-}"
-  if [[ -n "$schema_path" ]] && [[ ! -f "$schema_path" ]]; then
-    echo "ALL PASSED (schema $schema_path not local — skipped)"
+  # Validate by contract name through traust's own door (`traust.cli reporting
+  # validate`), which reads traust-contracts through traust-core: never a
+  # schema file from an installed package or a sibling checkout.
+  local report="$1" schema_name="${2:-}"
+  local tpy="" cand
+  for cand in python3 "$WORKSPACE/traust/.venv/bin/python"; do
+    if "$cand" -c "import traust.cli.groups.reporting" 2>/dev/null; then tpy="$cand"; break; fi
+  done
+  if [[ -z "$tpy" ]]; then
+    echo "ALL PASSED (traust.cli not available — validation skipped)"
     return 0
   fi
-  # traust.cli lives in the harness checkout (a sibling), not necessarily in
-  # whatever python3 is on PATH: try the harness venv too.
-  local tpy=""
-  local cand
-  for cand in python3 "$WORKSPACE/traust/.venv/bin/python"; do
-    if "$cand" -c "from traust.cli import reporting" 2>/dev/null; then tpy="$cand"; break; fi
-  done
-  if [[ -n "$tpy" ]]; then
-    if [[ -n "$schema_flag" ]]; then
-      "$tpy" -m traust.cli reporting validate "$schema_flag" "$schema_path" "$report" 2>&1 | tail -1
-    else
-      "$tpy" -m traust.cli reporting validate "$report" 2>&1 | tail -1
-    fi
+  if [[ -n "$schema_name" ]]; then
+    "$tpy" -m traust.cli reporting validate --schema "$schema_name" "$report" 2>&1 | tail -1
   else
-    # Last-resort local validator: resolve sibling $refs from the schema's
-    # own directory (the remediation contract references
-    # report.schema.json#/$defs/location).
-    python3 -c "
-import json, jsonschema, sys, os
-from referencing import Registry, Resource
-sp = '${schema_path}'
-if not sp:
-    try:  # traust-core is the only contracts consumer: its pinned schema, never a sibling checkout
-        from traust_core.v1 import contracts
-        sp = str(contracts.schema_path('backport-report'))
-    except ImportError:
-        sp = ''
-sp = os.path.realpath(sp) if sp else ''
-if not os.path.isfile(sp):
-    print('ALL PASSED (schema not local — skipped)')
-    sys.exit(0)
-base = os.path.dirname(sp)
-schema = json.load(open(sp))
-data = json.load(open('$report'))
-
-def retrieve(uri):
-    p = os.path.join(base, uri.rsplit('/', 1)[-1])
-    if os.path.isfile(p):
-        return Resource.from_contents(json.load(open(p)))
-    raise KeyError(uri)
-
-try:
-    jsonschema.Draft202012Validator(
-        schema, registry=Registry(retrieve=retrieve)
-    ).validate(data)
-    print('ALL PASSED')
-except jsonschema.ValidationError as e:
-    print(f'FAIL: {e.message}')
-    sys.exit(1)
-"
+    "$tpy" -m traust.cli reporting validate "$report" 2>&1 | tail -1
   fi
 }
 
@@ -89,24 +50,13 @@ REM="$WORK/widget.f001-remediation.json"
 
 echo "== stage 0: input contract (real validator, real schema) =="
 cd "$HARNESS_ROOT"
-# The remediation contract moved out of the harness root into the contracts
-# package/checkout; resolve it the way make_remediation.py does instead of
-# hardcoding a path that no longer exists (which used to skip silently).
-REMED_SCHEMA="$(python3 -c "
-import sys
-sys.path.insert(0, 'harnessing/7-remediate/backport-fix/scripts')
-import make_remediation as m
-print(m.resolve_schema(None) or '')" 2>/dev/null || true)"
-if [[ -n "$REMED_SCHEMA" ]]; then
-  validate_json "$REM" --schema "$REMED_SCHEMA" \
-    | grep "ALL PASSED" >/dev/null || fail "remediation JSON does not validate"
-  for fixture in "$HARNESS_ROOT"/harnessing/7-remediate/backport-fix/test-data/example-widget*-remediation.json; do
-    validate_json "$fixture" --schema "$REMED_SCHEMA" \
-      | grep "ALL PASSED" >/dev/null || fail "shipped fixture does not validate: $fixture"
-  done
-else
-  echo "  (remediation schema not found — validation skipped; set HARNESS_WORKSPACE)"
-fi
+# The remediation contract is validated by name through traust-core.
+validate_json "$REM" remediation \
+  | grep "ALL PASSED" >/dev/null || fail "remediation JSON does not validate"
+for fixture in "$HARNESS_ROOT"/harnessing/7-remediate/backport-fix/test-data/example-widget*-remediation.json; do
+  validate_json "$fixture" remediation \
+    | grep "ALL PASSED" >/dev/null || fail "shipped fixture does not validate: $fixture"
+done
 
 SCANNER_OK=false
 if [[ -d "$AMALG/backport_scanner" ]] && PYTHONPATH="$AMALG" python3 -c "import backport_scanner.scanner" 2>/dev/null; then
@@ -163,8 +113,8 @@ cd "$HARNESS_ROOT"
 EMIT_OUT="$(python3 harnessing/7-remediate/backport-fix/scripts/emit_backport_report.py \
   --results-dir "$RESULTS" --remediation "$REM" \
   --output "$WORK/widget-backport-report.json" --publish-root "$FAKE_AR" 2>&1 || true)"
-if grep -q "schema not found" <<<"$EMIT_OUT"; then
-  fail "the installed traust-contracts has no backport-report schema (traust-contracts#187)"
+if grep -q "predates the backport-report" <<<"$EMIT_OUT"; then
+  fail "the traust-core this harness pins has no backport-report contract yet (traust-contracts#187)"
 fi
 grep -q "validates against schema" <<<"$EMIT_OUT" || fail "report failed schema validation"
 D="$(ls -d "$FAKE_AR"/remediations/widget/widget/backport-* 2>/dev/null | head -1 || true)"
@@ -182,7 +132,7 @@ assert hint['branches'][0]['target_branch'] == 'release-a', hint
 assert hint['branches'][0].get('backport_commit') == row['backport_commit'], hint
 assert 'original_audit_report' not in hint or hint['original_audit_report'].endswith('widget-security-audit.json'), hint" \
   || fail "backport_commit/backport_branch/verification_hint wrong"
-validate_json "$WORK/widget-backport-report.json" \
+validate_json "$WORK/widget-backport-report.json" backport-report \
   | grep "ALL PASSED" >/dev/null || fail "backport report failed cross-checks"
 
 echo
