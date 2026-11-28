@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-# Deterministic commit + push for one remediate-finding patch (followup
-# ask E, 2026-11-02).
+# Deterministic commit + push for one remediate-finding patch.
 #
 # The agent that wrote the patch never runs a mutating git command: after
 # Phase 4 the worktree holds uncommitted changes and nothing else. This
@@ -17,9 +16,9 @@
 #
 # Why a fresh clone rather than committing in the worktree: the worktree's
 # .git is agent-adjacent and shared with core's mirror, and hostile target
-# build/test code is documented (assessment 2026-07-31 C2) to plant
-# executable git configuration there. Committing would run git against
-# that .git. The same isolation SCI's worker applies: the clone is created
+# build/test code can plant executable git configuration there. Committing
+# would run git against that .git.
+# The clone is created
 # by this script in an unpredictable mktemp path, with system/global git
 # config ignored (GIT_CONFIG_GLOBAL/SYSTEM=/dev/null — no url.*.insteadOf
 # rewrites, no clean/smudge filters, no ambient hooks) and hooks disabled,

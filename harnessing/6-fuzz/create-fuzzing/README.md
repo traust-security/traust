@@ -11,8 +11,8 @@ create-fuzzing/
 ├── targets.json         # machine-readable manifest (repo, commit, harness→dest, pkg, fuzz func)
 ├── Makefile             # clone / install / build / fuzz-<id> / fuzz-all
 ├── clones/              # service checkouts, symlinked @ pinned commit (git-ignored upstream)
-└── (harness sources)    # moved 2026-08-27 to analysis-results/fuzz-harnesses/<repo>/;
-                        # copied into clones/ by `make install` via $(HARNESSES)
+└── (harness sources)    # analysis-results/fuzz-harnesses/<repo>/;
+                         # copied into clones/ by `make install` via $(HARNESSES)
                          # (crashers land in clones/<id>/<pkg>/testdata/fuzz/; curated
                          #  reproducers → analysis-results/findings/**/<id>/fuzz-corpus/<FuzzName>/)
 ```

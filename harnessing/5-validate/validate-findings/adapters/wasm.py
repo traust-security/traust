@@ -100,7 +100,7 @@ class WasmAdapter(AdapterBase):
             verdict=verdict,
             expected=expected,
             # module metadata can embed secrets from build env — same
-            # redaction as the k8s adapter (assessment 2026-07-31 F16)
+            # redaction as the k8s adapter.
             observed=redact_credentials(observed)[:4000],
             evidence=evidence,
             finding_ref=(

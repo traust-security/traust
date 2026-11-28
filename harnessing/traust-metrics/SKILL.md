@@ -113,9 +113,7 @@ The scoreboard does **not** read spend data and the scoreboard carries
 no spend section — spend lives in its own dashboard
 (python3 -m traust.cli dashboard view spend; *retired:* the legacy
 `progress-tracker/metrics/dashboards/spend/` dashboard and its `/refresh-dashboards` stage).
-An earlier revision of this skill claimed the scoreboard harvested
-`model-spend:*` ledger rows; no such code ever existed
-(docs-verification 2026-07-31, wiring c5). When reporting scoreboard
+When reporting scoreboard
 numbers, point spend questions at the spend dashboard; treat a
 >7-day-old spend dashboard as stale and rebuild via
 `/refresh-dashboards`. Real-time view and the full tracking chain live in your

@@ -36,11 +36,8 @@ OUT="${4:-$WORK/.remediation-checks}"
 TIMEOUT_S="${5:-${REMEDIATION_PROPERTY_TIMEOUT:-900}}"
 mkdir -p "$OUT"
 
-# Pinned exactly (rule S7), and the WHOLE closure is pinned, not just the two
-# packages we name. An earlier version used `--no-deps` with a guessed list and
-# missed pluggy, so pytest could not import itself — which then looked like a
-# failing property. Resolved in the pinned image on 2026-09-16; re-resolve
-# deliberately when bumping, never let it float.
+# Pin the whole dependency closure so pytest can import its dependencies.
+# Re-resolve deliberately when bumping; never let it float.
 HYPOTHESIS_PIN="${REMEDIATION_HYPOTHESIS_PIN:-6.168.0}"
 PROP_DEPS=(
   "hypothesis==$HYPOTHESIS_PIN"

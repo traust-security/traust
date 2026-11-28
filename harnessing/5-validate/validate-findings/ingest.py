@@ -795,8 +795,7 @@ def ingest_many(
     """Ingest and merge findings from **multiple** source packages.
 
     Used when a single logical product maps to several
-    ``processed-results/<slug>-findings/`` packages (see the Deduplication
-    Map in ``progress-tracker/VALIDATION-PRIORITY-LIST.md``).
+    ``processed-results/<slug>-findings/`` packages.
 
     Findings from each package are tagged with a ``<package>:`` label
     prefix so identical repo names across packages do not collide.  After

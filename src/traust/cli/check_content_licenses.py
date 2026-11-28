@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
-"""Content-license guard — deterministic enforcement of the two licensing
-rules established by the 2026-07-16 license sweep (see
-docs/external-dependencies.md, "Security frameworks & content licenses").
+"""Content-license guard — deterministic enforcement of licensing rules
+(see docs/external-dependencies.md, "Security frameworks & content licenses").
 
 1. PEACH keep-it-original (v0.54.2). The PEACH tenant-isolation sections
    were rewritten as original text because the upstream Wiz content is
@@ -21,8 +20,7 @@ docs/external-dependencies.md, "Security frameworks & content licenses").
    recommendation titles have a machine-detectable shape — "Ensure that
    the --<flag> argument is set to ..." and "(Automated)"/"(Manual)"
    scoring suffixes — whose appearance in prompts or docs means benchmark
-   text was copied in. (Verified 2026-07-16: zero hits in the harness tree
-   and across the whole findings corpus, so any future hit is new.)
+   text was copied in.
 
 3. Dependency intake. Every package in pyproject.toml (core dependencies
    and optional groups alike) must have a row in
@@ -31,19 +29,18 @@ docs/external-dependencies.md, "Security frameworks & content licenses").
    retroactive intake) happened. The /check-licensing skill's Job 2 is
    the intake procedure; this check makes running it mechanical.
 
-4. PCI DSS ID-only citations (compliance-check Phase 0, 2026-07-19).
+4. PCI DSS ID-only citations.
    PCI DSS carries PCI SSC copyright with no open license, so the CIS
    rule applies verbatim: cite bare requirement IDs ("PCI DSS 8.3.6"),
    never standard text. The v4.x requirement structure has distinctive
    section headings whose appearance means standard text was pasted in.
 
-5. AICPA TSC (SOC 2) ID-only citations (compliance-check Phase 0
-   addendum, 2026-07-19). The Trust Services Criteria are AICPA
+5. AICPA TSC (SOC 2) ID-only citations. The Trust Services Criteria are AICPA
    copyright, all rights reserved: cite bare criterion IDs
    ("TSC CC6.1"), never criteria text. Detectable markers: embedded
    COSO principle statements and points-of-focus boilerplate.
 
-6. ShareAlike provenance markers (2026-09-15). BY-SA section 3(b)
+6. ShareAlike provenance markers. BY-SA section 3(b)
    requires any Adapted Material that is *Shared* to carry a CC license
    with the same License Elements — which Apache-2.0 is not. The harness
    therefore treats wholesale adaptation of a BY-SA work differently from
@@ -99,9 +96,7 @@ ALLOWLIST = {
     "CHANGELOG.md",
     "src/traust/cli/check_content_licenses.py",  # this file carries the patterns
     # The skill whose whole subject is these rules: its violation-class table
-    # has to name "NonCommercial" and "ShareAlike" to explain them. It escaped
-    # the allowlist until 2026-09-15 only because its wording ("CC-NC-licensed")
-    # happened to dodge both patterns.
+    # has to name "NonCommercial" and "ShareAlike" to explain them.
     "harnessing/check-licensing/SKILL.md",
 }
 
@@ -166,8 +161,7 @@ CIS_TEXT_RES = (
 
 # --- Rule 4: PCI DSS requirement-text signatures ----------------------------
 # PCI DSS is PCI SSC copyright (no open license); the harness cites bare
-# requirement IDs ("PCI DSS 8.3.6") and never reproduces standard text
-# (compliance-check Phase 0, 2026-07-19 — the CIS precedent applied).
+# requirement IDs ("PCI DSS 8.3.6") and never reproduces standard text.
 # The v4.x standard's requirement structure has machine-detectable
 # section headings that only appear when actual standard text is pasted:
 PCI_TEXT_RES = (
@@ -177,8 +171,7 @@ PCI_TEXT_RES = (
 
 # --- Rule 5: AICPA Trust Services Criteria (SOC 2) text signatures ----------
 # The TSC document is AICPA copyright, all rights reserved (verified on
-# the 2022 SSAE 21 illustrative report, compliance Phase 0 addendum
-# 2026-07-19): cite bare criterion IDs ("TSC CC6.1") only. TSC criteria
+# the 2022 SSAE 21 illustrative report): cite bare criterion IDs ("TSC CC6.1") only. TSC criteria
 # text has two machine-detectable structural markers — the embedded COSO
 # principle statements and the points-of-focus boilerplate:
 TSC_TEXT_RES = (

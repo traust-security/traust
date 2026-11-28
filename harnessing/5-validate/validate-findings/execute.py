@@ -75,10 +75,9 @@ def _step_action(step: dict) -> Action:
 def _step_actions(step: dict) -> tuple[list[Action], str | None]:
     """Every Action a step really performs, plus a hard-deny reason.
 
-    The parsed target dict alone was the confirmed F2 bypass
-    (assessment 2026-07-31): the command's REAL argv can carry
-    credential/target overrides, `-A`, and any number of `-n` flags the
-    dict never mentions. For k8s string-command steps, derive one
+    The command's REAL argv can carry credential/target overrides, `-A`,
+    and any number of `-n` flags the target dict never mentions. For k8s
+    string-command steps, derive one
     Action per kube command from the argv — real subcommand as verb,
     every real namespace (None for cluster-scoped/-A) — and deny
     retargeting flags outright. ALL derived actions must pass scope.
@@ -310,7 +309,7 @@ def run(
 
         # scope guard (re-checked at exec time — plan may have been
         # edited). Every argv-derived action must pass, not just the
-        # declared target dict (assessment 2026-07-31 F2).
+        # declared target dict.
         actions, deny = _step_actions(step)
         ok, reason = (False, deny) if deny else (True, "ok")
         if ok:

@@ -1,6 +1,6 @@
 ---
 name: check-skill-security
-description: Use before committing any new or edited skill or script to the traust repo, or when asked "does this skill degrade our security posture", "run the security-posture check", "is this skill safe to add" — runs python3 -m traust.cli check skill-security, the security-posture guard the pre-commit hook enforces alongside the alignment gate. Verifies privileged skills declare allowed-tools confinement, untrusted-content readers carry the adversarial-content doctrine, no git network command takes an ungated non-literal URL (the confirmed-RCE class from the 2026-07 self-audit), no shell-execution constructs or ps-visible Authorization headers, no fixed /tmp state paths, no unpinned runtime installs, no raw-egress tool grants, headless agents under repo-config isolation, and target-build invocations routed through the safe_exec sandbox.
+description: Use before committing any new or edited skill or script to the traust repo, or when asked "does this skill degrade our security posture", "run the security-posture check", "is this skill safe to add" — runs python3 -m traust.cli check skill-security, the security-posture guard the pre-commit hook enforces alongside the alignment gate. Verifies privileged skills declare allowed-tools confinement, untrusted-content readers carry the adversarial-content doctrine, no git network command takes an ungated non-literal URL, no shell-execution constructs or ps-visible Authorization headers, no fixed /tmp state paths, no unpinned runtime installs, no raw-egress tool grants, headless agents under repo-config isolation, and target-build invocations routed through the safe_exec sandbox.
 user-invocable: true
 metadata:
   harness.tier: "ci"
@@ -13,12 +13,7 @@ allowed-tools:
 
 # check-skill-security — the security-posture gate for skills
 
-Every rule in this checker is a generalized finding from the project's
-own 2026-07-24 pre-release security self-audit (internal remediation
-plan). The
-audit's meta-lesson: unsafe constructs enter one skill at a time while
-sibling skills already carry the safe pattern. This gate makes the safe
-patterns mechanical for every future skill.
+This gate makes security patterns mechanical for every future skill.
 
 ## Run
 
@@ -42,7 +37,7 @@ the audit finding class it guards.
 | S6 tmp-paths | fixed world-writable `/tmp/<name>` state/credential paths | B2/B4/E9 |
 | S7 unpinned-install | runtime `pip`/`npm` installs without versions, `go @latest`, `curl\|sh` (in .sh/Makefile) | E1/C3 |
 | S8 egress-grants | `allowed-tools` granting raw `curl`/`wget`/`gh api` egress | D7 |
-| S9 repo-config isolation | headless-agent launch without the repo-config isolation doctrine (cwd outside the checkout; target `.claude`/`CLAUDE.md`/hooks never loaded) | b-lite-p5 incident 2026-07-26 |
+| S9 repo-config isolation | headless-agent launch without the repo-config isolation doctrine (cwd outside the checkout; target `.claude`/`CLAUDE.md`/hooks never loaded) | repo-config isolation |
 | S10 target-build sandbox | target-build invocation (`make`/`mvn`/`gradle`/`go build`/`npm`/`cargo` in an execution context) without python3 -m traust.cli util safe-exec routing | sandbox-adoption WS1 |
 
 Scope: git-tracked files under `src/traust/` and `harnessing/` only —
@@ -97,6 +92,4 @@ the gate could be introduced at all, not as a pattern to follow.
 Console-only output (no artifact). Enforced by `.githooks/pre-commit`
 alongside `check_skill_alignment.py` (A-series); the two are
 complementary — alignment guards cross-skill contracts, this guards
-security posture. The rule set derives from the internal remediation
-plan; update both together when a new finding class is discovered (add
-the rule here, register the campaign fix in the tracker).
+security posture. Update the rules when a new finding class is discovered.

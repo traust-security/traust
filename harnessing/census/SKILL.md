@@ -10,13 +10,11 @@ allowed-tools:
   - Bash(ls:*)
   - Bash(open *.html:*)
   - Read
-  # scoped 2026-07-31 (P1-W4): A11 grandfather retired —
-  # per-script anchored grants replace Bash(python3:*)
 ---
 
 # Corpus Census — population, duplication, distinct vulnerabilities
 
-> **Ported to traust-core in part** (progress-tracker skill port 09, census): the population is `traust portfolio population`, repo liveness `traust portfolio liveness` (refused until plan 15's decision 3), distinct vulnerabilities, ownership cuts and the census files `traust dashboard view census` (traust-core's census view).
+> **traust-core:** the population is `traust portfolio population`, repo liveness is `traust portfolio liveness` (currently refused), and distinct vulnerabilities, ownership cuts and census files come from `traust dashboard view census`.
 
 > **Paths.** `analysis-results/…` and `progress-tracker/…` in this skill are the
 > default workspace layout. They resolve through `locations:` in `traust.yaml` in
@@ -27,8 +25,7 @@ allowed-tools:
 One deterministic pass that answers "what do we actually have": the report
 population per tree and ownership cut, the duplication vectors that inflate
 naive counts, and the **distinct vulnerabilities** headline (Lens 2 of the
-three-lens taxonomy — see
-`progress-tracker/plans/metrics-improvement-plan.md`).
+three-lens taxonomy).
 
 ## Input
 
