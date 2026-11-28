@@ -16,9 +16,8 @@ repo_root="$(git rev-parse --show-toplevel)"
 docs_checker="$repo_root/src/traust/cli/check_docs_consistency.py"
 license_checker="$repo_root/src/traust/cli/check_content_licenses.py"
 
-# FAIL-CLOSED (P1 gate rework 2026-07-31): a missing interpreter or a
-# deleted checker used to skip the gates silently. A broken gate now
-# blocks the push; the deliberate escape hatch stays --no-verify.
+# FAIL-CLOSED: a missing interpreter or checker blocks the push.
+# The deliberate escape hatch is --no-verify.
 if ! command -v python3 >/dev/null 2>&1; then
   echo "pre-push: python3 not found — the doc/licensing gates CANNOT" >&2
   echo "          run, so the push is blocked (fail-closed)." >&2

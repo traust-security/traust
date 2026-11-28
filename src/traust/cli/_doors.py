@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any
 from pydantic import ValidationError as ModelValidationError
 from traust_core.v1.errors import NotFoundError, TraustError, ValidationError
 from traust_core.v1.models.common import Provenance
+from traust_core.v1.models.component_target import DsseEnvelope
 from traust_core.v1.models.inventory import Product, RefName, RepositoryRef
 from traust_core.v1.models.operations import (
     MAX_TARGET_PROVENANCE_BYTES,
@@ -249,8 +250,8 @@ def package_id(services: Any, ecosystem: str, name: str) -> uuid.UUID:
     return found.id
 
 
-def load_provenance_json(path: Path) -> dict[str, Any]:
-    """Read a size-bounded JSON object representing an authenticated provenance envelope."""
+def load_provenance_json(path: Path) -> DsseEnvelope:
+    """Read a size-bounded DSSE provenance envelope (Core verifies its signature and type)."""
     try:
         with path.open("rb") as handle:
             raw = handle.read(MAX_TARGET_PROVENANCE_BYTES + 1)
@@ -266,4 +267,7 @@ def load_provenance_json(path: Path) -> dict[str, Any]:
         raise ValidationError(f"invalid JSON in --provenance-json {path}: {exc}") from exc
     if not isinstance(data, dict) or not data:
         raise ValidationError(f"--provenance-json {path} must contain a non-empty JSON object")
-    return data
+    try:
+        return DsseEnvelope.model_validate(data)
+    except ModelValidationError as exc:
+        raise ValidationError(f"--provenance-json {path} is not a DSSE envelope: {exc}") from exc

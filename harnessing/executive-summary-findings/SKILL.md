@@ -26,7 +26,7 @@ Roll up every recorded finding (traust-core's `ExecutiveSummaryView`) into a lea
 | `summary` | After building, print the severity table and top-5 themes/criticals to the conversation. |
 | `by-segment` | *Retired:* scope is product or team (`--product`, `--team-id`). Was: add a per-input-segment breakdown (one row per inventory segment), mapping each repo against the inputs inventory (`locations.inputs`). The `ansible` input is excluded by default (`--exclude-segment` to change). Pass `--by-segment` to the script. |
 | `include-triage` | *Retired:* the decision fold is the one counting source; unconfirmed triage verdicts are never counted. Was: for repos without a `findings-current` disposition ledger, count from unconfirmed `/triage` verdicts (true positives only) instead of the raw audit. **OFF by default** — early /triage runs over-marked false positives (unreachable repos, hardening misfiled as FP), so counting TP-only silently trusts those bad FP exclusions. When enabled, every affected figure is labeled "unconfirmed triage" in both outputs (KPI card + warning note with FP-excluded and undetermined counts). Pass `--include-triage` to the script. |
-| `exclude-branch-variants` | *Retired:* repositories are unique inventory rows. Was: skip `__`-slugged release-branch re-audits when the same product tree also carries the base-slug audit (the within-product duplicate case, e.g. `rhacm/search-v2-api` holding main + release-5.1 audits). Branch-only audits — per-release payload products like `openshift-4.14-payload`, where the branch audit is the only audit — always count: release branches are tracked per-branch by design. The excluded-report count is stated in both outputs. Pass `--exclude-branch-variants` to the script. |
+| `exclude-branch-variants` | Retired: repositories are unique inventory rows. |
 | `<product slug>` | Only that product's repositories (`--product`, repeatable; `--team-id <uuid>` for a team). |
 | `as-of <ISO time>` | The summary as it stood then (`--as-of`, with a zone). |
 | `panel <name>` | Compose a retained domain panel with `--panel attack`, `--panel pqc`, `--panel isolation` or `--panel iac` (repeatable); results stay inside the executive Markdown, HTML and JSON. |
@@ -180,16 +180,8 @@ leadership pair — plus `executive-summary-findings.json`, the view's
 model, carrying every headline number (replaces the
 `Executive-summary-findings.metrics.json` sidecar).
 
-**Consumed by:** `/traust-metrics`
-(traust-core's `ScoreboardView`) reads this view as scoreboard source
-row #1 — the earlier "no skill reads it back" claim here was false
-(docs-verification 2026-07-31, wiring c3), and worse, the collector
-was regex-parsing the markdown *sentences*, so rewording the prose
-silently blanked leadership metrics. The sidecar is now the contract:
-change a headline number's meaning → update the sidecar key and the
-collector together; the md/html prose can be reworded freely. (*Retired:*
-the sidecar; traust-core's `ScoreboardView` composes this view
-in-process.)
+**Consumed by:** `/traust-metrics` (traust-core's `ScoreboardView`)
+composes this view in-process.
 
 Upstream inputs are traust-core's recorded findings, code facts,
 privilege profiles and impact analyses; regenerate after any batch that

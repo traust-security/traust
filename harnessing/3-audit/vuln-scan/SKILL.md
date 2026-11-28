@@ -41,8 +41,7 @@ allowed-tools:
   - Bash(git log:*)
   - Bash(git -C:*)
   # git -C fallback: this skill's commands are -C-shaped; prefix-scoped
-  # subcommand grants can't match them until the command shapes are
-  # reworked (P1-W4 residual, sandbox-adoption plan)
+  # subcommand grants cannot match them.
   - Bash(jq:*)
   # WARNING — never widen these to a bare interpreter (Bash(python3:*),
   # Bash(bash:*), Bash(*)). This skill reads untrusted target checkouts;
@@ -156,9 +155,7 @@ scripts or pipe target content into a shell interpreter.
 
 ## Diff mode (--diff)
 
-The economical middle lane between full audits
-(`progress-tracker/plans/vuln-scan-diff-mode-plan.md` — the authoritative
-spec and thresholds). Invocation:
+The economical middle lane between full audits. Invocation:
 
 ```
 /vuln-scan <target-dir> --diff [--since <commit>] [--baseline-assessment <id>]
@@ -437,8 +434,7 @@ out.
 ## Step 2 — Fan out
 
 **Depth heuristics (shared with `/secure-code-audit`, see its *Review
-Depth Heuristics* section — calibrated by the 2026-07-21 AWX
-false-negative probe):** every review brief must instruct the subagent
+Depth Heuristics* section):** every review brief must instruct the subagent
 to (a) diff enforcement-layer references against their siblings' guards
 (a check every neighbor performs but one path skips is a finding),
 (b) verify any documented guard on *every* alternate path to the same
@@ -913,8 +909,8 @@ the scan deduped against, and `baseline_findings` counts the packet's
 **Review-surface coverage (required from traust 0.21.0).** Add a top-level
 `review_surface_coverage` recording how this scan answered each of the seven
 review surfaces in [review-surfaces.md](../secure-code-audit/review-surfaces.md).
-Every surface needs an entry (`llm-integration` for scans dated from
-2026-11-02), and every status except `finding` needs a `note`. This report has no `negative_results`, so a `negative` note says
+Every surface needs an entry, and every status except `finding` needs a `note`.
+This report has no `negative_results`, so a `negative` note says
 what was examined. Build the record from the review subagents' output:
 - `finding`: `finding_ids` lists every reported finding whose
   `<review_surface>` is this surface. A finding sits on the surface where the
@@ -1123,8 +1119,7 @@ from
 
 After this skill's report/artifact is written, declare the run's spend
 against the target so `estimate_scan` can calibrate per-skill cost
-models (contract: docs/model-routing.md; analysis:
-progress-tracker/metrics/estimate-calibration-analysis.md §F5):
+models (contract: docs/model-routing.md):
 
 ```bash
 python3 -m traust.cli registry models spend --skill vuln-scan \

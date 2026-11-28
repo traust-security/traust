@@ -115,8 +115,7 @@ QUERY_SC = r"""
     // NON-RECEIVER arguments only: argument(0) is the instance receiver
     // in Joern, and taint on the receiver object (e.g. a Statement
     // selected via a tainted map key) is NOT taint in the executed
-    // data — the h2 judge pass measured 16/16 false positives from
-    // exactly this class (calibration 2026-07-31)
+    // data — calibration found false positives from exactly this class.
     def snk = cpg.call.methodFullName(sinkRe).argument
       .filter(_.argumentIndex > 0)
       // constant pruning: an argument expression containing no

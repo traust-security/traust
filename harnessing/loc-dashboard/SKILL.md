@@ -10,10 +10,7 @@ allowed-tools:
   - Bash(python3 -m traust.cli dashboard explore-loc:*)
   - Bash(open *loc-explorer.html:*)
   - Bash(open *lines-of-code.html:*)
-  # Confinement added 2026-07-31 (P1 gate rework — the
-  # widened S1 privilege tokens made this skill's missing
-  # allowlist visible; assessment root-cause 3). Never
-  # widen to a bare interpreter — scope scripts individually.
+  # Never widen to a bare interpreter — scope scripts individually.
 ---
 
 # LoC Dashboard
@@ -88,7 +85,7 @@ If `summary` was requested, also print the per-bucket and top-10-language tables
 
 ### Step 4 — Interpretation note (include once per session)
 
-> Whole-repository measurements **may include** tests, fixtures and tooling. First-party/non-test LoC is not measured by this view. `--first-party-divisor` supports an explicit caller-selected estimate from measured code, not a recovered stored fact. No value is produced when no repository is measured. NEED(decision, Shaun): choose either (a) adopt the legacy 2.5 divisor with an approved calibration population/methodology, or (b) retain measured-only default and retire the automatic heuristic. Until that decision, an estimate is opt-in only.
+> Whole-repository measurements **may include** tests, fixtures and tooling. First-party/non-test LoC is not measured by this view. `--first-party-divisor` supports an explicit caller-selected estimate from measured code, not a recovered stored fact. No value is produced when no repository is measured. An estimate is opt-in only.
 
 ---
 

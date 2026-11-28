@@ -111,8 +111,7 @@ logic runs in the test suite as `tests/test_docs_consistency.py`.
 
 9. **As-of banners.** Any `docs/*.md` whose name marks it as an
     assessment, draft, or comparison must carry a dated as-of banner —
-    point-in-time judgments presented as live status rot silently (four
-    such docs were up to ~143 releases stale at the 2026-07-25 sweep).
+    point-in-time judgments presented as live status rot silently.
 
 ## Quarterly semantic sweep
 
@@ -124,14 +123,10 @@ by a quarterly reviewer sweep:
    each instructed to extract every checkable claim and verify it against
    the tree with file:line evidence — verified discrepancies only,
    severity-rated (high = actively misleading).
-2. Consolidate into `progress-tracker/gap-assessments/docs-verification-<date>.md`
-   (the 2026-07-25 report is the template), then fix findings in priority
-   order via per-cluster fix agents re-verifying each finding before
-   editing.
-3. `/drift-watch` flags `docs-semantic-sweep` as stale when the newest
-   report is older than 92 days — that is the cadence trigger.
-
-The 2026-07-25 baseline: 23 docs, ~60 findings (9 high), ~700K tokens.
+2. Consolidate into `progress-tracker/gap-assessments/docs-verification-<date>.md`,
+   then fix findings in priority order via per-cluster fix agents
+   re-verifying each finding before editing.
+3. Repeat the semantic sweep quarterly.
 
 > Content licensing is **not** checked here: it has its own gate — the
 > [`check-licensing`](../check-licensing/SKILL.md) skill wrapping
@@ -147,4 +142,4 @@ number in the named doc (and, for a new skill, add its row + section to
 until it exits `0`. Only touch python3 -m traust.cli check docs-consistency itself to
 change *what* is checked (e.g. add a new count claim or an allowlist entry).
 
-**Unresolved conflict markers** (added 2026-08-13). Every tracked text file is scanned for `<<<<<<< ` / `>>>>>>> ` at line start; a hit fails the gate. Motivated by a live bad push — a rebase-resolution script failed silently, `git rebase --continue` committed the conflicted file, and CHANGELOG.md reached main with six markers while every other gate passed, because none of them looked. `=======` is deliberately NOT a trigger (it is a legitimate Markdown setext H1 underline); the two directional markers have no legitimate line-start use and a conflict always carries one. Runs FIRST, since a conflicted file makes the other checks emit confusing downstream noise. A doc that legitimately demonstrates conflict resolution opts out with `docs-check: allow-conflict-markers`. Fails open when git cannot list tracked files.
+**Unresolved conflict markers.** Every tracked text file is scanned for `<<<<<<< ` / `>>>>>>> ` at line start; a hit fails the gate. `=======` is deliberately NOT a trigger (it is a legitimate Markdown setext H1 underline); the two directional markers have no legitimate line-start use and a conflict always carries one. Runs FIRST, since a conflicted file makes the other checks emit confusing downstream noise. A doc that legitimately demonstrates conflict resolution opts out with `docs-check: allow-conflict-markers`. Fails open when git cannot list tracked files.

@@ -32,7 +32,6 @@ from collections.abc import Iterator, Mapping
 from contextlib import contextmanager, nullcontext
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
 from uuid import UUID
 
 import pydantic
@@ -56,6 +55,7 @@ from traust_core.v1.models.base import Dto
 from traust_core.v1.models.component_target import (
     ComponentTarget,
     ComponentTargetRequest,
+    DsseEnvelope,
     canonical_component_purl,
 )
 from traust_core.v1.models.operations import (
@@ -530,7 +530,7 @@ def run(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
         return answer(JobResult.refused(OrderReason.UNRESOLVED_TARGET))
-    provenance_record: dict[str, Any] | None = None
+    provenance_record: DsseEnvelope | None = None
     if args.provenance_json is not None:
         try:
             provenance_record = load_provenance_json(args.provenance_json)

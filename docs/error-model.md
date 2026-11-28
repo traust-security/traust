@@ -166,8 +166,8 @@ Semantic cards support both symbol definitions and textual references. Reference
 definition sites with `is_def`; a call-looking mention is still a candidate, not a resolved
 call graph or a finding. Cards sweep a checkout (`sweep cards <deck> --checkout <dir>`);
 traust-core's `sweep_cards` runs the enumerators there, and there is no replay of
-pre-generated facts. Sanitizer target execution remains tools-package-owned under the dated
-2026-10-25 handoff; execution-shaped cards stay not run.
+pre-generated facts. Sanitizer target execution remains tools-package-owned;
+execution-shaped cards stay not run.
 
 Two boundary rules keep the loop honest:
 

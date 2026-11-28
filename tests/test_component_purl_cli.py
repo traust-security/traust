@@ -1406,3 +1406,15 @@ def _assert_contract_valid_report_target(target_doc: dict[str, object]) -> dict[
     }
     SecurityAuditArtifact.parse(json.dumps(report).encode("utf-8"))
     return report
+
+
+def test_a_provenance_file_that_is_no_dsse_envelope_is_refused(tmp_path: Path) -> None:
+    # Core types the envelope; the CLI refuses a malformed one as its own validation error
+    from traust_core.v1.errors import ValidationError as CoreValidationError
+
+    from traust.cli._doors import load_provenance_json
+
+    path = tmp_path / "prov.json"
+    path.write_text(json.dumps({"purl": "pkg:npm/a@1.0.0"}), encoding="utf-8")
+    with pytest.raises(CoreValidationError, match="not a DSSE envelope"):
+        load_provenance_json(path)

@@ -318,9 +318,7 @@ language and candidate pack, *is calibrating this language possible
 yet?* — no clones, pure corpus plus the cached pack. A rule clears the
 rediscovery gate only by firing in ≥3 repos that share a CWE the pack
 targets, so when no covered CWE spans that many the run is unwinnable
-before it starts and would return a table of structural zeros. Measured
-2026-08-07 against argus-observe-rules: rust/c/csharp max span **1**,
-cpp **0** — all blocked on ground truth, not tooling. The lane raises
+before it starts and would return a table of structural zeros. The lane raises
 attention only when a gate **opens**; a steady blocked state is silent,
 because a weekly complaint about a known-blocked language is noise.
 Watched set: `WATCHED_LANGS` / `WATCHED_PACKS` in traust-core's `models.rule_mining`.
@@ -336,9 +334,7 @@ gate as a demotion candidate (one YAML line). Rules not yet judged in
 any audit are listed separately — silence is not a pass.
 
 ```bash
-# weekly (Mondays 06:40), from the campaign workspace root — plus
-# on-demand whenever /drift-watch's `rule-mining` row goes stale
-# (ledger events >7d newer than the artifact, the post-wave trigger)
+# weekly (Mondays 06:40), from the workspace root
 40 6 * * 1  cd $WS && python3 -m traust.cli sweep rule-lane
 ```
 
@@ -365,13 +361,9 @@ touches Jira.
   skill's command grants and require separate permission.
 - The miner is a candidate generator: cluster counts and precision numbers
   route attention, they do not conclude — rule decisions stay with the
-  authoring loop and its mechanical calibration gate (delegated for
-  scheduled runs as above).
+  authoring loop and its mechanical calibration gate.
 - Cadence: weekly via the lane runner (python3 -m traust.cli sweep rule-lane,
-  see *Scheduled lane*), plus a post-wave trigger — `/drift-watch`'s
-  `rule-mining` row goes stale when ledger changes are >7 days newer
-  than `rule-mining.json`, so a large audit/triage wave summons the lane
-  ahead of schedule.
+  see *Scheduled lane*), and on demand after a large audit or triage wave.
 
 ## Integrations
 

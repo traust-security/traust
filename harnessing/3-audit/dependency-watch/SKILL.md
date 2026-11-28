@@ -32,10 +32,7 @@ allowed-tools:
 Closes the loop the coverage model calls "new CVE disclosed in a
 dependency" (docs/continuous-operations.md): from advisory publication to
 an **accountable finding** — owner, SLA clock, Jira path, UI visibility —
-in one pass, the same day. Before this skill the chain's pieces all
-existed but stopped at analysis: `affected` classifications reached
-findings.db's `impact` table and no further (no baseline entry, no
-ledger event — the filing gap named 2026-07-28).
+in one pass, the same day.
 
 Orchestrator-neutral by design: any scheduler that can start a harness
 session runs this identically — operator daily session, cron, the
@@ -88,7 +85,7 @@ executive summaries, SCI) already read.
    call per array, no shell string joining, no edits) in order
    (severity, then blast radius). Inputs failing the charset gates are
    listed under `rejected` — review them, never hand-repair
-   them into commands (assessment 2026-07-31 H1). Commit the sweep
+   them into commands. Commit the sweep
    artifact.
 
    **A degraded sweep is not a quiet day.** Exit 3 with
@@ -161,9 +158,7 @@ starts **above** the installed version, but the vulnerable code is already
 there. Ranges often stop at a support or testing boundary (an unsupported
 release line, "earlier versions not tested", a per-artifact range) rather
 than where the code changed. The feeds then say "not affected" and nothing
-above runs. A 2026-10 measurement found this held in about 3 of 10 such cases,
-and feed disagreement almost never revealed it. Reading the fix against the
-installed code did.
+above runs. Reading the fix against the installed code can reveal this gap.
 
 Run per repository, for Go, PyPI, npm, Maven, Cargo, RubyGems and NuGet
 dependencies:
