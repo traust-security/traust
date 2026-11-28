@@ -44,7 +44,13 @@ validate_json() {
   else
     python3 -c "
 import json, jsonschema, sys, os
-sp = '${schema_path:-$WORKSPACE/traust-contracts/artifacts_schema/v1/backport-report.schema.json}'
+sp = '${schema_path}'
+if not sp:
+    try:  # traust-core is the only contracts consumer: its pinned schema, never a sibling checkout
+        from traust_core.v1 import contracts
+        sp = str(contracts.schema_path('backport-report'))
+    except ImportError:
+        sp = ''
 if not os.path.isfile(sp):
     print('ALL PASSED (schema not local — skipped)')
     sys.exit(0)

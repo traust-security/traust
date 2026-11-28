@@ -237,6 +237,59 @@ def test_tracker_value_still_wins_over_branch_head(tmp_path):
     assert row["backport_commit"] == other != head
 
 
+def test_a_sha256_tracker_commit_is_not_a_backport_commit(tmp_path):
+    # traust-contracts#187: backport_commit is passed to verification's patched_commit,
+    # which takes 40 hex only, so the report does not carry a 64-hex value as one.
+    repo, _ = _branch_repo(tmp_path)
+    d = _result_dir(tmp_path, repo, tracker={"backport_commit": "e" * 64})
+    rem = {
+        "seam": "remediation",
+        "audit_report_path": "",
+        "repository": "https://github.com/o/r",
+        "logical_product": "p",
+        "language": "",
+        "fix_commit": "c" * 40,
+        "fix_branch_name": "",
+        "base_ref": "main",
+        "fork_url": "",
+        "cwes": [],
+        "finding_refs": [],
+        "remediation_path": "",
+    }
+    report = emit.build_report(d.parent, rem, allow_legacy=True)
+    assert [b.get("backport_commit") for b in report["target_branches"]] != ["e" * 64]
+    assert all(len(b.get("backport_commit", "")) in (0, 40) for b in report["target_branches"])
+
+
+def test_contract_schemas_come_from_traust_core():
+    # traust-core is the only consumer of traust-contracts (contracts AGENTS.md):
+    # the skill resolves schemas through the contracts commit Core pins.
+    from traust_core.v1 import contracts
+
+    paths = _load("_harness_paths.py")
+    want = contracts.schema_path("remediation")
+    assert paths.contracts_schema_path("remediation.schema.json") == want
+    assert mk.resolve_schema(None) == want
+    assert paths.contracts_schema_path("no-such-artifact.schema.json") is None
+
+
+def test_no_skill_script_reads_traust_contracts_directly():
+    # tests/test_engine_imports.py only sees literal module names; the skill used to
+    # import traust_contracts through a variable, so check the text as well.
+    root = _SKILL.parent
+    offenders = [
+        str(path.relative_to(root))
+        for path in root.rglob("*")
+        if path.is_file()
+        and path.suffix in {".py", ".sh"}
+        and re.search(
+            r"traust_contracts|ai_security_contracts|traust-contracts/artifacts_schema",
+            path.read_text(encoding="utf-8"),
+        )
+    ]
+    assert offenders == []
+
+
 def test_failed_outcome_never_gets_a_commit(tmp_path):
     # A leftover branch must not stamp provenance onto a failed row.
     repo, _ = _branch_repo(tmp_path)

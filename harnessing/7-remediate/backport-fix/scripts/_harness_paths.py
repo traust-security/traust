@@ -28,7 +28,7 @@ import subprocess
 from pathlib import Path
 
 _VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
-_SHA_RE = re.compile(r"^[0-9a-f]{7,40}$")
+_SHA_RE = re.compile(r"[0-9a-f]{7,40}")  # remediation.schema.json harness_version suffix
 
 
 _URL_USERINFO_RE = re.compile(r"(?P<scheme>[A-Za-z][A-Za-z0-9+.-]*://)(?P<userinfo>[^/?#]*@)")
@@ -173,29 +173,16 @@ def harness_version(*, with_rev: bool = False) -> str:
 
 
 def contracts_schema_path(name: str) -> Path | None:
-    """Resolve a v1 contract schema by basename.
+    """Resolve a v1 artifact schema by basename, through traust-core.
 
-    Prefers the installed traust-contracts (or legacy ai-security-contracts)
-    package, then a sibling checkout, then this repo's transitional schema/.
+    traust-core is the only consumer of traust-contracts (contracts AGENTS.md):
+    the schema comes from the contracts commit Core pins, never from an
+    installed traust-contracts, a sibling checkout or a vendored copy. None
+    when traust-core isn't importable or doesn't ship the schema.
     """
-    for mod in ("traust_contracts.paths", "ai_security_contracts.paths"):
-        try:
-            mod_obj = __import__(mod, fromlist=["schema_path"])
-            p = Path(mod_obj.schema_path(name))
-        except Exception:
-            continue
-        if p.is_file():
-            return p
-    ws = workspace_root()
-    if ws is not None:
-        for candidate in (
-            # v0.1 layout (traust-contracts #136): artifacts_schema/v1
-            ws / "traust-contracts" / "artifacts_schema" / "v1" / name,
-            # pre-0.1 layout, kept for older checkouts
-            ws / "traust-contracts" / "schemas" / "v1" / name,
-            ws / "ai-security-contracts" / "schemas" / name,
-        ):
-            if candidate.is_file():
-                return candidate
-    vendored = repo_root() / "schema" / name
-    return vendored if vendored.is_file() else None
+    try:
+        from traust_core.v1 import contracts
+    except ImportError:
+        return None
+    path = Path(contracts.schema_path(name.removesuffix(".schema.json")))
+    return path if path.is_file() else None

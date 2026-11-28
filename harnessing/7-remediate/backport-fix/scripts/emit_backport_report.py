@@ -158,7 +158,7 @@ def _branch_head(repo_path: Path, branch: str) -> str:
     except (OSError, subprocess.SubprocessError):
         return ""
     sha = r.stdout.strip()
-    return sha if re.fullmatch(r"[0-9a-f]{7,40}", sha) else ""
+    return sha if re.fullmatch(r"[0-9a-f]{7,64}", sha) else ""
 
 
 def _source_repo(branch_dir: Path) -> Path | None:
@@ -348,7 +348,7 @@ def read_branch_result(
             else:
                 recorded_outcome, recorded_exit = outcome, exit_val
                 sha = str(rd.get("head_sha") or "")
-                if re.fullmatch(r"[0-9a-f]{7,40}", sha):
+                if re.fullmatch(r"[0-9a-f]{7,64}", sha):
                     recorded_head = sha
                 if rd.get("target_branch"):
                     result["branch"] = str(rd["target_branch"]).removeprefix("origin/")
@@ -748,6 +748,7 @@ def build_report(
         if rel:
             row["patch_path"] = rel
         commit = r.get("backport_commit", "")
+        # 40 hex: passed to verification.schema.json's patched_commit (contracts#187).
         if re.fullmatch(r"[0-9a-f]{40}", commit):
             row["backport_commit"] = commit
         if r.get("backport_branch"):

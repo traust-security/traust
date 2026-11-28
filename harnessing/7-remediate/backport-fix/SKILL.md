@@ -307,8 +307,8 @@ CWEs and locations come from the audit report the triage finding cites;
 the patch block (files_changed, diffstat) is derived from the commit
 itself; checks record `skip` unless `--check-outcome pass` is passed. The
 result is validated against the remediation contract before it is written:
-resolved from the installed `traust-contracts` package (or the matching
-sibling checkout) through `traust.cli reporting validate`, and overridable
+resolved through traust-core (the contracts commit it pins) and checked with
+`traust.cli reporting validate`, and overridable
 with `--schema`. A missing schema or validator makes it **fail closed**
 (no artifact written) unless `--no-validate` is passed deliberately.
 
@@ -586,6 +586,7 @@ steps here are token-free.
 ### Schema ownership
 
 `backport-report.schema.json` is a first-class artifact contract in
-`traust-contracts` (`artifacts_schema/v1/`), resolved from the installed package or a
-sibling checkout. This repository does **not** vendor it.
+`traust-contracts` (`artifacts_schema/v1/`). traust reads it only through traust-core
+(`traust_core.v1.contracts`, the contracts commit Core pins), never from an installed
+traust-contracts package or a sibling checkout. This repository does **not** vendor it.
 

@@ -371,7 +371,7 @@ def apply_patch_as_commit(
             timeout=10,
         )
         fix_commit = r.stdout.strip()
-        if not re.fullmatch(r"[0-9a-f]{7,40}", fix_commit):
+        if not re.fullmatch(r"[0-9a-f]{7,64}", fix_commit):
             log.error("Could not read the patch commit SHA: %r", fix_commit)
             sys.exit(1)
     finally:
@@ -1554,7 +1554,7 @@ def setup_from_impact(args) -> dict:
     source_branch = get_default_branch(args.repo)
     if args.fix_commit:
         fix_commit = args.fix_commit.lower()
-        if not re.fullmatch(r"[0-9a-f]{7,40}", fix_commit):
+        if not re.fullmatch(r"[0-9a-f]{7,64}", fix_commit):
             log.error("--fix-commit must be 7-40 hex chars: %s", args.fix_commit)
             sys.exit(1)
         check = subprocess.run(

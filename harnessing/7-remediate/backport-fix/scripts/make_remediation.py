@@ -26,7 +26,6 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import importlib
 import json
 import logging
 import re
@@ -188,38 +187,14 @@ def _validator_python() -> str | None:
 
 
 def resolve_schema(explicit: Path | None) -> Path | None:
-    """The remediation contract schema.
+    """The remediation contract schema: --schema, else the one traust-core pins.
 
-    Order: --schema, the installed traust-contracts/ai-security-contracts
-    package, then a sibling checkout. Schemas left the harness root in the
-    contracts refactor, so a hardcoded <repo>/schema path is always wrong.
+    traust-core is the only consumer of traust-contracts, so the schema never
+    comes from an installed traust-contracts package or a sibling checkout.
     """
     if explicit is not None:
         return explicit if explicit.is_file() else None
-    for mod, getter in (
-        ("traust_contracts.paths", "schema_path"),
-        ("ai_security_contracts.paths", "schema_path"),
-    ):
-        try:
-            mod_obj = importlib.import_module(mod)
-            p = getattr(mod_obj, getter)("remediation.schema.json")
-        except Exception:
-            continue
-        if Path(p).is_file():
-            return Path(p)
-    ws = _paths.workspace_root()
-    if ws is None:
-        return None
-    for candidate in (
-        # v0.1 layout (traust-contracts #136); the old path stays for older
-        # checkouts.
-        ws / "traust-contracts" / "artifacts_schema" / "v1" / "remediation.schema.json",
-        ws / "traust-contracts" / "schemas" / "v1" / "remediation.schema.json",
-        ws / "ai-security-contracts" / "schemas" / "remediation.schema.json",
-    ):
-        if candidate.is_file():
-            return candidate
-    return None
+    return _paths.contracts_schema_path("remediation.schema.json")
 
 
 def normalize_repo_url(url: str) -> str:
