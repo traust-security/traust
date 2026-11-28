@@ -101,7 +101,13 @@ fi
 # ADC file). Until a credential broker keeps the key out of that context, a run
 # that would forward a credential needs the operator to attest the target is
 # trusted. A credential-free run (the mock kit) needs no attestation.
-if [[ -n "${ANTHROPIC_API_KEY:-}" || -n "${CLAUDE_CODE_USE_VERTEX:-}" ]] \
+vertex_enabled() {  # the one reading of CLAUDE_CODE_USE_VERTEX, here and at run time
+  case "${CLAUDE_CODE_USE_VERTEX:-}" in
+    ""|0|false|False) return 1 ;;
+    *) return 0 ;;
+  esac
+}
+if { vertex_enabled || [[ -n "${ANTHROPIC_API_KEY:-}" ]]; } \
     && [[ "$TRUSTED_TARGET" != true ]]; then
   echo "[run_backport] ERROR: refusing to forward an LLM credential without --trusted-target." >&2
   echo "  Commands the pipeline's agent runs can read the credential; pass --trusted-target" >&2
@@ -109,7 +115,7 @@ if [[ -n "${ANTHROPIC_API_KEY:-}" || -n "${CLAUDE_CODE_USE_VERTEX:-}" ]] \
   exit 1
 fi
 
-if [[ -z "${ANTHROPIC_API_KEY:-}" && -z "${CLAUDE_CODE_USE_VERTEX:-}" ]]; then
+if ! vertex_enabled && [[ -z "${ANTHROPIC_API_KEY:-}" ]]; then
   echo "[run_backport] WARNING: Neither ANTHROPIC_API_KEY nor CLAUDE_CODE_USE_VERTEX is set." >&2
   echo "  Set Vertex AI credentials or ANTHROPIC_API_KEY for Amalgamator." >&2
 fi
@@ -259,10 +265,9 @@ run_amalgamator() {
   # ANTHROPIC_API_KEY. Sending both only doubles what untrusted build/agent
   # code can read.
   local use_vertex=false
-  case "${CLAUDE_CODE_USE_VERTEX:-}" in
-    ""|0|false|False) ;;
-    *) use_vertex=true ;;
-  esac
+  if vertex_enabled; then
+    use_vertex=true
+  fi
 
   if [[ -n "$CONTAINER_IMAGE" ]]; then
     # --- Containerized mode ---

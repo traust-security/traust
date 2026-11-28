@@ -74,6 +74,7 @@ def _valid_result(tmp_path: pathlib.Path):
             {
                 "targets": [
                     {
+                        "engine_exit_code": 0,
                         "outcome": "success",
                         "issue_id": "backport-x",
                         "target_branch": "origin/release-a",
@@ -87,6 +88,7 @@ def _valid_result(tmp_path: pathlib.Path):
             {
                 "issue_id": "backport-x",
                 "target_branch": "release-a",
+                "engine_exit_code": 0,
                 "outcome": "success",
                 "head_sha": sha,
             }

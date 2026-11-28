@@ -316,3 +316,19 @@ def test_the_container_rewrite_keeps_isolation_and_quoted_operators(tmp_path):
     gen_cfg.write_text(_yaml.safe_dump({"build": {"command": "make build"}}))
     refused = subprocess.run([sys.executable, str(script), str(gen_cfg), str(out)])
     assert refused.returncode != 0
+
+
+@pytest.mark.parametrize("disabled", ["0", "false", "False"])
+def test_a_disabled_vertex_flag_is_no_credential(tmp_path, disabled):
+    # Qodo #464: the attestation check read CLAUDE_CODE_USE_VERTEX=0 as enabled
+    _, configs = _configs(tmp_path)
+    results = tmp_path / "results"
+    r = _run(
+        tmp_path,
+        configs,
+        results,
+        PYTHONPATH=_fake_engine(tmp_path),
+        CLAUDE_CODE_USE_VERTEX=disabled,
+    )
+    assert "--trusted-target" not in r.stderr, r.stderr
+    assert (results / "release-a" / "result.json").is_file()

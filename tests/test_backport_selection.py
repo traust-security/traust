@@ -586,15 +586,47 @@ def test_an_empty_or_already_routed_command_is_left_alone():
 @pytest.mark.parametrize(
     "supplied",
     [
-        "/tmp/anything -m traust.cli util safe-exec run --profile go-fuzz -- make --version",
-        "/tmp/anything -m traust.cli util safe-exec run --profile no-such -- make --version",
+        "/tmp/evil/python3 -m traust.cli util safe-exec run --profile go-fuzz -- make --version",
+        "/tmp/evil/python3 -I -m traust.cli util safe-exec run --profile no-such -- make --version",
         "python3 -m traust.cli util safe-exec run --timeout 1 -- make --version",
     ],
-    ids=["foreign interpreter", "unknown profile", "no profile"],
+    ids=["foreign python", "unknown profile", "no profile"],
 )
 def test_a_pre_routed_step_is_re_routed_never_trusted(supplied):
     # Qodo #464: a remediation JSON's command in the routed shape went out verbatim
     assert gen.wrap_safe_exec(supplied) == gen.wrap_safe_exec("make --version")
+
+
+def test_safe_exec_looking_arguments_are_not_unwrapped():
+    # Qodo #464: `_inner` unwrapped any argv that merely contained the routed tokens
+    wrapped = gen.wrap_safe_exec("make -m traust.cli util safe-exec run -- go version")
+    [step] = _steps(wrapped)
+    assert step[step.index("--") + 1 :] == [
+        "make",
+        "-m",
+        "traust.cli",
+        "util",
+        "safe-exec",
+        "run",
+        "--",
+        "go",
+        "version",
+    ]
+
+
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        "/tmp/anything -m traust.cli util safe-exec run --profile go-fuzz -- make --version",
+        "python3 -m traust.cli util safe-exec run --cwd /x -- make --version",
+        "python3 -m traust.cli util safe-exec run --timeout soon -- make --version",
+        "python3 -m traust.cli util safe-exec run --profile go-fuzz",
+    ],
+    ids=["non-python head", "unknown option", "bad timeout", "no argv"],
+)
+def test_a_malformed_or_foreign_routed_step_is_refused(cmd):
+    with pytest.raises(SystemExit):
+        gen.wrap_safe_exec(cmd)
 
 
 def test_a_quoted_operator_is_an_argument_not_a_step_boundary():

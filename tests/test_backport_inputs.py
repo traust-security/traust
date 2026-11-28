@@ -283,6 +283,7 @@ def _write_branch(
                 {
                     "issue_id": "backport-x",
                     "target_branch": target.removeprefix("origin/"),
+                    "engine_exit_code": 0,
                     "outcome": outcome,
                     "head_sha": commit,
                 }
@@ -321,6 +322,7 @@ def test_recorded_head_wins_over_the_moved_branch(tmp_path):
             "issue_id": "backport-x",
             "head_sha": recorded,
             "target_branch": "release-a",
+            "engine_exit_code": 0,
             "outcome": "success",
         },
     )
@@ -412,6 +414,7 @@ def test_tracker_cannot_override_the_recorded_head(tmp_path):
             "issue_id": "backport-x",
             "head_sha": recorded,
             "target_branch": "release-a",
+            "engine_exit_code": 0,
             "outcome": "success",
         },
     )
@@ -439,6 +442,7 @@ def test_empty_recorded_head_does_not_fall_back_to_the_mutable_branch(tmp_path):
             "issue_id": "backport-x",
             "head_sha": "",
             "target_branch": "release-a",
+            "engine_exit_code": 0,
             "outcome": "success",
         },
     )
@@ -457,6 +461,7 @@ def test_verification_hint_prefers_the_commit_over_the_branch(tmp_path):
                 "issue_id": "backport-x",
                 "head_sha": sha,
                 "target_branch": "release-a",
+                "engine_exit_code": 0,
                 "outcome": "success",
             }
         )
@@ -1197,7 +1202,7 @@ def test_run_summary_names_the_real_target_branch(tmp_path):
     branch = results / "release-4-16"
     branch.mkdir(parents=True)
     (branch / "result.json").write_text(
-        json.dumps({"outcome": "success", "target_branch": "release-4.16"})
+        json.dumps({"engine_exit_code": 0, "outcome": "success", "target_branch": "release-4.16"})
     )
     summary = wrs.build(results, ["release-4-16"], None)
     assert summary["branches"] == [{"branch": "release-4.16", "status": "success"}]
@@ -1539,6 +1544,20 @@ def test_a_scanner_claim_is_not_the_remediation_severity(tmp_path):
     assert data["source_findings"][0]["severity"] == "low"
 
 
+def test_a_triage_null_severity_never_regains_the_audit_severity(tmp_path):
+    # Qodo #464: an explicit null (rejected/undetermined) fell back to the audit's
+    audit = tmp_path / "audit.json"
+    audit.write_text(json.dumps({"findings": [{"id": "A1", "severity": "high"}]}))
+    proc = _make_remediation(
+        tmp_path / "w",
+        {"title": "t", "severity": None, "source": "audit.json#A1"},
+        "--audit",
+        str(audit),
+    )
+    assert proc.returncode != 0 and "triage the finding first" in proc.stderr
+    assert not (tmp_path / "w" / "rem.json").exists()
+
+
 def test_an_explicit_scp_style_url_loses_its_userinfo(tmp_path):
     # Qodo #464: an explicit scp-style --repo-url / --fork-url kept its token
     proc = _make_remediation(
@@ -1619,3 +1638,37 @@ def test_a_missing_report_contract_fails_closed_and_names_it(tmp_path, monkeypat
         emit.main()
     assert exc.value.code == 1
     assert "traust-contracts#187" in caplog.text and "--schema" in caplog.text
+
+
+@pytest.mark.parametrize(
+    "record",
+    [
+        {"outcome": "success", "engine_exit_code": 1.0},
+        {"outcome": "success", "engine_exit_code": "-1"},
+        {"outcome": "success", "engine_exit_code": "0"},
+        {"outcome": "success", "engine_exit_code": True},
+        {"outcome": "success", "engine_exit_code": -1},
+        {"outcome": "success"},
+        {"outcome": "great", "engine_exit_code": 0},
+        {"outcome": None, "engine_exit_code": 0},
+    ],
+    ids=[
+        "float",
+        "negative string",
+        "digit string",
+        "bool",
+        "negative",
+        "missing exit",
+        "unknown outcome",
+        "null outcome",
+    ],
+)
+def test_an_incomplete_verdict_never_reports_success(tmp_path, record):
+    # Qodo #464: any JSON object counted as a verdict; odd exit codes were ignored
+    results = tmp_path / "results"
+    _write_branch(results / "release-a", result={**record, "head_sha": "c" * 40})
+    for allow_legacy in (False, True):
+        row = emit.read_branch_result(results / "release-a", allow_legacy=allow_legacy)
+        assert row["status"] == "failed", (allow_legacy, row)
+        assert "result.json is incomplete or malformed" in row["error"]
+        assert "backport_commit" not in row or not row["backport_commit"]

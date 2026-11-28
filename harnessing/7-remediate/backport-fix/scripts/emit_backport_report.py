@@ -191,6 +191,24 @@ def _config_target(branch_dir: Path) -> str:
     return str(target).removeprefix("origin/").strip()
 
 
+# The verdicts run_backport.sh records (its canonical outcome vocabulary).
+RECORDED_OUTCOMES = frozenset(
+    {
+        "success",
+        "passed",
+        "partial_success",
+        "pipeline_stop",
+        "pipeline_escalation",
+        "worktree_error",
+        "failed",
+        "error",
+        "skipped",
+        "timeout",
+        "unknown",
+    }
+)
+
+
 def read_branch_result(
     branch_dir: Path, repo_path: Path | None = None, *, allow_legacy: bool = False
 ) -> dict:
@@ -309,6 +327,7 @@ def read_branch_result(
     # been moved by a later run.
     result_path = branch_dir / "result.json"
     has_record = result_path.is_file()
+    malformed = ""  # a record that exists but cannot be trusted
     recorded_head = ""
     recorded_outcome = ""
     recorded_exit = None
@@ -316,27 +335,34 @@ def read_branch_result(
         try:
             with Path(result_path).open() as f:
                 rd = json.load(f)
-            if isinstance(rd, dict):
+        except (OSError, json.JSONDecodeError) as e:
+            rd, malformed = None, f"unreadable ({e})"
+        if rd is not None and not isinstance(rd, dict):
+            malformed = "not a JSON object"
+        elif isinstance(rd, dict):
+            outcome, exit_val = rd.get("outcome"), rd.get("engine_exit_code")
+            if not isinstance(outcome, str) or outcome not in RECORDED_OUTCOMES:
+                malformed = f"outcome {outcome!r} is not a runner verdict"
+            elif isinstance(exit_val, bool) or not isinstance(exit_val, int) or exit_val < 0:
+                malformed = f"engine_exit_code {exit_val!r} is not an exit status"
+            else:
+                recorded_outcome, recorded_exit = outcome, exit_val
                 sha = str(rd.get("head_sha") or "")
                 if re.fullmatch(r"[0-9a-f]{7,40}", sha):
                     recorded_head = sha
                 if rd.get("target_branch"):
                     result["branch"] = str(rd["target_branch"]).removeprefix("origin/")
-                recorded_outcome = str(rd.get("outcome") or "")
-                exit_val = rd.get("engine_exit_code")
-                if isinstance(exit_val, int):
-                    recorded_exit = exit_val
-                elif isinstance(exit_val, str) and exit_val.strip().isdigit():
-                    recorded_exit = int(exit_val)
-            else:
-                has_record = False
-        except (OSError, json.JSONDecodeError):
-            has_record = False
+    if malformed:
+        # Fail closed in every mode: a verdict that cannot be read never lets the
+        # engine's success-shaped summary decide.
+        result["status"] = "failed"
+        result["error"] = f"result.json is incomplete or malformed: {malformed}"
+        has_record = True  # a record was written; it just cannot be trusted
 
     # The verdict persisted at collection time is authoritative. The engine's
     # summary can still look successful when the engine exited nonzero, so it
     # must not decide the report on its own.
-    if recorded_outcome and not summary_failed:
+    if recorded_outcome and not summary_failed and not malformed:
         result["status"] = recorded_outcome
     if recorded_exit not in (None, 0):
         if result["status"] in ("success", "passed"):

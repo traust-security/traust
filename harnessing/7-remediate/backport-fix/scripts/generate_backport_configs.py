@@ -571,7 +571,10 @@ def scan_branches_subprocess(
             buckets[_bucket_scan_status(r.get("raw_status") or r.get("status", ""))].append(
                 r.get("name", "")
             )
-        buckets["total"] = sum(len(v) for v in buckets.values())
+        buckets["total"] = sum(
+            len(buckets[k])
+            for k in ("needs_fix", "already_fixed", "branch_unaffected", "ambiguous")
+        )
         return buckets
     finally:
         cfg_path.unlink(missing_ok=True)
@@ -1267,19 +1270,32 @@ def _command_segments(cmd: str) -> list[list[str]]:
     return segments
 
 
+_PYTHON_RX = re.compile(r"python3?(\.\d+)?")
+
+
 def _inner(cmd: str, seg: list[str]) -> list[str]:
-    """The target argv of a step. A step already in the routed shape is unwrapped and
-    re-routed through the normal path — its interpreter, profile and timeout are never
-    trusted as given (a remediation JSON supplies these commands)."""
-    for at in range(1, len(seg)):
-        if seg[at : at + 5] == ["-m", "traust.cli", "util", "safe-exec", "run"]:
-            if "--" not in seg[at + 5 :]:
-                _refuse(cmd, "a safe-exec step without `--` before its argv")
-            inner = seg[seg.index("--", at + 5) + 1 :]
-            if not inner:
-                _refuse(cmd, "a safe-exec step with no argv")
-            return inner
-    return seg
+    """The target argv of a step. Only a COMPLETE routed prefix starting at the
+    executable is unwrapped — `<python> [-I] -m traust.cli util safe-exec run
+    [--profile P] [--timeout N] -- argv` — and its argv re-routed through the
+    normal path: the interpreter, profile and timeout are never trusted as given
+    (a remediation JSON supplies these commands). Anything else, including
+    safe-exec-looking tokens that are just arguments, is the step's own argv."""
+    if not seg or not _PYTHON_RX.fullmatch(Path(seg[0]).name):
+        return seg
+    at = 2 if seg[1:2] == ["-I"] else 1
+    if seg[at : at + 5] != ["-m", "traust.cli", "util", "safe-exec", "run"]:
+        return seg
+    rest = seg[at + 5 :]
+    while rest and rest[0] != "--":
+        if rest[0] in ("--profile", "--timeout") and len(rest) > 1:
+            if rest[0] == "--timeout" and not rest[1].isdigit():
+                _refuse(cmd, f"a safe-exec step with timeout {rest[1]!r}")
+            rest = rest[2:]
+        else:
+            _refuse(cmd, f"a safe-exec step with option {rest[0]!r}")
+    if len(rest) < 2:
+        _refuse(cmd, "a safe-exec step without `--` and an argv")
+    return rest[1:]
 
 
 def _passes(python: str, profile: str, seg: list[str]) -> bool:

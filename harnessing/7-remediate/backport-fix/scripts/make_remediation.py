@@ -293,8 +293,10 @@ def build(args) -> dict:
     # The finding's recorded severity is carried as-is: never a default, never typed here
     # (CVSS plan D1, D16). The remediation contract requires one, so none fails closed.
     # A scanner's claimed_severity is an unverified claim, never the remediation's
-    # severity: only the triaged or audited value counts.
-    stated = tf.get("severity") or af.get("severity")
+    # severity: only the triaged or audited value counts. Triage decides when it has
+    # the field: an explicit null (rejected or undetermined) never falls back to the
+    # audit's severity. The audit's counts only when triage has no severity field.
+    stated = tf.get("severity") if "severity" in tf else af.get("severity")
     if not stated:
         raise SystemExit(
             "no severity: neither the triage finding nor its audit finding has an "
